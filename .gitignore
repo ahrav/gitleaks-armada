@@ -38,3 +38,5 @@ _testmain.go
 .vscode/tasks.json
 
 secret-scanner
+orchestrator
+scanner
