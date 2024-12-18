@@ -55,7 +55,7 @@ func TestCoordinator_LeaderElection(t *testing.T) {
 		Identity:     "test-pod",
 	}
 
-	coordinator := &K8sCoordinator{
+	coordinator := &Coordinator{
 		client:     fakeClient,
 		config:     cfg,
 		supervisor: NewK8sSupervisor(fakeClient, cfg),
@@ -125,7 +125,7 @@ func TestCoordinator_SupervisorManagement(t *testing.T) {
 		Identity:     "test-pod",
 	}
 
-	coordinator := &K8sCoordinator{
+	coordinator := &Coordinator{
 		client:     fakeClient,
 		config:     cfg,
 		supervisor: NewK8sSupervisor(fakeClient, cfg),

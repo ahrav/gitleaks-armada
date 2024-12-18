@@ -13,20 +13,20 @@ import (
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
 )
 
-// K8sCoordinator implements the Coordinator interface using Kubernetes primitives.
+// Coordinator implements the Coordinator interface using Kubernetes primitives.
 // It ensures high availability by using leader election to designate a single active coordinator.
-type K8sCoordinator struct {
+type Coordinator struct {
 	client        kubernetes.Interface
 	config        *K8sConfig
 	leaderElector *leaderelection.LeaderElector
 
 	// supervisor is used to manage worker pods and distribute work.
-	supervisor *K8sSupervisor
+	supervisor *Supervisor
 }
 
 // NewCoordinator creates a new K8sCoordinator with the provided configuration.
 // It initializes the Kubernetes client and sets up leader election using lease locks.
-func NewCoordinator(cfg *K8sConfig) (*K8sCoordinator, error) {
+func NewCoordinator(cfg *K8sConfig) (*Coordinator, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("config is required")
 	}
@@ -38,7 +38,7 @@ func NewCoordinator(cfg *K8sConfig) (*K8sCoordinator, error) {
 
 	supervisor := NewK8sSupervisor(client, cfg)
 
-	coordinator := &K8sCoordinator{
+	coordinator := &Coordinator{
 		client:     client,
 		config:     cfg,
 		supervisor: supervisor,
@@ -79,7 +79,7 @@ func NewCoordinator(cfg *K8sConfig) (*K8sCoordinator, error) {
 
 // Start begins the leader election process. Only one coordinator in the cluster
 // will become the leader and actively manage work distribution.
-func (c *K8sCoordinator) Start(ctx context.Context) error {
+func (c *Coordinator) Start(ctx context.Context) error {
 	go func() {
 		c.leaderElector.Run(ctx)
 		// If we get here, leadership was lost or context cancelled.
@@ -93,7 +93,7 @@ func (c *K8sCoordinator) Start(ctx context.Context) error {
 
 // onStartedLeading is called when this coordinator instance becomes the leader.
 // It initializes the supervisor and begins work distribution.
-func (c *K8sCoordinator) onStartedLeading(ctx context.Context) {
+func (c *Coordinator) onStartedLeading(ctx context.Context) {
 	log.Println("became leader, starting supervisor")
 	if err := c.supervisor.Start(ctx); err != nil {
 		log.Printf("failed to start supervisor: %v", err)
@@ -103,7 +103,7 @@ func (c *K8sCoordinator) onStartedLeading(ctx context.Context) {
 
 // onStoppedLeading is called when this coordinator instance loses leadership.
 // It cleans up resources and stops the supervisor.
-func (c *K8sCoordinator) onStoppedLeading() {
+func (c *Coordinator) onStoppedLeading() {
 	log.Println("stopped being leader, cleaning up")
 	c.supervisor.Stop()
 }

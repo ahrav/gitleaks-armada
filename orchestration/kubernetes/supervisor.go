@@ -11,47 +11,47 @@ import (
 	"github.com/ahrav/gitleaks-armada/orchestration"
 )
 
-// K8sSupervisor implements the Supervisor interface using Kubernetes primitives.
+// Supervisor implements the Supervisor interface using Kubernetes primitives.
 // It manages worker pods and handles work distribution in a Kubernetes cluster.
-type K8sSupervisor struct {
+type Supervisor struct {
 	client kubernetes.Interface
 	config *K8sConfig
 	active bool // Tracks if supervisor is currently running
 }
 
 // NewK8sSupervisor creates a new supervisor instance with the given Kubernetes client and config.
-func NewK8sSupervisor(client kubernetes.Interface, cfg *K8sConfig) *K8sSupervisor {
-	return &K8sSupervisor{client: client, config: cfg}
+func NewK8sSupervisor(client kubernetes.Interface, cfg *K8sConfig) *Supervisor {
+	return &Supervisor{client: client, config: cfg}
 }
 
 // Start initializes the supervisor and begins monitoring workers.
 // Currently a no-op but will be expanded to handle worker lifecycle management.
-func (s *K8sSupervisor) Start(ctx context.Context) error {
+func (s *Supervisor) Start(ctx context.Context) error {
 	s.active = true
 	return nil
 }
 
 // Stop gracefully shuts down the supervisor and cleans up resources.
-func (s *K8sSupervisor) Stop() error {
+func (s *Supervisor) Stop() error {
 	s.active = false
 	return nil
 }
 
 // AddWorker registers a new worker pod with the supervisor.
 // Currently a no-op as pods are tracked automatically via labels.
-func (s *K8sSupervisor) AddWorker(ctx context.Context, worker orchestration.Worker) error {
+func (s *Supervisor) AddWorker(ctx context.Context, worker orchestration.Worker) error {
 	return nil
 }
 
 // RemoveWorker deregisters a worker pod from the supervisor.
 // Currently a no-op as pod lifecycle is managed by Kubernetes.
-func (s *K8sSupervisor) RemoveWorker(ctx context.Context, workerID string) error {
+func (s *Supervisor) RemoveWorker(ctx context.Context, workerID string) error {
 	return nil
 }
 
 // GetWorkers returns a list of all worker pods in the cluster.
 // Workers are identified by the "app=scanner-worker" label.
-func (s *K8sSupervisor) GetWorkers(ctx context.Context) ([]orchestration.Worker, error) {
+func (s *Supervisor) GetWorkers(ctx context.Context) ([]orchestration.Worker, error) {
 	pods, err := s.client.CoreV1().Pods(s.config.Namespace).List(ctx, metav1.ListOptions{
 		LabelSelector: "app=scanner-worker",
 	})
@@ -72,7 +72,7 @@ func (s *K8sSupervisor) GetWorkers(ctx context.Context) ([]orchestration.Worker,
 }
 
 // AssignWork assigns a specific work item to a worker pod.
-func (s *K8sSupervisor) AssignWork(ctx context.Context, workerID string, workID string) error {
+func (s *Supervisor) AssignWork(ctx context.Context, workerID string, workID string) error {
 	// Here we'd need to decide how to track work assignments
 	// Could be:
 	// 1. Update pod annotations/labels
@@ -82,7 +82,7 @@ func (s *K8sSupervisor) AssignWork(ctx context.Context, workerID string, workID 
 }
 
 // GetWorkerLoad returns the current workload metrics for a specific worker pod.
-func (s *K8sSupervisor) GetWorkerLoad(ctx context.Context, workerID string) (orchestration.WorkLoad, error) {
+func (s *Supervisor) GetWorkerLoad(ctx context.Context, workerID string) (orchestration.WorkLoad, error) {
 	// This would need to check:
 	// 1. Pod metrics
 	// 2. Current work assignments
