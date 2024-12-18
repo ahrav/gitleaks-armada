@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   name: scanner-worker
 spec:
-  replicas: 2  # Start with 2 workers
+  replicas: 2
   selector:
     matchLabels:
       app: scanner-worker
@@ -16,6 +16,9 @@ spec:
       - name: scanner
         image: scanner:latest
         imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 50051
+          name: grpc
         resources:
           requests:
             memory: "256Mi"
@@ -28,3 +31,5 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.name
+        - name: ORCHESTRATOR_ENDPOINT
+          value: "orchestrator-service:50051"

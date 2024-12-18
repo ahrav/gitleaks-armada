@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   name: scanner-orchestrator
 spec:
-  replicas: 3  # Run 3 for HA with leader election
+  replicas: 3
   selector:
     matchLabels:
       app: scanner-orchestrator
@@ -17,6 +17,9 @@ spec:
       - name: orchestrator
         image: orchestrator:latest
         imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 50051
+          name: grpc
         resources:
           requests:
             memory: "128Mi"
