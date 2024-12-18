@@ -1,90 +1,95 @@
 # -------------------------------------------------------------------------------
-# Variables - Adjust these for your environment
+# Variables
 # -------------------------------------------------------------------------------
-
-APP_NAME := secret-scanner
-IMAGE_NAME := $(APP_NAME):latest
 KIND_CLUSTER := secret-scanner
 
-PROTO_DIR := ./proto
-PROTO_FILE := cluster.proto
-CMD_DIR := ./cmd/server
+ORCHESTRATOR_APP := orchestrator
+ORCHESTRATOR_IMAGE := $(ORCHESTRATOR_APP):latest
 
-GO_OUT_DIR := .
+SCANNER_APP := scanner
+SCANNER_IMAGE := $(SCANNER_APP):latest
 
 K8S_MANIFESTS := k8s
-# This assumes you have a deployment.yaml and service.yaml in ./k8s directory.
 
 # -------------------------------------------------------------------------------
 # Targets
 # -------------------------------------------------------------------------------
+.PHONY: all build-orchestrator build-scanner docker-orchestrator docker-scanner kind-up kind-down kind-load dev-apply dev-status clean
 
-.PHONY: all proto build docker kind-up kind-down kind-load dev-apply dev-status clean
+all: build-all docker-all kind-load dev-apply
 
-all: proto build docker kind-load dev-apply
+# Build targets
+build-all: build-orchestrator build-scanner
 
-## Generate code from Protobuf files
-proto:
-	protoc \
-		--go_out=$(GO_OUT_DIR) \
-		--go-grpc_out=$(GO_OUT_DIR) \
-		--go_opt=paths=source_relative \
-		--go-grpc_opt=paths=source_relative \
-		$(PROTO_DIR)/$(PROTO_FILE)
+build-orchestrator:
+	CGO_ENABLED=0 GOOS=linux go build -o $(ORCHESTRATOR_APP) ./cmd/orchestrator
 
-## Build the Go binary for Linux (so it can be used in the container)
-build:
-	CGO_ENABLED=0 GOOS=linux go build -o $(APP_NAME) $(CMD_DIR)
+build-scanner:
+	CGO_ENABLED=0 GOOS=linux go build -o $(SCANNER_APP) ./cmd/scanner
 
-## Build Docker image from Dockerfile
-docker: build
-	docker build -t $(IMAGE_NAME) .
+# Docker targets
+docker-all: docker-orchestrator docker-scanner
 
-## Create a local kind cluster
+docker-orchestrator:
+	docker build -t $(ORCHESTRATOR_IMAGE) -f Dockerfile.orchestrator .
+
+docker-scanner:
+	docker build -t $(SCANNER_IMAGE) -f Dockerfile.scanner .
+
+# Kind cluster management
 kind-up:
 	kind create cluster --name $(KIND_CLUSTER)
 	kubectl cluster-info --context kind-$(KIND_CLUSTER)
 
-## Delete the kind cluster
 kind-down:
 	kind delete cluster --name $(KIND_CLUSTER)
 
-## Load the Docker image into the kind cluster
+# Load images into kind
 kind-load:
-	kind load docker-image $(IMAGE_NAME) --name $(KIND_CLUSTER)
+	kind load docker-image $(ORCHESTRATOR_IMAGE) --name $(KIND_CLUSTER)
+	kind load docker-image $(SCANNER_IMAGE) --name $(KIND_CLUSTER)
 
-## Apply Kubernetes manifests (Deployment, Service)
+# Apply Kubernetes manifests
 dev-apply:
-	kubectl apply -f $(K8S_MANIFESTS)/deployment.yaml
-	kubectl apply -f $(K8S_MANIFESTS)/service.yaml
+	kubectl apply -f $(K8S_MANIFESTS)
 
-## Show the status of Pods
+# Show status
 dev-status:
 	kubectl get pods -o wide
+	@echo "\nLeader Election Status:"
+	kubectl get lease -n default
 
-## Clean up the local binary
+# Clean built binaries
 clean:
-	rm -f $(APP_NAME)
+	rm -f $(ORCHESTRATOR_APP)
+	rm -f $(SCANNER_APP)
 
-# Additional convenience targets:
-
-# Run all steps to get dev environment up and running
+# Additional convenience targets
 dev: kind-up all
-# This will:
-# 1. Ensure cluster is up (kind-up)
-# 2. Run `all` which does proto/build/docker/kind-load/dev-apply
 
-# Rebuild and reapply without recreating the cluster or regenerating protos
+# Rebuild and redeploy without recreating cluster
 redeploy:
-	$(MAKE) build
-	$(MAKE) docker
+	$(MAKE) build-all
+	$(MAKE) docker-all
 	$(MAKE) kind-load
 	$(MAKE) dev-apply
+	kubectl rollout restart deployment/scanner-orchestrator
+	kubectl rollout restart deployment/scanner-worker
 
-## Run locally (not in container/k8s), useful for debugging locally
-run:
-	go run $(CMD_DIR)
+rollout-restart:
+	kubectl rollout restart deployment/scanner-orchestrator
+	kubectl rollout restart deployment/scanner-worker
 
-## If you want to scale deployments, etc.
-scale:
-	kubectl scale --replicas=2 deployment/$(APP_NAME)
+# View logs
+logs-orchestrator:
+	kubectl logs -l app=scanner-orchestrator --tail=100 -f
+
+logs-scanner:
+	kubectl logs -l app=scanner-worker --tail=100 -f
+
+# Scale deployments
+scale-orchestrator:
+	kubectl scale --replicas=$(replicas) deployment/scanner-orchestrator
+
+scale-scanner:
+	kubectl scale --replicas=$(replicas) deployment/scanner-worker

@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: secret-scanner
+  labels:
+    app: secret-scanner
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: secret-scanner
+  template:
+    metadata:
+      labels:
+        app: secret-scanner
+    spec:
+      containers:
+      - name: secret-scanner
+        image: secret-scanner:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+          - containerPort: 50051
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"

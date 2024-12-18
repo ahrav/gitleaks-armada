@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scanner-worker
+spec:
+  replicas: 2  # Start with 2 workers
+  selector:
+    matchLabels:
+      app: scanner-worker
+  template:
+    metadata:
+      labels:
+        app: scanner-worker
+    spec:
+      containers:
+      - name: scanner
+        image: scanner:latest
+        imagePullPolicy: IfNotPresent
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "512Mi"
+            cpu: "400m"
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name

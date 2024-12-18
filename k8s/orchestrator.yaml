@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scanner-orchestrator
+spec:
+  replicas: 3  # Run 3 for HA with leader election
+  selector:
+    matchLabels:
+      app: scanner-orchestrator
+  template:
+    metadata:
+      labels:
+        app: scanner-orchestrator
+    spec:
+      serviceAccountName: secret-scanner-sa
+      containers:
+      - name: orchestrator
+        image: orchestrator:latest
+        imagePullPolicy: IfNotPresent
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
