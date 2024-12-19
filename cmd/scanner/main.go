@@ -47,7 +47,7 @@ func main() {
 	<-ctx.Done()
 }
 
-func handleScanTask(chunk orchestration.Chunk) error {
+func handleScanTask(chunk orchestration.Task) error {
 	// TODO: Implement scanning logic
 	// After scanning, publish results back to the results topic
 	return nil

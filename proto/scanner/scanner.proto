@@ -4,20 +4,40 @@ package scanner;
 
 option go_package = "github.com/ahrav/gitleaks-armada/proto/scanner;scanner";
 
-message ScanChunk {
-  string chunk_id = 1;
-  map<string, string> metadata = 2;  // Flexible key-value pairs for any source type
+message ScanTask {
+  string task_id = 1;
+  SourceType source_type = 2; // SOURCE_TYPE_GITHUB
+  string resource_uri = 3;    // e.g., "git://github.com/org/repo"
+  map<string, string> metadata = 4;
+}
+
+enum SourceType {
+  SOURCE_TYPE_UNSPECIFIED = 0;
+  SOURCE_TYPE_GITHUB = 1;
+  SOURCE_TYPE_S3 = 2;
+}
+
+message ScanProgress {
+  string task_id = 1;         // Matches the ScanTask task_id
+  float percent_complete = 2; // 0.0 to 100.0
+  // Optional: describe what is being scanned now (e.g., current file)
+  string current_item = 3;
+  // Optional: how many items (files/commits) processed so far
+  int64 items_processed = 4;
+  int64 total_items = 5;            // Optional: total items if known
+  map<string, string> metadata = 6; // Additional data as needed
 }
 
 message ScanResult {
-  string chunk_id = 1;
+  string task_id = 1;
   repeated Finding findings = 2;
   ScanStatus status = 3;
-  string error = 4;  // populated if status is ERROR
+  string error = 4; // populated if status is ERROR
 }
 
 message Finding {
-  string location = 1;     // Generic location identifier (could be file path, URL, etc.)
+  // Generic location identifier (could be file path, URL, etc.)
+  string location = 1;
   int32 line_number = 2;
   string secret_type = 3;
   string match = 4;

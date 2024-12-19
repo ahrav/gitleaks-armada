@@ -141,7 +141,7 @@ func (o *Orchestrator) ProcessTarget(ctx context.Context, target ScanTarget) err
 	}
 
 	for i := 0; i < chunkCount; i++ {
-		chunk := Chunk{}
+		chunk := Task{}
 		if err := o.workQueue.PublishTask(ctx, chunk); err != nil {
 			return fmt.Errorf("enqueue chunk: %w", err)
 		}
