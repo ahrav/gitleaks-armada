@@ -29,7 +29,8 @@ func main() {
 		Namespace:    namespace,
 		LeaderLockID: "scanner-leader-lock",
 		Identity:     podName,
-		Name:         "orchestrator",
+		Name:         "scanner-orchestrator",
+		WorkerName:   "scanner-worker",
 	}
 
 	coord, err := kubernetes.NewCoordinator(cfg)

@@ -47,7 +47,7 @@ func (s *Supervisor) Stop() error {
 // This enables dynamic scaling of the worker pool based on workload demands.
 func (s *Supervisor) ScaleWorkers(ctx context.Context, desired int) error {
 	depClient := s.client.AppsV1().Deployments(s.config.Namespace)
-	dep, err := depClient.Get(ctx, s.config.Name, metav1.GetOptions{})
+	dep, err := depClient.Get(ctx, s.config.WorkerName, metav1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("getting worker deployment: %w", err)
 	}
@@ -59,7 +59,7 @@ func (s *Supervisor) ScaleWorkers(ctx context.Context, desired int) error {
 		return fmt.Errorf("updating worker deployment replicas: %w", err)
 	}
 
-	log.Printf("Scaled worker deployment %s to %d replicas.", s.config.Name, desired)
+	log.Printf("Scaled worker deployment %s to %d replicas.", s.config.WorkerName, desired)
 	return nil
 }
 

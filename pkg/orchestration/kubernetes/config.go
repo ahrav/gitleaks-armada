@@ -7,6 +7,7 @@ type K8sConfig struct {
 	Namespace    string            `json:"namespace"`
 	LeaderLockID string            `json:"leaderLockId"`
 	Identity     string            `json:"identity"`
+	WorkerName   string            `json:"workerName"`
 	KubeConfig   string            `json:"kubeConfig,omitempty"`
 	Context      string            `json:"context,omitempty"`
 }
