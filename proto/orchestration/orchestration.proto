@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package orchestration;
+
+option go_package = "github.com/ahrav/gitleaks-armada/proto/orchestration;orchestration";
+
+message WorkerID { string worker_id = 1; }
+
+message Chunk {
+  string chunk_id = 1;
+  string data =
+      2; // Placeholder: actual chunk metadata (e.g., repo URL, file paths)
+}
+
+message GetNextChunkRequest { string worker_id = 1; }
+
+message GetNextChunkResponse {
+  Chunk chunk = 1;
+  bool no_more_work = 2; // If true, orchestrator has no available chunks.
+                         // Worker should retry later.
+}
+
+message CompleteChunkRequest {
+  string worker_id = 1;
+  string chunk_id = 2;
+}
+
+message CompleteChunkResponse { bool success = 1; }
+
+service OrchestratorService {
+  // Worker requests a chunk of work.
+  rpc GetNextChunk(GetNextChunkRequest) returns (GetNextChunkResponse);
+
+  // Worker notifies orchestrator that it has completed a chunk.
+  rpc CompleteChunk(CompleteChunkRequest) returns (CompleteChunkResponse);
+}

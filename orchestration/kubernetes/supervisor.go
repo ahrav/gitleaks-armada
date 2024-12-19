@@ -3,6 +3,7 @@ package kubernetes
 import (
 	"context"
 	"fmt"
+	"log"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -11,46 +12,55 @@ import (
 	"github.com/ahrav/gitleaks-armada/orchestration"
 )
 
-// Supervisor implements the Supervisor interface using Kubernetes primitives.
-// It manages worker pods and handles work distribution in a Kubernetes cluster.
+// Compile-time check to verify that Supervisor implements the Supervisor interface.
+var _ orchestration.Supervisor = new(Supervisor)
+
+// Supervisor manages worker pods in a Kubernetes cluster, handling scaling and status monitoring.
 type Supervisor struct {
 	client kubernetes.Interface
 	config *K8sConfig
-	active bool // Tracks if supervisor is currently running
+	active bool // tracks if supervisor is running
 }
 
-// NewK8sSupervisor creates a new supervisor instance with the given Kubernetes client and config.
-func NewK8sSupervisor(client kubernetes.Interface, cfg *K8sConfig) *Supervisor {
+// NewSupervisor creates a new Kubernetes supervisor with the given client and config.
+func NewSupervisor(client kubernetes.Interface, cfg *K8sConfig) *Supervisor {
 	return &Supervisor{client: client, config: cfg}
 }
 
-// Start initializes the supervisor and begins monitoring workers.
-// Currently a no-op but will be expanded to handle worker lifecycle management.
+// Start activates the supervisor. Currently a no-op but allows for future initialization.
 func (s *Supervisor) Start(ctx context.Context) error {
 	s.active = true
 	return nil
 }
 
-// Stop gracefully shuts down the supervisor and cleans up resources.
+// Stop deactivates the supervisor. Currently a no-op but allows for future cleanup.
 func (s *Supervisor) Stop() error {
 	s.active = false
 	return nil
 }
 
-// AddWorker registers a new worker pod with the supervisor.
-// Currently a no-op as pods are tracked automatically via labels.
-func (s *Supervisor) AddWorker(ctx context.Context, worker orchestration.Worker) error {
+// ScaleWorkers adjusts the number of worker pods by updating the deployment's replica count.
+// This enables dynamic scaling of the worker pool based on workload demands.
+func (s *Supervisor) ScaleWorkers(ctx context.Context, desired int) error {
+	depClient := s.client.AppsV1().Deployments(s.config.Namespace)
+	dep, err := depClient.Get(ctx, s.config.Name, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("getting worker deployment: %w", err)
+	}
+
+	replicas := int32(desired)
+	dep.Spec.Replicas = &replicas
+
+	if _, err := depClient.Update(ctx, dep, metav1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("updating worker deployment replicas: %w", err)
+	}
+
+	log.Printf("Scaled worker deployment %s to %d replicas.", s.config.Name, desired)
 	return nil
 }
 
-// RemoveWorker deregisters a worker pod from the supervisor.
-// Currently a no-op as pod lifecycle is managed by Kubernetes.
-func (s *Supervisor) RemoveWorker(ctx context.Context, workerID string) error {
-	return nil
-}
-
-// GetWorkers returns a list of all worker pods in the cluster.
-// Workers are identified by the "app=scanner-worker" label.
+// GetWorkers returns all worker pods in the cluster, identified by the "app=scanner-worker" label.
+// This provides visibility into the current worker pool state for scheduling and monitoring.
 func (s *Supervisor) GetWorkers(ctx context.Context) ([]orchestration.Worker, error) {
 	pods, err := s.client.CoreV1().Pods(s.config.Namespace).List(ctx, metav1.ListOptions{
 		LabelSelector: "app=scanner-worker",
@@ -71,25 +81,7 @@ func (s *Supervisor) GetWorkers(ctx context.Context) ([]orchestration.Worker, er
 	return workers, nil
 }
 
-// AssignWork assigns a specific work item to a worker pod.
-func (s *Supervisor) AssignWork(ctx context.Context, workerID string, workID string) error {
-	// Here we'd need to decide how to track work assignments
-	// Could be:
-	// 1. Update pod annotations/labels
-	// 2. Create a Custom Resource for work tracking
-	// 3. Use a separate data store
-	return nil
-}
-
-// GetWorkerLoad returns the current workload metrics for a specific worker pod.
-func (s *Supervisor) GetWorkerLoad(ctx context.Context, workerID string) (orchestration.WorkLoad, error) {
-	// This would need to check:
-	// 1. Pod metrics
-	// 2. Current work assignments
-	// 3. Any queued work
-	return orchestration.WorkLoad{}, nil
-}
-
+// translatePodStatus converts Kubernetes pod phases to internal worker status values.
 func translatePodStatus(phase corev1.PodPhase) orchestration.WorkerStatus {
 	switch phase {
 	case corev1.PodRunning:

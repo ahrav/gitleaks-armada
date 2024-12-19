@@ -11,15 +11,21 @@ SCANNER_IMAGE := $(SCANNER_APP):latest
 
 K8S_MANIFESTS := k8s
 
+# Protobuf variables
+PROTO_DIR := proto/orchestration
+PROTO_FILES := $(wildcard $(PROTO_DIR)/*.proto)
+PROTOC_GEN_GO := $(GOPATH)/bin/protoc-gen-go
+PROTOC_GEN_GO_GRPC := $(GOPATH)/bin/protoc-gen-go-grpc
+
 # -------------------------------------------------------------------------------
 # Targets
 # -------------------------------------------------------------------------------
-.PHONY: all build-orchestrator build-scanner docker-orchestrator docker-scanner kind-up kind-down kind-load dev-apply dev-status clean
+.PHONY: all build-orchestrator build-scanner docker-orchestrator docker-scanner kind-up kind-down kind-load dev-apply dev-status clean proto-deps proto
 
 all: build-all docker-all kind-load dev-apply
 
 # Build targets
-build-all: build-orchestrator build-scanner
+build-all: proto build-orchestrator build-scanner
 
 build-orchestrator:
 	CGO_ENABLED=0 GOOS=linux go build -o $(ORCHESTRATOR_APP) ./cmd/orchestrator
@@ -93,3 +99,16 @@ scale-orchestrator:
 
 scale-scanner:
 	kubectl scale --replicas=$(replicas) deployment/scanner-worker
+
+# Protobuf targets
+proto-deps:
+	go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+	go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+
+proto: proto-deps
+	mkdir -p proto/orchestration
+	protoc --go_out=. --go_opt=paths=source_relative \
+		--go-grpc_out=. --go-grpc_opt=paths=source_relative \
+		--go_opt=M$(PROTO_DIR)/orchestration.proto=github.com/ahrav/gitleaks-armada/proto/orchestration \
+		--go-grpc_opt=M$(PROTO_DIR)/orchestration.proto=github.com/ahrav/gitleaks-armada/proto/orchestration \
+		$(PROTO_DIR)/orchestration.proto

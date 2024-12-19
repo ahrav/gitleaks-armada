@@ -11,21 +11,27 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/leaderelection"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
+
+	"github.com/ahrav/gitleaks-armada/orchestration"
 )
 
-// Coordinator implements the Coordinator interface using Kubernetes primitives.
-// It ensures high availability by using leader election to designate a single active coordinator.
+// Compile-time check to verify that Coordinator implements the Coordinator interface.
+var _ orchestration.Coordinator = new(Coordinator)
+
+// Coordinator manages high availability and leader election for the orchestration system
+// using Kubernetes primitives. Only one coordinator is active at a time to prevent
+// split-brain scenarios.
 type Coordinator struct {
 	client        kubernetes.Interface
 	config        *K8sConfig
 	leaderElector *leaderelection.LeaderElector
-
-	// supervisor is used to manage worker pods and distribute work.
-	supervisor *Supervisor
+	supervisor    *Supervisor
+	// Called when leadership status changes
+	leadershipChangeCB func(isLeader bool)
 }
 
-// NewCoordinator creates a new K8sCoordinator with the provided configuration.
-// It initializes the Kubernetes client and sets up leader election using lease locks.
+// NewCoordinator creates a new coordinator with the given configuration.
+// It sets up leader election using Kubernetes lease locks.
 func NewCoordinator(cfg *K8sConfig) (*Coordinator, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("config is required")
@@ -36,7 +42,7 @@ func NewCoordinator(cfg *K8sConfig) (*Coordinator, error) {
 		return nil, fmt.Errorf("creating kubernetes client: %w", err)
 	}
 
-	supervisor := NewK8sSupervisor(client, cfg)
+	supervisor := NewSupervisor(client, cfg)
 
 	coordinator := &Coordinator{
 		client:     client,
@@ -44,6 +50,7 @@ func NewCoordinator(cfg *K8sConfig) (*Coordinator, error) {
 		supervisor: supervisor,
 	}
 
+	// Configure lease-based leader election lock
 	lock := &resourcelock.LeaseLock{
 		LeaseMeta: metav1.ObjectMeta{
 			Name:      cfg.LeaderLockID,
@@ -57,15 +64,14 @@ func NewCoordinator(cfg *K8sConfig) (*Coordinator, error) {
 
 	leaderConfig := leaderelection.LeaderElectionConfig{
 		Lock:            lock,
-		LeaseDuration:   time.Second * 15,
-		RenewDeadline:   time.Second * 10,
-		RetryPeriod:     time.Second * 2,
+		LeaseDuration:   15 * time.Second,
+		RenewDeadline:   10 * time.Second,
+		RetryPeriod:     2 * time.Second,
 		ReleaseOnCancel: true,
 		Callbacks: leaderelection.LeaderCallbacks{
 			OnStartedLeading: coordinator.onStartedLeading,
 			OnStoppedLeading: coordinator.onStoppedLeading,
 		},
-		// TODO: Add a watch dog.
 	}
 
 	elector, err := leaderelection.NewLeaderElector(leaderConfig)
@@ -77,33 +83,42 @@ func NewCoordinator(cfg *K8sConfig) (*Coordinator, error) {
 	return coordinator, nil
 }
 
-// Start begins the leader election process. Only one coordinator in the cluster
-// will become the leader and actively manage work distribution.
+// Start begins the leader election process and blocks until the context is canceled.
 func (c *Coordinator) Start(ctx context.Context) error {
 	go func() {
 		c.leaderElector.Run(ctx)
-		// If we get here, leadership was lost or context cancelled.
-		// TODO: Handle shutdown.
-		// c.handleShutdown()
 	}()
-
 	<-ctx.Done()
 	return nil
 }
 
-// onStartedLeading is called when this coordinator instance becomes the leader.
-// It initializes the supervisor and begins work distribution.
+// Stop gracefully shuts down the coordinator.
+func (c *Coordinator) Stop() error {
+	return nil
+}
+
+// OnLeadershipChange registers a callback that will be invoked when this instance
+// gains or loses leadership.
+func (c *Coordinator) OnLeadershipChange(cb func(isLeader bool)) {
+	c.leadershipChangeCB = cb
+}
+
 func (c *Coordinator) onStartedLeading(ctx context.Context) {
 	log.Println("became leader, starting supervisor")
 	if err := c.supervisor.Start(ctx); err != nil {
 		log.Printf("failed to start supervisor: %v", err)
-		// Maybe trigger pod restart?
+	}
+
+	if c.leadershipChangeCB != nil {
+		c.leadershipChangeCB(true)
 	}
 }
 
-// onStoppedLeading is called when this coordinator instance loses leadership.
-// It cleans up resources and stops the supervisor.
 func (c *Coordinator) onStoppedLeading() {
 	log.Println("stopped being leader, cleaning up")
 	c.supervisor.Stop()
+
+	if c.leadershipChangeCB != nil {
+		c.leadershipChangeCB(false)
+	}
 }

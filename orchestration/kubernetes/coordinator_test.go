@@ -58,7 +58,7 @@ func TestCoordinator_LeaderElection(t *testing.T) {
 	coordinator := &Coordinator{
 		client:     fakeClient,
 		config:     cfg,
-		supervisor: NewK8sSupervisor(fakeClient, cfg),
+		supervisor: NewSupervisor(fakeClient, cfg),
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -128,7 +128,7 @@ func TestCoordinator_SupervisorManagement(t *testing.T) {
 	coordinator := &Coordinator{
 		client:     fakeClient,
 		config:     cfg,
-		supervisor: NewK8sSupervisor(fakeClient, cfg),
+		supervisor: NewSupervisor(fakeClient, cfg),
 	}
 
 	ctx := context.Background()
