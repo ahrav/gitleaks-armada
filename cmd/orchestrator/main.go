@@ -2,63 +2,18 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
+	"net"
 	"os"
-	"os/signal"
-	"syscall"
 
-	"github.com/ahrav/gitleaks-armada/orchestration"
-	"github.com/ahrav/gitleaks-armada/orchestration/kubernetes"
-	orchestrationpb "github.com/ahrav/gitleaks-armada/proto/orchestration"
+	"github.com/ahrav/gitleaks-armada/pkg/orchestration"
+	"github.com/ahrav/gitleaks-armada/pkg/orchestration/kubernetes"
+	"github.com/ahrav/gitleaks-armada/pkg/server"
 )
 
-// InMemoryQueue is a simple WorkQueue example (not fully implemented).
-type InMemoryQueue struct {
-	// ... fields for a queue
-}
-
-// Implement WorkQueue methods for InMemoryQueue
-func (q *InMemoryQueue) Enqueue(chunk orchestration.Chunk) error { return nil }
-func (q *InMemoryQueue) Dequeue() (orchestration.Chunk, error) {
-	return orchestration.Chunk{}, fmt.Errorf("empty")
-}
-func (q *InMemoryQueue) Acknowledge(chunkID string) error { return nil }
-
-// GRPCWorkService implements the gRPC orchestrator server interface.
-// It calls into the Orchestrator to handle requests.
-type GRPCWorkService struct {
-	orchestrator orchestration.Orchestrator
-	orchestrationpb.UnimplementedOrchestratorServiceServer
-}
-
-// Make sure GRPCWorkService satisfies the generated interface.
-var _ orchestrationpb.OrchestratorServiceServer = (*GRPCWorkService)(nil)
-
-func (g *GRPCWorkService) GetNextChunk(ctx context.Context, req *orchestrationpb.GetNextChunkRequest) (*orchestrationpb.GetNextChunkResponse, error) {
-	_, err := g.orchestrator.NextChunk(ctx, req.WorkerId)
-	if err != nil {
-		// If no chunks are available, return no_more_work = true
-		return &orchestrationpb.GetNextChunkResponse{NoMoreWork: true}, nil
-	}
-	return &orchestrationpb.GetNextChunkResponse{
-		Chunk: &orchestrationpb.Chunk{
-			// ChunkId: chunk.ID,
-			// Data:    chunk.Data, // assuming chunk has a Data field
-		},
-		NoMoreWork: false,
-	}, nil
-}
-
-func (g *GRPCWorkService) CompleteChunk(ctx context.Context, req *orchestrationpb.CompleteChunkRequest) (*orchestrationpb.CompleteChunkResponse, error) {
-	err := g.orchestrator.CompleteChunk(ctx, req.WorkerId, req.ChunkId)
-	if err != nil {
-		return &orchestrationpb.CompleteChunkResponse{Success: false}, nil
-	}
-	return &orchestrationpb.CompleteChunkResponse{Success: true}, nil
-}
-
 func main() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	// This is all k8s specific for now, once this works correctly i'll adjust this to be more generic.
 	podName := os.Getenv("POD_NAME")
 	if podName == "" {
@@ -77,25 +32,47 @@ func main() {
 		Name:         "orchestrator",
 	}
 
-	coordinator, err := kubernetes.NewCoordinator(cfg)
+	coord, err := kubernetes.NewCoordinator(cfg)
 	if err != nil {
 		log.Fatalf("failed to create coordinator: %v", err)
 	}
+	defer coord.Stop()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	log.Println("Coordinator created successfully")
 
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	sup, err := kubernetes.NewSupervisor(cfg)
+	if err != nil {
+		log.Fatalf("failed to create supervisor: %v", err)
+	}
+	defer sup.Stop()
+	log.Println("Supervisor created successfully")
 
-	go func() {
-		sig := <-sigChan
-		log.Printf("received signal %s, initiating shutdown", sig)
-		cancel()
-	}()
+	queue := new(orchestration.InMemoryQueue)
+	orch := orchestration.NewOrchestrator(coord, sup, queue)
 
-	log.Printf("starting coordinator")
-	if err := coordinator.Start(ctx); err != nil {
-		log.Fatalf("coordinator failed: %v", err)
+	// Run orchestrator and wait for leadership.
+	log.Println("Starting orchestrator...")
+	ready, err := orch.Run(ctx)
+	if err != nil {
+		log.Fatalf("failed to run orchestrator: %v", err)
+	}
+
+	log.Println("Waiting for leadership...")
+	select {
+	case <-ready:
+		log.Println("Leadership acquired, starting gRPC server...")
+		// Only the leader will get here.
+		lis, err := net.Listen("tcp", ":50051")
+		if err != nil {
+			log.Fatalf("failed to listen: %v", err)
+		}
+
+		workService := server.New(orch)
+		log.Println("Starting gRPC server on :50051")
+		if err := workService.Serve(lis); err != nil {
+			log.Fatalf("failed to serve gRPC: %v", err)
+		}
+	case <-ctx.Done():
+		return
 	}
 }

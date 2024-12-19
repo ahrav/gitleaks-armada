@@ -56,9 +56,8 @@ func TestCoordinator_LeaderElection(t *testing.T) {
 	}
 
 	coordinator := &Coordinator{
-		client:     fakeClient,
-		config:     cfg,
-		supervisor: NewSupervisor(fakeClient, cfg),
+		client: fakeClient,
+		config: cfg,
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -114,31 +113,4 @@ func TestCoordinator_LeaderElection(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("timeout waiting for leadership")
 	}
-}
-
-func TestCoordinator_SupervisorManagement(t *testing.T) {
-	fakeClient := fake.NewSimpleClientset()
-
-	cfg := &K8sConfig{
-		Namespace:    "default",
-		LeaderLockID: "test-lock",
-		Identity:     "test-pod",
-	}
-
-	coordinator := &Coordinator{
-		client:     fakeClient,
-		config:     cfg,
-		supervisor: NewSupervisor(fakeClient, cfg),
-	}
-
-	ctx := context.Background()
-
-	// Mock becoming leader.
-	coordinator.onStartedLeading(ctx)
-
-	// Verify supervisor was started
-	assert.NotNil(t, coordinator.supervisor, "supervisor should be initialized")
-
-	// Mock losing leadership.
-	coordinator.onStoppedLeading()
 }

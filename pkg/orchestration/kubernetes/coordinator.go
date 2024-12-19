@@ -12,7 +12,7 @@ import (
 	"k8s.io/client-go/tools/leaderelection"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
 
-	"github.com/ahrav/gitleaks-armada/orchestration"
+	"github.com/ahrav/gitleaks-armada/pkg/orchestration"
 )
 
 // Compile-time check to verify that Coordinator implements the Coordinator interface.
@@ -22,11 +22,11 @@ var _ orchestration.Coordinator = new(Coordinator)
 // using Kubernetes primitives. Only one coordinator is active at a time to prevent
 // split-brain scenarios.
 type Coordinator struct {
-	client        kubernetes.Interface
-	config        *K8sConfig
+	client kubernetes.Interface
+	config *K8sConfig
+
 	leaderElector *leaderelection.LeaderElector
-	supervisor    *Supervisor
-	// Called when leadership status changes
+	// Called when leadership status changes.
 	leadershipChangeCB func(isLeader bool)
 }
 
@@ -39,18 +39,12 @@ func NewCoordinator(cfg *K8sConfig) (*Coordinator, error) {
 
 	client, err := getKubernetesClient()
 	if err != nil {
-		return nil, fmt.Errorf("creating kubernetes client: %w", err)
+		return nil, fmt.Errorf("creating kubernetes client for coordinator: %w", err)
 	}
 
-	supervisor := NewSupervisor(client, cfg)
+	coordinator := &Coordinator{client: client, config: cfg}
 
-	coordinator := &Coordinator{
-		client:     client,
-		config:     cfg,
-		supervisor: supervisor,
-	}
-
-	// Configure lease-based leader election lock
+	// Configure lease-based leader election lock.
 	lock := &resourcelock.LeaseLock{
 		LeaseMeta: metav1.ObjectMeta{
 			Name:      cfg.LeaderLockID,
@@ -85,9 +79,7 @@ func NewCoordinator(cfg *K8sConfig) (*Coordinator, error) {
 
 // Start begins the leader election process and blocks until the context is canceled.
 func (c *Coordinator) Start(ctx context.Context) error {
-	go func() {
-		c.leaderElector.Run(ctx)
-	}()
+	go c.leaderElector.Run(ctx)
 	<-ctx.Done()
 	return nil
 }
@@ -104,20 +96,14 @@ func (c *Coordinator) OnLeadershipChange(cb func(isLeader bool)) {
 }
 
 func (c *Coordinator) onStartedLeading(ctx context.Context) {
-	log.Println("became leader, starting supervisor")
-	if err := c.supervisor.Start(ctx); err != nil {
-		log.Printf("failed to start supervisor: %v", err)
-	}
-
+	log.Println("became leader")
 	if c.leadershipChangeCB != nil {
 		c.leadershipChangeCB(true)
 	}
 }
 
 func (c *Coordinator) onStoppedLeading() {
-	log.Println("stopped being leader, cleaning up")
-	c.supervisor.Stop()
-
+	log.Println("stopped being leader")
 	if c.leadershipChangeCB != nil {
 		c.leadershipChangeCB(false)
 	}

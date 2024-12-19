@@ -9,7 +9,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 
-	"github.com/ahrav/gitleaks-armada/orchestration"
+	"github.com/ahrav/gitleaks-armada/pkg/orchestration"
 )
 
 // Compile-time check to verify that Supervisor implements the Supervisor interface.
@@ -22,9 +22,13 @@ type Supervisor struct {
 	active bool // tracks if supervisor is running
 }
 
-// NewSupervisor creates a new Kubernetes supervisor with the given client and config.
-func NewSupervisor(client kubernetes.Interface, cfg *K8sConfig) *Supervisor {
-	return &Supervisor{client: client, config: cfg}
+// NewSupervisor creates a new Kubernetes supervisor with the given config.
+func NewSupervisor(cfg *K8sConfig) (*Supervisor, error) {
+	client, err := getKubernetesClient()
+	if err != nil {
+		return nil, fmt.Errorf("creating kubernetes client for supervisor: %w", err)
+	}
+	return &Supervisor{client: client, config: cfg}, nil
 }
 
 // Start activates the supervisor. Currently a no-op but allows for future initialization.

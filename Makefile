@@ -20,12 +20,12 @@ PROTOC_GEN_GO_GRPC := $(GOPATH)/bin/protoc-gen-go-grpc
 # -------------------------------------------------------------------------------
 # Targets
 # -------------------------------------------------------------------------------
-.PHONY: all build-orchestrator build-scanner docker-orchestrator docker-scanner kind-up kind-down kind-load dev-apply dev-status clean proto-deps proto
+.PHONY: all build-orchestrator build-scanner docker-orchestrator docker-scanner kind-up kind-down kind-load dev-apply dev-status clean proto proto-gen
 
 all: build-all docker-all kind-load dev-apply
 
 # Build targets
-build-all: proto build-orchestrator build-scanner
+build-all: proto-gen build-orchestrator build-scanner
 
 build-orchestrator:
 	CGO_ENABLED=0 GOOS=linux go build -o $(ORCHESTRATOR_APP) ./cmd/orchestrator
@@ -74,11 +74,7 @@ clean:
 dev: kind-up all
 
 # Rebuild and redeploy without recreating cluster
-redeploy:
-	$(MAKE) build-all
-	$(MAKE) docker-all
-	$(MAKE) kind-load
-	$(MAKE) dev-apply
+redeploy: build-all docker-all kind-load dev-apply
 	kubectl rollout restart deployment/scanner-orchestrator
 	kubectl rollout restart deployment/scanner-worker
 
@@ -100,12 +96,20 @@ scale-orchestrator:
 scale-scanner:
 	kubectl scale --replicas=$(replicas) deployment/scanner-worker
 
-# Protobuf targets
-proto-deps:
-	go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-	go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+# Proto targets
+proto: proto-deps proto-gen
 
-proto: proto-deps
+proto-deps:
+	@if [ ! -f "$(PROTOC_GEN_GO)" ]; then \
+		echo "Installing protoc-gen-go..."; \
+		go install google.golang.org/protobuf/cmd/protoc-gen-go@latest; \
+	fi
+	@if [ ! -f "$(PROTOC_GEN_GO_GRPC)" ]; then \
+		echo "Installing protoc-gen-go-grpc..."; \
+		go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest; \
+	fi
+
+proto-gen:
 	mkdir -p proto/orchestration
 	protoc --go_out=. --go_opt=paths=source_relative \
 		--go-grpc_out=. --go-grpc_opt=paths=source_relative \

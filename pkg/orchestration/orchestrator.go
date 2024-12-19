@@ -1,4 +1,3 @@
-// Package orchestration provides interfaces and types for distributed work coordination.
 package orchestration
 
 import (
@@ -8,78 +7,6 @@ import (
 	"sync"
 	"time"
 )
-
-type WorkService interface {
-	GetNextChunk(ctx context.Context, workerID string) (Chunk, bool, error) // bool for noMoreWork
-	CompleteChunk(ctx context.Context, workerID, chunkID string) error
-}
-
-// Coordinator manages leader election to ensure only one instance actively coordinates work.
-type Coordinator interface {
-	// Start initiates coordination and blocks until context cancellation or error.
-	Start(ctx context.Context) error
-	// Stop gracefully terminates coordination.
-	Stop() error
-	// OnLeadershipChange registers a callback for leadership status changes.
-	OnLeadershipChange(cb func(isLeader bool))
-}
-
-// WorkQueue manages the distribution of work chunks to workers.
-type WorkQueue interface {
-	Enqueue(chunk Chunk) error
-	Dequeue() (Chunk, error)
-	Acknowledge(chunkID string) error
-}
-
-// Supervisor manages a pool of worker nodes, handling scaling and monitoring.
-type Supervisor interface {
-	Start(ctx context.Context) error
-	Stop() error
-	ScaleWorkers(ctx context.Context, desired int) error
-	GetWorkers(ctx context.Context) ([]Worker, error)
-}
-
-// Chunk represents a unit of work to be processed.
-type Chunk struct{}
-
-// ScanTarget represents a data source to be scanned, broken into processable chunks.
-type ScanTarget struct {
-	ID     string
-	Type   string  // e.g., "filesystem", "git-repo"
-	Size   int64   // estimated size in bytes
-	Chunks []Chunk // subdivided work units
-}
-
-// WorkStatus provides metrics about the current work progress.
-type WorkStatus struct {
-	TotalChunks     int
-	CompletedChunks int
-	ActiveWorkers   int
-	PendingWork     int
-}
-
-// WorkLoad represents a worker's current capacity utilization.
-type WorkLoad struct {
-	ActiveJobs int
-	QueueDepth int
-}
-
-// WorkerStatus indicates the operational state of a worker node.
-type WorkerStatus string
-
-const (
-	WorkerStatusAvailable WorkerStatus = "available"
-	WorkerStatusBusy      WorkerStatus = "busy"
-	WorkerStatusDraining  WorkerStatus = "draining"
-	WorkerStatusOffline   WorkerStatus = "offline"
-)
-
-// Worker represents a processing node in the cluster.
-type Worker struct {
-	ID       string
-	Endpoint string
-	Status   WorkerStatus
-}
 
 // Orchestrator coordinates work distribution across a cluster of workers.
 type Orchestrator struct {
@@ -104,6 +31,62 @@ func NewOrchestrator(coord Coordinator, sup Supervisor, queue WorkQueue) *Orches
 	}
 	o.coordinator.OnLeadershipChange(o.handleLeadershipChange)
 	return o
+}
+
+// Run initiates the orchestrator's leadership election process and component initialization.
+// It returns a channel that is closed once leadership is acquired and initialization completes,
+// allowing callers to coordinate startup dependencies. The orchestrator will run until the
+// context is canceled or leadership is lost.
+func (o *Orchestrator) Run(ctx context.Context) (<-chan struct{}, error) {
+	ready := make(chan struct{})
+
+	// Create buffered channel to prevent blocking
+	leaderCh := make(chan bool, 1)
+
+	// Start goroutine to handle leadership **before** registering callback.
+	go func() {
+		defer close(ready)
+		log.Println("Waiting for leadership signal...")
+		select {
+		case isLeader := <-leaderCh:
+			log.Printf("Received leadership signal: isLeader=%v", isLeader)
+			if !isLeader {
+				log.Println("Not elected as leader, running in standby mode")
+				<-ctx.Done()
+				return
+			}
+			log.Println("Leadership acquired, proceeding with orchestrator start")
+		case <-ctx.Done():
+			log.Println("Context cancelled while waiting for leadership")
+			return
+		}
+
+		// Only the leader continues past this point.
+		log.Println("Elected as leader, initializing components...")
+		if err := o.Start(ctx); err != nil {
+			log.Printf("Failed to start orchestrator: %v", err)
+			return
+		}
+		log.Println("Orchestrator components initialized successfully")
+	}()
+
+	o.coordinator.OnLeadershipChange(func(isLeader bool) {
+		log.Printf("Leadership change: isLeader=%v", isLeader)
+		select {
+		case leaderCh <- isLeader:
+			log.Printf("Sent leadership status: %v", isLeader)
+		default:
+			log.Printf("Warning: leadership channel full, skipping update")
+		}
+	})
+
+	log.Println("Starting coordinator...")
+	if err := o.coordinator.Start(ctx); err != nil {
+		return nil, fmt.Errorf("failed to start coordinator: %v", err)
+	}
+
+	log.Println("Run method completed, returning ready channel")
+	return ready, nil
 }
 
 // Start initializes the orchestrator and begins monitoring workers.
