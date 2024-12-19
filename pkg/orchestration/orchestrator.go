@@ -161,6 +161,12 @@ func (o *Orchestrator) ProcessTarget(ctx context.Context, target ScanTarget) err
 	return nil
 }
 
+func (o *Orchestrator) setDesiredWorkers(n int) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.desiredWorkers = n
+}
+
 // NextChunk returns the next available chunk for a worker to process.
 func (o *Orchestrator) NextChunk(ctx context.Context, workerID string) (Chunk, error) {
 	chunk, err := o.workQueue.Dequeue()
@@ -221,10 +227,4 @@ func (o *Orchestrator) monitorWorkers(ctx context.Context) {
 			}
 		}
 	}
-}
-
-func (o *Orchestrator) setDesiredWorkers(n int) {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	o.desiredWorkers = n
 }
