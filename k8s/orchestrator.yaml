@@ -17,16 +17,13 @@ spec:
       - name: orchestrator
         image: orchestrator:latest
         imagePullPolicy: IfNotPresent
-        ports:
-        - containerPort: 50051
-          name: grpc
         resources:
           requests:
-            memory: "128Mi"
-            cpu: "100m"
-          limits:
             memory: "256Mi"
             cpu: "200m"
+          limits:
+            memory: "512Mi"
+            cpu: "400m"
         env:
         - name: POD_NAME
           valueFrom:
@@ -36,3 +33,11 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
+        - name: KAFKA_BROKERS
+          value: "kafka:9092"
+        - name: KAFKA_TASK_TOPIC
+          value: "scanner-tasks"
+        - name: KAFKA_RESULTS_TOPIC
+          value: "scanner-results"
+        - name: KAFKA_GROUP_ID
+          value: "orchestrator-group"

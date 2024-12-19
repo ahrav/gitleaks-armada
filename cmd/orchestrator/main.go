@@ -3,18 +3,22 @@ package main
 import (
 	"context"
 	"log"
-	"net"
 	"os"
+	"os/signal"
+	"strings"
+	"syscall"
 
 	"github.com/ahrav/gitleaks-armada/pkg/orchestration"
 	"github.com/ahrav/gitleaks-armada/pkg/orchestration/kubernetes"
-	"github.com/ahrav/gitleaks-armada/pkg/server"
 )
 
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	// This is all k8s specific for now, once this works correctly i'll adjust this to be more generic.
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
 	podName := os.Getenv("POD_NAME")
 	if podName == "" {
 		log.Fatal("POD_NAME environment variable must be set")
@@ -39,41 +43,40 @@ func main() {
 	}
 	defer coord.Stop()
 
-	log.Println("Coordinator created successfully")
-
-	sup, err := kubernetes.NewSupervisor(cfg)
+	monitor, err := kubernetes.NewWorkerMonitor(cfg)
 	if err != nil {
-		log.Fatalf("failed to create supervisor: %v", err)
+		log.Fatalf("failed to create worker monitor: %v", err)
 	}
-	defer sup.Stop()
-	log.Println("Supervisor created successfully")
+	defer monitor.Stop()
 
-	queue := new(orchestration.InMemoryQueue)
-	orch := orchestration.NewOrchestrator(coord, sup, queue)
+	brokers := strings.Split(os.Getenv("KAFKA_BROKERS"), ",")
+	kafkaCfg := &orchestration.KafkaConfig{
+		Brokers:      brokers,
+		TaskTopic:    os.Getenv("KAFKA_TASK_TOPIC"),
+		ResultsTopic: os.Getenv("KAFKA_RESULTS_TOPIC"),
+		GroupID:      "orchestrator-group",
+	}
 
-	// Run orchestrator and wait for leadership.
+	broker, err := orchestration.NewKafkaBroker(kafkaCfg)
+	if err != nil {
+		log.Fatalf("Failed to create Kafka broker: %v", err)
+	}
+
+	orch := orchestration.NewOrchestrator(coord, monitor, broker)
+
 	log.Println("Starting orchestrator...")
 	ready, err := orch.Run(ctx)
 	if err != nil {
 		log.Fatalf("failed to run orchestrator: %v", err)
 	}
 
-	log.Println("Waiting for leadership...")
+	// Wait for leadership or shutdown.
 	select {
 	case <-ready:
-		log.Println("Leadership acquired, starting gRPC server...")
-		// Only the leader will get here.
-		lis, err := net.Listen("tcp", ":50051")
-		if err != nil {
-			log.Fatalf("failed to listen: %v", err)
-		}
-
-		workService := server.New(orch)
-		log.Println("Starting gRPC server on :50051")
-		if err := workService.Serve(lis); err != nil {
-			log.Fatalf("failed to serve gRPC: %v", err)
-		}
+		log.Println("Leadership acquired, orchestrator running...")
+		<-sigChan
+		log.Println("Shutdown signal received, stopping orchestrator...")
 	case <-ctx.Done():
-		return
+		log.Println("Context cancelled, stopping orchestrator...")
 	}
 }

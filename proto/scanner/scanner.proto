@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package scanner;
+
+option go_package = "github.com/ahrav/gitleaks-armada/proto/scanner;scanner";
+
+message ScanChunk {
+  string chunk_id = 1;
+  map<string, string> metadata = 2;  // Flexible key-value pairs for any source type
+}
+
+message ScanResult {
+  string chunk_id = 1;
+  repeated Finding findings = 2;
+  ScanStatus status = 3;
+  string error = 4;  // populated if status is ERROR
+}
+
+message Finding {
+  string location = 1;     // Generic location identifier (could be file path, URL, etc.)
+  int32 line_number = 2;
+  string secret_type = 3;
+  string match = 4;
+  float confidence = 5;
+}
+
+enum ScanStatus {
+  SCAN_STATUS_UNSPECIFIED = 0;
+  SCAN_STATUS_SUCCESS = 1;
+  SCAN_STATUS_ERROR = 2;
+}

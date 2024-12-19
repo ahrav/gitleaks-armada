@@ -15,12 +15,32 @@ type Coordinator interface {
 	OnLeadershipChange(cb func(isLeader bool))
 }
 
-// Supervisor manages a pool of worker nodes, handling scaling and monitoring.
-type Supervisor interface {
+type WorkerMonitor interface {
 	Start(ctx context.Context) error
 	Stop() error
-	ScaleWorkers(ctx context.Context, desired int) error
 	GetWorkers(ctx context.Context) ([]Worker, error)
+}
+
+// ScanResult represents the outcome of scanning a chunk.
+type ScanResult struct {
+	ChunkID string
+	// Additional result metadata...
+}
+
+// Broker handles task distribution and result collection via message queue
+type Broker interface {
+	// Task publishing (used by orchestrator)
+	PublishTask(ctx context.Context, chunk Chunk) error
+	PublishTasks(ctx context.Context, chunks []Chunk) error
+
+	// Result publishing (used by scanner)
+	PublishResult(ctx context.Context, result ScanResult) error
+
+	// Task subscription (used by scanner)
+	SubscribeTasks(ctx context.Context, handler func(Chunk) error) error
+
+	// Result subscription (used by orchestrator)
+	SubscribeResults(ctx context.Context, handler func(ScanResult) error) error
 }
 
 // Chunk represents a unit of work to be processed.

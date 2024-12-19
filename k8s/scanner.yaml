@@ -16,9 +16,6 @@ spec:
       - name: scanner
         image: scanner:latest
         imagePullPolicy: IfNotPresent
-        ports:
-        - containerPort: 50051
-          name: grpc
         resources:
           requests:
             memory: "256Mi"
@@ -31,5 +28,11 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.name
-        - name: ORCHESTRATOR_ENDPOINT
-          value: "orchestrator-service:50051"
+        - name: KAFKA_BROKERS
+          value: "kafka:9092"
+        - name: KAFKA_TASK_TOPIC
+          value: "scanner-tasks"
+        - name: KAFKA_RESULTS_TOPIC
+          value: "scanner-results"
+        - name: KAFKA_GROUP_ID
+          value: "scanner-workers"

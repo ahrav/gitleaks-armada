@@ -12,17 +12,21 @@ SCANNER_IMAGE := $(SCANNER_APP):latest
 K8S_MANIFESTS := k8s
 
 # Protobuf variables
-PROTO_DIR := proto/orchestration
-PROTO_FILES := $(wildcard $(PROTO_DIR)/*.proto)
+PROTO_DIR := proto
+PROTO_FILES := $(wildcard $(PROTO_DIR)/*/*.proto)
 PROTOC_GEN_GO := $(GOPATH)/bin/protoc-gen-go
 PROTOC_GEN_GO_GRPC := $(GOPATH)/bin/protoc-gen-go-grpc
+
+# Kafka variables
+KAFKA_IMAGE := bitnami/kafka:latest
+ZOOKEEPER_IMAGE := bitnami/zookeeper:latest
 
 # -------------------------------------------------------------------------------
 # Targets
 # -------------------------------------------------------------------------------
-.PHONY: all build-orchestrator build-scanner docker-orchestrator docker-scanner kind-up kind-down kind-load dev-apply dev-status clean proto proto-gen
+.PHONY: all build-orchestrator build-scanner docker-orchestrator docker-scanner kind-up kind-down kind-load dev-apply dev-status clean proto proto-gen kafka-setup kafka-logs kafka-topics kafka-restart kafka-delete
 
-all: build-all docker-all kind-load dev-apply
+all: build-all docker-all kind-load kafka-setup dev-apply
 
 # Build targets
 build-all: proto-gen build-orchestrator build-scanner
@@ -69,6 +73,7 @@ dev-status:
 clean:
 	rm -f $(ORCHESTRATOR_APP)
 	rm -f $(SCANNER_APP)
+	kubectl delete deployment kafka zookeeper || true
 
 # Additional convenience targets
 dev: kind-up all
@@ -104,15 +109,50 @@ proto-deps:
 		echo "Installing protoc-gen-go..."; \
 		go install google.golang.org/protobuf/cmd/protoc-gen-go@latest; \
 	fi
-	@if [ ! -f "$(PROTOC_GEN_GO_GRPC)" ]; then \
-		echo "Installing protoc-gen-go-grpc..."; \
-		go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest; \
-	fi
 
 proto-gen:
-	mkdir -p proto/orchestration
-	protoc --go_out=. --go_opt=paths=source_relative \
-		--go-grpc_out=. --go-grpc_opt=paths=source_relative \
-		--go_opt=M$(PROTO_DIR)/orchestration.proto=github.com/ahrav/gitleaks-armada/proto/orchestration \
-		--go-grpc_opt=M$(PROTO_DIR)/orchestration.proto=github.com/ahrav/gitleaks-armada/proto/orchestration \
-		$(PROTO_DIR)/orchestration.proto
+	@for proto in $(PROTO_FILES); do \
+		dir=$$(dirname $$proto); \
+		pkg=$$(basename $$dir); \
+		echo "Generating protobuf code for $$proto..."; \
+		protoc --go_out=. --go_opt=paths=source_relative \
+			--go_opt=M$$proto=github.com/ahrav/gitleaks-armada/proto/$$pkg \
+			$$proto; \
+	done
+
+# Kafka targets
+kafka-setup:
+	@echo "Pulling Kafka and Zookeeper images..."
+	docker pull $(KAFKA_IMAGE)
+	docker pull $(ZOOKEEPER_IMAGE)
+	@echo "Loading images into kind cluster..."
+	kind load docker-image $(KAFKA_IMAGE) --name $(KIND_CLUSTER)
+	kind load docker-image $(ZOOKEEPER_IMAGE) --name $(KIND_CLUSTER)
+	@echo "Waiting for pods to be ready..."
+	kubectl wait --for=condition=ready pod -l app=zookeeper --timeout=120s || true
+	kubectl wait --for=condition=ready pod -l app=kafka --timeout=120s || true
+
+kafka-logs:
+	@echo "Kafka logs:"
+	kubectl logs -l app=kafka --tail=100 -f
+	@echo "\nZookeeper logs:"
+	kubectl logs -l app=zookeeper --tail=100 -f
+
+kafka-topics:
+	kubectl exec -it deployment/kafka -- /opt/kafka/bin/kafka-topics.sh --list --bootstrap-server localhost:9092
+
+kafka-delete:
+	kubectl delete deployment kafka zookeeper || true
+	kubectl delete service kafka zookeeper || true
+
+kafka-restart: kafka-delete
+	@echo "Loading Kafka images..."
+	kind load docker-image $(KAFKA_IMAGE) --name $(KIND_CLUSTER)
+	kind load docker-image $(ZOOKEEPER_IMAGE) --name $(KIND_CLUSTER)
+	@echo "Applying Kafka manifests..."
+	kubectl apply -f k8s/kafka.yaml
+	@echo "Waiting for pods to be ready..."
+	sleep 5  # Give k8s a moment to create the pods
+	kubectl wait --for=condition=ready pod -l app=zookeeper --timeout=120s || true
+	kubectl wait --for=condition=ready pod -l app=kafka --timeout=120s || true
+	@echo "Kafka and Zookeeper restarted"

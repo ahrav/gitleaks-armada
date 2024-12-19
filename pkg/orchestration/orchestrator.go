@@ -11,8 +11,8 @@ import (
 // Orchestrator coordinates work distribution across a cluster of workers.
 type Orchestrator struct {
 	coordinator Coordinator
-	supervisor  Supervisor
-	workQueue   WorkQueue
+	monitor     WorkerMonitor
+	workQueue   Broker
 
 	mu       sync.Mutex
 	running  bool
@@ -23,10 +23,10 @@ type Orchestrator struct {
 }
 
 // NewOrchestrator creates an orchestrator with the given components and registers leadership callbacks.
-func NewOrchestrator(coord Coordinator, sup Supervisor, queue WorkQueue) *Orchestrator {
+func NewOrchestrator(coord Coordinator, mon WorkerMonitor, queue Broker) *Orchestrator {
 	o := &Orchestrator{
 		coordinator: coord,
-		supervisor:  sup,
+		monitor:     mon,
 		workQueue:   queue,
 	}
 	o.coordinator.OnLeadershipChange(o.handleLeadershipChange)
@@ -100,9 +100,9 @@ func (o *Orchestrator) Start(ctx context.Context) error {
 	ctx, o.cancelFn = context.WithCancel(ctx)
 	o.mu.Unlock()
 
-	log.Println("[Orchestrator] Starting supervisor...")
-	if err := o.supervisor.Start(ctx); err != nil {
-		return fmt.Errorf("failed to start supervisor: %w", err)
+	log.Println("[Orchestrator] Starting monitor...")
+	if err := o.monitor.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start monitor: %w", err)
 	}
 
 	go o.monitorWorkers(ctx)
@@ -124,9 +124,9 @@ func (o *Orchestrator) Stop() error {
 	}
 	o.mu.Unlock()
 
-	log.Println("[Orchestrator] Stopping supervisor...")
-	if err := o.supervisor.Stop(); err != nil {
-		log.Printf("error stopping supervisor: %v", err)
+	log.Println("[Orchestrator] Stopping monitor...")
+	if err := o.monitor.Stop(); err != nil {
+		log.Printf("error stopping monitor: %v", err)
 	}
 	log.Println("[Orchestrator] Stopped.")
 	return nil
@@ -142,7 +142,7 @@ func (o *Orchestrator) ProcessTarget(ctx context.Context, target ScanTarget) err
 
 	for i := 0; i < chunkCount; i++ {
 		chunk := Chunk{}
-		if err := o.workQueue.Enqueue(chunk); err != nil {
+		if err := o.workQueue.PublishTask(ctx, chunk); err != nil {
 			return fmt.Errorf("enqueue chunk: %w", err)
 		}
 	}
@@ -167,20 +167,6 @@ func (o *Orchestrator) setDesiredWorkers(n int) {
 	o.desiredWorkers = n
 }
 
-// NextChunk returns the next available chunk for a worker to process.
-func (o *Orchestrator) NextChunk(ctx context.Context, workerID string) (Chunk, error) {
-	chunk, err := o.workQueue.Dequeue()
-	if err != nil {
-		return Chunk{}, fmt.Errorf("no chunks available: %w", err)
-	}
-	return chunk, nil
-}
-
-// CompleteChunk marks a chunk as successfully processed.
-func (o *Orchestrator) CompleteChunk(ctx context.Context, workerID, chunkID string) error {
-	return o.workQueue.Acknowledge(chunkID)
-}
-
 func (o *Orchestrator) handleLeadershipChange(isLeader bool) {
 	if isLeader {
 		ctx := context.Background()
@@ -203,7 +189,7 @@ func (o *Orchestrator) monitorWorkers(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			workers, err := o.supervisor.GetWorkers(ctx)
+			workers, err := o.monitor.GetWorkers(ctx)
 			if err != nil {
 				log.Printf("error getting workers: %v", err)
 				continue
@@ -213,16 +199,6 @@ func (o *Orchestrator) monitorWorkers(ctx context.Context) {
 			for _, w := range workers {
 				if w.Status == WorkerStatusAvailable {
 					availableCount++
-				}
-			}
-
-			o.mu.Lock()
-			desired := o.desiredWorkers
-			o.mu.Unlock()
-
-			if availableCount != desired {
-				if err := o.supervisor.ScaleWorkers(ctx, desired); err != nil {
-					log.Printf("failed to scale workers: %v", err)
 				}
 			}
 		}
