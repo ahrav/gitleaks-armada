@@ -15,16 +15,6 @@ type Coordinator interface {
 	OnLeadershipChange(cb func(isLeader bool))
 }
 
-// WorkerMonitor is an optional interface for monitoring worker nodes.
-type WorkerMonitor interface {
-	// Start initializes the worker monitoring service.
-	Start(ctx context.Context) error
-	// Stop gracefully terminates the worker monitoring service.
-	Stop() error
-	// GetWorkers retrieves the current list of worker nodes.
-	GetWorkers(ctx context.Context) ([]Worker, error)
-}
-
 // Broker handles task distribution and result collection via message queue.
 type Broker interface {
 	// Task publishing (used by orchestrator).

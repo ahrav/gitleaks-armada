@@ -43,12 +43,6 @@ func main() {
 	}
 	defer coord.Stop()
 
-	monitor, err := kubernetes.NewWorkerMonitor(cfg)
-	if err != nil {
-		log.Fatalf("failed to create worker monitor: %v", err)
-	}
-	defer monitor.Stop()
-
 	brokers := strings.Split(os.Getenv("KAFKA_BROKERS"), ",")
 	kafkaCfg := &orchestration.KafkaConfig{
 		Brokers:      brokers,
@@ -62,7 +56,7 @@ func main() {
 		log.Fatalf("Failed to create Kafka broker: %v", err)
 	}
 
-	orch := orchestration.NewOrchestrator(coord, monitor, broker)
+	orch := orchestration.NewOrchestrator(coord, broker)
 
 	log.Println("Starting orchestrator...")
 	ready, err := orch.Run(ctx)

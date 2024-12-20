@@ -5,28 +5,24 @@ import (
 	"fmt"
 	"log"
 	"sync"
-	"time"
 )
 
 // Orchestrator coordinates work distribution across a cluster of workers.
 type Orchestrator struct {
 	coordinator Coordinator
-	monitor     WorkerMonitor
 	workQueue   Broker
 
 	mu       sync.Mutex
 	running  bool
 	cancelFn context.CancelFunc
 
-	currentTarget  *ScanTarget
-	desiredWorkers int
+	currentTarget *ScanTarget
 }
 
 // NewOrchestrator creates an orchestrator with the given components and registers leadership callbacks.
-func NewOrchestrator(coord Coordinator, mon WorkerMonitor, queue Broker) *Orchestrator {
+func NewOrchestrator(coord Coordinator, queue Broker) *Orchestrator {
 	o := &Orchestrator{
 		coordinator: coord,
-		monitor:     mon,
 		workQueue:   queue,
 	}
 	o.coordinator.OnLeadershipChange(o.handleLeadershipChange)
@@ -97,15 +93,8 @@ func (o *Orchestrator) Start(ctx context.Context) error {
 		return fmt.Errorf("orchestrator already running")
 	}
 	o.running = true
-	ctx, o.cancelFn = context.WithCancel(ctx)
+	_, o.cancelFn = context.WithCancel(ctx)
 	o.mu.Unlock()
-
-	log.Println("[Orchestrator] Starting monitor...")
-	if err := o.monitor.Start(ctx); err != nil {
-		return fmt.Errorf("failed to start monitor: %w", err)
-	}
-
-	go o.monitorWorkers(ctx)
 
 	log.Println("[Orchestrator] Started successfully.")
 	return nil
@@ -124,10 +113,6 @@ func (o *Orchestrator) Stop() error {
 	}
 	o.mu.Unlock()
 
-	log.Println("[Orchestrator] Stopping monitor...")
-	if err := o.monitor.Stop(); err != nil {
-		log.Printf("error stopping monitor: %v", err)
-	}
 	log.Println("[Orchestrator] Stopped.")
 	return nil
 }
@@ -151,20 +136,7 @@ func (o *Orchestrator) ProcessTarget(ctx context.Context, target ScanTarget) err
 	o.currentTarget = &target
 	o.mu.Unlock()
 
-	// Scale workers based on chunk count
-	desired := chunkCount / 100
-	if desired < 1 {
-		desired = 1
-	}
-	o.setDesiredWorkers(desired)
-
 	return nil
-}
-
-func (o *Orchestrator) setDesiredWorkers(n int) {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	o.desiredWorkers = n
 }
 
 func (o *Orchestrator) handleLeadershipChange(isLeader bool) {
@@ -176,31 +148,6 @@ func (o *Orchestrator) handleLeadershipChange(isLeader bool) {
 	} else {
 		if err := o.Stop(); err != nil {
 			log.Printf("[Orchestrator] Error stopping after losing leadership: %v", err)
-		}
-	}
-}
-
-func (o *Orchestrator) monitorWorkers(ctx context.Context) {
-	ticker := time.NewTicker(10 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			workers, err := o.monitor.GetWorkers(ctx)
-			if err != nil {
-				log.Printf("error getting workers: %v", err)
-				continue
-			}
-
-			availableCount := 0
-			for _, w := range workers {
-				if w.Status == WorkerStatusAvailable {
-					availableCount++
-				}
-			}
 		}
 	}
 }
