@@ -42,3 +42,6 @@ _testmain.go
 *.exe
 //*.test
 .vscode/tasks.json
+
+# config
+config.yaml

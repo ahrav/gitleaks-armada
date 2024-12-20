@@ -55,6 +55,7 @@ func (k *KafkaBroker) PublishTask(ctx context.Context, task Task) error {
 		TaskId:      task.TaskID,
 		ResourceUri: task.ResourceURI,
 		Metadata:    task.Metadata,
+		Credentials: task.Credentials.ToProto(),
 	}
 	data, err := proto.Marshal(pbTask)
 	if err != nil {

@@ -21,12 +21,17 @@ PROTOC_GEN_GO_GRPC := $(GOPATH)/bin/protoc-gen-go-grpc
 KAFKA_IMAGE := bitnami/kafka:latest
 ZOOKEEPER_IMAGE := bitnami/zookeeper:latest
 
+# Config variables
+CONFIG_FILE ?= config.yaml
+SECRET_NAME ?= scanner-targets
+NAMESPACE ?= default
+
 # -------------------------------------------------------------------------------
 # Targets
 # -------------------------------------------------------------------------------
-.PHONY: all build-orchestrator build-scanner docker-orchestrator docker-scanner kind-up kind-down kind-load dev-apply dev-status clean proto proto-gen kafka-setup kafka-logs kafka-topics kafka-restart kafka-delete
+.PHONY: all build-orchestrator build-scanner docker-orchestrator docker-scanner kind-up kind-down kind-load dev-apply dev-status clean proto proto-gen kafka-setup kafka-logs kafka-topics kafka-restart kafka-delete create-config-secret
 
-all: build-all docker-all kind-load kafka-setup dev-apply
+all: build-all docker-all kind-load kafka-setup dev-apply create-config-secret
 
 # Build targets
 build-all: proto-gen build-orchestrator build-scanner
@@ -156,3 +161,11 @@ kafka-restart: kafka-delete
 	kubectl wait --for=condition=ready pod -l app=zookeeper --timeout=120s || true
 	kubectl wait --for=condition=ready pod -l app=kafka --timeout=120s || true
 	@echo "Kafka and Zookeeper restarted"
+
+# Create config secret
+create-config-secret:
+	@echo "Creating secret from config file..."
+	@kubectl create secret generic $(SECRET_NAME) \
+		--from-file=config.yaml=$(CONFIG_FILE) \
+		--namespace=$(NAMESPACE) \
+		--dry-run=client -o yaml | kubectl apply -f -

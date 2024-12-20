@@ -9,6 +9,7 @@ message ScanTask {
   SourceType source_type = 2; // SOURCE_TYPE_GITHUB
   string resource_uri = 3;    // e.g., "git://github.com/org/repo"
   map<string, string> metadata = 4;
+  TaskCredentials credentials = 5;
 }
 
 enum SourceType {
@@ -48,4 +49,23 @@ enum ScanStatus {
   SCAN_STATUS_UNSPECIFIED = 0;
   SCAN_STATUS_SUCCESS = 1;
   SCAN_STATUS_ERROR = 2;
+}
+
+message TaskCredentials {
+  oneof auth {
+    UnauthenticatedCredentials unauthenticated = 1;
+    GitHubCredentials github = 2;
+    S3Credentials s3 = 3;
+    // Add more credential types as needed
+  }
+}
+
+message UnauthenticatedCredentials {}
+
+message GitHubCredentials { string auth_token = 1; }
+
+message S3Credentials {
+  string access_key = 1;
+  string secret_key = 2;
+  string session_token = 3; // Optional for temporary credentials
 }

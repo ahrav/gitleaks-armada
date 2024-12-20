@@ -40,7 +40,7 @@ type Task struct {
 	TaskID      string            // Unique identifier for the task
 	ResourceURI string            // Location of the resource to scan
 	Metadata    map[string]string // Additional context for task processing
-	// SourceType handling is omitted for brevity, assume a separate enum/field
+	Credentials *TaskCredentials  // Authentication credentials for the resource
 }
 
 // Finding represents a single secret or sensitive data match discovered during scanning.
@@ -76,29 +76,4 @@ type ScanProgress struct {
 	ItemsProcessed  int64             // Number of items (e.g., files) processed
 	TotalItems      int64             // Total number of items to process
 	Metadata        map[string]string // Additional progress information
-}
-
-// ScanTarget represents a data source to be scanned, broken into processable chunks.
-type ScanTarget struct {
-	ID     string
-	Type   string // Type of data source (e.g., "filesystem", "git-repo")
-	Size   int64  // Estimated size in bytes
-	Chunks []Task // Subdivided work units for parallel processing
-}
-
-// WorkerStatus indicates the operational state of a worker node.
-type WorkerStatus string
-
-const (
-	WorkerStatusAvailable WorkerStatus = "available" // Ready to accept new tasks
-	WorkerStatusBusy      WorkerStatus = "busy"      // Currently processing a task
-	WorkerStatusDraining  WorkerStatus = "draining"  // Completing current work before shutdown
-	WorkerStatusOffline   WorkerStatus = "offline"   // Not accepting new work
-)
-
-// Worker represents a processing node in the scanning cluster.
-type Worker struct {
-	ID       string       // Unique identifier for the worker
-	Endpoint string       // Network address for communication
-	Status   WorkerStatus // Current operational state
 }
