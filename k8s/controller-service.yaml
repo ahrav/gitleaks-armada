@@ -1,10 +1,10 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: orchestrator-service
+  name: controller-service
 spec:
   selector:
-    app: scanner-orchestrator
+    app: scanner-controller
   ports:
   - port: 50051
     targetPort: 50051

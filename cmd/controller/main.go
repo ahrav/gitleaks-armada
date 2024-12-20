@@ -56,7 +56,7 @@ func main() {
 		log.Fatalf("Failed to create Kafka broker: %v", err)
 	}
 
-	orch := orchestration.NewOrchestrator(coord, broker)
+	orch := orchestration.NewController(coord, broker)
 
 	log.Println("Starting orchestrator...")
 	ready, err := orch.Run(ctx)

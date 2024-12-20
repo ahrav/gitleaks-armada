@@ -3,8 +3,8 @@
 # -------------------------------------------------------------------------------
 KIND_CLUSTER := secret-scanner
 
-ORCHESTRATOR_APP := orchestrator
-ORCHESTRATOR_IMAGE := $(ORCHESTRATOR_APP):latest
+CONTROLLER_APP := controller
+CONTROLLER_IMAGE := $(CONTROLLER_APP):latest
 
 SCANNER_APP := scanner
 SCANNER_IMAGE := $(SCANNER_APP):latest
@@ -29,24 +29,24 @@ NAMESPACE ?= default
 # -------------------------------------------------------------------------------
 # Targets
 # -------------------------------------------------------------------------------
-.PHONY: all build-orchestrator build-scanner docker-orchestrator docker-scanner kind-up kind-down kind-load dev-apply dev-status clean proto proto-gen kafka-setup kafka-logs kafka-topics kafka-restart kafka-delete create-config-secret
+.PHONY: all build-controller build-scanner docker-controller docker-scanner kind-up kind-down kind-load dev-apply dev-status clean proto proto-gen kafka-setup kafka-logs kafka-topics kafka-restart kafka-delete create-config-secret
 
 all: build-all docker-all kind-load kafka-setup dev-apply create-config-secret
 
 # Build targets
-build-all: proto-gen build-orchestrator build-scanner
+build-all: proto-gen build-controller build-scanner
 
-build-orchestrator:
-	CGO_ENABLED=0 GOOS=linux go build -o $(ORCHESTRATOR_APP) ./cmd/orchestrator
+build-controller:
+	CGO_ENABLED=0 GOOS=linux go build -o $(CONTROLLER_APP) ./cmd/controller
 
 build-scanner:
 	CGO_ENABLED=0 GOOS=linux go build -o $(SCANNER_APP) ./cmd/scanner
 
 # Docker targets
-docker-all: docker-orchestrator docker-scanner
+docker-all: docker-controller docker-scanner
 
-docker-orchestrator:
-	docker build -t $(ORCHESTRATOR_IMAGE) -f Dockerfile.orchestrator .
+docker-controller:
+	docker build -t $(CONTROLLER_IMAGE) -f Dockerfile.controller .
 
 docker-scanner:
 	docker build -t $(SCANNER_IMAGE) -f Dockerfile.scanner .
@@ -61,7 +61,7 @@ kind-down:
 
 # Load images into kind
 kind-load:
-	kind load docker-image $(ORCHESTRATOR_IMAGE) --name $(KIND_CLUSTER)
+	kind load docker-image $(CONTROLLER_IMAGE) --name $(KIND_CLUSTER)
 	kind load docker-image $(SCANNER_IMAGE) --name $(KIND_CLUSTER)
 
 # Apply Kubernetes manifests
@@ -76,7 +76,7 @@ dev-status:
 
 # Clean built binaries
 clean:
-	rm -f $(ORCHESTRATOR_APP)
+	rm -f $(CONTROLLER_APP)
 	rm -f $(SCANNER_APP)
 	kubectl delete deployment kafka zookeeper || true
 
@@ -85,23 +85,23 @@ dev: kind-up all
 
 # Rebuild and redeploy without recreating cluster
 redeploy: build-all docker-all kind-load dev-apply
-	kubectl rollout restart deployment/scanner-orchestrator
+	kubectl rollout restart deployment/scanner-controller
 	kubectl rollout restart deployment/scanner-worker
 
 rollout-restart:
-	kubectl rollout restart deployment/scanner-orchestrator
+	kubectl rollout restart deployment/scanner-controller
 	kubectl rollout restart deployment/scanner-worker
 
 # View logs
-logs-orchestrator:
-	kubectl logs -l app=scanner-orchestrator --tail=100 -f
+logs-controller:
+	kubectl logs -l app=scanner-controller --tail=100 -f
 
 logs-scanner:
 	kubectl logs -l app=scanner-worker --tail=100 -f
 
 # Scale deployments
-scale-orchestrator:
-	kubectl scale --replicas=$(replicas) deployment/scanner-orchestrator
+scale-controller:
+	kubectl scale --replicas=$(replicas) deployment/scanner-controller
 
 scale-scanner:
 	kubectl scale --replicas=$(replicas) deployment/scanner-worker
@@ -169,3 +169,4 @@ create-config-secret:
 		--from-file=config.yaml=$(CONFIG_FILE) \
 		--namespace=$(NAMESPACE) \
 		--dry-run=client -o yaml | kubectl apply -f -
+

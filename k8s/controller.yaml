@@ -1,21 +1,21 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: scanner-orchestrator
+  name: scanner-controller
 spec:
   replicas: 3
   selector:
     matchLabels:
-      app: scanner-orchestrator
+      app: scanner-controller
   template:
     metadata:
       labels:
-        app: scanner-orchestrator
+        app: scanner-controller
     spec:
       serviceAccountName: secret-scanner-sa
       containers:
-      - name: orchestrator
-        image: orchestrator:latest
+      - name: controller
+        image: controller:latest
         imagePullPolicy: IfNotPresent
         resources:
           requests:
@@ -40,7 +40,7 @@ spec:
         - name: KAFKA_RESULTS_TOPIC
           value: "scanner-results"
         - name: KAFKA_GROUP_ID
-          value: "orchestrator-group"
+          value: "controller-group"
         volumeMounts:
         - name: scanner-config
           mountPath: /etc/scanner/config
