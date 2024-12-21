@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: scanner-config
+  namespace: secret-scanner
+data:
+  KAFKA_TASK_TOPIC: "scanner-tasks"
+  KAFKA_RESULTS_TOPIC: "scanner-results"
+  KAFKA_BROKERS: "kafka:9092"

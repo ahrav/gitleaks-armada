@@ -2,13 +2,13 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: secret-scanner-sa
-  namespace: default
+  namespace: secret-scanner
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: scanner-controller-role
-  namespace: default
+  namespace: secret-scanner
 rules:
 - apiGroups: [""]
   resources: ["pods"]
@@ -21,11 +21,11 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: scanner-controller-binding
-  namespace: default
+  namespace: secret-scanner
 subjects:
 - kind: ServiceAccount
   name: secret-scanner-sa
-  namespace: default
+  namespace: secret-scanner
 roleRef:
   kind: Role
   name: scanner-controller-role

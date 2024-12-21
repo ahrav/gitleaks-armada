@@ -2,6 +2,9 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: scanner-controller
+  namespace: secret-scanner
+  labels:
+    app: scanner-controller
 spec:
   replicas: 3
   selector:
@@ -11,19 +14,21 @@ spec:
     metadata:
       labels:
         app: scanner-controller
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "8081"
     spec:
       serviceAccountName: secret-scanner-sa
       containers:
       - name: controller
         image: controller:latest
         imagePullPolicy: IfNotPresent
-        resources:
-          requests:
-            memory: "256Mi"
-            cpu: "200m"
-          limits:
-            memory: "512Mi"
-            cpu: "400m"
+        ports:
+        - containerPort: 8080
+          name: health
+        - containerPort: 8081
+          name: metrics
         env:
         - name: POD_NAME
           valueFrom:
@@ -33,14 +38,46 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
-        - name: KAFKA_BROKERS
-          value: "kafka:9092"
         - name: KAFKA_TASK_TOPIC
-          value: "scanner-tasks"
+          valueFrom:
+            configMapKeyRef:
+              name: scanner-config
+              key: KAFKA_TASK_TOPIC
         - name: KAFKA_RESULTS_TOPIC
-          value: "scanner-results"
-        - name: KAFKA_GROUP_ID
-          value: "controller-group"
+          valueFrom:
+            configMapKeyRef:
+              name: scanner-config
+              key: KAFKA_RESULTS_TOPIC
+        - name: KAFKA_BROKERS
+          valueFrom:
+            configMapKeyRef:
+              name: scanner-config
+              key: KAFKA_BROKERS
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "512Mi"
+            cpu: "400m"
+        readinessProbe:
+          httpGet:
+            path: /v1/readiness
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 2
+        livenessProbe:
+          httpGet:
+            path: /v1/health
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 20
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 3
         volumeMounts:
         - name: scanner-config
           mountPath: /etc/scanner/config
@@ -49,3 +86,22 @@ spec:
       - name: scanner-config
         secret:
           secretName: scanner-targets
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: scanner-controller
+  namespace: secret-scanner
+  labels:
+    app: scanner-controller
+spec:
+  type: ClusterIP
+  selector:
+    app: scanner-controller
+  ports:
+  - port: 8080
+    targetPort: health
+    name: health
+  - port: 8081
+    targetPort: metrics
+    name: metrics

@@ -44,4 +44,27 @@ _testmain.go
 .vscode/tasks.json
 
 # config
-config.yaml
+/config.yaml
+
+# Other common ignores
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+.env
+
+# Go specific
+/bin/
+/vendor/
+
+# IDE specific
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Build artifacts
+/controller
+/scanner

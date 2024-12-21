@@ -1,60 +1,10 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: kafka
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: kafka
-  template:
-    metadata:
-      labels:
-        app: kafka
-    spec:
-      containers:
-      - name: kafka
-        image: bitnami/kafka:latest
-        ports:
-        - containerPort: 9092
-        resources:
-          requests:
-            memory: "2.5Gi"
-            cpu: "500m"
-          limits:
-            memory: "3Gi"
-            cpu: "1000m"
-        env:
-        - name: KAFKA_CFG_NODE_ID
-          value: "1"
-        - name: KAFKA_CFG_ZOOKEEPER_CONNECT
-          value: "zookeeper:2181"
-        - name: KAFKA_CFG_LISTENERS
-          value: "PLAINTEXT://:9092"
-        - name: KAFKA_CFG_ADVERTISED_LISTENERS
-          value: "PLAINTEXT://kafka:9092"
-        - name: KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE
-          value: "true"
-        - name: ALLOW_PLAINTEXT_LISTENER
-          value: "yes"
-        - name: KAFKA_HEAP_OPTS
-          value: "-Xmx2G -Xms2G"
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: kafka
-spec:
-  selector:
-    app: kafka
-  ports:
-  - port: 9092
-    targetPort: 9092
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
   name: zookeeper
+  namespace: secret-scanner
+  labels:
+    app: zookeeper
 spec:
   replicas: 1
   selector:
@@ -70,28 +20,93 @@ spec:
         image: bitnami/zookeeper:latest
         ports:
         - containerPort: 2181
-        resources:
-          requests:
-            memory: "1Gi"
-            cpu: "200m"
-          limits:
-            memory: "1.5Gi"
-            cpu: "400m"
         env:
         - name: ALLOW_ANONYMOUS_LOGIN
           value: "yes"
-        - name: JVMFLAGS
-          value: "-Xmx512M -Xms256M"
-        - name: ZOO_HEAP_SIZE
-          value: "512M"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        readinessProbe:
+          tcpSocket:
+            port: 2181
+          initialDelaySeconds: 5
+          periodSeconds: 10
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: zookeeper
+  namespace: secret-scanner
 spec:
   selector:
     app: zookeeper
   ports:
   - port: 2181
     targetPort: 2181
+    name: client
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka
+  namespace: secret-scanner
+  labels:
+    app: kafka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafka
+  template:
+    metadata:
+      labels:
+        app: kafka
+    spec:
+      containers:
+      - name: kafka
+        image: bitnami/kafka:latest
+        ports:
+        - containerPort: 9092
+        env:
+        - name: KAFKA_CFG_ZOOKEEPER_CONNECT
+          value: zookeeper:2181
+        - name: ALLOW_PLAINTEXT_LISTENER
+          value: "yes"
+        - name: KAFKA_CFG_LISTENERS
+          value: PLAINTEXT://:9092
+        - name: KAFKA_CFG_ADVERTISED_LISTENERS
+          value: PLAINTEXT://kafka:9092
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        readinessProbe:
+          tcpSocket:
+            port: 9092
+          initialDelaySeconds: 15
+          periodSeconds: 10
+        livenessProbe:
+          tcpSocket:
+            port: 9092
+          initialDelaySeconds: 30
+          periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka
+  namespace: secret-scanner
+spec:
+  selector:
+    app: kafka
+  ports:
+  - port: 9092
+    targetPort: 9092
+    name: client

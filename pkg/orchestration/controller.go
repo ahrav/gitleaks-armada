@@ -15,6 +15,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ahrav/gitleaks-armada/pkg/config"
+	"github.com/ahrav/gitleaks-armada/pkg/metrics"
 )
 
 // Controller coordinates work distribution across a cluster of workers.
@@ -23,21 +24,23 @@ type Controller struct {
 	workQueue   Broker
 	credStore   *CredentialStore
 
-	mu            sync.Mutex
-	running       bool
-	cancelFn      context.CancelFunc
-	currentTarget *config.TargetSpec
+	mu       sync.Mutex
+	running  bool
+	cancelFn context.CancelFunc
 
 	httpClient *http.Client
+
+	metrics metrics.ControllerMetrics
 }
 
 // NewController creates a Controller instance that coordinates work distribution
 // using the provided coordinator for leader election and broker for task queuing.
-func NewController(coord Coordinator, queue Broker) *Controller {
+func NewController(coord Coordinator, queue Broker, metrics metrics.ControllerMetrics) *Controller {
 	return &Controller{
 		coordinator: coord,
 		workQueue:   queue,
 		httpClient:  new(http.Client),
+		metrics:     metrics,
 	}
 }
 
