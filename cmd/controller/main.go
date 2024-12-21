@@ -56,7 +56,7 @@ func main() {
 	}
 	defer coord.Stop()
 
-	kafkaCfg := &kafka.KafkaConfig{
+	kafkaCfg := &kafka.Config{
 		Brokers:      strings.Split(os.Getenv("KAFKA_BROKERS"), ","),
 		TaskTopic:    os.Getenv("KAFKA_TASK_TOPIC"),
 		ResultsTopic: os.Getenv("KAFKA_RESULTS_TOPIC"),

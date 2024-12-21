@@ -11,8 +11,8 @@ import (
 	pb "github.com/ahrav/gitleaks-armada/proto/scanner"
 )
 
-// KafkaConfig contains configuration for connecting to Kafka brokers and topics.
-type KafkaConfig struct {
+// Config contains configuration for connecting to Kafka brokers and topics.
+type Config struct {
 	Brokers       []string
 	TaskTopic     string
 	ResultsTopic  string
@@ -20,8 +20,8 @@ type KafkaConfig struct {
 	GroupID       string
 }
 
-// KafkaBroker implements the Broker interface using Apache Kafka as the message queue.
-type KafkaBroker struct {
+// Broker implements the Broker interface using Apache Kafka as the message queue.
+type Broker struct {
 	producer      sarama.SyncProducer
 	consumerGroup sarama.ConsumerGroup
 	taskTopic     string
@@ -29,8 +29,8 @@ type KafkaBroker struct {
 	progressTopic string
 }
 
-// NewKafkaBroker creates a new Kafka broker with the provided configuration.
-func NewKafkaBroker(cfg *KafkaConfig) (*KafkaBroker, error) {
+// NewBroker creates a new Kafka broker with the provided configuration.
+func NewBroker(cfg *Config) (*Broker, error) {
 	producer, err := sarama.NewSyncProducer(cfg.Brokers, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create kafka producer: %w", err)
@@ -41,7 +41,7 @@ func NewKafkaBroker(cfg *KafkaConfig) (*KafkaBroker, error) {
 		return nil, fmt.Errorf("failed to create consumer group: %w", err)
 	}
 
-	return &KafkaBroker{
+	return &Broker{
 		producer:      producer,
 		consumerGroup: consumerGroup,
 		taskTopic:     cfg.TaskTopic,
@@ -51,7 +51,7 @@ func NewKafkaBroker(cfg *KafkaConfig) (*KafkaBroker, error) {
 }
 
 // PublishTask publishes a single scan task to Kafka.
-func (k *KafkaBroker) PublishTask(ctx context.Context, task messaging.Task) error {
+func (k *Broker) PublishTask(ctx context.Context, task messaging.Task) error {
 	pbTask := &pb.ScanTask{
 		TaskId:      task.TaskID,
 		ResourceUri: task.ResourceURI,
@@ -72,7 +72,7 @@ func (k *KafkaBroker) PublishTask(ctx context.Context, task messaging.Task) erro
 }
 
 // PublishTasks publishes multiple scan tasks to Kafka.
-func (k *KafkaBroker) PublishTasks(ctx context.Context, tasks []messaging.Task) error {
+func (k *Broker) PublishTasks(ctx context.Context, tasks []messaging.Task) error {
 	for _, t := range tasks {
 		if err := k.PublishTask(ctx, t); err != nil {
 			return err
@@ -82,7 +82,7 @@ func (k *KafkaBroker) PublishTasks(ctx context.Context, tasks []messaging.Task) 
 }
 
 // PublishResult publishes a scan result to Kafka.
-func (k *KafkaBroker) PublishResult(ctx context.Context, result messaging.ScanResult) error {
+func (k *Broker) PublishResult(ctx context.Context, result messaging.ScanResult) error {
 	pbFindings := make([]*pb.Finding, len(result.Findings))
 	for i, f := range result.Findings {
 		pbFindings[i] = &pb.Finding{
@@ -123,7 +123,7 @@ func (k *KafkaBroker) PublishResult(ctx context.Context, result messaging.ScanRe
 }
 
 // PublishProgress publishes scan progress updates to Kafka.
-func (k *KafkaBroker) PublishProgress(ctx context.Context, progress messaging.ScanProgress) error {
+func (k *Broker) PublishProgress(ctx context.Context, progress messaging.ScanProgress) error {
 	pbProgress := &pb.ScanProgress{
 		TaskId:          progress.TaskID,
 		PercentComplete: progress.PercentComplete,
@@ -146,7 +146,7 @@ func (k *KafkaBroker) PublishProgress(ctx context.Context, progress messaging.Sc
 }
 
 // SubscribeTasks registers a handler function to process incoming scan tasks.
-func (k *KafkaBroker) SubscribeTasks(ctx context.Context, handler func(messaging.Task) error) error {
+func (k *Broker) SubscribeTasks(ctx context.Context, handler func(messaging.Task) error) error {
 	h := &taskHandler{
 		taskTopic: k.taskTopic,
 		handler:   handler,
@@ -157,7 +157,7 @@ func (k *KafkaBroker) SubscribeTasks(ctx context.Context, handler func(messaging
 }
 
 // SubscribeResults registers a handler function to process incoming scan results.
-func (k *KafkaBroker) SubscribeResults(ctx context.Context, handler func(messaging.ScanResult) error) error {
+func (k *Broker) SubscribeResults(ctx context.Context, handler func(messaging.ScanResult) error) error {
 	h := &resultsHandler{
 		resultsTopic: k.resultsTopic,
 		handler:      handler,
@@ -168,7 +168,7 @@ func (k *KafkaBroker) SubscribeResults(ctx context.Context, handler func(messagi
 }
 
 // SubscribeProgress registers a handler function to process incoming progress updates.
-func (k *KafkaBroker) SubscribeProgress(ctx context.Context, handler func(messaging.ScanProgress) error) error {
+func (k *Broker) SubscribeProgress(ctx context.Context, handler func(messaging.ScanProgress) error) error {
 	h := &progressHandler{
 		progressTopic: k.progressTopic,
 		handler:       handler,
@@ -190,7 +190,7 @@ func consumeLoop(ctx context.Context, cg sarama.ConsumerGroup, topics []string, 
 	}
 }
 
-// Handlers implement the sarama.ConsumerGroupHandler interface for different message types
+// Handlers implement the sarama.ConsumerGroupHandler interface for different message types.
 
 type taskHandler struct {
 	taskTopic string
