@@ -76,7 +76,11 @@ func main() {
 		}
 	}()
 
-	ctrl := controller.NewController(coord, broker, m)
+	enumStateStorage := controller.NewInMemoryEnumerationStateStorage()
+	checkpointStorage := controller.NewInMemoryCheckpointStorage()
+
+	ctrl := controller.NewController(coord, broker, enumStateStorage, checkpointStorage, m)
+	log.Println("Controller initialized")
 
 	ready.Store(true)
 

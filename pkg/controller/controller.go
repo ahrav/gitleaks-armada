@@ -1,15 +1,14 @@
 package controller
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"gopkg.in/yaml.v3"
@@ -26,6 +25,9 @@ type Controller struct {
 	workQueue   messaging.Broker
 	credStore   *CredentialStore
 
+	enumerationStateStorage EnumerationStateStorage
+	checkpointStorage       CheckpointStorage
+
 	mu       sync.Mutex
 	running  bool
 	cancelFn context.CancelFunc
@@ -37,17 +39,30 @@ type Controller struct {
 
 // NewController creates a Controller instance that coordinates work distribution
 // using the provided coordinator for leader election and broker for task queuing.
-func NewController(coord cluster.Coordinator, queue messaging.Broker, metrics metrics.ControllerMetrics) *Controller {
+func NewController(
+	coord cluster.Coordinator,
+	queue messaging.Broker,
+	enumerationStateStorage EnumerationStateStorage,
+	checkpointStorage CheckpointStorage,
+	metrics metrics.ControllerMetrics,
+) *Controller {
 	return &Controller{
-		coordinator: coord,
-		workQueue:   queue,
-		httpClient:  new(http.Client),
-		metrics:     metrics,
+		coordinator:             coord,
+		workQueue:               queue,
+		enumerationStateStorage: enumerationStateStorage,
+		checkpointStorage:       checkpointStorage,
+		httpClient:              new(http.Client),
+		metrics:                 metrics,
 	}
 }
 
 // Run starts the controller's leadership election process and target processing loop.
+// It participates in leader election and, when elected leader, processes scan targets.
+// The controller will resume any in-progress enumerations if they exist, otherwise
+// it starts fresh from the configuration.
+//
 // Returns a channel that is closed when initialization is complete and any startup error.
+// The channel allows callers to wait for the controller to be ready before proceeding.
 func (o *Controller) Run(ctx context.Context) (<-chan struct{}, error) {
 	ready := make(chan struct{})
 	leaderCh := make(chan bool, 1)
@@ -84,8 +99,22 @@ func (o *Controller) Run(ctx context.Context) (<-chan struct{}, error) {
 				}
 
 				log.Println("Leadership acquired, processing targets...")
-				if err := o.ProcessTarget(ctx); err != nil {
-					log.Printf("Failed to process targets: %v", err)
+				// Try to resume any in-progress enumeration.
+				enumerationState, err := o.enumerationStateStorage.Load(ctx)
+				if err != nil {
+					log.Printf("Error loading enumeration state: %v", err)
+				}
+
+				if enumerationState == nil {
+					// No existing state, start fresh from config.
+					if err := o.ProcessTarget(ctx); err != nil {
+						log.Printf("Failed to process targets: %v", err)
+					}
+				} else {
+					// Resume from existing state.
+					if err := o.doEnumeration(ctx, enumerationState); err != nil {
+						log.Printf("Failed to resume enumeration: %v", err)
+					}
 				}
 
 				if !readyClosed {
@@ -103,7 +132,6 @@ func (o *Controller) Run(ctx context.Context) (<-chan struct{}, error) {
 		}
 	}()
 
-	// Start the coordinator after after the leadership channel is ready.
 	log.Println("Starting coordinator...")
 	if err := o.coordinator.Start(ctx); err != nil {
 		return nil, fmt.Errorf("failed to start coordinator: %v", err)
@@ -112,8 +140,8 @@ func (o *Controller) Run(ctx context.Context) (<-chan struct{}, error) {
 	return ready, nil
 }
 
-// Stop gracefully shuts down the orchestrator if it is running.
-// Safe to call multiple times.
+// Stop gracefully shuts down the controller if it is running.
+// It is safe to call multiple times.
 func (o *Controller) Stop() error {
 	o.mu.Lock()
 	if !o.running {
@@ -130,10 +158,12 @@ func (o *Controller) Stop() error {
 	return nil
 }
 
-// ProcessTarget reads the configuration file and creates scan tasks for each target.
+// ProcessTarget reads the configuration file and starts the enumeration process
+// for each target defined in the configuration. For each target, it creates a new
+// enumeration state and begins processing it. This is the entry point for starting
+// fresh target scans.
 func (o *Controller) ProcessTarget(ctx context.Context) error {
 	const configPath = "/etc/scanner/config/config.yaml"
-
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return fmt.Errorf("failed to read config file: %w", err)
@@ -152,243 +182,135 @@ func (o *Controller) ProcessTarget(ctx context.Context) error {
 	log.Println("Credential store initialized successfully.")
 
 	for _, target := range cfg.Targets {
-		creds, err := o.credStore.GetCredentials(target.AuthRef)
-		if err != nil {
-			return fmt.Errorf("failed to get credentials for target: %w", err)
+		enumState := &EnumerationState{
+			SessionID:      generateSessionID(),
+			SourceType:     string(target.SourceType),
+			Config:         marshalConfig(target),
+			LastCheckpoint: nil, // No checkpoint initially
+			LastUpdated:    time.Now(),
+			Status:         StatusInitialized,
 		}
 
-		switch target.SourceType {
-		case config.SourceTypeGitHub:
-			if target.GitHub == nil {
-				return fmt.Errorf("github target configuration is missing")
-			}
-
-			var token string
-			if creds.Type == messaging.CredentialTypeGitHub {
-				token, err = extractGitHubToken(creds)
-				if err != nil {
-					return fmt.Errorf("failed to extract GitHub token: %w", err)
-				}
-			}
-
-			if err := o.processGitHubTarget(ctx, token, target.GitHub, creds); err != nil {
-				return fmt.Errorf("failed to process github target: %w", err)
-			}
+		if err := o.enumerationStateStorage.Save(ctx, enumState); err != nil {
+			return fmt.Errorf("failed to save initial enumeration state: %w", err)
 		}
+
+		if err := o.doEnumeration(ctx, enumState); err != nil {
+			log.Printf("Failed to enumerate target: %v", err)
+		}
+
 	}
+
 	return nil
 }
 
-// processGitHubTarget handles scanning tasks for GitHub repositories, either from an organization
-// or individual repo list. It publishes tasks in batches to match GitHub's API pagination.
-func (o *Controller) processGitHubTarget(
-	ctx context.Context,
-	token string,
-	ghConfig *config.GitHubTarget,
-	creds *messaging.TaskCredentials,
-) error {
-	taskCh := make(chan []messaging.Task)
-	errCh := make(chan error, 1)
+// doEnumeration handles the core enumeration logic for a single target.
+// It manages the enumeration lifecycle including state transitions and checkpoint handling.
+// The function coordinates between the enumerator that produces tasks and the work queue
+// that distributes them to workers.
+func (o *Controller) doEnumeration(ctx context.Context, state *EnumerationState) error {
+	var target config.TargetSpec
+	if err := json.Unmarshal(state.Config, &target); err != nil {
+		return fmt.Errorf("failed to unmarshal target config: %w", err)
+	}
 
-	// Start publisher goroutine to handle batches of tasks.
+	enumerator, err := o.createEnumerator(target)
+	if err != nil {
+		return err
+	}
+
+	if state.Status == StatusInitialized {
+		state.Status = StatusInProgress
+		state.LastUpdated = time.Now()
+		if saveErr := o.enumerationStateStorage.Save(ctx, state); saveErr != nil {
+			return fmt.Errorf("failed to mark enumeration state InProgress: %w", saveErr)
+		}
+	}
+
+	checkpoint := state.LastCheckpoint
+
+	taskCh := make(chan []messaging.Task)
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		for tasks := range taskCh {
 			if err := o.workQueue.PublishTasks(ctx, tasks); err != nil {
-				errCh <- fmt.Errorf("failed to publish tasks: %w", err)
+				log.Printf("Failed to publish tasks: %v", err)
 				return
 			}
 			log.Printf("Published batch of %d tasks", len(tasks))
 		}
 	}()
 
-	if ghConfig.Org != "" {
-		if err := o.processGitHubOrgRepos(ctx, token, ghConfig.Org, ghConfig.Metadata, creds, taskCh); err != nil {
-			close(taskCh)
-			return fmt.Errorf("failed to process github org repos: %w", err)
+	if err := enumerator.Enumerate(ctx, checkpoint, taskCh); err != nil {
+		state.Status = StatusFailed
+		state.LastUpdated = time.Now()
+		if saveErr := o.enumerationStateStorage.Save(ctx, state); saveErr != nil {
+			log.Printf("Failed to save enumeration state after error: %v", saveErr)
 		}
+		close(taskCh)
+		wg.Wait()
+		return fmt.Errorf("enumeration failed: %w", err)
 	}
 
-	if len(ghConfig.RepoList) > 0 {
-		tasks := make([]messaging.Task, 0, len(ghConfig.RepoList))
-		for _, repo := range ghConfig.RepoList {
-			tasks = append(tasks, messaging.Task{
-				TaskID:      generateTaskID(),
-				ResourceURI: buildGithubResourceURI(ghConfig.Org, repo),
-				Metadata:    ghConfig.Metadata,
-				Credentials: creds,
-			})
-		}
-		taskCh <- tasks
+	state.Status = StatusCompleted
+	state.LastUpdated = time.Now()
+	if err := o.enumerationStateStorage.Save(ctx, state); err != nil {
+		close(taskCh)
+		wg.Wait()
+		return fmt.Errorf("failed to save enumeration state: %w", err)
 	}
 
 	close(taskCh)
 	wg.Wait()
-
-	select {
-	case err := <-errCh:
-		return err
-	default:
-		return nil
-	}
-}
-
-// processGitHubOrgRepos fetches all repositories for a GitHub organization using GraphQL pagination
-// and creates scan tasks for each repository.
-func (o *Controller) processGitHubOrgRepos(
-	ctx context.Context,
-	token string,
-	org string,
-	metadata map[string]string,
-	creds *messaging.TaskCredentials,
-	taskCh chan<- []messaging.Task,
-) error {
-	query := `
-	query($org: String!, $after: String) {
-		organization(login: $org) {
-			repositories(first: 100, after: $after) {
-				nodes {
-					name
-				}
-				pageInfo {
-					hasNextPage
-					endCursor
-				}
-			}
-		}
-	}`
-
-	var endCursor *string
-	const batchSize = 100 // Max repos per GraphQL query
-
-	for {
-		variables := map[string]any{
-			"org": org,
-		}
-		if endCursor != nil {
-			variables["after"] = *endCursor
-		}
-
-		respData, err := doGitHubGraphQLRequest(ctx, o.httpClient, token, query, variables)
-		if err != nil {
-			return err
-		}
-
-		tasks := make([]messaging.Task, 0, batchSize)
-		for _, node := range respData.Data.Organization.Repositories.Nodes {
-			tasks = append(tasks, messaging.Task{
-				TaskID:      generateTaskID(),
-				ResourceURI: buildGithubResourceURI(org, node.Name),
-				Metadata:    metadata,
-				Credentials: creds,
-			})
-		}
-
-		if len(tasks) > 0 {
-			taskCh <- tasks
-		}
-
-		pageInfo := respData.Data.Organization.Repositories.PageInfo
-		if !pageInfo.HasNextPage {
-			break
-		}
-		endCursor = &pageInfo.EndCursor
-	}
-
 	return nil
 }
 
-// extractGitHubToken retrieves the authentication token from GitHub credentials.
-// Returns an error if credentials are invalid or token is missing.
-func extractGitHubToken(creds *messaging.TaskCredentials) (string, error) {
-	if creds.Type != messaging.CredentialTypeGitHub && creds.Type != messaging.CredentialTypeUnauthenticated {
-		return "", fmt.Errorf("expected github credentials, got %s", creds.Type)
+// createEnumerator constructs the appropriate target enumerator based on the source type.
+// It handles credential setup and validation for the target type.
+func (o *Controller) createEnumerator(target config.TargetSpec) (TargetEnumerator, error) {
+	creds, err := o.credStore.GetCredentials(target.AuthRef)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get credentials: %w", err)
 	}
 
-	tokenVal, ok := creds.Values["auth_token"].(string)
-	if !ok || tokenVal == "" {
-		return "", fmt.Errorf("auth_token missing or empty in GitHub credentials")
+	var enumerator TargetEnumerator
+	switch target.SourceType {
+	case config.SourceTypeGitHub:
+		if target.GitHub == nil {
+			return nil, fmt.Errorf("github target configuration is missing")
+		}
+		enumerator, err = NewGitHubEnumerator(o.httpClient, creds, o.enumerationStateStorage)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create GitHub enumerator: %w", err)
+		}
+
+	case config.SourceTypeS3:
+		return nil, fmt.Errorf("S3 enumerator not implemented yet")
+
+	default:
+		return nil, fmt.Errorf("unsupported source type: %s", target.SourceType)
 	}
-	return tokenVal, nil
+
+	return enumerator, nil
 }
 
-// githubGraphQLResponse represents the structure of GitHub's GraphQL API response
-// for repository queries.
-type githubGraphQLResponse struct {
-	Data struct {
-		Organization struct {
-			Repositories struct {
-				Nodes []struct {
-					Name string `json:"name"`
-				} `json:"nodes"`
-				PageInfo struct {
-					HasNextPage bool   `json:"hasNextPage"`
-					EndCursor   string `json:"endCursor"`
-				} `json:"pageInfo"`
-			} `json:"repositories"`
-		} `json:"organization"`
-	} `json:"data"`
-	Errors []struct {
-		Message string `json:"message"`
-	} `json:"errors"`
-}
+// generateSessionID creates a unique identifier for each enumeration session.
+// This allows tracking and correlating all tasks and results from a single enumeration run.
+func generateSessionID() string { return uuid.New().String() }
 
-// doGitHubGraphQLRequest executes a GraphQL query against GitHub's API with proper authentication
-// and error handling.
-func doGitHubGraphQLRequest(
-	ctx context.Context,
-	client *http.Client,
-	token string,
-	query string,
-	variables map[string]any,
-) (*githubGraphQLResponse, error) {
-	const apiUrl = "https://api.github.com/graphql"
-
-	bodyMap := map[string]any{
-		"query":     query,
-		"variables": variables,
-	}
-	bodyData, err := json.Marshal(bodyMap)
+// marshalConfig serializes the target configuration into a JSON raw message.
+// This allows storing the complete target configuration with the enumeration state.
+func marshalConfig(target config.TargetSpec) json.RawMessage {
+	data, err := json.Marshal(target)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal graphql query: %w", err)
+		log.Printf("Failed to marshal target config: %v", err)
+		return nil
 	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiUrl, bytes.NewReader(bodyData))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create graphql request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("graphql request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		data, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("non-200 response from GitHub GraphQL API: %d %s", resp.StatusCode, string(data))
-	}
-
-	var result githubGraphQLResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("failed to decode graphql response: %w", err)
-	}
-
-	if len(result.Errors) > 0 {
-		return nil, fmt.Errorf("graphql errors: %v", result.Errors)
-	}
-
-	return &result, nil
+	return data
 }
 
 // generateTaskID creates a unique identifier for each scan task.
+// This allows tracking individual tasks through the processing pipeline.
 func generateTaskID() string { return uuid.New().String() }
-
-// buildGithubResourceURI creates a standardized URI for scan targets in the format "https://github.com/org/repo.git".
-func buildGithubResourceURI(org, repoName string) string {
-	return fmt.Sprintf("https://github.com/%s/%s.git", org, repoName)
-}
