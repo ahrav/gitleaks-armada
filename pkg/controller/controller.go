@@ -25,9 +25,11 @@ type Controller struct {
 	workQueue   messaging.Broker
 	credStore   *CredentialStore
 
+	// Storage for enumeration state and checkpoints.
 	enumerationStateStorage EnumerationStateStorage
 	checkpointStorage       CheckpointStorage
 
+	// State and control for the controller.
 	mu       sync.Mutex
 	running  bool
 	cancelFn context.CancelFunc
