@@ -1,6 +1,6 @@
 # Binaries
 /scanner
-/orchestrator
+/controller
 /secret-scanner
 
 # Build and environment
