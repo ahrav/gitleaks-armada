@@ -140,7 +140,7 @@ func TestInMemoryCheckpointStorage_ConcurrentOperations(t *testing.T) {
 	assert.NotNil(t, loaded.Data["value"])
 }
 
-func TestInMemoryCheckpointStorage_DeepCopy(t *testing.T) {
+func TestInMemoryCheckpointStorage_Mutability(t *testing.T) {
 	storage := NewInMemoryCheckpointStorage()
 	ctx := context.Background()
 

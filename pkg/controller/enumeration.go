@@ -86,7 +86,22 @@ func (s *InMemoryEnumerationStateStorage) Load(ctx context.Context) (*Enumeratio
 		return nil, nil
 	}
 
-	// Return a copy to prevent mutation of internal state.
-	copy := *s.state
-	return &copy, nil
+	// We need to make to deep copy the json and the checkpoint (if it exists).
+	copy := &EnumerationState{
+		SessionID:   s.state.SessionID,
+		SourceType:  s.state.SourceType,
+		Config:      append(json.RawMessage(nil), s.state.Config...),
+		LastUpdated: s.state.LastUpdated,
+		Status:      s.state.Status,
+	}
+
+	if s.state.LastCheckpoint != nil {
+		copy.LastCheckpoint = &Checkpoint{
+			TargetID:  s.state.LastCheckpoint.TargetID,
+			UpdatedAt: s.state.LastCheckpoint.UpdatedAt,
+			Data:      deepCopyMap(s.state.LastCheckpoint.Data),
+		}
+	}
+
+	return copy, nil
 }
