@@ -71,6 +71,10 @@ spec:
           timeoutSeconds: 5
           successThreshold: 1
           failureThreshold: 3
+      initContainers:
+      - name: wait-for-kafka
+        image: busybox:1.28
+        command: ['sh', '-c', 'until nc -z kafka 9092; do echo waiting for kafka; sleep 2; done;']
 ---
 apiVersion: v1
 kind: Service

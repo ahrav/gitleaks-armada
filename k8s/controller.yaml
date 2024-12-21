@@ -86,6 +86,10 @@ spec:
       - name: scanner-config
         secret:
           secretName: scanner-targets
+      initContainers:
+      - name: wait-for-kafka
+        image: busybox:1.28
+        command: ['sh', '-c', 'until nc -z kafka 9092; do echo waiting for kafka; sleep 2; done;']
 ---
 apiVersion: v1
 kind: Service

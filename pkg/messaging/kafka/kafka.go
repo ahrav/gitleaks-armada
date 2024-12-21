@@ -1,4 +1,4 @@
-package orchestration
+package kafka
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"github.com/IBM/sarama"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/ahrav/gitleaks-armada/pkg/messaging"
 	pb "github.com/ahrav/gitleaks-armada/proto/scanner"
 )
 
@@ -50,7 +51,7 @@ func NewKafkaBroker(cfg *KafkaConfig) (*KafkaBroker, error) {
 }
 
 // PublishTask publishes a single scan task to Kafka.
-func (k *KafkaBroker) PublishTask(ctx context.Context, task Task) error {
+func (k *KafkaBroker) PublishTask(ctx context.Context, task messaging.Task) error {
 	pbTask := &pb.ScanTask{
 		TaskId:      task.TaskID,
 		ResourceUri: task.ResourceURI,
@@ -71,7 +72,7 @@ func (k *KafkaBroker) PublishTask(ctx context.Context, task Task) error {
 }
 
 // PublishTasks publishes multiple scan tasks to Kafka.
-func (k *KafkaBroker) PublishTasks(ctx context.Context, tasks []Task) error {
+func (k *KafkaBroker) PublishTasks(ctx context.Context, tasks []messaging.Task) error {
 	for _, t := range tasks {
 		if err := k.PublishTask(ctx, t); err != nil {
 			return err
@@ -81,7 +82,7 @@ func (k *KafkaBroker) PublishTasks(ctx context.Context, tasks []Task) error {
 }
 
 // PublishResult publishes a scan result to Kafka.
-func (k *KafkaBroker) PublishResult(ctx context.Context, result ScanResult) error {
+func (k *KafkaBroker) PublishResult(ctx context.Context, result messaging.ScanResult) error {
 	pbFindings := make([]*pb.Finding, len(result.Findings))
 	for i, f := range result.Findings {
 		pbFindings[i] = &pb.Finding{
@@ -95,9 +96,9 @@ func (k *KafkaBroker) PublishResult(ctx context.Context, result ScanResult) erro
 
 	pbStatus := pb.ScanStatus_SCAN_STATUS_UNSPECIFIED
 	switch result.Status {
-	case ScanStatusSuccess:
+	case messaging.ScanStatusSuccess:
 		pbStatus = pb.ScanStatus_SCAN_STATUS_SUCCESS
-	case ScanStatusError:
+	case messaging.ScanStatusError:
 		pbStatus = pb.ScanStatus_SCAN_STATUS_ERROR
 	}
 
@@ -122,7 +123,7 @@ func (k *KafkaBroker) PublishResult(ctx context.Context, result ScanResult) erro
 }
 
 // PublishProgress publishes scan progress updates to Kafka.
-func (k *KafkaBroker) PublishProgress(ctx context.Context, progress ScanProgress) error {
+func (k *KafkaBroker) PublishProgress(ctx context.Context, progress messaging.ScanProgress) error {
 	pbProgress := &pb.ScanProgress{
 		TaskId:          progress.TaskID,
 		PercentComplete: progress.PercentComplete,
@@ -145,7 +146,7 @@ func (k *KafkaBroker) PublishProgress(ctx context.Context, progress ScanProgress
 }
 
 // SubscribeTasks registers a handler function to process incoming scan tasks.
-func (k *KafkaBroker) SubscribeTasks(ctx context.Context, handler func(Task) error) error {
+func (k *KafkaBroker) SubscribeTasks(ctx context.Context, handler func(messaging.Task) error) error {
 	h := &taskHandler{
 		taskTopic: k.taskTopic,
 		handler:   handler,
@@ -156,7 +157,7 @@ func (k *KafkaBroker) SubscribeTasks(ctx context.Context, handler func(Task) err
 }
 
 // SubscribeResults registers a handler function to process incoming scan results.
-func (k *KafkaBroker) SubscribeResults(ctx context.Context, handler func(ScanResult) error) error {
+func (k *KafkaBroker) SubscribeResults(ctx context.Context, handler func(messaging.ScanResult) error) error {
 	h := &resultsHandler{
 		resultsTopic: k.resultsTopic,
 		handler:      handler,
@@ -167,7 +168,7 @@ func (k *KafkaBroker) SubscribeResults(ctx context.Context, handler func(ScanRes
 }
 
 // SubscribeProgress registers a handler function to process incoming progress updates.
-func (k *KafkaBroker) SubscribeProgress(ctx context.Context, handler func(ScanProgress) error) error {
+func (k *KafkaBroker) SubscribeProgress(ctx context.Context, handler func(messaging.ScanProgress) error) error {
 	h := &progressHandler{
 		progressTopic: k.progressTopic,
 		handler:       handler,
@@ -193,7 +194,7 @@ func consumeLoop(ctx context.Context, cg sarama.ConsumerGroup, topics []string, 
 
 type taskHandler struct {
 	taskTopic string
-	handler   func(Task) error
+	handler   func(messaging.Task) error
 }
 
 func (h *taskHandler) Setup(_ sarama.ConsumerGroupSession) error   { return nil }
@@ -207,7 +208,7 @@ func (h *taskHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, claim saram
 			continue
 		}
 
-		task := Task{
+		task := messaging.Task{
 			TaskID:      pbTask.TaskId,
 			ResourceURI: pbTask.ResourceUri,
 			Metadata:    pbTask.Metadata,
@@ -223,7 +224,7 @@ func (h *taskHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, claim saram
 
 type resultsHandler struct {
 	resultsTopic string
-	handler      func(ScanResult) error
+	handler      func(messaging.ScanResult) error
 }
 
 func (h *resultsHandler) Setup(_ sarama.ConsumerGroupSession) error   { return nil }
@@ -237,9 +238,9 @@ func (h *resultsHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, claim sa
 			continue
 		}
 
-		findings := make([]Finding, len(pbResult.Findings))
+		findings := make([]messaging.Finding, len(pbResult.Findings))
 		for i, f := range pbResult.Findings {
-			findings[i] = Finding{
+			findings[i] = messaging.Finding{
 				Location:   f.Location,
 				LineNumber: f.LineNumber,
 				SecretType: f.SecretType,
@@ -248,17 +249,17 @@ func (h *resultsHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, claim sa
 			}
 		}
 
-		var status ScanStatus
+		var status messaging.ScanStatus
 		switch pbResult.Status {
 		case pb.ScanStatus_SCAN_STATUS_SUCCESS:
-			status = ScanStatusSuccess
+			status = messaging.ScanStatusSuccess
 		case pb.ScanStatus_SCAN_STATUS_ERROR:
-			status = ScanStatusError
+			status = messaging.ScanStatusError
 		default:
-			status = ScanStatusUnspecified
+			status = messaging.ScanStatusUnspecified
 		}
 
-		result := ScanResult{
+		result := messaging.ScanResult{
 			TaskID:   pbResult.TaskId,
 			Findings: findings,
 			Status:   status,
@@ -275,7 +276,7 @@ func (h *resultsHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, claim sa
 
 type progressHandler struct {
 	progressTopic string
-	handler       func(ScanProgress) error
+	handler       func(messaging.ScanProgress) error
 }
 
 func (h *progressHandler) Setup(_ sarama.ConsumerGroupSession) error   { return nil }
@@ -289,7 +290,7 @@ func (h *progressHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, claim s
 			continue
 		}
 
-		progress := ScanProgress{
+		progress := messaging.ScanProgress{
 			TaskID:          pbProgress.TaskId,
 			PercentComplete: pbProgress.PercentComplete,
 			ItemsProcessed:  pbProgress.ItemsProcessed,

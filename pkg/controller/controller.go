@@ -1,4 +1,4 @@
-package orchestration
+package controller
 
 import (
 	"bytes"
@@ -14,14 +14,16 @@ import (
 	"github.com/google/uuid"
 	"gopkg.in/yaml.v3"
 
+	"github.com/ahrav/gitleaks-armada/pkg/cluster"
 	"github.com/ahrav/gitleaks-armada/pkg/config"
+	"github.com/ahrav/gitleaks-armada/pkg/messaging"
 	"github.com/ahrav/gitleaks-armada/pkg/metrics"
 )
 
 // Controller coordinates work distribution across a cluster of workers.
 type Controller struct {
-	coordinator Coordinator
-	workQueue   Broker
+	coordinator cluster.Coordinator
+	workQueue   messaging.Broker
 	credStore   *CredentialStore
 
 	mu       sync.Mutex
@@ -35,7 +37,7 @@ type Controller struct {
 
 // NewController creates a Controller instance that coordinates work distribution
 // using the provided coordinator for leader election and broker for task queuing.
-func NewController(coord Coordinator, queue Broker, metrics metrics.ControllerMetrics) *Controller {
+func NewController(coord cluster.Coordinator, queue messaging.Broker, metrics metrics.ControllerMetrics) *Controller {
 	return &Controller{
 		coordinator: coord,
 		workQueue:   queue,
@@ -162,7 +164,7 @@ func (o *Controller) ProcessTarget(ctx context.Context) error {
 			}
 
 			var token string
-			if creds.Type == CredentialTypeGitHub {
+			if creds.Type == messaging.CredentialTypeGitHub {
 				token, err = extractGitHubToken(creds)
 				if err != nil {
 					return fmt.Errorf("failed to extract GitHub token: %w", err)
@@ -183,9 +185,9 @@ func (o *Controller) processGitHubTarget(
 	ctx context.Context,
 	token string,
 	ghConfig *config.GitHubTarget,
-	creds *TaskCredentials,
+	creds *messaging.TaskCredentials,
 ) error {
-	taskCh := make(chan []Task)
+	taskCh := make(chan []messaging.Task)
 	errCh := make(chan error, 1)
 
 	// Start publisher goroutine to handle batches of tasks.
@@ -210,9 +212,9 @@ func (o *Controller) processGitHubTarget(
 	}
 
 	if len(ghConfig.RepoList) > 0 {
-		tasks := make([]Task, 0, len(ghConfig.RepoList))
+		tasks := make([]messaging.Task, 0, len(ghConfig.RepoList))
 		for _, repo := range ghConfig.RepoList {
-			tasks = append(tasks, Task{
+			tasks = append(tasks, messaging.Task{
 				TaskID:      generateTaskID(),
 				ResourceURI: buildGithubResourceURI(ghConfig.Org, repo),
 				Metadata:    ghConfig.Metadata,
@@ -240,8 +242,8 @@ func (o *Controller) processGitHubOrgRepos(
 	token string,
 	org string,
 	metadata map[string]string,
-	creds *TaskCredentials,
-	taskCh chan<- []Task,
+	creds *messaging.TaskCredentials,
+	taskCh chan<- []messaging.Task,
 ) error {
 	query := `
 	query($org: String!, $after: String) {
@@ -274,9 +276,9 @@ func (o *Controller) processGitHubOrgRepos(
 			return err
 		}
 
-		tasks := make([]Task, 0, batchSize)
+		tasks := make([]messaging.Task, 0, batchSize)
 		for _, node := range respData.Data.Organization.Repositories.Nodes {
-			tasks = append(tasks, Task{
+			tasks = append(tasks, messaging.Task{
 				TaskID:      generateTaskID(),
 				ResourceURI: buildGithubResourceURI(org, node.Name),
 				Metadata:    metadata,
@@ -300,8 +302,8 @@ func (o *Controller) processGitHubOrgRepos(
 
 // extractGitHubToken retrieves the authentication token from GitHub credentials.
 // Returns an error if credentials are invalid or token is missing.
-func extractGitHubToken(creds *TaskCredentials) (string, error) {
-	if creds.Type != CredentialTypeGitHub && creds.Type != CredentialTypeUnauthenticated {
+func extractGitHubToken(creds *messaging.TaskCredentials) (string, error) {
+	if creds.Type != messaging.CredentialTypeGitHub && creds.Type != messaging.CredentialTypeUnauthenticated {
 		return "", fmt.Errorf("expected github credentials, got %s", creds.Type)
 	}
 

@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"log"
-	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -12,12 +11,10 @@ import (
 
 	"go.uber.org/automaxprocs/maxprocs"
 
+	"github.com/ahrav/gitleaks-armada/pkg/common"
+	"github.com/ahrav/gitleaks-armada/pkg/messaging/kafka"
 	"github.com/ahrav/gitleaks-armada/pkg/metrics"
-	"github.com/ahrav/gitleaks-armada/pkg/orchestration"
-)
-
-var (
-	ready atomic.Bool
+	"github.com/ahrav/gitleaks-armada/pkg/scanner"
 )
 
 func main() {
@@ -26,30 +23,30 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Start health server.
-	healthServer := setupHealthServer()
+	ready := &atomic.Bool{}
+	healthServer := common.NewHealthServer(ready)
 	defer func() {
-		if err := healthServer.Shutdown(ctx); err != nil {
+		if err := healthServer.Server().Shutdown(ctx); err != nil {
 			log.Printf("Error shutting down health server: %v", err)
 		}
 	}()
 
-	brokers := strings.Split(os.Getenv("KAFKA_BROKERS"), ",")
-	cfg := &orchestration.KafkaConfig{
-		Brokers:      brokers,
+	kafkaCfg := &kafka.KafkaConfig{
+		Brokers:      strings.Split(os.Getenv("KAFKA_BROKERS"), ","),
 		TaskTopic:    os.Getenv("KAFKA_TASK_TOPIC"),
 		ResultsTopic: os.Getenv("KAFKA_RESULTS_TOPIC"),
 		GroupID:      os.Getenv("KAFKA_GROUP_ID"),
 	}
 
-	broker, err := orchestration.NewKafkaBroker(cfg)
+	broker, err := common.ConnectKafkaWithRetry(kafkaCfg)
 	if err != nil {
 		log.Fatalf("Failed to create Kafka broker: %v", err)
 	}
-	log.Println("Kafka broker created successfully")
+	log.Println("Successfully connected to Kafka")
 
-	// Start metrics server
-	// m := metrics.New("scanner_worker")
+	m := metrics.New("scanner_worker")
+	scanner := scanner.NewScanner(broker, m)
+
 	go func() {
 		if err := metrics.StartServer(":8081"); err != nil {
 			log.Printf("metrics server error: %v", err)
@@ -67,42 +64,11 @@ func main() {
 		cancel()
 	}()
 
-	log.Println("Subscribing to tasks...")
-	if err := broker.SubscribeTasks(ctx, handleScanTask); err != nil {
-		log.Fatalf("Failed to subscribe to tasks: %v", err)
+	log.Println("Starting scanner...")
+	if err := scanner.Run(ctx); err != nil {
+		log.Printf("Scanner error: %v", err)
 	}
 
 	<-ctx.Done()
 	log.Println("Shutdown complete")
-}
-
-func handleScanTask(task orchestration.Task) error {
-	log.Printf("Scanning task: %s", task.ResourceURI)
-	return nil
-}
-
-func setupHealthServer() *http.Server {
-	mux := http.NewServeMux()
-
-	mux.HandleFunc("/v1/readiness", func(w http.ResponseWriter, r *http.Request) {
-		if !ready.Load() {
-			http.Error(w, "Not ready", http.StatusServiceUnavailable)
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-	})
-
-	mux.HandleFunc("/v1/health", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
-
-	server := &http.Server{Addr: ":8080", Handler: mux}
-
-	go func() {
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Printf("Health server error: %v", err)
-		}
-	}()
-
-	return server
 }

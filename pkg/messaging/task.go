@@ -1,11 +1,56 @@
-package orchestration
+package messaging
 
 import (
 	"fmt"
 
-	"github.com/ahrav/gitleaks-armada/pkg/config"
 	pb "github.com/ahrav/gitleaks-armada/proto/scanner"
 )
+
+type Task struct {
+	TaskID      string            // Unique identifier for the task
+	ResourceURI string            // Location of the resource to scan
+	Metadata    map[string]string // Additional context for task processing
+	Credentials *TaskCredentials  // Authentication credentials for the resource
+}
+
+type ScanStatus string
+
+const (
+	ScanStatusUnspecified ScanStatus = "UNSPECIFIED" // Initial or unknown state
+	ScanStatusSuccess     ScanStatus = "SUCCESS"     // Scan completed successfully
+	ScanStatusError       ScanStatus = "ERROR"       // Scan failed
+
+// Task represents a unit of scanning work to be processed by workers.
+// It contains the necessary information to locate and scan a resource.
+// ScanStatus represents the completion state of a scan operation.
+
+)
+
+// Finding represents a single secret or sensitive data match discovered during scanning.
+type Finding struct {
+	Location   string  // Where the secret was found (e.g., file path)
+	LineNumber int32   // Line number in the source file
+	SecretType string  // Category of secret (e.g., "API Key", "Password")
+	Match      string  // The actual text that matched
+	Confidence float64 // Probability that this is a true positive
+}
+
+// ScanResult contains the findings and status from a completed scan task.
+type ScanResult struct {
+	TaskID   string    // References the original Task
+	Findings []Finding // List of discovered secrets
+	Status   ScanStatus
+	Error    string // Description of failure if Status is ERROR
+}
+
+// ScanProgress provides information about an ongoing scan operation.
+type ScanProgress struct {
+	TaskID          string
+	PercentComplete float32           // Overall scan progress (0-100)
+	ItemsProcessed  int64             // Number of items (e.g., files) processed
+	TotalItems      int64             // Total number of items to process
+	Metadata        map[string]string // Additional progress information
+}
 
 // CredentialType represents the supported authentication mechanisms for scanning targets.
 type CredentialType string
@@ -21,40 +66,6 @@ const (
 	CredentialTypeS3 CredentialType = "s3"
 )
 
-// CredentialStore provides centralized access to authentication configurations.
-// It maps auth references to their corresponding credentials.
-type CredentialStore struct {
-	credentials map[string]*TaskCredentials
-}
-
-// NewCredentialStore initializes a store from a map of auth configurations.
-// It validates and transforms each config into concrete credentials.
-func NewCredentialStore(authConfigs map[string]config.AuthConfig) (*CredentialStore, error) {
-	store := &CredentialStore{
-		credentials: make(map[string]*TaskCredentials),
-	}
-
-	for name, auth := range authConfigs {
-		creds, err := createCredentials(CredentialType(auth.Type), auth.Config)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create credentials for %s: %w", name, err)
-		}
-		store.credentials[name] = creds
-	}
-
-	return store, nil
-}
-
-// GetCredentials looks up credentials by their reference name.
-// Returns an error if the reference doesn't exist.
-func (s *CredentialStore) GetCredentials(authRef string) (*TaskCredentials, error) {
-	creds, ok := s.credentials[authRef]
-	if !ok {
-		return nil, fmt.Errorf("no credentials found for auth_ref: %s", authRef)
-	}
-	return creds, nil
-}
-
 // TaskCredentials encapsulates authentication details for a specific target.
 // Values stores credential data in a type-safe way.
 type TaskCredentials struct {
@@ -62,9 +73,9 @@ type TaskCredentials struct {
 	Values map[string]any
 }
 
-// createCredentials constructs the appropriate credential type based on the provided config.
+// CreateCredentials constructs the appropriate credential type based on the provided config.
 // Returns an error if required fields are missing or the type is unsupported.
-func createCredentials(credType CredentialType, config map[string]any) (*TaskCredentials, error) {
+func CreateCredentials(credType CredentialType, config map[string]any) (*TaskCredentials, error) {
 	switch credType {
 	case CredentialTypeUnauthenticated:
 		return NewUnauthenticatedCredentials(), nil

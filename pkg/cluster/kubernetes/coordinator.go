@@ -12,11 +12,11 @@ import (
 	"k8s.io/client-go/tools/leaderelection"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
 
-	"github.com/ahrav/gitleaks-armada/pkg/orchestration"
+	"github.com/ahrav/gitleaks-armada/pkg/cluster"
 )
 
 // Compile-time check to verify that Coordinator implements the Coordinator interface.
-var _ orchestration.Coordinator = new(Coordinator)
+var _ cluster.Coordinator = new(Coordinator)
 
 // Coordinator manages high availability and leader election for the orchestration system
 // using Kubernetes primitives. Only one coordinator is active at a time to prevent

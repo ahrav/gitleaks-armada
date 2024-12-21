@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"log"
-	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -12,13 +11,11 @@ import (
 
 	"go.uber.org/automaxprocs/maxprocs"
 
+	"github.com/ahrav/gitleaks-armada/pkg/cluster/kubernetes"
+	"github.com/ahrav/gitleaks-armada/pkg/common"
+	"github.com/ahrav/gitleaks-armada/pkg/controller"
+	"github.com/ahrav/gitleaks-armada/pkg/messaging/kafka"
 	"github.com/ahrav/gitleaks-armada/pkg/metrics"
-	"github.com/ahrav/gitleaks-armada/pkg/orchestration"
-	"github.com/ahrav/gitleaks-armada/pkg/orchestration/kubernetes"
-)
-
-var (
-	ready atomic.Bool
 )
 
 func main() {
@@ -27,10 +24,10 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Start health server.
-	healthServer := setupHealthServer()
+	ready := &atomic.Bool{}
+	healthServer := common.NewHealthServer(ready)
 	defer func() {
-		if err := healthServer.Shutdown(ctx); err != nil {
+		if err := healthServer.Server().Shutdown(ctx); err != nil {
 			log.Printf("Error shutting down health server: %v", err)
 		}
 	}()
@@ -59,18 +56,18 @@ func main() {
 	}
 	defer coord.Stop()
 
-	brokers := strings.Split(os.Getenv("KAFKA_BROKERS"), ",")
-	kafkaCfg := &orchestration.KafkaConfig{
-		Brokers:      brokers,
+	kafkaCfg := &kafka.KafkaConfig{
+		Brokers:      strings.Split(os.Getenv("KAFKA_BROKERS"), ","),
 		TaskTopic:    os.Getenv("KAFKA_TASK_TOPIC"),
 		ResultsTopic: os.Getenv("KAFKA_RESULTS_TOPIC"),
 		GroupID:      "orchestrator-group",
 	}
 
-	broker, err := orchestration.NewKafkaBroker(kafkaCfg)
+	broker, err := common.ConnectKafkaWithRetry(kafkaCfg)
 	if err != nil {
 		log.Fatalf("Failed to create Kafka broker: %v", err)
 	}
+	log.Println("Successfully connected to Kafka")
 
 	m := metrics.New("scanner_controller")
 	go func() {
@@ -79,7 +76,7 @@ func main() {
 		}
 	}()
 
-	orch := orchestration.NewController(coord, broker, m)
+	ctrl := controller.NewController(coord, broker, m)
 
 	ready.Store(true)
 
@@ -87,7 +84,7 @@ func main() {
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
 	log.Println("Starting orchestrator...")
-	leaderChan, err := orch.Run(ctx)
+	leaderChan, err := ctrl.Run(ctx)
 	if err != nil {
 		log.Fatalf("failed to run orchestrator: %v", err)
 	}
@@ -104,30 +101,4 @@ func main() {
 	case <-ctx.Done():
 		log.Println("Context cancelled, stopping orchestrator...")
 	}
-}
-
-func setupHealthServer() *http.Server {
-	mux := http.NewServeMux()
-
-	mux.HandleFunc("/v1/readiness", func(w http.ResponseWriter, r *http.Request) {
-		if !ready.Load() {
-			http.Error(w, "Not ready", http.StatusServiceUnavailable)
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-	})
-
-	mux.HandleFunc("/v1/health", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
-
-	server := &http.Server{Addr: ":8080", Handler: mux}
-
-	go func() {
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Printf("Health server error: %v", err)
-		}
-	}()
-
-	return server
 }
