@@ -30,12 +30,15 @@ ZOOKEEPER_IMAGE := bitnami/zookeeper:latest
 CONFIG_FILE ?= config.yaml
 SECRET_NAME ?= scanner-targets
 
+# Add to Variables section
+POSTGRES_IMAGE := postgres:17.2
+
 # -------------------------------------------------------------------------------
 # Targets
 # -------------------------------------------------------------------------------
-.PHONY: all build-controller build-scanner docker-controller docker-scanner kind-up kind-down kind-load dev-apply dev-status clean proto proto-gen kafka-setup kafka-logs kafka-topics kafka-restart kafka-delete create-config-secret monitoring-setup monitoring-port-forward monitoring-cleanup
+.PHONY: all build-controller build-scanner docker-controller docker-scanner kind-up kind-down kind-load dev-apply dev-status clean proto proto-gen kafka-setup kafka-logs kafka-topics kafka-restart kafka-delete create-config-secret monitoring-setup monitoring-port-forward monitoring-cleanup postgres-setup postgres-logs postgres-restart postgres-delete
 
-all: build-all docker-all kind-load kafka-setup dev-apply create-config-secret monitoring-setup
+all: build-all docker-all kind-load kafka-setup postgres-setup dev-apply create-config-secret monitoring-setup
 
 # Build targets
 build-all: proto-gen build-controller build-scanner
@@ -98,6 +101,7 @@ clean:
 	kubectl delete deployment kafka zookeeper -n $(NAMESPACE) || true
 	kubectl delete -f $(K8S_MANIFESTS)/prometheus.yaml -n $(NAMESPACE) || true
 	kubectl delete -f $(K8S_MANIFESTS)/grafana.yaml -n $(NAMESPACE) || true
+	kubectl delete -f $(K8S_MANIFESTS)/postgres.yaml -n $(NAMESPACE) || true
 
 # Additional convenience targets
 dev: kind-up all
@@ -214,4 +218,21 @@ monitoring-port-forward:
 monitoring-cleanup:
 	kubectl delete -f $(K8S_MANIFESTS)/prometheus.yaml -n $(NAMESPACE) || true
 	kubectl delete -f $(K8S_MANIFESTS)/grafana.yaml -n $(NAMESPACE) || true
+
+# Add new postgres targets
+postgres-setup:
+	@echo "Setting up PostgreSQL..."
+	docker pull $(POSTGRES_IMAGE)
+	kind load docker-image $(POSTGRES_IMAGE) --name $(KIND_CLUSTER)
+	kubectl apply -f $(K8S_MANIFESTS)/postgres.yaml -n $(NAMESPACE)
+	@echo "Waiting for PostgreSQL to be ready..."
+	kubectl wait --for=condition=ready pod -l app=postgres --timeout=120s -n $(NAMESPACE)
+
+postgres-logs:
+	kubectl logs -l app=postgres -n $(NAMESPACE) --tail=100 -f
+
+postgres-delete:
+	kubectl delete -f $(K8S_MANIFESTS)/postgres.yaml -n $(NAMESPACE) || true
+
+postgres-restart: postgres-delete postgres-setup
 

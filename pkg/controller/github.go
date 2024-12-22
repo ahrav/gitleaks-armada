@@ -14,6 +14,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/common"
 	"github.com/ahrav/gitleaks-armada/pkg/config"
 	"github.com/ahrav/gitleaks-armada/pkg/messaging"
+	"github.com/ahrav/gitleaks-armada/pkg/storage"
 )
 
 // GitHubEnumerator handles enumerating repositories from a GitHub organization.
@@ -25,7 +26,7 @@ type GitHubEnumerator struct {
 	token    string
 
 	ghClient *GitHubClient
-	storage  EnumerationStateStorage
+	storage  storage.EnumerationStateStorage
 }
 
 // NewGitHubEnumerator creates a new GitHubEnumerator with the provided HTTP client,
@@ -34,7 +35,8 @@ type GitHubEnumerator struct {
 func NewGitHubEnumerator(
 	httpClient *http.Client,
 	creds *messaging.TaskCredentials,
-	storage EnumerationStateStorage,
+	storage storage.EnumerationStateStorage,
+	ghConfig *config.GitHubTarget,
 ) (*GitHubEnumerator, error) {
 	var token string
 	if creds.Type == messaging.CredentialTypeGitHub {
@@ -49,6 +51,7 @@ func NewGitHubEnumerator(
 		token:    token,
 		creds:    creds,
 		storage:  storage,
+		ghConfig: ghConfig,
 	}, nil
 }
 
@@ -70,7 +73,7 @@ func extractGitHubToken(creds *messaging.TaskCredentials) (string, error) {
 // It uses GraphQL for efficient pagination and maintains checkpoints for resumability.
 // The method streams batches of tasks through the provided channel and updates progress
 // in the enumeration state storage.
-func (e *GitHubEnumerator) Enumerate(ctx context.Context, checkpoint *Checkpoint, taskCh chan<- []messaging.Task) error {
+func (e *GitHubEnumerator) Enumerate(ctx context.Context, checkpoint *storage.Checkpoint, taskCh chan<- []messaging.Task) error {
 	if e.ghConfig.Org == "" {
 		return fmt.Errorf("must provide a valid org")
 	}
@@ -144,7 +147,7 @@ func (e *GitHubEnumerator) Enumerate(ctx context.Context, checkpoint *Checkpoint
 		// Save progress after each successful batch.
 		// I think this is granular enough to resume from.
 		endCursor = &pageInfo.EndCursor
-		checkpoint = &Checkpoint{
+		checkpoint = &storage.Checkpoint{
 			TargetID: e.ghConfig.Org,
 			Data: map[string]any{
 				"endCursor": *endCursor,

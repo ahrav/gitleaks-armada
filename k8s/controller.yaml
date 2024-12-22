@@ -53,6 +53,20 @@ spec:
             configMapKeyRef:
               name: scanner-config
               key: KAFKA_BROKERS
+        - name: POSTGRES_USER
+          valueFrom:
+            configMapKeyRef:
+              name: postgres-config
+              key: POSTGRES_USER
+        - name: POSTGRES_PASSWORD
+          value: postgres
+        - name: POSTGRES_HOST
+          value: postgres
+        - name: POSTGRES_DB
+          valueFrom:
+            configMapKeyRef:
+              name: postgres-config
+              key: POSTGRES_DB
         resources:
           requests:
             memory: "256Mi"

@@ -1,13 +1,40 @@
-package controller
+package storage
 
 import (
 	"context"
 	"encoding/json"
-	"sync"
 	"time"
 
 	"github.com/ahrav/gitleaks-armada/pkg/messaging"
 )
+
+// Checkpoint stores progress information for resumable target enumeration.
+// It enables reliable scanning of large data sources by tracking the last
+// successfully processed position.
+type Checkpoint struct {
+	ID        int64          `json:"id"`
+	TargetID  string         `json:"target_id"`
+	Data      map[string]any `json:"data"`
+	UpdatedAt time.Time      `json:"updated_at"`
+}
+
+// CheckpointStorage provides persistent storage for enumeration checkpoints.
+// Implementations allow saving and retrieving checkpoint state to enable
+// resumable scanning across process restarts.
+type CheckpointStorage interface {
+	// Save persists a checkpoint for later retrieval.
+	Save(ctx context.Context, checkpoint *Checkpoint) error
+
+	// Load by target ID (for business logic)
+	Load(ctx context.Context, targetID string) (*Checkpoint, error)
+
+	// LoadByID loads a checkpoint by its database ID.
+	LoadByID(ctx context.Context, id int64) (*Checkpoint, error)
+
+	// Delete removes a checkpoint for the given target.
+	// It is not an error if the checkpoint does not exist.
+	Delete(ctx context.Context, targetID string) error
+}
 
 // EnumerationState tracks the progress and status of a target enumeration session.
 // It maintains configuration, checkpoints, and status to enable resumable scanning
@@ -50,58 +77,4 @@ type EnumerationStateStorage interface {
 	// Load retrieves the current active enumeration session state.
 	// Returns nil if no active session exists.
 	Load(ctx context.Context) (*EnumerationState, error)
-}
-
-// InMemoryEnumerationStateStorage provides a thread-safe in-memory implementation
-// of EnumerationStateStorage for testing and development.
-type InMemoryEnumerationStateStorage struct {
-	mu    sync.Mutex
-	state *EnumerationState
-}
-
-// NewInMemoryEnumerationStateStorage creates an empty in-memory state storage.
-func NewInMemoryEnumerationStateStorage() *InMemoryEnumerationStateStorage {
-	return new(InMemoryEnumerationStateStorage)
-}
-
-// Save stores the provided state as the current active enumeration session.
-// Any existing state is overwritten.
-func (s *InMemoryEnumerationStateStorage) Save(ctx context.Context, state *EnumerationState) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	state.LastUpdated = time.Now()
-
-	s.state = state
-	return nil
-}
-
-// Load retrieves the current active enumeration session state.
-// Returns nil if no state exists to prevent operating on invalid state.
-func (s *InMemoryEnumerationStateStorage) Load(ctx context.Context) (*EnumerationState, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.state == nil {
-		return nil, nil
-	}
-
-	// We need to make to deep copy the json and the checkpoint (if it exists).
-	copy := &EnumerationState{
-		SessionID:   s.state.SessionID,
-		SourceType:  s.state.SourceType,
-		Config:      append(json.RawMessage(nil), s.state.Config...),
-		LastUpdated: s.state.LastUpdated,
-		Status:      s.state.Status,
-	}
-
-	if s.state.LastCheckpoint != nil {
-		copy.LastCheckpoint = &Checkpoint{
-			TargetID:  s.state.LastCheckpoint.TargetID,
-			UpdatedAt: s.state.LastCheckpoint.UpdatedAt,
-			Data:      deepCopyMap(s.state.LastCheckpoint.Data),
-		}
-	}
-
-	return copy, nil
 }

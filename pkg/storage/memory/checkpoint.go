@@ -1,51 +1,28 @@
-package controller
+package memory
 
 import (
 	"context"
 	"sync"
 	"time"
+
+	"github.com/ahrav/gitleaks-armada/pkg/storage"
 )
-
-// Checkpoint stores progress information for resumable target enumeration.
-// It enables reliable scanning of large data sources by tracking the last
-// successfully processed position.
-type Checkpoint struct {
-	TargetID  string         `json:"target_id"`
-	Data      map[string]any `json:"data"`
-	UpdatedAt time.Time      `json:"updated_at"`
-}
-
-// CheckpointStorage provides persistent storage for enumeration checkpoints.
-// Implementations allow saving and retrieving checkpoint state to enable
-// resumable scanning across process restarts.
-type CheckpointStorage interface {
-	// Save persists a checkpoint for later retrieval.
-	Save(ctx context.Context, checkpoint *Checkpoint) error
-
-	// Load retrieves a checkpoint by target ID.
-	// Returns nil if no checkpoint exists for the target.
-	Load(ctx context.Context, targetID string) (*Checkpoint, error)
-
-	// Delete removes a checkpoint for the given target.
-	// It is not an error if the checkpoint does not exist.
-	Delete(ctx context.Context, targetID string) error
-}
 
 // InMemoryCheckpointStorage provides a thread-safe in-memory implementation
 // of CheckpointStorage for testing and development.
 type InMemoryCheckpointStorage struct {
 	mu          sync.Mutex
-	checkpoints map[string]*Checkpoint
+	checkpoints map[string]*storage.Checkpoint
 }
 
 // NewInMemoryCheckpointStorage creates an empty in-memory checkpoint store.
 func NewInMemoryCheckpointStorage() *InMemoryCheckpointStorage {
 	return &InMemoryCheckpointStorage{
-		checkpoints: make(map[string]*Checkpoint),
+		checkpoints: make(map[string]*storage.Checkpoint),
 	}
 }
 
-func (cs *InMemoryCheckpointStorage) Save(ctx context.Context, checkpoint *Checkpoint) error {
+func (cs *InMemoryCheckpointStorage) Save(ctx context.Context, checkpoint *storage.Checkpoint) error {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 
@@ -54,7 +31,7 @@ func (cs *InMemoryCheckpointStorage) Save(ctx context.Context, checkpoint *Check
 	return nil
 }
 
-func (cs *InMemoryCheckpointStorage) Load(ctx context.Context, targetID string) (*Checkpoint, error) {
+func (cs *InMemoryCheckpointStorage) Load(ctx context.Context, targetID string) (*storage.Checkpoint, error) {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 
@@ -64,7 +41,7 @@ func (cs *InMemoryCheckpointStorage) Load(ctx context.Context, targetID string) 
 	}
 
 	// This needs to be a deep copy to prevent mutation of stored checkpoint.
-	copy := &Checkpoint{
+	copy := &storage.Checkpoint{
 		TargetID:  cp.TargetID,
 		UpdatedAt: cp.UpdatedAt,
 		Data:      deepCopyMap(cp.Data),
@@ -102,4 +79,22 @@ func (cs *InMemoryCheckpointStorage) Delete(ctx context.Context, targetID string
 
 	delete(cs.checkpoints, targetID)
 	return nil
+}
+
+func (cs *InMemoryCheckpointStorage) LoadByID(ctx context.Context, id int64) (*storage.Checkpoint, error) {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+
+	// In memory implementation might need to scan through checkpoints to find by ID
+	for _, cp := range cs.checkpoints {
+		if cp.ID == id {
+			return &storage.Checkpoint{
+				ID:        cp.ID,
+				TargetID:  cp.TargetID,
+				Data:      deepCopyMap(cp.Data),
+				UpdatedAt: cp.UpdatedAt,
+			}, nil
+		}
+	}
+	return nil, nil
 }

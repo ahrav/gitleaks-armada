@@ -17,6 +17,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/config"
 	"github.com/ahrav/gitleaks-armada/pkg/messaging"
 	"github.com/ahrav/gitleaks-armada/pkg/metrics"
+	"github.com/ahrav/gitleaks-armada/pkg/storage"
 )
 
 // Controller coordinates work distribution across a cluster of workers.
@@ -26,8 +27,8 @@ type Controller struct {
 	credStore   *CredentialStore
 
 	// Storage for enumeration state and checkpoints.
-	enumerationStateStorage EnumerationStateStorage
-	checkpointStorage       CheckpointStorage
+	enumerationStateStorage storage.EnumerationStateStorage
+	checkpointStorage       storage.CheckpointStorage
 
 	// State and control for the controller.
 	mu       sync.Mutex
@@ -44,8 +45,8 @@ type Controller struct {
 func NewController(
 	coord cluster.Coordinator,
 	queue messaging.Broker,
-	enumerationStateStorage EnumerationStateStorage,
-	checkpointStorage CheckpointStorage,
+	enumerationStateStorage storage.EnumerationStateStorage,
+	checkpointStorage storage.CheckpointStorage,
 	metrics metrics.ControllerMetrics,
 ) *Controller {
 	return &Controller{
@@ -184,13 +185,13 @@ func (o *Controller) ProcessTarget(ctx context.Context) error {
 	log.Println("Credential store initialized successfully.")
 
 	for _, target := range cfg.Targets {
-		enumState := &EnumerationState{
+		enumState := &storage.EnumerationState{
 			SessionID:      generateSessionID(),
 			SourceType:     string(target.SourceType),
 			Config:         marshalConfig(target),
 			LastCheckpoint: nil, // No checkpoint initially
 			LastUpdated:    time.Now(),
-			Status:         StatusInitialized,
+			Status:         storage.StatusInitialized,
 		}
 
 		if err := o.enumerationStateStorage.Save(ctx, enumState); err != nil {
@@ -210,7 +211,7 @@ func (o *Controller) ProcessTarget(ctx context.Context) error {
 // It manages the enumeration lifecycle including state transitions and checkpoint handling.
 // The function coordinates between the enumerator that produces tasks and the work queue
 // that distributes them to workers.
-func (o *Controller) doEnumeration(ctx context.Context, state *EnumerationState) error {
+func (o *Controller) doEnumeration(ctx context.Context, state *storage.EnumerationState) error {
 	var target config.TargetSpec
 	if err := json.Unmarshal(state.Config, &target); err != nil {
 		return fmt.Errorf("failed to unmarshal target config: %w", err)
@@ -221,8 +222,8 @@ func (o *Controller) doEnumeration(ctx context.Context, state *EnumerationState)
 		return err
 	}
 
-	if state.Status == StatusInitialized {
-		state.Status = StatusInProgress
+	if state.Status == storage.StatusInitialized {
+		state.Status = storage.StatusInProgress
 		state.LastUpdated = time.Now()
 		if saveErr := o.enumerationStateStorage.Save(ctx, state); saveErr != nil {
 			return fmt.Errorf("failed to mark enumeration state InProgress: %w", saveErr)
@@ -246,7 +247,7 @@ func (o *Controller) doEnumeration(ctx context.Context, state *EnumerationState)
 	}()
 
 	if err := enumerator.Enumerate(ctx, checkpoint, taskCh); err != nil {
-		state.Status = StatusFailed
+		state.Status = storage.StatusFailed
 		state.LastUpdated = time.Now()
 		if saveErr := o.enumerationStateStorage.Save(ctx, state); saveErr != nil {
 			log.Printf("Failed to save enumeration state after error: %v", saveErr)
@@ -256,7 +257,7 @@ func (o *Controller) doEnumeration(ctx context.Context, state *EnumerationState)
 		return fmt.Errorf("enumeration failed: %w", err)
 	}
 
-	state.Status = StatusCompleted
+	state.Status = storage.StatusCompleted
 	state.LastUpdated = time.Now()
 	if err := o.enumerationStateStorage.Save(ctx, state); err != nil {
 		close(taskCh)
@@ -271,19 +272,19 @@ func (o *Controller) doEnumeration(ctx context.Context, state *EnumerationState)
 
 // createEnumerator constructs the appropriate target enumerator based on the source type.
 // It handles credential setup and validation for the target type.
-func (o *Controller) createEnumerator(target config.TargetSpec) (TargetEnumerator, error) {
+func (o *Controller) createEnumerator(target config.TargetSpec) (storage.TargetEnumerator, error) {
 	creds, err := o.credStore.GetCredentials(target.AuthRef)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get credentials: %w", err)
 	}
 
-	var enumerator TargetEnumerator
+	var enumerator storage.TargetEnumerator
 	switch target.SourceType {
 	case config.SourceTypeGitHub:
 		if target.GitHub == nil {
 			return nil, fmt.Errorf("github target configuration is missing")
 		}
-		enumerator, err = NewGitHubEnumerator(o.httpClient, creds, o.enumerationStateStorage)
+		enumerator, err = NewGitHubEnumerator(o.httpClient, creds, o.enumerationStateStorage, target.GitHub)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create GitHub enumerator: %w", err)
 		}

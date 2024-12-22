@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"database/sql"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -9,6 +11,10 @@ import (
 	"sync/atomic"
 	"syscall"
 
+	"github.com/golang-migrate/migrate/v4"
+	"github.com/golang-migrate/migrate/v4/database/postgres"
+	_ "github.com/golang-migrate/migrate/v4/source/file"
+	_ "github.com/lib/pq"
 	"go.uber.org/automaxprocs/maxprocs"
 
 	"github.com/ahrav/gitleaks-armada/pkg/cluster/kubernetes"
@@ -16,6 +22,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/controller"
 	"github.com/ahrav/gitleaks-armada/pkg/messaging/kafka"
 	"github.com/ahrav/gitleaks-armada/pkg/metrics"
+	"github.com/ahrav/gitleaks-armada/pkg/storage/memory"
 )
 
 func main() {
@@ -31,6 +38,42 @@ func main() {
 			log.Printf("Error shutting down health server: %v", err)
 		}
 	}()
+
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		user := os.Getenv("POSTGRES_USER")
+		password := os.Getenv("POSTGRES_PASSWORD")
+		host := os.Getenv("POSTGRES_HOST")
+		dbname := os.Getenv("POSTGRES_DB")
+
+		if user == "" {
+			user = "postgres"
+		}
+		if password == "" {
+			password = "postgres"
+		}
+		if host == "" {
+			host = "postgres"
+		}
+		if dbname == "" {
+			dbname = "secretscanner"
+		}
+
+		dsn = fmt.Sprintf("postgres://%s:%s@%s:5432/%s?sslmode=disable",
+			user, password, host, dbname)
+	}
+
+	dbConn, err := sql.Open("postgres", dsn)
+	if err != nil {
+		log.Fatalf("failed to open db: %v", err)
+	}
+	defer dbConn.Close()
+
+	if err := runMigrations(dbConn); err != nil {
+		log.Fatalf("failed to run migrations: %v", err)
+	}
+
+	log.Println("Migrations applied successfully. Starting application...")
 
 	podName := os.Getenv("POD_NAME")
 	if podName == "" {
@@ -76,8 +119,8 @@ func main() {
 		}
 	}()
 
-	enumStateStorage := controller.NewInMemoryEnumerationStateStorage()
-	checkpointStorage := controller.NewInMemoryCheckpointStorage()
+	enumStateStorage := memory.NewInMemoryEnumerationStateStorage()
+	checkpointStorage := memory.NewInMemoryCheckpointStorage()
 
 	ctrl := controller.NewController(coord, broker, enumStateStorage, checkpointStorage, m)
 	log.Println("Controller initialized")
@@ -105,4 +148,24 @@ func main() {
 	case <-ctx.Done():
 		log.Println("Context cancelled, stopping orchestrator...")
 	}
+}
+
+// TODO: consider moving this to an init container.
+// runMigrations uses golang-migrate to apply all up migrations from "db/migrations".
+func runMigrations(dbConn *sql.DB) error {
+	driver, err := postgres.WithInstance(dbConn, new(postgres.Config))
+	if err != nil {
+		return fmt.Errorf("could not create postgres driver: %w", err)
+	}
+
+	const migrationsPath = "file:///app/db/migrations"
+	migrations, err := migrate.NewWithDatabaseInstance(migrationsPath, "postgres", driver)
+	if err != nil {
+		return fmt.Errorf("could not create migrate instance: %w", err)
+	}
+
+	if err := migrations.Up(); err != nil && err != migrate.ErrNoChange {
+		return fmt.Errorf("migration up failed: %w", err)
+	}
+	return nil
 }

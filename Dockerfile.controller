@@ -9,6 +9,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o controller ./cmd/controller
 FROM gcr.io/distroless/base-debian11
 WORKDIR /app
 COPY --from=builder /app/controller .
+COPY db/migrations /app/db/migrations
 USER nonroot:nonroot
 ENTRYPOINT ["./controller"]
 

@@ -7,3 +7,7 @@ data:
   KAFKA_TASK_TOPIC: "scanner-tasks"
   KAFKA_RESULTS_TOPIC: "scanner-results"
   KAFKA_BROKERS: "kafka:9092"
+  POSTGRES_HOST: "postgres"
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: "secretscanner"
+  POSTGRES_USER: "postgres"
