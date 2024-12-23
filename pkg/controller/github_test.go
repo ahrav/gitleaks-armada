@@ -246,9 +246,7 @@ func TestGitHubEnumerator_Enumerate(t *testing.T) {
 					},
 				},
 				mockStorage,
-				&config.GitHubTarget{
-					Org: "test-org",
-				},
+				&config.GitHubTarget{Org: "test-org"},
 			)
 
 			taskCh := make(chan []messaging.Task, 10)
@@ -268,3 +266,5 @@ func TestGitHubEnumerator_Enumerate(t *testing.T) {
 		})
 	}
 }
+
+// TODO: Add tests for error cases.
