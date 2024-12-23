@@ -179,3 +179,52 @@ func TestInMemoryCheckpointStorage_Mutability(t *testing.T) {
 		assert.Equal(t, "value", nestedMap["key"], "Nested value should not be modified")
 	}
 }
+
+func TestInMemoryCheckpointStorage_LoadByID(t *testing.T) {
+	store := NewInMemoryCheckpointStorage()
+	ctx := context.Background()
+
+	// Create and save a checkpoint.
+	checkpoint := &storage.Checkpoint{
+		ID:       123,
+		TargetID: "test-target",
+		Data: map[string]any{
+			"cursor": "abc123",
+			"nested": map[string]any{
+				"key": "value",
+			},
+		},
+	}
+
+	err := store.Save(ctx, checkpoint)
+	require.NoError(t, err)
+
+	loaded, err := store.LoadByID(ctx, 123)
+	require.NoError(t, err)
+	require.NotNil(t, loaded)
+
+	assert.Equal(t, checkpoint.ID, loaded.ID)
+	assert.Equal(t, checkpoint.TargetID, loaded.TargetID)
+	assert.Equal(t, checkpoint.Data["cursor"], loaded.Data["cursor"])
+	if nestedMap, ok := loaded.Data["nested"].(map[string]any); ok {
+		assert.Equal(t, "value", nestedMap["key"])
+	}
+
+	nonExistent, err := store.LoadByID(ctx, 999)
+	require.NoError(t, err)
+	assert.Nil(t, nonExistent)
+
+	loaded.Data["cursor"] = "modified"
+	if nestedMap, ok := loaded.Data["nested"].(map[string]any); ok {
+		nestedMap["key"] = "modified"
+	}
+
+	reloaded, err := store.LoadByID(ctx, 123)
+	require.NoError(t, err)
+	require.NotNil(t, reloaded)
+
+	assert.Equal(t, "abc123", reloaded.Data["cursor"], "Top-level value should not be modified")
+	if nestedMap, ok := reloaded.Data["nested"].(map[string]any); ok {
+		assert.Equal(t, "value", nestedMap["key"], "Nested value should not be modified")
+	}
+}

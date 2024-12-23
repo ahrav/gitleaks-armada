@@ -85,7 +85,6 @@ func (cs *InMemoryCheckpointStorage) LoadByID(ctx context.Context, id int64) (*s
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 
-	// In memory implementation might need to scan through checkpoints to find by ID
 	for _, cp := range cs.checkpoints {
 		if cp.ID == id {
 			return &storage.Checkpoint{
