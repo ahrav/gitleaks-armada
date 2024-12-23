@@ -42,6 +42,7 @@ func (cs *InMemoryCheckpointStorage) Load(ctx context.Context, targetID string) 
 
 	// This needs to be a deep copy to prevent mutation of stored checkpoint.
 	copy := &storage.Checkpoint{
+		ID:        cp.ID,
 		TargetID:  cp.TargetID,
 		UpdatedAt: cp.UpdatedAt,
 		Data:      deepCopyMap(cp.Data),

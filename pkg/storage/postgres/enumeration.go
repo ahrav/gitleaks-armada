@@ -3,39 +3,11 @@ package postgres
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
-	"time"
 
 	"github.com/ahrav/gitleaks-armada/internal/db"
 	"github.com/ahrav/gitleaks-armada/pkg/storage"
 )
-
-// EnumerationStatus represents the lifecycle state of an enumeration session.
-type EnumerationStatus string
-
-const (
-	// StatusInitialized indicates the session is configured but hasn't started scanning.
-	StatusInitialized EnumerationStatus = "initialized"
-	// StatusInProgress indicates active scanning and task generation is underway.
-	StatusInProgress EnumerationStatus = "in_progress"
-	// StatusCompleted indicates all targets were successfully enumerated.
-	StatusCompleted EnumerationStatus = "completed"
-	// StatusFailed indicates the enumeration encountered an unrecoverable error.
-	StatusFailed EnumerationStatus = "failed"
-)
-
-// EnumerationState tracks the progress and status of a target enumeration session.
-// It maintains configuration, checkpoints, and status to enable resumable scanning
-// of large data sources.
-type EnumerationState struct {
-	SessionID      string            `json:"session_id"`
-	SourceType     string            `json:"source_type"`
-	Config         json.RawMessage   `json:"config"`
-	LastCheckpoint *Checkpoint       `json:"last_checkpoint,omitempty"`
-	LastUpdated    time.Time         `json:"last_updated"`
-	Status         EnumerationStatus `json:"status"`
-}
 
 // PGEnumerationStateStorage provides persistent storage for enumeration session state
 // using PostgreSQL. It enables resumable scanning across process restarts by maintaining

@@ -11,13 +11,18 @@ ON CONFLICT (target_id) DO UPDATE
         updated_at = NOW();
 
 -- name: GetCheckpoint :one
-SELECT target_id, data, created_at, updated_at
+SELECT id, target_id, data, created_at, updated_at
 FROM checkpoints
 WHERE target_id = $1;
 
 -- name: DeleteCheckpoint :exec
 DELETE FROM checkpoints
 WHERE target_id = $1;
+
+-- name: GetCheckpointByID :one
+SELECT id, target_id, data, created_at, updated_at
+FROM checkpoints
+WHERE id = $1;
 
 -- ============================================
 -- Enumeration States

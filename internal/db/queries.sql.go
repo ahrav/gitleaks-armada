@@ -97,22 +97,35 @@ func (q *Queries) DeleteEnumerationState(ctx context.Context, sessionID string) 
 }
 
 const getCheckpoint = `-- name: GetCheckpoint :one
-SELECT target_id, data, created_at, updated_at
+SELECT id, target_id, data, created_at, updated_at
 FROM checkpoints
 WHERE target_id = $1
 `
 
-type GetCheckpointRow struct {
-	TargetID  string
-	Data      json.RawMessage
-	CreatedAt time.Time
-	UpdatedAt time.Time
+func (q *Queries) GetCheckpoint(ctx context.Context, targetID string) (Checkpoint, error) {
+	row := q.db.QueryRowContext(ctx, getCheckpoint, targetID)
+	var i Checkpoint
+	err := row.Scan(
+		&i.ID,
+		&i.TargetID,
+		&i.Data,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
-func (q *Queries) GetCheckpoint(ctx context.Context, targetID string) (GetCheckpointRow, error) {
-	row := q.db.QueryRowContext(ctx, getCheckpoint, targetID)
-	var i GetCheckpointRow
+const getCheckpointByID = `-- name: GetCheckpointByID :one
+SELECT id, target_id, data, created_at, updated_at
+FROM checkpoints
+WHERE id = $1
+`
+
+func (q *Queries) GetCheckpointByID(ctx context.Context, id int64) (Checkpoint, error) {
+	row := q.db.QueryRowContext(ctx, getCheckpointByID, id)
+	var i Checkpoint
 	err := row.Scan(
+		&i.ID,
 		&i.TargetID,
 		&i.Data,
 		&i.CreatedAt,
