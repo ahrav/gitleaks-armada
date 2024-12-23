@@ -17,42 +17,38 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/storage"
 )
 
+// GitHubAPI defines the interface for interacting with GitHub's API.
+type GitHubAPI interface {
+	// ListRepositories returns a list of repositories for an organization
+	// along with pagination information.
+	ListRepositories(ctx context.Context, org string, cursor *string) (*githubGraphQLResponse, error)
+}
+
 // GitHubEnumerator handles enumerating repositories from a GitHub organization.
 // It supports pagination and checkpoint-based resumption to handle large organizations
 // efficiently and reliably.
 type GitHubEnumerator struct {
 	ghConfig *config.GitHubTarget
 	creds    *messaging.TaskCredentials
-	token    string
 
-	ghClient *GitHubClient
+	ghClient GitHubAPI
 	storage  storage.EnumerationStateStorage
 }
 
 // NewGitHubEnumerator creates a new GitHubEnumerator with the provided HTTP client,
-// credentials and state storage. It validates and extracts the GitHub authentication
-// token if GitHub credentials are provided.
+// credentials and state storage.
 func NewGitHubEnumerator(
-	httpClient *http.Client,
+	client GitHubAPI,
 	creds *messaging.TaskCredentials,
 	storage storage.EnumerationStateStorage,
 	ghConfig *config.GitHubTarget,
-) (*GitHubEnumerator, error) {
-	var token string
-	if creds.Type == messaging.CredentialTypeGitHub {
-		var err error
-		token, err = extractGitHubToken(creds)
-		if err != nil {
-			return nil, fmt.Errorf("failed to extract GitHub token: %w", err)
-		}
-	}
+) *GitHubEnumerator {
 	return &GitHubEnumerator{
-		ghClient: NewGitHubClient(httpClient),
-		token:    token,
+		ghClient: client,
 		creds:    creds,
 		storage:  storage,
 		ghConfig: ghConfig,
-	}, nil
+	}
 }
 
 // extractGitHubToken retrieves and validates the authentication token from GitHub credentials.
@@ -96,31 +92,9 @@ func (e *GitHubEnumerator) Enumerate(ctx context.Context, checkpoint *storage.Ch
 		}
 	}
 
-	query := `
-	query($org: String!, $after: String) {
-		organization(login: $org) {
-			repositories(first: 100, after: $after) {
-				nodes {
-					name
-				}
-				pageInfo {
-					hasNextPage
-					endCursor
-				}
-			}
-		}
-	}`
-
 	const batchSize = 100 // GitHub GraphQL API limit per query
 	for {
-		variables := map[string]any{
-			"org": e.ghConfig.Org,
-		}
-		if endCursor != nil {
-			variables["after"] = *endCursor
-		}
-
-		respData, err := e.ghClient.doGitHubGraphQLRequest(ctx, e.token, query, variables)
+		respData, err := e.ghClient.ListRepositories(ctx, e.ghConfig.Org, endCursor)
 		if err != nil {
 			return err
 		}
@@ -145,7 +119,6 @@ func (e *GitHubEnumerator) Enumerate(ctx context.Context, checkpoint *storage.Ch
 		}
 
 		// Save progress after each successful batch.
-		// I think this is granular enough to resume from.
 		endCursor = &pageInfo.EndCursor
 		checkpoint = &storage.Checkpoint{
 			TargetID: e.ghConfig.Org,
@@ -163,6 +136,34 @@ func (e *GitHubEnumerator) Enumerate(ctx context.Context, checkpoint *storage.Ch
 	}
 
 	return nil
+}
+
+// buildGithubResourceURI creates a standardized URI for GitHub repositories.
+// The URI format follows the standard HTTPS clone URL pattern used by GitHub.
+func buildGithubResourceURI(org, repoName string) string {
+	return fmt.Sprintf("https://github.com/%s/%s.git", org, repoName)
+}
+
+type GitHubClient struct {
+	httpClient  *http.Client
+	rateLimiter *common.RateLimiter
+	token       string
+}
+
+// NewGitHubClient creates a new GitHub client with rate limiting.
+func NewGitHubClient(httpClient *http.Client, creds *messaging.TaskCredentials) (*GitHubClient, error) {
+	token, err := extractGitHubToken(creds)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create GitHub client: %w", err)
+	}
+	// GitHub's default rate limit is 5000 requests per hour.
+	// Setting initial rate to 4500/hour (1.25/second) to be conservative.
+	// TODO: Figure out a way to pool tokens?
+	return &GitHubClient{
+		httpClient:  httpClient,
+		rateLimiter: common.NewRateLimiter(1.25, 5),
+		token:       token,
+	}, nil
 }
 
 // githubGraphQLResponse represents the structure of GitHub's GraphQL API response
@@ -187,35 +188,41 @@ type githubGraphQLResponse struct {
 	} `json:"errors"`
 }
 
-// buildGithubResourceURI creates a standardized URI for GitHub repositories.
-// The URI format follows the standard HTTPS clone URL pattern used by GitHub.
-func buildGithubResourceURI(org, repoName string) string {
-	return fmt.Sprintf("https://github.com/%s/%s.git", org, repoName)
-}
+// ListRepositories retrieves a paginated list of repository names from a GitHub organization
+// using the GraphQL API. It fetches repositories in batches of 100 and accepts an optional
+// cursor for continuation.
+func (c *GitHubClient) ListRepositories(ctx context.Context, org string, cursor *string) (*githubGraphQLResponse, error) {
+	// GraphQL query to fetch repository names and pagination info
+	query := `
+	query($org: String!, $after: String) {
+		organization(login: $org) {
+			repositories(first: 100, after: $after) {
+				nodes {
+					name
+				}
+				pageInfo {
+					hasNextPage
+					endCursor
+				}
+			}
+		}
+	}`
 
-type GitHubClient struct {
-	httpClient  *http.Client
-	rateLimiter *common.RateLimiter
-}
-
-// NewGitHubClient creates a new GitHub client with rate limiting.
-func NewGitHubClient(httpClient *http.Client) *GitHubClient {
-	// GitHub's default rate limit is 5000 requests per hour.
-	// Setting initial rate to 4500/hour (1.25/second) to be conservative.
-	// TODO: Figure out a way to pool tokens?
-	return &GitHubClient{
-		httpClient:  httpClient,
-		rateLimiter: common.NewRateLimiter(1.25, 5),
+	variables := map[string]any{
+		"org": org,
 	}
+	if cursor != nil {
+		variables["after"] = *cursor
+	}
+
+	return c.doGitHubGraphQLRequest(ctx, query, variables)
 }
 
-// doGitHubGraphQLRequest executes a GraphQL query against GitHub's API with rate limiting.
-// It handles authentication, request formatting, and response parsing while respecting
-// GitHub's API rate limits. The method automatically updates rate limiting parameters
+// doGitHubGraphQLRequest executes a GraphQL query against GitHub's API.
+// It handles request formatting, authentication, and automatically adjusts rate limiting
 // based on GitHub's response headers.
 func (c *GitHubClient) doGitHubGraphQLRequest(
 	ctx context.Context,
-	token string,
 	query string,
 	variables map[string]any,
 ) (*githubGraphQLResponse, error) {
@@ -238,7 +245,7 @@ func (c *GitHubClient) doGitHubGraphQLRequest(
 	if err != nil {
 		return nil, fmt.Errorf("failed to create graphql request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Authorization", "Bearer "+c.token)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.httpClient.Do(req)

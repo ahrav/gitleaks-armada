@@ -284,10 +284,12 @@ func (o *Controller) createEnumerator(target config.TargetSpec) (storage.TargetE
 		if target.GitHub == nil {
 			return nil, fmt.Errorf("github target configuration is missing")
 		}
-		enumerator, err = NewGitHubEnumerator(o.httpClient, creds, o.enumerationStateStorage, target.GitHub)
+		ghClient, err := NewGitHubClient(o.httpClient, creds)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create GitHub enumerator: %w", err)
+			return nil, fmt.Errorf("failed to create GitHub client: %w", err)
 		}
+		enumerator = NewGitHubEnumerator(ghClient, creds, o.enumerationStateStorage, target.GitHub)
+
 
 	case config.SourceTypeS3:
 		return nil, fmt.Errorf("S3 enumerator not implemented yet")
