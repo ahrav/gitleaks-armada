@@ -46,10 +46,10 @@ func (s *PGEnumerationStateStorage) Save(ctx context.Context, state *storage.Enu
 	return err
 }
 
-// LoadBySessionID retrieves an enumeration state and its associated checkpoint by session ID.
-// Returns nil if no state exists for the given session ID.
-func (s *PGEnumerationStateStorage) LoadBySessionID(ctx context.Context, sessionID string) (*storage.EnumerationState, error) {
-	dbState, err := s.q.GetEnumerationState(ctx, sessionID)
+// Load retrieves the current enumeration state and its associated checkpoint.
+// Returns nil if no state exists.
+func (s *PGEnumerationStateStorage) Load(ctx context.Context) (*storage.EnumerationState, error) {
+	dbState, err := s.q.GetEnumerationState(ctx)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil

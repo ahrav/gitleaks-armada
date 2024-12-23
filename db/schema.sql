@@ -16,11 +16,11 @@ CREATE TABLE checkpoints (
 );
 
 CREATE TABLE enumeration_states (
-    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    session_id TEXT NOT NULL UNIQUE,
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    session_id TEXT NOT NULL,
     source_type TEXT NOT NULL,
     config JSONB NOT NULL,
-    last_checkpoint_id BIGINT,
+    last_checkpoint_id BIGINT REFERENCES checkpoints(id),
     status enumeration_status NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()

@@ -65,7 +65,7 @@ type Checkpoint struct {
 }
 
 type EnumerationState struct {
-	ID               int64
+	ID               int32
 	SessionID        string
 	SourceType       string
 	Config           json.RawMessage

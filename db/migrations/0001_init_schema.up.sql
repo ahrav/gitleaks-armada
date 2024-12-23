@@ -19,8 +19,8 @@ CREATE TABLE checkpoints (
 
 -- 3. Create enumeration_states table
 CREATE TABLE enumeration_states (
-    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    session_id TEXT NOT NULL UNIQUE,
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    session_id TEXT NOT NULL,
     source_type TEXT NOT NULL,
     config JSONB NOT NULL,
     last_checkpoint_id BIGINT,

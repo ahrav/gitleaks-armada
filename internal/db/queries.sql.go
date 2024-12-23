@@ -37,6 +37,7 @@ func (q *Queries) CreateOrUpdateCheckpoint(ctx context.Context, arg CreateOrUpda
 
 const createOrUpdateEnumerationState = `-- name: CreateOrUpdateEnumerationState :exec
 INSERT INTO enumeration_states (
+  id,
   session_id,
   source_type,
   config,
@@ -45,9 +46,10 @@ INSERT INTO enumeration_states (
   created_at,
   updated_at
 )
-VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
-ON CONFLICT (session_id) DO UPDATE
-    SET source_type       = EXCLUDED.source_type,
+VALUES (1, $1, $2, $3, $4, $5, NOW(), NOW())
+ON CONFLICT (id) DO UPDATE
+    SET session_id        = EXCLUDED.session_id,
+        source_type       = EXCLUDED.source_type,
         config            = EXCLUDED.config,
         last_checkpoint_id= EXCLUDED.last_checkpoint_id,
         status            = EXCLUDED.status,
@@ -138,7 +140,7 @@ const getEnumerationState = `-- name: GetEnumerationState :one
 SELECT session_id, source_type, config, last_checkpoint_id,
        status, created_at, updated_at
 FROM enumeration_states
-WHERE session_id = $1
+WHERE id = 1
 `
 
 type GetEnumerationStateRow struct {
@@ -151,8 +153,8 @@ type GetEnumerationStateRow struct {
 	UpdatedAt        time.Time
 }
 
-func (q *Queries) GetEnumerationState(ctx context.Context, sessionID string) (GetEnumerationStateRow, error) {
-	row := q.db.QueryRowContext(ctx, getEnumerationState, sessionID)
+func (q *Queries) GetEnumerationState(ctx context.Context) (GetEnumerationStateRow, error) {
+	row := q.db.QueryRowContext(ctx, getEnumerationState)
 	var i GetEnumerationStateRow
 	err := row.Scan(
 		&i.SessionID,
