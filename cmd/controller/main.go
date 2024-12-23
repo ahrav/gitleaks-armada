@@ -22,7 +22,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/controller"
 	"github.com/ahrav/gitleaks-armada/pkg/messaging/kafka"
 	"github.com/ahrav/gitleaks-armada/pkg/metrics"
-	"github.com/ahrav/gitleaks-armada/pkg/storage/memory"
+	pg "github.com/ahrav/gitleaks-armada/pkg/storage/postgres"
 )
 
 func main() {
@@ -119,8 +119,8 @@ func main() {
 		}
 	}()
 
-	enumStateStorage := memory.NewInMemoryEnumerationStateStorage()
-	checkpointStorage := memory.NewInMemoryCheckpointStorage()
+	checkpointStorage := pg.NewCheckpointStorage(dbConn)
+	enumStateStorage := pg.NewEnumerationStateStorage(dbConn, checkpointStorage)
 
 	ctrl := controller.NewController(coord, broker, enumStateStorage, checkpointStorage, m)
 	log.Println("Controller initialized")

@@ -13,7 +13,7 @@ import (
 )
 
 func TestInMemoryEnumerationStateStorage_SaveAndLoad(t *testing.T) {
-	store := NewInMemoryEnumerationStateStorage()
+	store := NewEnumerationStateStorage(NewCheckpointStorage())
 	ctx := context.Background()
 
 	state := &storage.EnumerationState{
@@ -44,7 +44,7 @@ func TestInMemoryEnumerationStateStorage_SaveAndLoad(t *testing.T) {
 }
 
 func TestInMemoryEnumerationStateStorage_LoadEmpty(t *testing.T) {
-	store := NewInMemoryEnumerationStateStorage()
+	store := NewEnumerationStateStorage(NewCheckpointStorage())
 	ctx := context.Background()
 
 	loaded, err := store.Load(ctx)
@@ -53,7 +53,7 @@ func TestInMemoryEnumerationStateStorage_LoadEmpty(t *testing.T) {
 }
 
 func TestInMemoryEnumerationStateStorage_Update(t *testing.T) {
-	store := NewInMemoryEnumerationStateStorage()
+	store := NewEnumerationStateStorage(NewCheckpointStorage())
 	ctx := context.Background()
 
 	initialState := &storage.EnumerationState{
@@ -64,7 +64,12 @@ func TestInMemoryEnumerationStateStorage_Update(t *testing.T) {
 
 	err := store.Save(ctx, initialState)
 	require.NoError(t, err)
-	firstSaveTime := initialState.LastUpdated
+
+	loaded, err := store.Load(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, loaded)
+
+	firstSaveTime := loaded.LastUpdated
 
 	// Wait a moment to ensure different timestamp.
 	time.Sleep(time.Millisecond)
@@ -73,17 +78,17 @@ func TestInMemoryEnumerationStateStorage_Update(t *testing.T) {
 	err = store.Save(ctx, initialState)
 	require.NoError(t, err)
 
-	loaded, err := store.Load(ctx)
+	loaded2, err := store.Load(ctx)
 	require.NoError(t, err)
-	require.NotNil(t, loaded)
+	require.NotNil(t, loaded2)
 
-	assert.Equal(t, storage.StatusInProgress, loaded.Status)
-	assert.True(t, loaded.LastUpdated.After(firstSaveTime),
+	assert.Equal(t, storage.StatusInProgress, loaded2.Status)
+	assert.True(t, loaded2.LastUpdated.After(firstSaveTime),
 		"LastUpdated should be later than first save")
 }
 
 func TestInMemoryEnumerationStateStorage_Mutability(t *testing.T) {
-	store := NewInMemoryEnumerationStateStorage()
+	store := NewEnumerationStateStorage(NewCheckpointStorage())
 	ctx := context.Background()
 
 	original := &storage.EnumerationState{
@@ -127,7 +132,7 @@ func TestInMemoryEnumerationStateStorage_Mutability(t *testing.T) {
 }
 
 func TestInMemoryEnumerationStateStorage_ConcurrentOperations(t *testing.T) {
-	store := NewInMemoryEnumerationStateStorage()
+	store := NewEnumerationStateStorage(NewCheckpointStorage())
 	ctx := context.Background()
 	const goroutines = 10
 	done := make(chan bool)

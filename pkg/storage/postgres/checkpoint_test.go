@@ -76,7 +76,7 @@ func TestPGCheckpointStorage_SaveAndLoad(t *testing.T) {
 	db, cleanup := setupTestContainer(t)
 	defer cleanup()
 
-	store := NewPGCheckpointStorage(db)
+	store := NewCheckpointStorage(db)
 	ctx := context.Background()
 
 	checkpoint := &storage.Checkpoint{
@@ -106,7 +106,7 @@ func TestPGCheckpointStorage_LoadNonExistent(t *testing.T) {
 	db, cleanup := setupTestContainer(t)
 	defer cleanup()
 
-	store := NewPGCheckpointStorage(db)
+	store := NewCheckpointStorage(db)
 	ctx := context.Background()
 
 	loaded, err := store.Load(ctx, "non-existent")
@@ -120,7 +120,7 @@ func TestPGCheckpointStorage_Delete(t *testing.T) {
 	db, cleanup := setupTestContainer(t)
 	defer cleanup()
 
-	store := NewPGCheckpointStorage(db)
+	store := NewCheckpointStorage(db)
 	ctx := context.Background()
 
 	checkpoint := &storage.Checkpoint{
@@ -147,7 +147,7 @@ func TestPGCheckpointStorage_DeleteNonExistent(t *testing.T) {
 	db, cleanup := setupTestContainer(t)
 	defer cleanup()
 
-	store := NewPGCheckpointStorage(db)
+	store := NewCheckpointStorage(db)
 	ctx := context.Background()
 
 	err := store.Delete(ctx, "non-existent")
@@ -160,7 +160,7 @@ func TestPGCheckpointStorage_Update(t *testing.T) {
 	db, cleanup := setupTestContainer(t)
 	defer cleanup()
 
-	store := NewPGCheckpointStorage(db)
+	store := NewCheckpointStorage(db)
 	ctx := context.Background()
 
 	checkpoint := &storage.Checkpoint{
@@ -172,7 +172,11 @@ func TestPGCheckpointStorage_Update(t *testing.T) {
 
 	err := store.Save(ctx, checkpoint)
 	require.NoError(t, err)
-	firstSaveTime := time.Now()
+
+	loaded, err := store.Load(ctx, checkpoint.TargetID)
+	require.NoError(t, err)
+	require.NotNil(t, loaded)
+	firstSaveTime := loaded.UpdatedAt
 
 	time.Sleep(10 * time.Millisecond)
 
@@ -180,12 +184,12 @@ func TestPGCheckpointStorage_Update(t *testing.T) {
 	err = store.Save(ctx, checkpoint)
 	require.NoError(t, err)
 
-	loaded, err := store.Load(ctx, checkpoint.TargetID)
+	loaded2, err := store.Load(ctx, checkpoint.TargetID)
 	require.NoError(t, err)
-	require.NotNil(t, loaded)
+	require.NotNil(t, loaded2)
 
-	assert.Equal(t, "def456", loaded.Data["cursor"])
-	assert.True(t, loaded.UpdatedAt.After(firstSaveTime),
+	assert.Equal(t, "def456", loaded2.Data["cursor"])
+	assert.True(t, loaded2.UpdatedAt.After(firstSaveTime),
 		"UpdatedAt should be later than first save")
 }
 
@@ -195,7 +199,7 @@ func TestPGCheckpointStorage_ConcurrentOperations(t *testing.T) {
 	db, cleanup := setupTestContainer(t)
 	defer cleanup()
 
-	store := NewPGCheckpointStorage(db)
+	store := NewCheckpointStorage(db)
 	ctx := context.Background()
 	const goroutines = 10
 	done := make(chan bool)
@@ -235,7 +239,7 @@ func TestPGCheckpointStorage_Mutability(t *testing.T) {
 	db, cleanup := setupTestContainer(t)
 	defer cleanup()
 
-	store := NewPGCheckpointStorage(db)
+	store := NewCheckpointStorage(db)
 	ctx := context.Background()
 
 	original := &storage.Checkpoint{
@@ -276,7 +280,7 @@ func TestPGCheckpointStorage_LoadByID(t *testing.T) {
 	db, cleanup := setupTestContainer(t)
 	defer cleanup()
 
-	store := NewPGCheckpointStorage(db)
+	store := NewCheckpointStorage(db)
 	ctx := context.Background()
 
 	checkpoint := &storage.Checkpoint{

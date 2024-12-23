@@ -3,7 +3,6 @@ package memory
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -12,7 +11,7 @@ import (
 )
 
 func TestInMemoryCheckpointStorage_SaveAndLoad(t *testing.T) {
-	store := NewInMemoryCheckpointStorage()
+	store := NewCheckpointStorage()
 	ctx := context.Background()
 
 	checkpoint := &storage.Checkpoint{
@@ -37,7 +36,7 @@ func TestInMemoryCheckpointStorage_SaveAndLoad(t *testing.T) {
 }
 
 func TestInMemoryCheckpointStorage_LoadNonExistent(t *testing.T) {
-	storage := NewInMemoryCheckpointStorage()
+	storage := NewCheckpointStorage()
 	ctx := context.Background()
 
 	loaded, err := storage.Load(ctx, "non-existent")
@@ -46,7 +45,7 @@ func TestInMemoryCheckpointStorage_LoadNonExistent(t *testing.T) {
 }
 
 func TestInMemoryCheckpointStorage_Delete(t *testing.T) {
-	store := NewInMemoryCheckpointStorage()
+	store := NewCheckpointStorage()
 	ctx := context.Background()
 
 	checkpoint := &storage.Checkpoint{
@@ -68,7 +67,7 @@ func TestInMemoryCheckpointStorage_Delete(t *testing.T) {
 }
 
 func TestInMemoryCheckpointStorage_DeleteNonExistent(t *testing.T) {
-	store := NewInMemoryCheckpointStorage()
+	store := NewCheckpointStorage()
 	ctx := context.Background()
 
 	err := store.Delete(ctx, "non-existent")
@@ -76,7 +75,7 @@ func TestInMemoryCheckpointStorage_DeleteNonExistent(t *testing.T) {
 }
 
 func TestInMemoryCheckpointStorage_Update(t *testing.T) {
-	store := NewInMemoryCheckpointStorage()
+	store := NewCheckpointStorage()
 	ctx := context.Background()
 
 	// Initial checkpoint.
@@ -89,26 +88,26 @@ func TestInMemoryCheckpointStorage_Update(t *testing.T) {
 
 	err := store.Save(ctx, checkpoint)
 	require.NoError(t, err)
-	firstSaveTime := checkpoint.UpdatedAt
-
-	// Wait a moment to ensure different timestamp.
-	time.Sleep(time.Millisecond)
+	loaded, err := store.Load(ctx, checkpoint.TargetID)
+	require.NoError(t, err)
+	require.NotNil(t, loaded)
+	firstSaveTime := loaded.UpdatedAt
 
 	checkpoint.Data["cursor"] = "def456"
 	err = store.Save(ctx, checkpoint)
 	require.NoError(t, err)
 
-	loaded, err := store.Load(ctx, checkpoint.TargetID)
+	loaded2, err := store.Load(ctx, checkpoint.TargetID)
 	require.NoError(t, err)
-	require.NotNil(t, loaded)
+	require.NotNil(t, loaded2)
 
-	assert.Equal(t, "def456", loaded.Data["cursor"])
-	assert.True(t, loaded.UpdatedAt.After(firstSaveTime),
+	assert.Equal(t, "def456", loaded2.Data["cursor"])
+	assert.True(t, loaded2.UpdatedAt.After(firstSaveTime),
 		"UpdatedAt should be later than first save")
 }
 
 func TestInMemoryCheckpointStorage_ConcurrentOperations(t *testing.T) {
-	store := NewInMemoryCheckpointStorage()
+	store := NewCheckpointStorage()
 	ctx := context.Background()
 	const goroutines = 10
 	done := make(chan bool)
@@ -143,7 +142,7 @@ func TestInMemoryCheckpointStorage_ConcurrentOperations(t *testing.T) {
 }
 
 func TestInMemoryCheckpointStorage_Mutability(t *testing.T) {
-	store := NewInMemoryCheckpointStorage()
+	store := NewCheckpointStorage()
 	ctx := context.Background()
 
 	original := &storage.Checkpoint{
@@ -181,7 +180,7 @@ func TestInMemoryCheckpointStorage_Mutability(t *testing.T) {
 }
 
 func TestInMemoryCheckpointStorage_LoadByID(t *testing.T) {
-	store := NewInMemoryCheckpointStorage()
+	store := NewCheckpointStorage()
 	ctx := context.Background()
 
 	// Create and save a checkpoint.

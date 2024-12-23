@@ -9,33 +9,53 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/storage"
 )
 
-// InMemoryEnumerationStateStorage provides a thread-safe in-memory implementation
+// EnumerationStateStorage provides a thread-safe in-memory implementation
 // of EnumerationStateStorage for testing and development.
-type InMemoryEnumerationStateStorage struct {
-	mu    sync.Mutex
-	state *storage.EnumerationState
+type EnumerationStateStorage struct {
+	mu              sync.Mutex
+	state           *storage.EnumerationState
+	checkpointStore storage.CheckpointStorage
 }
 
-// NewInMemoryEnumerationStateStorage creates an empty in-memory state storage.
-func NewInMemoryEnumerationStateStorage() *InMemoryEnumerationStateStorage {
-	return new(InMemoryEnumerationStateStorage)
+// NewEnumerationStateStorage creates an empty in-memory state storage.
+func NewEnumerationStateStorage(checkpointStore storage.CheckpointStorage) *EnumerationStateStorage {
+	return &EnumerationStateStorage{
+		checkpointStore: checkpointStore,
+	}
 }
 
 // Save stores the provided state as the current active enumeration session.
-// Any existing state is overwritten.
-func (s *InMemoryEnumerationStateStorage) Save(ctx context.Context, state *storage.EnumerationState) error {
+// Any existing state is overwritten. If the state contains a checkpoint,
+// it will be saved first to maintain referential integrity.
+func (s *EnumerationStateStorage) Save(ctx context.Context, state *storage.EnumerationState) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	state.LastUpdated = time.Now()
 
-	s.state = state
+	// Save checkpoint first if it exists.
+	if state.LastCheckpoint != nil {
+		if err := s.checkpointStore.Save(ctx, state.LastCheckpoint); err != nil {
+			return err
+		}
+	}
+
+	// Deep copy the state to prevent external modifications.
+	s.state = &storage.EnumerationState{
+		SessionID:      state.SessionID,
+		SourceType:     state.SourceType,
+		Config:         append(json.RawMessage(nil), state.Config...),
+		LastUpdated:    state.LastUpdated,
+		Status:         state.Status,
+		LastCheckpoint: state.LastCheckpoint,
+	}
+
 	return nil
 }
 
 // Load retrieves the current active enumeration session state.
 // Returns nil if no state exists to prevent operating on invalid state.
-func (s *InMemoryEnumerationStateStorage) Load(ctx context.Context) (*storage.EnumerationState, error) {
+func (s *EnumerationStateStorage) Load(ctx context.Context) (*storage.EnumerationState, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -43,7 +63,7 @@ func (s *InMemoryEnumerationStateStorage) Load(ctx context.Context) (*storage.En
 		return nil, nil
 	}
 
-	// We need to make to deep copy the json and the checkpoint (if it exists).
+	// Deep copy the state to prevent external modifications.
 	copy := &storage.EnumerationState{
 		SessionID:   s.state.SessionID,
 		SourceType:  s.state.SourceType,
@@ -52,12 +72,13 @@ func (s *InMemoryEnumerationStateStorage) Load(ctx context.Context) (*storage.En
 		Status:      s.state.Status,
 	}
 
+	// Lazy load checkpoint if it exists.
 	if s.state.LastCheckpoint != nil {
-		copy.LastCheckpoint = &storage.Checkpoint{
-			TargetID:  s.state.LastCheckpoint.TargetID,
-			UpdatedAt: s.state.LastCheckpoint.UpdatedAt,
-			Data:      deepCopyMap(s.state.LastCheckpoint.Data),
+		checkpoint, err := s.checkpointStore.LoadByID(ctx, s.state.LastCheckpoint.ID)
+		if err != nil {
+			return nil, err
 		}
+		copy.LastCheckpoint = checkpoint
 	}
 
 	return copy, nil

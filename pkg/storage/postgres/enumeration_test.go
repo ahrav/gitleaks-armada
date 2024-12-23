@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -13,7 +12,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/storage"
 )
 
-func createTestCheckpoint(t *testing.T, ctx context.Context, store *PGCheckpointStorage, targetID string, data map[string]any) *storage.Checkpoint {
+func createTestCheckpoint(t *testing.T, ctx context.Context, store *CheckpointStorage, targetID string, data map[string]any) *storage.Checkpoint {
 	checkpoint := &storage.Checkpoint{
 		TargetID: targetID,
 		Data:     data,
@@ -32,8 +31,8 @@ func TestPGEnumerationStateStorage_SaveAndLoad(t *testing.T) {
 	db, cleanup := setupTestContainer(t)
 	defer cleanup()
 
-	checkpointStore := NewPGCheckpointStorage(db)
-	store := NewPGEnumerationStateStorage(db, checkpointStore)
+	checkpointStore := NewCheckpointStorage(db)
+	store := NewEnumerationStateStorage(db, checkpointStore)
 	ctx := context.Background()
 
 	checkpoint := createTestCheckpoint(t, ctx, checkpointStore, "test-target", map[string]any{
@@ -73,8 +72,8 @@ func TestPGEnumerationStateStorage_LoadEmpty(t *testing.T) {
 	db, cleanup := setupTestContainer(t)
 	defer cleanup()
 
-	checkpointStore := NewPGCheckpointStorage(db)
-	store := NewPGEnumerationStateStorage(db, checkpointStore)
+	checkpointStore := NewCheckpointStorage(db)
+	store := NewEnumerationStateStorage(db, checkpointStore)
 	ctx := context.Background()
 
 	loaded, err := store.Load(ctx)
@@ -88,8 +87,8 @@ func TestPGEnumerationStateStorage_Update(t *testing.T) {
 	db, cleanup := setupTestContainer(t)
 	defer cleanup()
 
-	checkpointStore := NewPGCheckpointStorage(db)
-	store := NewPGEnumerationStateStorage(db, checkpointStore)
+	checkpointStore := NewCheckpointStorage(db)
+	store := NewEnumerationStateStorage(db, checkpointStore)
 	ctx := context.Background()
 
 	checkpoint := createTestCheckpoint(t, ctx, checkpointStore, "test-target", map[string]any{
@@ -106,9 +105,11 @@ func TestPGEnumerationStateStorage_Update(t *testing.T) {
 
 	err := store.Save(ctx, initialState)
 	require.NoError(t, err)
-	firstSaveTime := time.Now()
 
-	time.Sleep(10 * time.Millisecond)
+	firstState, err := store.Load(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, firstState)
+	firstSaveTime := firstState.LastUpdated
 
 	initialState.Status = storage.StatusInProgress
 	err = store.Save(ctx, initialState)
@@ -129,8 +130,8 @@ func TestPGEnumerationStateStorage_Mutability(t *testing.T) {
 	db, cleanup := setupTestContainer(t)
 	defer cleanup()
 
-	checkpointStore := NewPGCheckpointStorage(db)
-	store := NewPGEnumerationStateStorage(db, checkpointStore)
+	checkpointStore := NewCheckpointStorage(db)
+	store := NewEnumerationStateStorage(db, checkpointStore)
 	ctx := context.Background()
 
 	checkpoint := createTestCheckpoint(t, ctx, checkpointStore, "test-target", map[string]any{
@@ -178,8 +179,8 @@ func TestPGEnumerationStateStorage_ConcurrentOperations(t *testing.T) {
 	db, cleanup := setupTestContainer(t)
 	defer cleanup()
 
-	checkpointStore := NewPGCheckpointStorage(db)
-	store := NewPGEnumerationStateStorage(db, checkpointStore)
+	checkpointStore := NewCheckpointStorage(db)
+	store := NewEnumerationStateStorage(db, checkpointStore)
 	ctx := context.Background()
 	const goroutines = 10
 	done := make(chan bool)

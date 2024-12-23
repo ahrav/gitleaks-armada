@@ -8,21 +8,19 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/storage"
 )
 
-// InMemoryCheckpointStorage provides a thread-safe in-memory implementation
+// CheckpointStorage provides a thread-safe in-memory implementation
 // of CheckpointStorage for testing and development.
-type InMemoryCheckpointStorage struct {
+type CheckpointStorage struct {
 	mu          sync.Mutex
 	checkpoints map[string]*storage.Checkpoint
 }
 
-// NewInMemoryCheckpointStorage creates an empty in-memory checkpoint store.
-func NewInMemoryCheckpointStorage() *InMemoryCheckpointStorage {
-	return &InMemoryCheckpointStorage{
-		checkpoints: make(map[string]*storage.Checkpoint),
-	}
+// NewCheckpointStorage creates an empty in-memory checkpoint store.
+func NewCheckpointStorage() *CheckpointStorage {
+	return &CheckpointStorage{checkpoints: make(map[string]*storage.Checkpoint)}
 }
 
-func (cs *InMemoryCheckpointStorage) Save(ctx context.Context, checkpoint *storage.Checkpoint) error {
+func (cs *CheckpointStorage) Save(ctx context.Context, checkpoint *storage.Checkpoint) error {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 
@@ -31,7 +29,7 @@ func (cs *InMemoryCheckpointStorage) Save(ctx context.Context, checkpoint *stora
 	return nil
 }
 
-func (cs *InMemoryCheckpointStorage) Load(ctx context.Context, targetID string) (*storage.Checkpoint, error) {
+func (cs *CheckpointStorage) Load(ctx context.Context, targetID string) (*storage.Checkpoint, error) {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 
@@ -74,7 +72,7 @@ func deepCopyMap(m map[string]any) map[string]any {
 	return copy
 }
 
-func (cs *InMemoryCheckpointStorage) Delete(ctx context.Context, targetID string) error {
+func (cs *CheckpointStorage) Delete(ctx context.Context, targetID string) error {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 
@@ -82,7 +80,7 @@ func (cs *InMemoryCheckpointStorage) Delete(ctx context.Context, targetID string
 	return nil
 }
 
-func (cs *InMemoryCheckpointStorage) LoadByID(ctx context.Context, id int64) (*storage.Checkpoint, error) {
+func (cs *CheckpointStorage) LoadByID(ctx context.Context, id int64) (*storage.Checkpoint, error) {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 
