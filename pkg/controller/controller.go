@@ -111,21 +111,23 @@ func (o *Controller) Run(ctx context.Context) (<-chan struct{}, error) {
 
 				log.Println("Leadership acquired, processing targets...")
 				// Try to resume any in-progress enumeration.
-				enumerationState, err := o.enumerationStateStorage.Load(ctx)
+				activeStates, err := o.enumerationStateStorage.GetActiveStates(ctx)
 				if err != nil {
 					log.Printf("Error loading enumeration state: %v", err)
 				}
-				log.Printf("Loaded enumeration state: %+v", enumerationState)
+				log.Printf("Loaded %d active enumeration states", len(activeStates))
 
-				if enumerationState == nil {
+				if len(activeStates) == 0 {
 					// No existing state, start fresh from config.
 					if err := o.ProcessTarget(ctx); err != nil {
 						log.Printf("Failed to process targets: %v", err)
 					}
 				} else {
 					// Resume from existing state.
-					if err := o.doEnumeration(ctx, enumerationState); err != nil {
-						log.Printf("Failed to resume enumeration: %v", err)
+					for _, state := range activeStates {
+						if err := o.doEnumeration(ctx, state); err != nil {
+							log.Printf("Failed to resume enumeration: %v", err)
+						}
 					}
 				}
 
@@ -225,7 +227,6 @@ func (o *Controller) doEnumeration(ctx context.Context, state *storage.Enumerati
 	if err := json.Unmarshal(state.Config, &combined); err != nil {
 		return fmt.Errorf("failed to unmarshal target config: %w", err)
 	}
-	log.Printf("Unmarshalled target config: %+v with auth: %+v", combined.TargetSpec, combined.Auth)
 
 	// Initialize credential store with the embedded auth config.
 	if combined.Auth.Type != "" {
@@ -250,8 +251,6 @@ func (o *Controller) doEnumeration(ctx context.Context, state *storage.Enumerati
 		}
 	}
 
-	checkpoint := state.LastCheckpoint
-
 	taskCh := make(chan []messaging.Task)
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -266,9 +265,8 @@ func (o *Controller) doEnumeration(ctx context.Context, state *storage.Enumerati
 		}
 	}()
 
-	if err := enumerator.Enumerate(ctx, checkpoint, taskCh); err != nil {
+	if err := enumerator.Enumerate(ctx, state, taskCh); err != nil {
 		state.UpdateStatus(storage.StatusFailed)
-		state.UpdateCheckpoint(checkpoint)
 		if saveErr := o.enumerationStateStorage.Save(ctx, state); saveErr != nil {
 			log.Printf("Failed to save enumeration state after error: %v", saveErr)
 		}
@@ -278,7 +276,6 @@ func (o *Controller) doEnumeration(ctx context.Context, state *storage.Enumerati
 	}
 
 	state.UpdateStatus(storage.StatusCompleted)
-	state.UpdateCheckpoint(checkpoint)
 	if err := o.enumerationStateStorage.Save(ctx, state); err != nil {
 		close(taskCh)
 		wg.Wait()

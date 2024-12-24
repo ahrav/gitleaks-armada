@@ -21,6 +21,7 @@ func TestInMemoryEnumerationStateStorage_SaveAndLoad(t *testing.T) {
 		SourceType: "github",
 		Config:     json.RawMessage(`{"org": "test-org"}`),
 		LastCheckpoint: &storage.Checkpoint{
+			ID:       1,
 			TargetID: "test-target",
 			Data: map[string]any{
 				"cursor": "abc123",
@@ -28,11 +29,12 @@ func TestInMemoryEnumerationStateStorage_SaveAndLoad(t *testing.T) {
 		},
 		Status: storage.StatusInitialized,
 	}
+	state.LastUpdated = time.Now()
 
 	err := store.Save(ctx, state)
 	require.NoError(t, err)
 
-	loaded, err := store.Load(ctx)
+	loaded, err := store.Load(ctx, state.SessionID)
 	require.NoError(t, err)
 	require.NotNil(t, loaded)
 
@@ -40,14 +42,68 @@ func TestInMemoryEnumerationStateStorage_SaveAndLoad(t *testing.T) {
 	assert.Equal(t, state.SourceType, loaded.SourceType)
 	assert.Equal(t, state.Config, loaded.Config)
 	assert.Equal(t, state.Status, loaded.Status)
+	assert.Equal(t, state.LastCheckpoint.ID, loaded.LastCheckpoint.ID)
+	assert.Equal(t, state.LastCheckpoint.TargetID, loaded.LastCheckpoint.TargetID)
+	assert.Equal(t, state.LastCheckpoint.Data["cursor"], loaded.LastCheckpoint.Data["cursor"])
 	assert.False(t, loaded.LastUpdated.IsZero(), "LastUpdated should be set")
+}
+
+func TestInMemoryEnumerationStateStorage_GetActiveStates(t *testing.T) {
+	store := NewEnumerationStateStorage(NewCheckpointStorage())
+	ctx := context.Background()
+
+	state := &storage.EnumerationState{
+		SessionID:  "test-session",
+		SourceType: "github",
+		Status:     storage.StatusInProgress,
+	}
+
+	err := store.Save(ctx, state)
+	require.NoError(t, err)
+
+	states, err := store.GetActiveStates(ctx)
+	require.NoError(t, err)
+	require.Len(t, states, 1)
+
+	assert.Equal(t, state.SessionID, states[0].SessionID)
+	assert.Equal(t, state.Status, states[0].Status)
+
+	// Test with completed state
+	state.Status = storage.StatusCompleted
+	err = store.Save(ctx, state)
+	require.NoError(t, err)
+
+	states, err = store.GetActiveStates(ctx)
+	require.NoError(t, err)
+	require.Empty(t, states)
+}
+
+func TestInMemoryEnumerationStateStorage_List(t *testing.T) {
+	store := NewEnumerationStateStorage(NewCheckpointStorage())
+	ctx := context.Background()
+
+	state := &storage.EnumerationState{
+		SessionID:  "test-session",
+		SourceType: "github",
+		Status:     storage.StatusCompleted,
+	}
+
+	err := store.Save(ctx, state)
+	require.NoError(t, err)
+
+	states, err := store.List(ctx, 10)
+	require.NoError(t, err)
+	require.Len(t, states, 1)
+
+	assert.Equal(t, state.SessionID, states[0].SessionID)
+	assert.Equal(t, state.Status, states[0].Status)
 }
 
 func TestInMemoryEnumerationStateStorage_LoadEmpty(t *testing.T) {
 	store := NewEnumerationStateStorage(NewCheckpointStorage())
 	ctx := context.Background()
 
-	loaded, err := store.Load(ctx)
+	loaded, err := store.Load(ctx, "test-session")
 	require.NoError(t, err)
 	assert.Nil(t, loaded)
 }
@@ -59,32 +115,33 @@ func TestInMemoryEnumerationStateStorage_Update(t *testing.T) {
 	initialState := &storage.EnumerationState{
 		SessionID:  "test-session",
 		SourceType: "github",
-		Status:     storage.StatusInitialized,
 	}
+	initialState.UpdateStatus(storage.StatusInitialized)
 
 	err := store.Save(ctx, initialState)
 	require.NoError(t, err)
 
-	loaded, err := store.Load(ctx)
+	loaded, err := store.Load(ctx, initialState.SessionID)
 	require.NoError(t, err)
 	require.NotNil(t, loaded)
 
-	firstSaveTime := loaded.LastUpdated
+	// Verify initial state
+	assert.Equal(t, storage.StatusInitialized, loaded.Status)
+	assert.False(t, loaded.LastUpdated.IsZero())
 
-	// Wait a moment to ensure different timestamp.
-	time.Sleep(time.Millisecond)
-
-	initialState.Status = storage.StatusInProgress
+	// Update state
+	initialState.UpdateStatus(storage.StatusInProgress)
 	err = store.Save(ctx, initialState)
 	require.NoError(t, err)
 
-	loaded2, err := store.Load(ctx)
+	loaded2, err := store.Load(ctx, initialState.SessionID)
 	require.NoError(t, err)
 	require.NotNil(t, loaded2)
 
+	// Verify updated state
 	assert.Equal(t, storage.StatusInProgress, loaded2.Status)
-	assert.True(t, loaded2.LastUpdated.After(firstSaveTime),
-		"LastUpdated should be later than first save")
+	assert.NotEqual(t, loaded.LastUpdated, loaded2.LastUpdated,
+		"LastUpdated should be different after update")
 }
 
 func TestInMemoryEnumerationStateStorage_Mutability(t *testing.T) {
@@ -109,7 +166,7 @@ func TestInMemoryEnumerationStateStorage_Mutability(t *testing.T) {
 	err := store.Save(ctx, original)
 	require.NoError(t, err)
 
-	loaded, err := store.Load(ctx)
+	loaded, err := store.Load(ctx, original.SessionID)
 	require.NoError(t, err)
 	require.NotNil(t, loaded)
 
@@ -120,7 +177,7 @@ func TestInMemoryEnumerationStateStorage_Mutability(t *testing.T) {
 	}
 
 	// Load again and verify original wasn't modified.
-	reloaded, err := store.Load(ctx)
+	reloaded, err := store.Load(ctx, original.SessionID)
 	require.NoError(t, err)
 	require.NotNil(t, reloaded)
 
@@ -154,7 +211,7 @@ func TestInMemoryEnumerationStateStorage_ConcurrentOperations(t *testing.T) {
 			err := store.Save(ctx, state)
 			require.NoError(t, err)
 
-			_, err = store.Load(ctx)
+			_, err = store.Load(ctx, state.SessionID)
 			require.NoError(t, err)
 
 			done <- true
@@ -165,7 +222,7 @@ func TestInMemoryEnumerationStateStorage_ConcurrentOperations(t *testing.T) {
 		<-done
 	}
 
-	loaded, err := store.Load(ctx)
+	loaded, err := store.Load(ctx, "concurrent-session")
 	require.NoError(t, err)
 	require.NotNil(t, loaded)
 	assert.Equal(t, "concurrent-session", loaded.SessionID)

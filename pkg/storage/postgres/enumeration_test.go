@@ -50,7 +50,7 @@ func TestPGEnumerationStateStorage_SaveAndLoad(t *testing.T) {
 	err := store.Save(ctx, state)
 	require.NoError(t, err)
 
-	loaded, err := store.Load(ctx)
+	loaded, err := store.Load(ctx, state.SessionID)
 	require.NoError(t, err)
 	require.NotNil(t, loaded)
 
@@ -76,7 +76,7 @@ func TestPGEnumerationStateStorage_LoadEmpty(t *testing.T) {
 	store := NewEnumerationStateStorage(db, checkpointStore)
 	ctx := context.Background()
 
-	loaded, err := store.Load(ctx)
+	loaded, err := store.Load(ctx, "non-existent-session")
 	require.NoError(t, err)
 	assert.Nil(t, loaded)
 }
@@ -106,22 +106,13 @@ func TestPGEnumerationStateStorage_Update(t *testing.T) {
 	err := store.Save(ctx, initialState)
 	require.NoError(t, err)
 
-	firstState, err := store.Load(ctx)
-	require.NoError(t, err)
-	require.NotNil(t, firstState)
-	firstSaveTime := firstState.LastUpdated
-
-	initialState.Status = storage.StatusInProgress
-	err = store.Save(ctx, initialState)
-	require.NoError(t, err)
-
-	loaded, err := store.Load(ctx)
+	loaded, err := store.Load(ctx, initialState.SessionID)
 	require.NoError(t, err)
 	require.NotNil(t, loaded)
 
-	assert.Equal(t, storage.StatusInProgress, loaded.Status)
-	assert.True(t, loaded.LastUpdated.After(firstSaveTime),
-		"LastUpdated should be later than first save")
+	assert.Equal(t, storage.StatusInitialized, loaded.Status)
+	assert.True(t, loaded.LastUpdated.After(initialState.LastUpdated),
+		"LastUpdated should be later than initial save")
 }
 
 func TestPGEnumerationStateStorage_Mutability(t *testing.T) {
@@ -152,7 +143,7 @@ func TestPGEnumerationStateStorage_Mutability(t *testing.T) {
 	err := store.Save(ctx, original)
 	require.NoError(t, err)
 
-	loaded, err := store.Load(ctx)
+	loaded, err := store.Load(ctx, original.SessionID)
 	require.NoError(t, err)
 	require.NotNil(t, loaded)
 
@@ -162,7 +153,7 @@ func TestPGEnumerationStateStorage_Mutability(t *testing.T) {
 		nestedMap["key"] = "modified"
 	}
 
-	reloaded, err := store.Load(ctx)
+	reloaded, err := store.Load(ctx, original.SessionID)
 	require.NoError(t, err)
 	require.NotNil(t, reloaded)
 
@@ -202,7 +193,7 @@ func TestPGEnumerationStateStorage_ConcurrentOperations(t *testing.T) {
 			err := store.Save(ctx, state)
 			require.NoError(t, err)
 
-			_, err = store.Load(ctx)
+			_, err = store.Load(ctx, state.SessionID)
 			require.NoError(t, err)
 
 			done <- true
@@ -213,9 +204,102 @@ func TestPGEnumerationStateStorage_ConcurrentOperations(t *testing.T) {
 		<-done
 	}
 
-	loaded, err := store.Load(ctx)
+	loaded, err := store.Load(ctx, "concurrent-session")
 	require.NoError(t, err)
 	require.NotNil(t, loaded)
 	assert.Equal(t, "concurrent-session", loaded.SessionID)
 	assert.Equal(t, storage.StatusInProgress, loaded.Status)
+}
+
+func TestPGEnumerationStateStorage_GetActiveStates(t *testing.T) {
+	t.Parallel()
+
+	db, cleanup := setupTestContainer(t)
+	defer cleanup()
+
+	checkpointStore := NewCheckpointStorage(db)
+	store := NewEnumerationStateStorage(db, checkpointStore)
+	ctx := context.Background()
+
+	// Create states with different statuses.
+	states := []*storage.EnumerationState{
+		{
+			SessionID:  "session-1",
+			SourceType: "github",
+			Status:     storage.StatusInitialized,
+			Config:     json.RawMessage(`{}`),
+		},
+		{
+			SessionID:  "session-2",
+			SourceType: "github",
+			Status:     storage.StatusInProgress,
+			Config:     json.RawMessage(`{}`),
+		},
+		{
+			SessionID:  "session-3",
+			SourceType: "github",
+			Status:     storage.StatusCompleted,
+			Config:     json.RawMessage(`{}`),
+		},
+	}
+
+	for _, s := range states {
+		err := store.Save(ctx, s)
+		require.NoError(t, err)
+	}
+
+	active, err := store.GetActiveStates(ctx)
+	require.NoError(t, err)
+	require.Len(t, active, 2, "Should have 2 active states")
+
+	for _, s := range active {
+		assert.Contains(t, []storage.EnumerationStatus{
+			storage.StatusInitialized,
+			storage.StatusInProgress,
+		}, s.Status)
+	}
+}
+
+func TestPGEnumerationStateStorage_List(t *testing.T) {
+	t.Parallel()
+
+	db, cleanup := setupTestContainer(t)
+	defer cleanup()
+
+	checkpointStore := NewCheckpointStorage(db)
+	store := NewEnumerationStateStorage(db, checkpointStore)
+	ctx := context.Background()
+
+	states := []*storage.EnumerationState{
+		{
+			SessionID:  "session-1",
+			SourceType: "github",
+			Status:     storage.StatusCompleted,
+			Config:     json.RawMessage(`{}`),
+		},
+		{
+			SessionID:  "session-2",
+			SourceType: "github",
+			Status:     storage.StatusInProgress,
+			Config:     json.RawMessage(`{}`),
+		},
+		{
+			SessionID:  "session-3",
+			SourceType: "github",
+			Status:     storage.StatusInitialized,
+			Config:     json.RawMessage(`{}`),
+		},
+	}
+
+	for _, s := range states {
+		err := store.Save(ctx, s)
+		require.NoError(t, err)
+	}
+
+	listed, err := store.List(ctx, 2)
+	require.NoError(t, err)
+	require.Len(t, listed, 2, "Should respect the limit")
+
+	assert.Equal(t, "session-3", listed[0].SessionID)
+	assert.Equal(t, "session-2", listed[1].SessionID)
 }

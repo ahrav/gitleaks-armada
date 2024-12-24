@@ -78,15 +78,20 @@ func (s *EnumerationState) UpdateStatus(status EnumerationStatus) {
 // Implementations handle source-specific pagination and checkpointing.
 type TargetEnumerator interface {
 	// Enumerate walks through a data source to generate scan tasks.
-	// It resumes from the provided checkpoint and streams tasks through taskCh.
-	Enumerate(ctx context.Context, checkpoint *Checkpoint, taskCh chan<- []messaging.Task) error
+	// It uses the enumeration state for context and checkpoint data,
+	// and streams tasks through taskCh.
+	Enumerate(ctx context.Context, state *EnumerationState, taskCh chan<- []messaging.Task) error
 }
 
 // EnumerationStateStorage provides persistent storage for enumeration session state.
 // This enables resumable scanning across process restarts.
 type EnumerationStateStorage interface {
 	Save(ctx context.Context, state *EnumerationState) error
-	// Load retrieves the current active enumeration session state.
-	// Returns nil if no active session exists.
-	Load(ctx context.Context) (*EnumerationState, error)
+	// Load retrieves an enumeration session state by session ID.
+	// Returns nil if no matching session exists.
+	Load(ctx context.Context, sessionID string) (*EnumerationState, error)
+	// GetActiveStates returns all enumeration states that are initialized or in progress
+	GetActiveStates(ctx context.Context) ([]*EnumerationState, error)
+	// List returns the most recent enumeration states, limited by count
+	List(ctx context.Context, limit int) ([]*EnumerationState, error)
 }

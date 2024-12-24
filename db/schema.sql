@@ -16,17 +16,13 @@ CREATE TABLE checkpoints (
 );
 
 CREATE TABLE enumeration_states (
-    id INTEGER PRIMARY KEY CHECK (id = 1),
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     session_id TEXT NOT NULL,
     source_type TEXT NOT NULL,
     config JSONB NOT NULL,
-    last_checkpoint_id BIGINT REFERENCES checkpoints(id),
+    last_checkpoint_id BIGINT REFERENCES checkpoints (id),
     status enumeration_status NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT unique_session_id UNIQUE (session_id)  -- single record per session_id
 );
-
-ALTER TABLE enumeration_states
-  ADD CONSTRAINT fk_last_checkpoint
-  FOREIGN KEY (last_checkpoint_id)
-  REFERENCES checkpoints (id);

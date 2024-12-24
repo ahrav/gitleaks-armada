@@ -30,34 +30,37 @@ WHERE id = $1;
 -- ============================================
 -- name: CreateOrUpdateEnumerationState :exec
 INSERT INTO enumeration_states (
-    id,
-    session_id,
-    source_type,
-    config,
-    last_checkpoint_id,
-    status
+    session_id, source_type, config, last_checkpoint_id, status
 ) VALUES (
-    $1, $2, $3, $4, $5, $6
+    $1, $2, $3, $4, $5
 )
-ON CONFLICT (id) DO UPDATE SET
-    session_id = EXCLUDED.session_id,
-    source_type = EXCLUDED.source_type,
-    config = EXCLUDED.config,
+ON CONFLICT (session_id) DO UPDATE
+SET source_type        = EXCLUDED.source_type,
+    config             = EXCLUDED.config,
     last_checkpoint_id = EXCLUDED.last_checkpoint_id,
-    status = EXCLUDED.status,
-    updated_at = NOW();
+    status             = EXCLUDED.status,
+    updated_at         = NOW();
 
 -- name: GetEnumerationState :one
-SELECT session_id, source_type, config, last_checkpoint_id,
+SELECT id, session_id, source_type, config, last_checkpoint_id,
        status, created_at, updated_at
 FROM enumeration_states
-WHERE id = 1;
+WHERE session_id = $1;
 
 -- name: DeleteEnumerationState :exec
 DELETE FROM enumeration_states
 WHERE session_id = $1;
 
--- name: ListEnumerationStates :many
-SELECT session_id, source_type, config, last_checkpoint_id,
+-- name: GetActiveEnumerationStates :many
+SELECT id, session_id, source_type, config, last_checkpoint_id,
        status, created_at, updated_at
-FROM enumeration_states;
+FROM enumeration_states
+WHERE status IN ('initialized', 'in_progress')
+ORDER BY created_at DESC;
+
+-- name: ListEnumerationStates :many
+SELECT id, session_id, source_type, config, last_checkpoint_id,
+       status, created_at, updated_at
+FROM enumeration_states
+ORDER BY created_at DESC
+LIMIT $1;

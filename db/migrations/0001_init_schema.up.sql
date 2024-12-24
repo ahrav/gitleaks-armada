@@ -19,18 +19,14 @@ CREATE TABLE checkpoints (
 
 -- 3. Create enumeration_states table
 CREATE TABLE enumeration_states (
-    id INTEGER PRIMARY KEY CHECK (id = 1),
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     session_id TEXT NOT NULL,
     source_type TEXT NOT NULL,
     config JSONB NOT NULL,
-    last_checkpoint_id BIGINT,
+    last_checkpoint_id BIGINT REFERENCES checkpoints (id),
     status enumeration_status NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    -- Only one record per session_id allowed
+    CONSTRAINT unique_session_id UNIQUE (session_id)
 );
-
--- 4. Add a foreign key constraint on enumeration_states referencing checkpoints
-ALTER TABLE enumeration_states
-  ADD CONSTRAINT fk_last_checkpoint
-  FOREIGN KEY (last_checkpoint_id)
-  REFERENCES checkpoints (id);

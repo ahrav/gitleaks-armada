@@ -9,7 +9,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"time"
 )
 
 const createOrUpdateCheckpoint = `-- name: CreateOrUpdateCheckpoint :one
@@ -40,26 +39,19 @@ func (q *Queries) CreateOrUpdateCheckpoint(ctx context.Context, arg CreateOrUpda
 
 const createOrUpdateEnumerationState = `-- name: CreateOrUpdateEnumerationState :exec
 INSERT INTO enumeration_states (
-    id,
-    session_id,
-    source_type,
-    config,
-    last_checkpoint_id,
-    status
+    session_id, source_type, config, last_checkpoint_id, status
 ) VALUES (
-    $1, $2, $3, $4, $5, $6
+    $1, $2, $3, $4, $5
 )
-ON CONFLICT (id) DO UPDATE SET
-    session_id = EXCLUDED.session_id,
-    source_type = EXCLUDED.source_type,
-    config = EXCLUDED.config,
+ON CONFLICT (session_id) DO UPDATE
+SET source_type        = EXCLUDED.source_type,
+    config             = EXCLUDED.config,
     last_checkpoint_id = EXCLUDED.last_checkpoint_id,
-    status = EXCLUDED.status,
-    updated_at = NOW()
+    status             = EXCLUDED.status,
+    updated_at         = NOW()
 `
 
 type CreateOrUpdateEnumerationStateParams struct {
-	ID               int32
 	SessionID        string
 	SourceType       string
 	Config           json.RawMessage
@@ -72,7 +64,6 @@ type CreateOrUpdateEnumerationStateParams struct {
 // ============================================
 func (q *Queries) CreateOrUpdateEnumerationState(ctx context.Context, arg CreateOrUpdateEnumerationStateParams) error {
 	_, err := q.db.ExecContext(ctx, createOrUpdateEnumerationState,
-		arg.ID,
 		arg.SessionID,
 		arg.SourceType,
 		arg.Config,
@@ -100,6 +91,46 @@ WHERE session_id = $1
 func (q *Queries) DeleteEnumerationState(ctx context.Context, sessionID string) error {
 	_, err := q.db.ExecContext(ctx, deleteEnumerationState, sessionID)
 	return err
+}
+
+const getActiveEnumerationStates = `-- name: GetActiveEnumerationStates :many
+SELECT id, session_id, source_type, config, last_checkpoint_id,
+       status, created_at, updated_at
+FROM enumeration_states
+WHERE status IN ('initialized', 'in_progress')
+ORDER BY created_at DESC
+`
+
+func (q *Queries) GetActiveEnumerationStates(ctx context.Context) ([]EnumerationState, error) {
+	rows, err := q.db.QueryContext(ctx, getActiveEnumerationStates)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EnumerationState
+	for rows.Next() {
+		var i EnumerationState
+		if err := rows.Scan(
+			&i.ID,
+			&i.SessionID,
+			&i.SourceType,
+			&i.Config,
+			&i.LastCheckpointID,
+			&i.Status,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const getCheckpoint = `-- name: GetCheckpoint :one
@@ -141,26 +172,17 @@ func (q *Queries) GetCheckpointByID(ctx context.Context, id int64) (Checkpoint, 
 }
 
 const getEnumerationState = `-- name: GetEnumerationState :one
-SELECT session_id, source_type, config, last_checkpoint_id,
+SELECT id, session_id, source_type, config, last_checkpoint_id,
        status, created_at, updated_at
 FROM enumeration_states
-WHERE id = 1
+WHERE session_id = $1
 `
 
-type GetEnumerationStateRow struct {
-	SessionID        string
-	SourceType       string
-	Config           json.RawMessage
-	LastCheckpointID sql.NullInt64
-	Status           EnumerationStatus
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
-}
-
-func (q *Queries) GetEnumerationState(ctx context.Context) (GetEnumerationStateRow, error) {
-	row := q.db.QueryRowContext(ctx, getEnumerationState)
-	var i GetEnumerationStateRow
+func (q *Queries) GetEnumerationState(ctx context.Context, sessionID string) (EnumerationState, error) {
+	row := q.db.QueryRowContext(ctx, getEnumerationState, sessionID)
+	var i EnumerationState
 	err := row.Scan(
+		&i.ID,
 		&i.SessionID,
 		&i.SourceType,
 		&i.Config,
@@ -173,31 +195,24 @@ func (q *Queries) GetEnumerationState(ctx context.Context) (GetEnumerationStateR
 }
 
 const listEnumerationStates = `-- name: ListEnumerationStates :many
-SELECT session_id, source_type, config, last_checkpoint_id,
+SELECT id, session_id, source_type, config, last_checkpoint_id,
        status, created_at, updated_at
 FROM enumeration_states
+ORDER BY created_at DESC
+LIMIT $1
 `
 
-type ListEnumerationStatesRow struct {
-	SessionID        string
-	SourceType       string
-	Config           json.RawMessage
-	LastCheckpointID sql.NullInt64
-	Status           EnumerationStatus
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
-}
-
-func (q *Queries) ListEnumerationStates(ctx context.Context) ([]ListEnumerationStatesRow, error) {
-	rows, err := q.db.QueryContext(ctx, listEnumerationStates)
+func (q *Queries) ListEnumerationStates(ctx context.Context, limit int32) ([]EnumerationState, error) {
+	rows, err := q.db.QueryContext(ctx, listEnumerationStates, limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ListEnumerationStatesRow
+	var items []EnumerationState
 	for rows.Next() {
-		var i ListEnumerationStatesRow
+		var i EnumerationState
 		if err := rows.Scan(
+			&i.ID,
 			&i.SessionID,
 			&i.SourceType,
 			&i.Config,

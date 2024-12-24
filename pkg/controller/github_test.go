@@ -3,7 +3,6 @@ package controller
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -25,33 +24,45 @@ func (m *MockGitHubAPI) ListRepositories(ctx context.Context, org string, cursor
 
 type MockStorage struct{ mock.Mock }
 
-func (m *MockStorage) Load(ctx context.Context) (*storage.EnumerationState, error) {
-	args := m.Called(ctx)
+func (m *MockStorage) Save(ctx context.Context, state *storage.EnumerationState) error {
+	args := m.Called(ctx, state)
+	return args.Error(0)
+}
+
+func (m *MockStorage) Load(ctx context.Context, sessionID string) (*storage.EnumerationState, error) {
+	args := m.Called(ctx, sessionID)
 	if state := args.Get(0); state != nil {
 		return state.(*storage.EnumerationState), args.Error(1)
 	}
 	return nil, args.Error(1)
 }
 
-func (m *MockStorage) Save(ctx context.Context, state *storage.EnumerationState) error {
-	args := m.Called(ctx, state)
-	return args.Error(0)
+func (m *MockStorage) GetActiveStates(ctx context.Context) ([]*storage.EnumerationState, error) {
+	args := m.Called(ctx)
+	if states := args.Get(0); states != nil {
+		return states.([]*storage.EnumerationState), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *MockStorage) List(ctx context.Context, limit int) ([]*storage.EnumerationState, error) {
+	args := m.Called(ctx, limit)
+	if states := args.Get(0); states != nil {
+		return states.([]*storage.EnumerationState), args.Error(1)
+	}
+	return nil, args.Error(1)
 }
 
 func TestGitHubEnumerator_Enumerate(t *testing.T) {
 	tests := []struct {
 		name          string
 		setupMocks    func(*MockGitHubAPI, *MockStorage)
-		checkpoint    *storage.Checkpoint
+		state         *storage.EnumerationState
 		expectedTasks int
 	}{
 		{
 			name: "successful single page enumeration",
 			setupMocks: func(api *MockGitHubAPI, store *MockStorage) {
-				store.On("Load", mock.Anything).Return(&storage.EnumerationState{
-					LastUpdated: time.Now(),
-				}, nil)
-
 				api.On("ListRepositories", mock.Anything, "test-org", (*string)(nil)).Return(&githubGraphQLResponse{
 					Data: struct {
 						Organization struct {
@@ -104,15 +115,16 @@ func TestGitHubEnumerator_Enumerate(t *testing.T) {
 					},
 				}, nil)
 			},
+			state: &storage.EnumerationState{
+				SessionID:  "test-session",
+				SourceType: "github",
+				Status:     storage.StatusInProgress,
+			},
 			expectedTasks: 2,
 		},
 		{
 			name: "successful multi-page enumeration",
 			setupMocks: func(api *MockGitHubAPI, store *MockStorage) {
-				store.On("Load", mock.Anything).Return(&storage.EnumerationState{
-					LastUpdated: time.Now(),
-				}, nil)
-
 				// First page of results.
 				api.On("ListRepositories", mock.Anything, "test-org", (*string)(nil)).Return(&githubGraphQLResponse{
 					Data: struct {
@@ -166,7 +178,7 @@ func TestGitHubEnumerator_Enumerate(t *testing.T) {
 					},
 				}, nil)
 
-				// Expect Save after first page.
+				// Expect state save after first page.
 				store.On("Save", mock.Anything, mock.MatchedBy(func(state *storage.EnumerationState) bool {
 					return state.LastCheckpoint != nil &&
 						state.LastCheckpoint.Data["endCursor"] == "cursor1"
@@ -227,6 +239,11 @@ func TestGitHubEnumerator_Enumerate(t *testing.T) {
 					},
 				}, nil)
 			},
+			state: &storage.EnumerationState{
+				SessionID:  "test-session",
+				SourceType: "github",
+				Status:     storage.StatusInProgress,
+			},
 			expectedTasks: 4,
 		},
 	}
@@ -250,7 +267,7 @@ func TestGitHubEnumerator_Enumerate(t *testing.T) {
 			)
 
 			taskCh := make(chan []messaging.Task, 10)
-			err := enumerator.Enumerate(context.Background(), tt.checkpoint, taskCh)
+			err := enumerator.Enumerate(context.Background(), tt.state, taskCh)
 
 			assert.NoError(t, err)
 			close(taskCh)

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -16,6 +15,8 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/messaging"
 	"github.com/ahrav/gitleaks-armada/pkg/storage"
 )
+
+var _ storage.TargetEnumerator = new(GitHubEnumerator)
 
 // GitHubAPI defines the interface for interacting with GitHub's API.
 type GitHubAPI interface {
@@ -69,8 +70,8 @@ func extractGitHubToken(creds *messaging.TaskCredentials) (string, error) {
 // It uses GraphQL for efficient pagination and maintains checkpoints for resumability.
 // The method streams batches of tasks through the provided channel and updates progress
 // in the enumeration state storage.
-func (e *GitHubEnumerator) Enumerate(ctx context.Context, checkpoint *storage.Checkpoint, taskCh chan<- []messaging.Task) error {
-	if e.ghConfig.Org == "" && len(e.ghConfig.RepoList) == 0 {
+func (e *GitHubEnumerator) Enumerate(ctx context.Context, state *storage.EnumerationState, taskCh chan<- []messaging.Task) error {
+	if e.ghConfig.Org == "" && len(e.ghConfig.RepoList) < 1 {
 		return fmt.Errorf("must provide either an org or a repo_list")
 	}
 
@@ -89,20 +90,10 @@ func (e *GitHubEnumerator) Enumerate(ctx context.Context, checkpoint *storage.Ch
 		return nil
 	}
 
-	// Otherwise, enumerate repositories from the organization.
-	state, err := e.storage.Load(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to load enumeration state: %w", err)
-	}
-	if state == nil {
-		return fmt.Errorf("enumeration state is nil")
-	}
-
 	// Resume from last known position if checkpoint exists.
 	var endCursor *string
-	if checkpoint != nil {
-		cursor, ok := checkpoint.Data["endCursor"].(string)
-		if ok {
+	if state.LastCheckpoint != nil {
+		if cursor, ok := state.LastCheckpoint.Data["endCursor"].(string); ok {
 			endCursor = &cursor
 		}
 	}
@@ -135,18 +126,16 @@ func (e *GitHubEnumerator) Enumerate(ctx context.Context, checkpoint *storage.Ch
 
 		// Save progress after each successful batch.
 		endCursor = &pageInfo.EndCursor
-		checkpoint = &storage.Checkpoint{
-			TargetID: e.ghConfig.Org,
-			Data: map[string]any{
-				"endCursor": *endCursor,
-			},
+		checkpoint := &storage.Checkpoint{
+			TargetID:  e.ghConfig.Org,
+			Data:      map[string]any{"endCursor": *endCursor},
 			UpdatedAt: time.Now(),
 		}
+
 		state.UpdateCheckpoint(checkpoint)
 		if err := e.storage.Save(ctx, state); err != nil {
 			return fmt.Errorf("failed to save enumeration state with new checkpoint: %w", err)
 		}
-		log.Printf("Checkpoint updated: endCursor=%s", *endCursor)
 	}
 
 	return nil

@@ -39,7 +39,7 @@ KAFKA_PROGRESS_TOPIC := scanner-progress
 # -------------------------------------------------------------------------------
 # Targets
 # -------------------------------------------------------------------------------
-.PHONY: all build-controller build-scanner docker-controller docker-scanner kind-up kind-down kind-load dev-apply dev-status clean proto proto-gen kafka-setup kafka-logs kafka-topics kafka-restart kafka-delete kafka-consumer-groups kafka-delete-topics kafka-reset create-config-secret monitoring-setup monitoring-port-forward monitoring-cleanup postgres-setup postgres-logs postgres-restart postgres-delete sqlc-proto-gen
+.PHONY: all build-controller build-scanner docker-controller docker-scanner kind-up kind-down kind-load dev-apply dev-status clean proto proto-gen kafka-setup kafka-logs kafka-topics kafka-restart kafka-delete kafka-consumer-groups kafka-delete-topics kafka-reset create-config-secret monitoring-setup monitoring-port-forward monitoring-cleanup postgres-setup postgres-logs postgres-restart postgres-delete sqlc-proto-gen rollout-restart-controller rollout-restart-scanner rollout-restart
 
 all: build-all docker-all kind-load kafka-setup postgres-setup dev-apply create-config-secret monitoring-setup
 
@@ -120,9 +120,13 @@ redeploy: build-all docker-all kind-load dev-apply
 	kubectl rollout restart deployment/scanner-controller -n $(NAMESPACE)
 	kubectl rollout restart deployment/scanner-worker -n $(NAMESPACE)
 
-rollout-restart:
+rollout-restart-controller:
 	kubectl rollout restart deployment/scanner-controller -n $(NAMESPACE)
+
+rollout-restart-scanner:
 	kubectl rollout restart deployment/scanner-worker -n $(NAMESPACE)
+
+rollout-restart: rollout-restart-controller rollout-restart-scanner
 
 # View logs
 logs-controller:
