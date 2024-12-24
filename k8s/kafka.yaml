@@ -80,6 +80,12 @@ spec:
           value: PLAINTEXT://:9092
         - name: KAFKA_CFG_ADVERTISED_LISTENERS
           value: PLAINTEXT://kafka:9092
+        - name: KAFKA_CFG_NUM_PARTITIONS
+          value: "3"
+        - name: KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE
+          value: "false"
+        - name: KAFKA_CFG_GROUP_INITIAL_REBALANCE_DELAY_MS
+          value: "3000"
         resources:
           requests:
             memory: "512Mi"

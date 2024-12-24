@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -31,18 +32,24 @@ func main() {
 		}
 	}()
 
+	hostname, err := os.Hostname()
+	if err != nil {
+		log.Fatalf("Failed to get hostname: %v", err)
+	}
+
 	kafkaCfg := &kafka.Config{
 		Brokers:      strings.Split(os.Getenv("KAFKA_BROKERS"), ","),
 		TaskTopic:    os.Getenv("KAFKA_TASK_TOPIC"),
 		ResultsTopic: os.Getenv("KAFKA_RESULTS_TOPIC"),
 		GroupID:      os.Getenv("KAFKA_GROUP_ID"),
+		ClientID:     fmt.Sprintf("scanner-%s", hostname),
 	}
 
 	broker, err := common.ConnectKafkaWithRetry(kafkaCfg)
 	if err != nil {
 		log.Fatalf("Failed to create Kafka broker: %v", err)
 	}
-	log.Println("Successfully connected to Kafka")
+	log.Printf("Scanner %s connected to Kafka", hostname)
 
 	m := metrics.New("scanner_worker")
 	scanner := scanner.NewScanner(broker, m)
@@ -60,15 +67,15 @@ func main() {
 
 	go func() {
 		<-sigChan
-		log.Println("Shutting down scanner...")
+		log.Printf("Scanner %s shutting down...", hostname)
 		cancel()
 	}()
 
-	log.Println("Starting scanner...")
+	log.Printf("Starting scanner %s...", hostname)
 	if err := scanner.Run(ctx); err != nil {
 		log.Printf("Scanner error: %v", err)
 	}
 
 	<-ctx.Done()
-	log.Println("Shutdown complete")
+	log.Printf("Scanner %s shutdown complete", hostname)
 }

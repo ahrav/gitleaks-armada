@@ -100,11 +100,18 @@ func main() {
 	}
 	defer coord.Stop()
 
+	hostname, err := os.Hostname()
+	if err != nil {
+		log.Fatalf("failed to get hostname: %v", err)
+	}
+
 	kafkaCfg := &kafka.Config{
-		Brokers:      strings.Split(os.Getenv("KAFKA_BROKERS"), ","),
-		TaskTopic:    os.Getenv("KAFKA_TASK_TOPIC"),
-		ResultsTopic: os.Getenv("KAFKA_RESULTS_TOPIC"),
-		GroupID:      "orchestrator-group",
+		Brokers:       strings.Split(os.Getenv("KAFKA_BROKERS"), ","),
+		TaskTopic:     os.Getenv("KAFKA_TASK_TOPIC"),
+		ResultsTopic:  os.Getenv("KAFKA_RESULTS_TOPIC"),
+		GroupID:       os.Getenv("KAFKA_GROUP_ID"),
+		ProgressTopic: os.Getenv("KAFKA_PROGRESS_TOPIC"),
+		ClientID:      fmt.Sprintf("scanner-%s", hostname),
 	}
 
 	broker, err := common.ConnectKafkaWithRetry(kafkaCfg)

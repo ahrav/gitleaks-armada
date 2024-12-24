@@ -19,6 +19,7 @@ type Config struct {
 	ResultsTopic  string
 	ProgressTopic string
 	GroupID       string
+	ClientID      string
 }
 
 // Broker implements the Broker interface using Apache Kafka as the message queue.
@@ -28,6 +29,7 @@ type Broker struct {
 	taskTopic     string
 	resultsTopic  string
 	progressTopic string
+	clientID      string
 }
 
 // NewBroker creates a new Kafka broker with the provided configuration.
@@ -36,6 +38,7 @@ func NewBroker(cfg *Config) (*Broker, error) {
 	producerConfig := sarama.NewConfig()
 	producerConfig.Producer.RequiredAcks = sarama.WaitForAll
 	producerConfig.Producer.Return.Successes = true
+	producerConfig.ClientID = cfg.ClientID
 
 	// Use round-robin partitioner to evenly distribute messages across partitions.
 	producerConfig.Producer.Partitioner = sarama.NewRoundRobinPartitioner
@@ -48,7 +51,7 @@ func NewBroker(cfg *Config) (*Broker, error) {
 
 	// Configure the consumer group
 	consumerConfig := sarama.NewConfig()
-
+	consumerConfig.ClientID = cfg.ClientID
 	// Use round-robin rebalancing strategy to distribute partitions among consumers.
 	consumerConfig.Consumer.Group.Rebalance.Strategy = sarama.BalanceStrategyRoundRobin
 
@@ -78,6 +81,7 @@ func NewBroker(cfg *Config) (*Broker, error) {
 		taskTopic:     cfg.TaskTopic,
 		resultsTopic:  cfg.ResultsTopic,
 		progressTopic: cfg.ProgressTopic,
+		clientID:      cfg.ClientID,
 	}, nil
 }
 

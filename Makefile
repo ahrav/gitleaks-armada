@@ -32,11 +32,14 @@ SECRET_NAME ?= scanner-targets
 
 # Add to Variables section
 POSTGRES_IMAGE := postgres:17.2
+KAFKA_TASK_TOPIC := scanner-tasks
+KAFKA_RESULTS_TOPIC := scanner-results
+KAFKA_PROGRESS_TOPIC := scanner-progress
 
 # -------------------------------------------------------------------------------
 # Targets
 # -------------------------------------------------------------------------------
-.PHONY: all build-controller build-scanner docker-controller docker-scanner kind-up kind-down kind-load dev-apply dev-status clean proto proto-gen kafka-setup kafka-logs kafka-topics kafka-restart kafka-delete create-config-secret monitoring-setup monitoring-port-forward monitoring-cleanup postgres-setup postgres-logs postgres-restart postgres-delete sqlc-proto-gen
+.PHONY: all build-controller build-scanner docker-controller docker-scanner kind-up kind-down kind-load dev-apply dev-status clean proto proto-gen kafka-setup kafka-logs kafka-topics kafka-restart kafka-delete kafka-consumer-groups kafka-delete-topics kafka-reset create-config-secret monitoring-setup monitoring-port-forward monitoring-cleanup postgres-setup postgres-logs postgres-restart postgres-delete sqlc-proto-gen
 
 all: build-all docker-all kind-load kafka-setup postgres-setup dev-apply create-config-secret monitoring-setup
 
@@ -171,19 +174,19 @@ kafka-setup:
 	@echo "Creating Kafka topics with partitions..."
 	kubectl exec -it -n $(NAMESPACE) deployment/kafka -- /opt/bitnami/kafka/bin/kafka-topics.sh \
 		--create --if-not-exists \
-		--topic scan-tasks \
+		--topic $(KAFKA_TASK_TOPIC) \
 		--bootstrap-server localhost:9092 \
 		--partitions 3 \
 		--replication-factor 1
 	kubectl exec -it -n $(NAMESPACE) deployment/kafka -- /opt/bitnami/kafka/bin/kafka-topics.sh \
 		--create --if-not-exists \
-		--topic scan-results \
+		--topic $(KAFKA_RESULTS_TOPIC) \
 		--bootstrap-server localhost:9092 \
 		--partitions 3 \
 		--replication-factor 1
 	kubectl exec -it -n $(NAMESPACE) deployment/kafka -- /opt/bitnami/kafka/bin/kafka-topics.sh \
 		--create --if-not-exists \
-		--topic scan-progress \
+		--topic $(KAFKA_PROGRESS_TOPIC) \
 		--bootstrap-server localhost:9092 \
 		--partitions 3 \
 		--replication-factor 1
@@ -208,6 +211,28 @@ kafka-delete:
 	kubectl delete deployment kafka zookeeper -n $(NAMESPACE) || true
 	kubectl delete service kafka zookeeper -n $(NAMESPACE) || true
 
+kafka-consumer-groups:
+	@echo "Checking consumer group status..."
+	kubectl exec -it -n $(NAMESPACE) deployment/kafka -- /opt/bitnami/kafka/bin/kafka-consumer-groups.sh \
+		--bootstrap-server localhost:9092 \
+		--describe \
+		--all-groups
+
+kafka-delete-topics:
+	@echo "Deleting Kafka topics..."
+	kubectl exec -it -n $(NAMESPACE) deployment/kafka -- /opt/bitnami/kafka/bin/kafka-topics.sh \
+		--bootstrap-server localhost:9092 \
+		--delete \
+		--topic $(KAFKA_TASK_TOPIC) || true
+	kubectl exec -it -n $(NAMESPACE) deployment/kafka -- /opt/bitnami/kafka/bin/kafka-topics.sh \
+		--bootstrap-server localhost:9092 \
+		--delete \
+		--topic $(KAFKA_RESULTS_TOPIC) || true
+	kubectl exec -it -n $(NAMESPACE) deployment/kafka -- /opt/bitnami/kafka/bin/kafka-topics.sh \
+		--bootstrap-server localhost:9092 \
+		--delete \
+		--topic $(KAFKA_PROGRESS_TOPIC) || true
+
 kafka-restart: kafka-delete
 	@echo "Loading Kafka images..."
 	kind load docker-image $(KAFKA_IMAGE) --name $(KIND_CLUSTER)
@@ -215,10 +240,15 @@ kafka-restart: kafka-delete
 	@echo "Applying Kafka manifests..."
 	kubectl apply -f k8s/kafka.yaml -n $(NAMESPACE)
 	@echo "Waiting for pods to be ready..."
-	sleep 5  # Give k8s a moment to create the pods
+	sleep 10  # Give k8s more time to create the pods
 	kubectl wait --for=condition=ready pod -l app=zookeeper --timeout=120s -n $(NAMESPACE) || true
 	kubectl wait --for=condition=ready pod -l app=kafka --timeout=120s -n $(NAMESPACE) || true
+	@echo "Creating Kafka topics..."
+	$(MAKE) kafka-setup
 	@echo "Kafka and Zookeeper restarted"
+
+kafka-reset: kafka-delete-topics kafka-setup
+	@echo "Kafka topics have been reset"
 
 # Create config secret
 create-config-secret:

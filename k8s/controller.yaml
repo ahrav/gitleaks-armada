@@ -53,6 +53,8 @@ spec:
             configMapKeyRef:
               name: scanner-config
               key: KAFKA_BROKERS
+        - name: KAFKA_GROUP_ID
+          value: "controller-workers"
         - name: POSTGRES_USER
           valueFrom:
             configMapKeyRef:
