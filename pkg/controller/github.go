@@ -70,11 +70,26 @@ func extractGitHubToken(creds *messaging.TaskCredentials) (string, error) {
 // The method streams batches of tasks through the provided channel and updates progress
 // in the enumeration state storage.
 func (e *GitHubEnumerator) Enumerate(ctx context.Context, checkpoint *storage.Checkpoint, taskCh chan<- []messaging.Task) error {
-	if e.ghConfig.Org == "" {
-		return fmt.Errorf("must provide a valid org")
+	if e.ghConfig.Org == "" && len(e.ghConfig.RepoList) == 0 {
+		return fmt.Errorf("must provide either an org or a repo_list")
 	}
 
-	// Load state to track progress.
+	// If we have a repo list, process it directly.
+	if len(e.ghConfig.RepoList) > 0 {
+		tasks := make([]messaging.Task, 0, len(e.ghConfig.RepoList))
+		for _, repoURL := range e.ghConfig.RepoList {
+			tasks = append(tasks, messaging.Task{
+				TaskID:      generateTaskID(),
+				ResourceURI: repoURL,
+				Metadata:    e.ghConfig.Metadata,
+				Credentials: e.creds,
+			})
+		}
+		taskCh <- tasks
+		return nil
+	}
+
+	// Otherwise, enumerate repositories from the organization.
 	state, err := e.storage.Load(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to load enumeration state: %w", err)
@@ -127,8 +142,7 @@ func (e *GitHubEnumerator) Enumerate(ctx context.Context, checkpoint *storage.Ch
 			},
 			UpdatedAt: time.Now(),
 		}
-		state.LastCheckpoint = checkpoint
-		state.LastUpdated = time.Now()
+		state.UpdateCheckpoint(checkpoint)
 		if err := e.storage.Save(ctx, state); err != nil {
 			return fmt.Errorf("failed to save enumeration state with new checkpoint: %w", err)
 		}
@@ -152,9 +166,13 @@ type GitHubClient struct {
 
 // NewGitHubClient creates a new GitHub client with rate limiting.
 func NewGitHubClient(httpClient *http.Client, creds *messaging.TaskCredentials) (*GitHubClient, error) {
-	token, err := extractGitHubToken(creds)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create GitHub client: %w", err)
+	var token string
+	if creds.Type == messaging.CredentialTypeGitHub {
+		var err error
+		token, err = extractGitHubToken(creds)
+		if err != nil {
+			return nil, fmt.Errorf("failed to extract GitHub token: %w", err)
+		}
 	}
 	// GitHub's default rate limit is 5000 requests per hour.
 	// Setting initial rate to 4500/hour (1.25/second) to be conservative.

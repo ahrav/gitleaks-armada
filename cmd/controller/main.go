@@ -19,6 +19,7 @@ import (
 
 	"github.com/ahrav/gitleaks-armada/pkg/cluster/kubernetes"
 	"github.com/ahrav/gitleaks-armada/pkg/common"
+	"github.com/ahrav/gitleaks-armada/pkg/config"
 	"github.com/ahrav/gitleaks-armada/pkg/controller"
 	"github.com/ahrav/gitleaks-armada/pkg/messaging/kafka"
 	"github.com/ahrav/gitleaks-armada/pkg/metrics"
@@ -122,7 +123,9 @@ func main() {
 	checkpointStorage := pg.NewCheckpointStorage(dbConn)
 	enumStateStorage := pg.NewEnumerationStateStorage(dbConn, checkpointStorage)
 
-	ctrl := controller.NewController(coord, broker, enumStateStorage, checkpointStorage, m)
+	configLoader := config.NewFileLoader("/etc/scanner/config/config.yaml")
+
+	ctrl := controller.NewController(coord, broker, enumStateStorage, checkpointStorage, configLoader, m)
 	log.Println("Controller initialized")
 
 	ready.Store(true)

@@ -36,12 +36,12 @@ POSTGRES_IMAGE := postgres:17.2
 # -------------------------------------------------------------------------------
 # Targets
 # -------------------------------------------------------------------------------
-.PHONY: all build-controller build-scanner docker-controller docker-scanner kind-up kind-down kind-load dev-apply dev-status clean proto proto-gen kafka-setup kafka-logs kafka-topics kafka-restart kafka-delete create-config-secret monitoring-setup monitoring-port-forward monitoring-cleanup postgres-setup postgres-logs postgres-restart postgres-delete
+.PHONY: all build-controller build-scanner docker-controller docker-scanner kind-up kind-down kind-load dev-apply dev-status clean proto proto-gen kafka-setup kafka-logs kafka-topics kafka-restart kafka-delete create-config-secret monitoring-setup monitoring-port-forward monitoring-cleanup postgres-setup postgres-logs postgres-restart postgres-delete sqlc-proto-gen
 
 all: build-all docker-all kind-load kafka-setup postgres-setup dev-apply create-config-secret monitoring-setup
 
 # Build targets
-build-all: proto-gen build-controller build-scanner
+build-all: proto-gen sqlc-proto-gen build-controller build-scanner
 
 build-controller:
 	CGO_ENABLED=0 GOOS=linux go build -o $(CONTROLLER_APP) ./cmd/controller
@@ -162,9 +162,31 @@ kafka-setup:
 	@echo "Loading images into kind cluster..."
 	kind load docker-image $(KAFKA_IMAGE) --name $(KIND_CLUSTER)
 	kind load docker-image $(ZOOKEEPER_IMAGE) --name $(KIND_CLUSTER)
+	@echo "Applying Kafka manifests..."
+	kubectl apply -f $(K8S_MANIFESTS)/kafka.yaml -n $(NAMESPACE)
 	@echo "Waiting for pods to be ready..."
+	sleep 10  # Give k8s time to create the pods
 	kubectl wait --for=condition=ready pod -l app=zookeeper --timeout=120s -n $(NAMESPACE) || true
 	kubectl wait --for=condition=ready pod -l app=kafka --timeout=120s -n $(NAMESPACE) || true
+	@echo "Creating Kafka topics with partitions..."
+	kubectl exec -it -n $(NAMESPACE) deployment/kafka -- /opt/bitnami/kafka/bin/kafka-topics.sh \
+		--create --if-not-exists \
+		--topic scan-tasks \
+		--bootstrap-server localhost:9092 \
+		--partitions 3 \
+		--replication-factor 1
+	kubectl exec -it -n $(NAMESPACE) deployment/kafka -- /opt/bitnami/kafka/bin/kafka-topics.sh \
+		--create --if-not-exists \
+		--topic scan-results \
+		--bootstrap-server localhost:9092 \
+		--partitions 3 \
+		--replication-factor 1
+	kubectl exec -it -n $(NAMESPACE) deployment/kafka -- /opt/bitnami/kafka/bin/kafka-topics.sh \
+		--create --if-not-exists \
+		--topic scan-progress \
+		--bootstrap-server localhost:9092 \
+		--partitions 3 \
+		--replication-factor 1
 
 kafka-logs:
 	@echo "Kafka logs:"
@@ -173,7 +195,14 @@ kafka-logs:
 	kubectl logs -l app=zookeeper -n $(NAMESPACE) --tail=100 -f
 
 kafka-topics:
-	kubectl exec -it -n $(NAMESPACE) deployment/kafka -- /opt/kafka/bin/kafka-topics.sh --list --bootstrap-server localhost:9092
+	@echo "Listing topics and their configurations:"
+	kubectl exec -it -n $(NAMESPACE) deployment/kafka -- /opt/bitnami/kafka/bin/kafka-topics.sh \
+		--list \
+		--bootstrap-server localhost:9092
+	@echo "\nTopic details:"
+	kubectl exec -it -n $(NAMESPACE) deployment/kafka -- /opt/bitnami/kafka/bin/kafka-topics.sh \
+		--describe \
+		--bootstrap-server localhost:9092
 
 kafka-delete:
 	kubectl delete deployment kafka zookeeper -n $(NAMESPACE) || true
@@ -236,3 +265,6 @@ postgres-delete:
 
 postgres-restart: postgres-delete postgres-setup
 
+# sqlc proto gen
+sqlc-proto-gen:
+	sqlc generate

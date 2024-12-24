@@ -29,11 +29,15 @@ func (p *CheckpointStorage) Save(ctx context.Context, cp *storage.Checkpoint) er
 		return err
 	}
 
-	err = p.q.CreateOrUpdateCheckpoint(ctx, db.CreateOrUpdateCheckpointParams{
+	id, err := p.q.CreateOrUpdateCheckpoint(ctx, db.CreateOrUpdateCheckpointParams{
 		TargetID: cp.TargetID,
 		Data:     dataBytes,
 	})
-	return err
+	if err != nil {
+		return err
+	}
+	cp.ID = id
+	return nil
 }
 
 // Load retrieves a checkpoint by target ID. Returns nil if no checkpoint exists

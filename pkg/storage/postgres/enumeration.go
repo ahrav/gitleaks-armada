@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 
 	"github.com/ahrav/gitleaks-armada/internal/db"
 	"github.com/ahrav/gitleaks-armada/pkg/storage"
@@ -34,9 +35,11 @@ func (s *EnumerationStateStorage) Save(ctx context.Context, state *storage.Enume
 			return err
 		}
 		lastCheckpointID = sql.NullInt64{Int64: state.LastCheckpoint.ID, Valid: true}
+		log.Printf("CHECKPOINT SAVED: %+v", lastCheckpointID)
 	}
 
 	err := s.q.CreateOrUpdateEnumerationState(ctx, db.CreateOrUpdateEnumerationStateParams{
+		ID:               1,
 		SessionID:        state.SessionID,
 		SourceType:       state.SourceType,
 		Config:           state.Config,

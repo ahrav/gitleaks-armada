@@ -3,6 +3,7 @@ package kafka
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/IBM/sarama"
 	"google.golang.org/protobuf/proto"
@@ -31,12 +32,42 @@ type Broker struct {
 
 // NewBroker creates a new Kafka broker with the provided configuration.
 func NewBroker(cfg *Config) (*Broker, error) {
-	producer, err := sarama.NewSyncProducer(cfg.Brokers, nil)
+	// Configure the producer
+	producerConfig := sarama.NewConfig()
+	producerConfig.Producer.RequiredAcks = sarama.WaitForAll
+	producerConfig.Producer.Return.Successes = true
+
+	// Use round-robin partitioner to evenly distribute messages across partitions.
+	producerConfig.Producer.Partitioner = sarama.NewRoundRobinPartitioner
+
+	// Create sync producer
+	producer, err := sarama.NewSyncProducer(cfg.Brokers, producerConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create kafka producer: %w", err)
 	}
 
-	consumerGroup, err := sarama.NewConsumerGroup(cfg.Brokers, cfg.GroupID, nil)
+	// Configure the consumer group
+	consumerConfig := sarama.NewConfig()
+
+	// Use round-robin rebalancing strategy to distribute partitions among consumers.
+	consumerConfig.Consumer.Group.Rebalance.Strategy = sarama.BalanceStrategyRoundRobin
+
+	// Start reading from the newest offset for new consumers
+	consumerConfig.Consumer.Offsets.Initial = sarama.OffsetNewest
+
+	// These timeouts help manage session time in consumer groups
+	consumerConfig.Consumer.Group.Session.Timeout = 20 * time.Second
+	consumerConfig.Consumer.Group.Heartbeat.Interval = 6 * time.Second
+
+	// Enable auto commit of offsets
+	consumerConfig.Consumer.Offsets.AutoCommit.Enable = true
+	consumerConfig.Consumer.Offsets.AutoCommit.Interval = 1 * time.Second
+
+	// Set explicit Kafka version to ensure compatibility
+	consumerConfig.Version = sarama.V2_8_0_0
+
+	// Create the consumer group
+	consumerGroup, err := sarama.NewConsumerGroup(cfg.Brokers, cfg.GroupID, consumerConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create consumer group: %w", err)
 	}

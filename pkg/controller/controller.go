@@ -6,12 +6,10 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
-	"gopkg.in/yaml.v3"
 
 	"github.com/ahrav/gitleaks-armada/pkg/cluster"
 	"github.com/ahrav/gitleaks-armada/pkg/config"
@@ -22,9 +20,10 @@ import (
 
 // Controller coordinates work distribution across a cluster of workers.
 type Controller struct {
-	coordinator cluster.Coordinator
-	workQueue   messaging.Broker
-	credStore   *CredentialStore
+	coordinator  cluster.Coordinator
+	workQueue    messaging.Broker
+	configLoader config.Loader
+	credStore    *CredentialStore
 
 	// Storage for enumeration state and checkpoints.
 	enumerationStateStorage storage.EnumerationStateStorage
@@ -47,13 +46,22 @@ func NewController(
 	queue messaging.Broker,
 	enumerationStateStorage storage.EnumerationStateStorage,
 	checkpointStorage storage.CheckpointStorage,
+	configLoader config.Loader,
 	metrics metrics.ControllerMetrics,
 ) *Controller {
+	// Initialize with empty credential store
+	credStore, err := NewCredentialStore(make(map[string]config.AuthConfig))
+	if err != nil {
+		log.Printf("Warning: failed to initialize empty credential store: %v", err)
+	}
+
 	return &Controller{
 		coordinator:             coord,
 		workQueue:               queue,
+		credStore:               credStore,
 		enumerationStateStorage: enumerationStateStorage,
 		checkpointStorage:       checkpointStorage,
+		configLoader:            configLoader,
 		httpClient:              new(http.Client),
 		metrics:                 metrics,
 	}
@@ -107,6 +115,7 @@ func (o *Controller) Run(ctx context.Context) (<-chan struct{}, error) {
 				if err != nil {
 					log.Printf("Error loading enumeration state: %v", err)
 				}
+				log.Printf("Loaded enumeration state: %+v", enumerationState)
 
 				if enumerationState == nil {
 					// No existing state, start fresh from config.
@@ -166,29 +175,24 @@ func (o *Controller) Stop() error {
 // enumeration state and begins processing it. This is the entry point for starting
 // fresh target scans.
 func (o *Controller) ProcessTarget(ctx context.Context) error {
-	const configPath = "/etc/scanner/config/config.yaml"
-	data, err := os.ReadFile(configPath)
+	cfg, err := o.configLoader.Load(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to read config file: %w", err)
+		return fmt.Errorf("failed to load configuration: %w", err)
 	}
 
-	var cfg config.Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return fmt.Errorf("failed to parse config: %w", err)
-	}
-
+	// Create new credential store with loaded config
 	credStore, err := NewCredentialStore(cfg.Auth)
 	if err != nil {
 		return fmt.Errorf("failed to initialize credential store: %w", err)
 	}
 	o.credStore = credStore
-	log.Println("Credential store initialized successfully.")
+	log.Println("Credential store updated successfully.")
 
 	for _, target := range cfg.Targets {
 		enumState := &storage.EnumerationState{
 			SessionID:      generateSessionID(),
 			SourceType:     string(target.SourceType),
-			Config:         marshalConfig(target),
+			Config:         marshalConfig(target, cfg.Auth),
 			LastCheckpoint: nil, // No checkpoint initially
 			LastUpdated:    time.Now(),
 			Status:         storage.StatusInitialized,
@@ -212,19 +216,35 @@ func (o *Controller) ProcessTarget(ctx context.Context) error {
 // The function coordinates between the enumerator that produces tasks and the work queue
 // that distributes them to workers.
 func (o *Controller) doEnumeration(ctx context.Context, state *storage.EnumerationState) error {
-	var target config.TargetSpec
-	if err := json.Unmarshal(state.Config, &target); err != nil {
-		return fmt.Errorf("failed to unmarshal target config: %w", err)
+	// We need the target config and the auth config to initialize the credential store.
+	var combined struct {
+		config.TargetSpec
+		Auth config.AuthConfig `json:"auth,omitempty"`
 	}
 
-	enumerator, err := o.createEnumerator(target)
+	if err := json.Unmarshal(state.Config, &combined); err != nil {
+		return fmt.Errorf("failed to unmarshal target config: %w", err)
+	}
+	log.Printf("Unmarshalled target config: %+v with auth: %+v", combined.TargetSpec, combined.Auth)
+
+	// Initialize credential store with the embedded auth config.
+	if combined.Auth.Type != "" {
+		credStore, err := NewCredentialStore(map[string]config.AuthConfig{
+			combined.AuthRef: combined.Auth,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to initialize credential store: %w", err)
+		}
+		o.credStore = credStore
+	}
+
+	enumerator, err := o.createEnumerator(combined.TargetSpec)
 	if err != nil {
 		return err
 	}
 
 	if state.Status == storage.StatusInitialized {
-		state.Status = storage.StatusInProgress
-		state.LastUpdated = time.Now()
+		state.UpdateStatus(storage.StatusInProgress)
 		if saveErr := o.enumerationStateStorage.Save(ctx, state); saveErr != nil {
 			return fmt.Errorf("failed to mark enumeration state InProgress: %w", saveErr)
 		}
@@ -247,8 +267,8 @@ func (o *Controller) doEnumeration(ctx context.Context, state *storage.Enumerati
 	}()
 
 	if err := enumerator.Enumerate(ctx, checkpoint, taskCh); err != nil {
-		state.Status = storage.StatusFailed
-		state.LastUpdated = time.Now()
+		state.UpdateStatus(storage.StatusFailed)
+		state.UpdateCheckpoint(checkpoint)
 		if saveErr := o.enumerationStateStorage.Save(ctx, state); saveErr != nil {
 			log.Printf("Failed to save enumeration state after error: %v", saveErr)
 		}
@@ -257,8 +277,8 @@ func (o *Controller) doEnumeration(ctx context.Context, state *storage.Enumerati
 		return fmt.Errorf("enumeration failed: %w", err)
 	}
 
-	state.Status = storage.StatusCompleted
-	state.LastUpdated = time.Now()
+	state.UpdateStatus(storage.StatusCompleted)
+	state.UpdateCheckpoint(checkpoint)
 	if err := o.enumerationStateStorage.Save(ctx, state); err != nil {
 		close(taskCh)
 		wg.Wait()
@@ -273,6 +293,10 @@ func (o *Controller) doEnumeration(ctx context.Context, state *storage.Enumerati
 // createEnumerator constructs the appropriate target enumerator based on the source type.
 // It handles credential setup and validation for the target type.
 func (o *Controller) createEnumerator(target config.TargetSpec) (storage.TargetEnumerator, error) {
+	if o.credStore == nil {
+		return nil, fmt.Errorf("credential store not initialized")
+	}
+
 	creds, err := o.credStore.GetCredentials(target.AuthRef)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get credentials: %w", err)
@@ -290,7 +314,6 @@ func (o *Controller) createEnumerator(target config.TargetSpec) (storage.TargetE
 		}
 		enumerator = NewGitHubEnumerator(ghClient, creds, o.enumerationStateStorage, target.GitHub)
 
-
 	case config.SourceTypeS3:
 		return nil, fmt.Errorf("S3 enumerator not implemented yet")
 
@@ -307,8 +330,21 @@ func generateSessionID() string { return uuid.New().String() }
 
 // marshalConfig serializes the target configuration into a JSON raw message.
 // This allows storing the complete target configuration with the enumeration state.
-func marshalConfig(target config.TargetSpec) json.RawMessage {
-	data, err := json.Marshal(target)
+func marshalConfig(target config.TargetSpec, auth map[string]config.AuthConfig) json.RawMessage {
+	// Create a complete config that includes both target and its auth
+	completeConfig := struct {
+		config.TargetSpec
+		Auth config.AuthConfig `json:"auth,omitempty"`
+	}{
+		TargetSpec: target,
+	}
+
+	// Include auth config if there's an auth reference
+	if auth, ok := auth[target.AuthRef]; ok {
+		completeConfig.Auth = auth
+	}
+
+	data, err := json.Marshal(completeConfig)
 	if err != nil {
 		log.Printf("Failed to marshal target config: %v", err)
 		return nil

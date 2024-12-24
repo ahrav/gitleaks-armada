@@ -12,13 +12,14 @@ import (
 	"time"
 )
 
-const createOrUpdateCheckpoint = `-- name: CreateOrUpdateCheckpoint :exec
+const createOrUpdateCheckpoint = `-- name: CreateOrUpdateCheckpoint :one
 
 INSERT INTO checkpoints (target_id, data, created_at, updated_at)
 VALUES ($1, $2, NOW(), NOW())
 ON CONFLICT (target_id) DO UPDATE
     SET data = EXCLUDED.data,
         updated_at = NOW()
+RETURNING id
 `
 
 type CreateOrUpdateCheckpointParams struct {
@@ -30,33 +31,35 @@ type CreateOrUpdateCheckpointParams struct {
 // ============================================
 // Checkpoints
 // ============================================
-func (q *Queries) CreateOrUpdateCheckpoint(ctx context.Context, arg CreateOrUpdateCheckpointParams) error {
-	_, err := q.db.ExecContext(ctx, createOrUpdateCheckpoint, arg.TargetID, arg.Data)
-	return err
+func (q *Queries) CreateOrUpdateCheckpoint(ctx context.Context, arg CreateOrUpdateCheckpointParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, createOrUpdateCheckpoint, arg.TargetID, arg.Data)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const createOrUpdateEnumerationState = `-- name: CreateOrUpdateEnumerationState :exec
 INSERT INTO enumeration_states (
-  id,
-  session_id,
-  source_type,
-  config,
-  last_checkpoint_id,
-  status,
-  created_at,
-  updated_at
+    id,
+    session_id,
+    source_type,
+    config,
+    last_checkpoint_id,
+    status
+) VALUES (
+    $1, $2, $3, $4, $5, $6
 )
-VALUES (1, $1, $2, $3, $4, $5, NOW(), NOW())
-ON CONFLICT (id) DO UPDATE
-    SET session_id        = EXCLUDED.session_id,
-        source_type       = EXCLUDED.source_type,
-        config            = EXCLUDED.config,
-        last_checkpoint_id= EXCLUDED.last_checkpoint_id,
-        status            = EXCLUDED.status,
-        updated_at        = NOW()
+ON CONFLICT (id) DO UPDATE SET
+    session_id = EXCLUDED.session_id,
+    source_type = EXCLUDED.source_type,
+    config = EXCLUDED.config,
+    last_checkpoint_id = EXCLUDED.last_checkpoint_id,
+    status = EXCLUDED.status,
+    updated_at = NOW()
 `
 
 type CreateOrUpdateEnumerationStateParams struct {
+	ID               int32
 	SessionID        string
 	SourceType       string
 	Config           json.RawMessage
@@ -69,6 +72,7 @@ type CreateOrUpdateEnumerationStateParams struct {
 // ============================================
 func (q *Queries) CreateOrUpdateEnumerationState(ctx context.Context, arg CreateOrUpdateEnumerationStateParams) error {
 	_, err := q.db.ExecContext(ctx, createOrUpdateEnumerationState,
+		arg.ID,
 		arg.SessionID,
 		arg.SourceType,
 		arg.Config,
