@@ -39,7 +39,6 @@ _cgo_export.*
 
 _testmain.go
 
-*.exe
 //*.test
 .vscode/tasks.json
 
@@ -60,9 +59,7 @@ _testmain.go
 /vendor/
 
 # IDE specific
-.idea/
 .vscode/
-*.swp
 *.swo
 
 # Build artifacts
