@@ -6,52 +6,6 @@ import (
 	pb "github.com/ahrav/gitleaks-armada/proto/scanner"
 )
 
-type Task struct {
-	TaskID      string            // Unique identifier for the task
-	ResourceURI string            // Location of the resource to scan
-	Metadata    map[string]string // Additional context for task processing
-	Credentials *TaskCredentials  // Authentication credentials for the resource
-}
-
-type ScanStatus string
-
-const (
-	ScanStatusUnspecified ScanStatus = "UNSPECIFIED" // Initial or unknown state
-	ScanStatusSuccess     ScanStatus = "SUCCESS"     // Scan completed successfully
-	ScanStatusError       ScanStatus = "ERROR"       // Scan failed
-
-// Task represents a unit of scanning work to be processed by workers.
-// It contains the necessary information to locate and scan a resource.
-// ScanStatus represents the completion state of a scan operation.
-
-)
-
-// Finding represents a single secret or sensitive data match discovered during scanning.
-type Finding struct {
-	Location   string  // Where the secret was found (e.g., file path)
-	LineNumber int32   // Line number in the source file
-	SecretType string  // Category of secret (e.g., "API Key", "Password")
-	Match      string  // The actual text that matched
-	Confidence float64 // Probability that this is a true positive
-}
-
-// ScanResult contains the findings and status from a completed scan task.
-type ScanResult struct {
-	TaskID   string    // References the original Task
-	Findings []Finding // List of discovered secrets
-	Status   ScanStatus
-	Error    string // Description of failure if Status is ERROR
-}
-
-// ScanProgress provides information about an ongoing scan operation.
-type ScanProgress struct {
-	TaskID          string
-	PercentComplete float32           // Overall scan progress (0-100)
-	ItemsProcessed  int64             // Number of items (e.g., files) processed
-	TotalItems      int64             // Total number of items to process
-	Metadata        map[string]string // Additional progress information
-}
-
 // CredentialType represents the supported authentication mechanisms for scanning targets.
 type CredentialType string
 
@@ -71,6 +25,13 @@ const (
 type TaskCredentials struct {
 	Type   CredentialType
 	Values map[string]any
+}
+
+type Task struct {
+	TaskID      string            // Unique identifier for the task
+	ResourceURI string            // Location of the resource to scan
+	Metadata    map[string]string // Additional context for task processing
+	Credentials *TaskCredentials  // Authentication credentials for the resource
 }
 
 // CreateCredentials constructs the appropriate credential type based on the provided config.
