@@ -91,13 +91,17 @@ func setupGitleaksDetector() *detect.Detector {
 	return detect.NewDetector(cfg)
 }
 
+// publishRulesOnStartup sends the current Gitleaks detection rules to the message broker
+// when the scanner starts up. This ensures all components have access to the latest
+// rule definitions for consistent secret detection.
 func publishRulesOnStartup(ctx context.Context, broker messaging.Broker, detector *detect.Detector) error {
-	return broker.PublishRules(ctx, ConvertDetectorConfigToDomain(detector.Config.Rules))
+	return broker.PublishRules(ctx, convertDetectorConfigToRuleSet(detector.Config.Rules))
 }
 
-// ConvertDetectorConfigToDomain converts your Gitleaks config.Rules (compiled regex)
-// into the domain-friendly GitleaksRuleSet (string-based).
-func ConvertDetectorConfigToDomain(rules map[string]config.Rule) messaging.GitleaksRuleSet {
+// convertDetectorConfigToRuleSet transforms Gitleaks detection rules into a serializable format
+// that can be shared across system components. This conversion is necessary because the internal
+// Gitleaks rules contain compiled regular expressions that cannot be directly serialized.
+func convertDetectorConfigToRuleSet(rules map[string]config.Rule) messaging.GitleaksRuleSet {
 	var domainRules []messaging.GitleaksRule
 	for _, gRule := range rules {
 		dRule := messaging.GitleaksRule{
@@ -105,8 +109,8 @@ func ConvertDetectorConfigToDomain(rules map[string]config.Rule) messaging.Gitle
 			Description: gRule.Description,
 			Entropy:     gRule.Entropy,
 			SecretGroup: gRule.SecretGroup,
-			Regex:       regexToString(gRule.Regex), // <--- convert *regexp.Regexp -> string
-			Path:        regexToString(gRule.Path),  // same for path
+			Regex:       regexToString(gRule.Regex),
+			Path:        regexToString(gRule.Path),
 			Tags:        gRule.Tags,
 			Keywords:    gRule.Keywords,
 			Allowlists:  convertAllowlists(gRule.Allowlists),
@@ -119,7 +123,8 @@ func ConvertDetectorConfigToDomain(rules map[string]config.Rule) messaging.Gitle
 	}
 }
 
-// regexToString safely gets the string pattern from a *regexp.Regexp
+// regexToString safely converts a compiled regular expression to its string pattern.
+// Returns an empty string if the regex is nil.
 func regexToString(re *regexp.Regexp) string {
 	if re == nil {
 		return ""
@@ -127,7 +132,8 @@ func regexToString(re *regexp.Regexp) string {
 	return re.String()
 }
 
-// convertAllowlists maps []config.Allowlist -> []messaging.GitleaksAllowlist
+// convertAllowlists transforms Gitleaks allowlist configurations into a serializable format.
+// Allowlists define exceptions to the detection rules to reduce false positives.
 func convertAllowlists(aws []config.Allowlist) []messaging.GitleaksAllowlist {
 	dAll := make([]messaging.GitleaksAllowlist, 0, len(aws))
 	for _, a := range aws {
@@ -144,7 +150,8 @@ func convertAllowlists(aws []config.Allowlist) []messaging.GitleaksAllowlist {
 	return dAll
 }
 
-// regexSliceToStrings converts []*regexp.Regexp -> []string
+// regexSliceToStrings converts a slice of compiled regular expressions to their string patterns.
+// Nil regular expressions are skipped in the output.
 func regexSliceToStrings(res []*regexp.Regexp) []string {
 	var out []string
 	for _, re := range res {
@@ -155,7 +162,8 @@ func regexSliceToStrings(res []*regexp.Regexp) []string {
 	return out
 }
 
-// matchConditionToDomain maps config.AllowlistMatchCondition -> messaging.AllowlistMatchCondition
+// matchConditionToDomain converts Gitleaks allowlist match conditions to our domain's
+// representation. Match conditions determine how multiple allowlist criteria are combined.
 func matchConditionToDomain(mc config.AllowlistMatchCondition) messaging.AllowlistMatchCondition {
 	switch mc {
 	case config.AllowlistMatchOr:
@@ -163,12 +171,12 @@ func matchConditionToDomain(mc config.AllowlistMatchCondition) messaging.Allowli
 	case config.AllowlistMatchAnd:
 		return messaging.MatchConditionAND
 	default:
-		// Not recognized or future extension
 		return messaging.MatchConditionUnspecified
 	}
 }
 
-// checkError logs the error and exits if the error is not nil.
+// checkError terminates the program if an error is encountered during critical setup.
+// This is used during initialization where recovery is not possible.
 func checkError(msg string, err error) {
 	if err != nil {
 		log.Fatalf("%s: %v", msg, err)
