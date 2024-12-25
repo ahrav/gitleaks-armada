@@ -49,7 +49,6 @@ func NewController(
 	configLoader config.Loader,
 	metrics metrics.ControllerMetrics,
 ) *Controller {
-	// Initialize with empty credential store
 	credStore, err := NewCredentialStore(make(map[string]config.AuthConfig))
 	if err != nil {
 		log.Printf("Warning: failed to initialize empty credential store: %v", err)
@@ -336,7 +335,7 @@ func marshalConfig(target config.TargetSpec, auth map[string]config.AuthConfig) 
 		TargetSpec: target,
 	}
 
-	// Include auth config if there's an auth reference
+	// Include auth config if there's an auth reference.
 	if auth, ok := auth[target.AuthRef]; ok {
 		completeConfig.Auth = auth
 	}

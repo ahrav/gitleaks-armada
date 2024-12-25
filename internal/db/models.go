@@ -10,6 +10,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/sqlc-dev/pqtype"
 )
 
 type EnumerationStatus string
@@ -56,6 +58,88 @@ func (ns NullEnumerationStatus) Value() (driver.Value, error) {
 	return string(ns.EnumerationStatus), nil
 }
 
+type ScanJobStatus string
+
+const (
+	ScanJobStatusQueued    ScanJobStatus = "queued"
+	ScanJobStatusRunning   ScanJobStatus = "running"
+	ScanJobStatusCompleted ScanJobStatus = "completed"
+	ScanJobStatusFailed    ScanJobStatus = "failed"
+)
+
+func (e *ScanJobStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = ScanJobStatus(s)
+	case string:
+		*e = ScanJobStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for ScanJobStatus: %T", src)
+	}
+	return nil
+}
+
+type NullScanJobStatus struct {
+	ScanJobStatus ScanJobStatus
+	Valid         bool // Valid is true if ScanJobStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullScanJobStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.ScanJobStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.ScanJobStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullScanJobStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.ScanJobStatus), nil
+}
+
+type Allowlist struct {
+	ID             int64
+	RuleID         int64
+	Description    sql.NullString
+	MatchCondition string
+	RegexTarget    sql.NullString
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+type AllowlistCommit struct {
+	ID          int64
+	AllowlistID int64
+	Commit      string
+	CreatedAt   time.Time
+}
+
+type AllowlistPath struct {
+	ID          int64
+	AllowlistID int64
+	Path        string
+	CreatedAt   time.Time
+}
+
+type AllowlistRegex struct {
+	ID          int64
+	AllowlistID int64
+	Regex       string
+	CreatedAt   time.Time
+}
+
+type AllowlistStopword struct {
+	ID          int64
+	AllowlistID int64
+	Stopword    string
+	CreatedAt   time.Time
+}
+
 type Checkpoint struct {
 	ID        int64
 	TargetID  string
@@ -73,4 +157,71 @@ type EnumerationState struct {
 	Status           EnumerationStatus
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
+}
+
+type Finding struct {
+	ID           int64
+	ScanJobID    int64
+	RuleID       int64
+	ScanTargetID int64
+	FilePath     sql.NullString
+	LineNumber   sql.NullInt32
+	Line         sql.NullString
+	CommitHash   sql.NullString
+	Author       sql.NullString
+	AuthorEmail  sql.NullString
+	Fingerprint  string
+	RawFinding   json.RawMessage
+	CreatedAt    time.Time
+}
+
+type GithubRepository struct {
+	ID        int64
+	Name      string
+	Url       string
+	IsActive  bool
+	Metadata  pqtype.NullRawMessage
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+type Rule struct {
+	ID          int64
+	RuleID      string
+	Description sql.NullString
+	Entropy     sql.NullFloat64
+	SecretGroup sql.NullInt32
+	Regex       string
+	Path        sql.NullString
+	Tags        []string
+	Keywords    []string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+type ScanJob struct {
+	ID           int64
+	ScanTargetID int64
+	Status       ScanJobStatus
+	StartTime    sql.NullTime
+	EndTime      sql.NullTime
+	CommitHash   sql.NullString
+	KafkaOffset  sql.NullInt64
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+type ScanTarget struct {
+	ID           int64
+	TargetTypeID int64
+	TargetID     int64
+	LastScanTime sql.NullTime
+	Metadata     pqtype.NullRawMessage
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+type TargetType struct {
+	ID   int64
+	Name string
 }
