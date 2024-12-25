@@ -100,6 +100,7 @@ func (k *Broker) PublishTask(ctx context.Context, task messaging.Task) error {
 
 	msg := &sarama.ProducerMessage{
 		Topic: k.taskTopic,
+		Key:   sarama.StringEncoder(task.TaskID),
 		Value: sarama.ByteEncoder(data),
 	}
 	_, _, err = k.producer.SendMessage(msg)
@@ -151,6 +152,7 @@ func (k *Broker) PublishResult(ctx context.Context, result messaging.ScanResult)
 
 	msg := &sarama.ProducerMessage{
 		Topic: k.resultsTopic,
+		Key:   sarama.StringEncoder(result.TaskID),
 		Value: sarama.ByteEncoder(data),
 	}
 	_, _, err = k.producer.SendMessage(msg)
@@ -174,6 +176,7 @@ func (k *Broker) PublishProgress(ctx context.Context, progress messaging.ScanPro
 
 	msg := &sarama.ProducerMessage{
 		Topic: k.progressTopic,
+		Key:   sarama.StringEncoder(progress.TaskID),
 		Value: sarama.ByteEncoder(data),
 	}
 	_, _, err = k.producer.SendMessage(msg)
