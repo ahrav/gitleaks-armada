@@ -71,7 +71,7 @@ func NewBroker(cfg *Config) (*Broker, error) {
 
 	consumerConfig := sarama.NewConfig()
 	consumerConfig.ClientID = cfg.ClientID
-	consumerConfig.Consumer.Group.Rebalance.Strategy = sarama.BalanceStrategyRoundRobin
+	consumerConfig.Consumer.Group.Rebalance.Strategy = sarama.NewBalanceStrategyRoundRobin()
 
 	// Start from newest offset to avoid processing historical messages
 	consumerConfig.Consumer.Offsets.Initial = sarama.OffsetNewest
