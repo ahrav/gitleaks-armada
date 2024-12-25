@@ -1,0 +1,71 @@
+
+syntax = "proto3";
+
+package scanner;
+
+option go_package = "github.com/ahrav/gitleaks-armada/proto/scanner;scanner";
+
+// MatchCondition matches your "AllowlistMatchCondition" enum in Go (OR / AND).
+enum AllowlistMatchCondition {
+  ALLOWLIST_MATCH_CONDITION_UNSPECIFIED = 0;
+  ALLOWLIST_MATCH_OR = 1;
+  ALLOWLIST_MATCH_AND = 2;
+}
+
+// Represents a single allowlist entry that could ignore certain commits, paths,
+// etc.
+message Allowlist {
+  string description = 1;
+  AllowlistMatchCondition match_condition = 2;
+
+  // List of commit SHAs to ignore.
+  repeated string commits = 3;
+
+  // List of file-path regex patterns to ignore.
+  repeated string path_regexes = 4;
+
+  // List of content regex patterns to ignore.
+  repeated string regexes = 5;
+
+  // If "match", the above regexes apply to the matched secret snippet.
+  // If "line", they apply to the entire line.
+  // If empty, default is "matched secret".
+  string regex_target = 6;
+
+  // Words that, if found, should ignore the finding.
+  repeated string stop_words = 7;
+}
+
+// Represents a single scanning rule.
+message Rule {
+  // Unique ID for the rule (DB: rules.rule_id).
+  string rule_id = 1;
+
+  string description = 2;
+
+  // Minimum Shannon entropy for a match to be considered a secret.
+  float entropy = 3;
+
+  // If nonzero, the group index in the main regex to check entropy.
+  int32 secret_group = 4;
+
+  // The main detection regex (string form)
+  string regex = 5;
+
+  // A path-based regex (string form) to filter on file paths.
+  string path = 6;
+
+  repeated string tags = 7;
+  repeated string keywords = 8;
+
+  // Zero or more allowlists that define exceptions.
+  repeated Allowlist allowlists = 9;
+}
+
+// A container for one or more rules. Often you might send them in a batch.
+message RuleSet {
+  // If you want a versioning scheme, you can add it here.
+  // string version = 1;
+
+  repeated Rule rules = 1;
+}

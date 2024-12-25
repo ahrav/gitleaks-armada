@@ -52,7 +52,7 @@ func main() {
 	log.Printf("Scanner %s connected to Kafka", hostname)
 
 	m := metrics.New("scanner_worker")
-	scanner := scanner.NewScanner(broker, m)
+	scanner := scanner.NewScanner(ctx, broker, m)
 
 	go func() {
 		if err := metrics.StartServer(":8081"); err != nil {

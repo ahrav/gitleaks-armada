@@ -29,11 +29,11 @@ type Scanner struct {
 // NewScanner creates a Scanner that will process tasks from the provided broker.
 // It configures the scanner to use the system's CPU count for worker concurrency
 // and initializes metrics collection.
-func NewScanner(broker messaging.Broker, metrics metrics.ScannerMetrics) *Scanner {
+func NewScanner(ctx context.Context, broker messaging.Broker, metrics metrics.ScannerMetrics) *Scanner {
 	return &Scanner{
 		broker:  broker,
 		metrics: metrics,
-		scanner: NewGitLeaksScanner(),
+		scanner: NewGitLeaksScanner(ctx, broker),
 		workers: runtime.NumCPU(),
 	}
 }
