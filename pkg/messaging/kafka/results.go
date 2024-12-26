@@ -3,6 +3,7 @@ package kafka
 import (
 	"context"
 	"fmt"
+	"log"
 
 	"github.com/IBM/sarama"
 	"google.golang.org/protobuf/proto"
@@ -38,8 +39,9 @@ func (k *Broker) SubscribeResults(ctx context.Context, handler func(messaging.Sc
 	h := &resultsHandler{
 		resultsTopic: k.resultsTopic,
 		handler:      handler,
+		clientID:     k.clientID,
 	}
-
+	log.Printf("[%s] Subscribing to results topic: %s", k.clientID, k.resultsTopic)
 	go consumeLoop(ctx, k.consumerGroup, []string{k.resultsTopic}, h)
 	return nil
 }
@@ -47,12 +49,21 @@ func (k *Broker) SubscribeResults(ctx context.Context, handler func(messaging.Sc
 type resultsHandler struct {
 	resultsTopic string
 	handler      func(messaging.ScanResult) error
+	clientID     string
 }
 
-func (h *resultsHandler) Setup(_ sarama.ConsumerGroupSession) error   { return nil }
-func (h *resultsHandler) Cleanup(_ sarama.ConsumerGroupSession) error { return nil }
+func (h *resultsHandler) Setup(sess sarama.ConsumerGroupSession) error {
+	logSetup(h.clientID, sess)
+	return nil
+}
+
+func (h *resultsHandler) Cleanup(sess sarama.ConsumerGroupSession) error {
+	logCleanup(h.clientID, sess)
+	return nil
+}
 
 func (h *resultsHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
+	logPartitionStart(h.clientID, claim.Partition(), sess.MemberID())
 	for msg := range claim.Messages() {
 		var pbResult pb.ScanResult
 		if err := proto.Unmarshal(msg.Value, &pbResult); err != nil {

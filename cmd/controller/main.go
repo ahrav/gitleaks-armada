@@ -90,7 +90,7 @@ func main() {
 		Namespace:    namespace,
 		LeaderLockID: "scanner-leader-lock",
 		Identity:     podName,
-		Name:         "scanner-orchestrator",
+		Name:         "scanner-controller",
 		WorkerName:   "scanner-worker",
 	}
 
@@ -109,6 +109,7 @@ func main() {
 		Brokers:       strings.Split(os.Getenv("KAFKA_BROKERS"), ","),
 		TaskTopic:     os.Getenv("KAFKA_TASK_TOPIC"),
 		ResultsTopic:  os.Getenv("KAFKA_RESULTS_TOPIC"),
+		RulesTopic:    os.Getenv("KAFKA_RULES_TOPIC"),
 		GroupID:       os.Getenv("KAFKA_GROUP_ID"),
 		ProgressTopic: os.Getenv("KAFKA_PROGRESS_TOPIC"),
 		ClientID:      fmt.Sprintf("scanner-%s", hostname),
@@ -140,23 +141,23 @@ func main() {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
-	log.Println("Starting orchestrator...")
+	log.Println("Starting controller...")
 	leaderChan, err := ctrl.Run(ctx)
 	if err != nil {
-		log.Fatalf("failed to run orchestrator: %v", err)
+		log.Fatalf("failed to run controller: %v", err)
 	}
 
 	// Wait for shutdown signal or leadership.
 	select {
 	case <-leaderChan:
-		log.Println("Leadership acquired, orchestrator running...")
+		log.Println("Leadership acquired, controller running...")
 		// Wait for shutdown signal
 		<-sigChan
-		log.Println("Shutdown signal received, stopping orchestrator...")
+		log.Println("Shutdown signal received, stopping controller...")
 	case <-sigChan:
 		log.Println("Shutdown signal received before leadership, stopping...")
 	case <-ctx.Done():
-		log.Println("Context cancelled, stopping orchestrator...")
+		log.Println("Context cancelled, stopping controller...")
 	}
 }
 

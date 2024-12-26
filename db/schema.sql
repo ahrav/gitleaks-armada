@@ -180,7 +180,3 @@ CREATE INDEX idx_allowlist_regexes_allowlist_id ON allowlist_regexes (allowlist_
 
 CREATE INDEX idx_allowlist_stopwords_allowlist_id ON allowlist_stopwords (allowlist_id);
 CREATE UNIQUE INDEX idx_unique_stopwords_per_allowlist ON allowlist_stopwords (allowlist_id, stopword);
-
--- Insert initial target types
-INSERT INTO target_types (name) VALUES
-    ('github_repositories');

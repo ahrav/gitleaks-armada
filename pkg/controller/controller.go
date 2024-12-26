@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -37,6 +38,9 @@ type Controller struct {
 	httpClient *http.Client
 
 	metrics metrics.ControllerMetrics
+
+	// TODO(ahrav): This is a temporary store for rules.
+	rules *atomic.Value
 }
 
 // NewController creates a Controller instance that coordinates work distribution
@@ -63,6 +67,7 @@ func NewController(
 		configLoader:            configLoader,
 		httpClient:              new(http.Client),
 		metrics:                 metrics,
+		rules:                   new(atomic.Value),
 	}
 }
 
@@ -76,6 +81,10 @@ func NewController(
 func (o *Controller) Run(ctx context.Context) (<-chan struct{}, error) {
 	ready := make(chan struct{})
 	leaderCh := make(chan bool, 1)
+
+	if err := o.workQueue.SubscribeRules(ctx, o.handleRules); err != nil {
+		return nil, fmt.Errorf("failed to subscribe to rules: %v", err)
+	}
 
 	o.coordinator.OnLeadershipChange(func(isLeader bool) {
 		log.Printf("Leadership change: isLeader=%v", isLeader)
@@ -109,6 +118,7 @@ func (o *Controller) Run(ctx context.Context) (<-chan struct{}, error) {
 				}
 
 				log.Println("Leadership acquired, processing targets...")
+
 				// Try to resume any in-progress enumeration.
 				activeStates, err := o.enumerationStateStorage.GetActiveStates(ctx)
 				if err != nil {
@@ -351,3 +361,20 @@ func marshalConfig(target config.TargetSpec, auth map[string]config.AuthConfig) 
 // generateTaskID creates a unique identifier for each scan task.
 // This allows tracking individual tasks through the processing pipeline.
 func generateTaskID() string { return uuid.New().String() }
+
+func (c *Controller) handleRules(rules messaging.GitleaksRuleSet) error {
+	// Store rules in memory for immediate use
+	c.rules.Store(rules)
+
+	// TODO: Persist rules to database
+	// This would involve:
+	// 1. Converting rules to database format
+	// 2. Storing in database
+	// 3. Handling any conflicts or versioning
+
+	log.Printf("Received and stored new ruleset with %d rules", len(rules.Rules))
+	for _, rule := range rules.Rules {
+		log.Printf("Rule: %+v", rule)
+	}
+	return nil
+}

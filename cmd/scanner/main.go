@@ -41,6 +41,7 @@ func main() {
 		Brokers:      strings.Split(os.Getenv("KAFKA_BROKERS"), ","),
 		TaskTopic:    os.Getenv("KAFKA_TASK_TOPIC"),
 		ResultsTopic: os.Getenv("KAFKA_RESULTS_TOPIC"),
+		RulesTopic:   os.Getenv("KAFKA_RULES_TOPIC"),
 		GroupID:      os.Getenv("KAFKA_GROUP_ID"),
 		ClientID:     fmt.Sprintf("scanner-%s", hostname),
 	}

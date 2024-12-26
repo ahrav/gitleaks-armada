@@ -2,6 +2,7 @@ package kafka
 
 import (
 	"context"
+	"log"
 
 	"github.com/IBM/sarama"
 )
@@ -17,4 +18,20 @@ func consumeLoop(ctx context.Context, cg sarama.ConsumerGroup, topics []string, 
 			return
 		}
 	}
+}
+
+// Add these helper functions to standardize logging
+func logSetup(clientID string, sess sarama.ConsumerGroupSession) {
+	log.Printf("[%s] Consumer group session setup - GenerationID: %d, MemberID: %s",
+		clientID, sess.GenerationID(), sess.MemberID())
+}
+
+func logCleanup(clientID string, sess sarama.ConsumerGroupSession) {
+	log.Printf("[%s] Consumer group session cleanup - GenerationID: %d, MemberID: %s",
+		clientID, sess.GenerationID(), sess.MemberID())
+}
+
+func logPartitionStart(clientID string, partition int32, memberID string) {
+	log.Printf("[%s] Starting to consume from partition: %d, member: %s",
+		clientID, partition, memberID)
 }

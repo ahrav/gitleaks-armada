@@ -3,6 +3,7 @@ package kafka
 import (
 	"context"
 	"fmt"
+	"log"
 
 	"github.com/IBM/sarama"
 	"google.golang.org/protobuf/proto"
@@ -46,8 +47,9 @@ func (k *Broker) SubscribeProgress(ctx context.Context, handler func(messaging.S
 	h := &progressHandler{
 		progressTopic: k.progressTopic,
 		handler:       handler,
+		clientID:      k.clientID,
 	}
-
+	log.Printf("[%s] Subscribing to progress topic: %s", k.clientID, k.progressTopic)
 	go consumeLoop(ctx, k.consumerGroup, []string{k.progressTopic}, h)
 	return nil
 }
@@ -55,12 +57,21 @@ func (k *Broker) SubscribeProgress(ctx context.Context, handler func(messaging.S
 type progressHandler struct {
 	progressTopic string
 	handler       func(messaging.ScanProgress) error
+	clientID      string
 }
 
-func (h *progressHandler) Setup(_ sarama.ConsumerGroupSession) error   { return nil }
-func (h *progressHandler) Cleanup(_ sarama.ConsumerGroupSession) error { return nil }
+func (h *progressHandler) Setup(sess sarama.ConsumerGroupSession) error {
+	logSetup(h.clientID, sess)
+	return nil
+}
+
+func (h *progressHandler) Cleanup(sess sarama.ConsumerGroupSession) error {
+	logCleanup(h.clientID, sess)
+	return nil
+}
 
 func (h *progressHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
+	logPartitionStart(h.clientID, claim.Partition(), sess.MemberID())
 	for msg := range claim.Messages() {
 		var pbProgress pb.ScanProgress
 		if err := proto.Unmarshal(msg.Value, &pbProgress); err != nil {

@@ -95,7 +95,9 @@ func setupGitleaksDetector() *detect.Detector {
 // when the scanner starts up. This ensures all components have access to the latest
 // rule definitions for consistent secret detection.
 func publishRulesOnStartup(ctx context.Context, broker messaging.Broker, detector *detect.Detector) error {
-	return broker.PublishRules(ctx, convertDetectorConfigToRuleSet(detector.Config.Rules))
+	rules := convertDetectorConfigToRuleSet(detector.Config.Rules)
+	log.Printf("Publishing rules: %+v", rules)
+	return broker.PublishRules(ctx, rules)
 }
 
 // convertDetectorConfigToRuleSet transforms Gitleaks detection rules into a serializable format

@@ -56,6 +56,7 @@ func (k *Broker) SubscribeTasks(ctx context.Context, handler func(messaging.Task
 	h := &taskHandler{
 		taskTopic: k.taskTopic,
 		handler:   handler,
+		clientID:  k.clientID,
 	}
 
 	go consumeLoop(ctx, k.consumerGroup, []string{k.taskTopic}, h)
@@ -65,12 +66,21 @@ func (k *Broker) SubscribeTasks(ctx context.Context, handler func(messaging.Task
 type taskHandler struct {
 	taskTopic string
 	handler   func(messaging.Task) error
+	clientID  string
 }
 
-func (h *taskHandler) Setup(_ sarama.ConsumerGroupSession) error   { return nil }
-func (h *taskHandler) Cleanup(_ sarama.ConsumerGroupSession) error { return nil }
+func (h *taskHandler) Setup(sess sarama.ConsumerGroupSession) error {
+	logSetup(h.clientID, sess)
+	return nil
+}
+
+func (h *taskHandler) Cleanup(sess sarama.ConsumerGroupSession) error {
+	logCleanup(h.clientID, sess)
+	return nil
+}
 
 func (h *taskHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
+	logPartitionStart(h.clientID, claim.Partition(), sess.MemberID())
 	for msg := range claim.Messages() {
 		var pbTask pb.ScanTask
 		if err := proto.Unmarshal(msg.Value, &pbTask); err != nil {

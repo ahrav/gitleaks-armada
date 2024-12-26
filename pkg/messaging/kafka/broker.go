@@ -39,11 +39,13 @@ var _ messaging.Broker = new(Broker)
 type Broker struct {
 	producer      sarama.SyncProducer
 	consumerGroup sarama.ConsumerGroup
+
 	taskTopic     string
 	resultsTopic  string
 	progressTopic string
 	rulesTopic    string
-	clientID      string
+
+	clientID string
 }
 
 // NewBroker creates a new Kafka broker with the provided configuration.

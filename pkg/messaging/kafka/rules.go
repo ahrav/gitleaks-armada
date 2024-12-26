@@ -3,6 +3,7 @@ package kafka
 import (
 	"context"
 	"fmt"
+	"log"
 
 	"github.com/IBM/sarama"
 	"google.golang.org/protobuf/proto"
@@ -37,7 +38,9 @@ func (k *Broker) SubscribeRules(ctx context.Context, handler func(messaging.Gitl
 	h := &rulesHandler{
 		rulesTopic: k.rulesTopic,
 		handler:    handler,
+		clientID:   k.clientID,
 	}
+	log.Printf("[%s] Subscribing to rules topic: %s", k.clientID, k.rulesTopic)
 	go consumeLoop(ctx, k.consumerGroup, []string{k.rulesTopic}, h)
 	return nil
 }
@@ -45,21 +48,34 @@ func (k *Broker) SubscribeRules(ctx context.Context, handler func(messaging.Gitl
 type rulesHandler struct {
 	rulesTopic string
 	handler    func(messaging.GitleaksRuleSet) error
+	clientID   string
 }
 
-func (h *rulesHandler) Setup(_ sarama.ConsumerGroupSession) error   { return nil }
-func (h *rulesHandler) Cleanup(_ sarama.ConsumerGroupSession) error { return nil }
+func (h *rulesHandler) Setup(sess sarama.ConsumerGroupSession) error {
+	logSetup(h.clientID, sess)
+	return nil
+}
+
+func (h *rulesHandler) Cleanup(sess sarama.ConsumerGroupSession) error {
+	logCleanup(h.clientID, sess)
+	return nil
+}
 
 func (h *rulesHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
+	logPartitionStart(h.clientID, claim.Partition(), sess.MemberID())
+
 	for msg := range claim.Messages() {
 		var ruleSet pb.RuleSet
 		if err := proto.Unmarshal(msg.Value, &ruleSet); err != nil {
+			log.Printf("[%s] Error unmarshalling rules: %v", h.clientID, err)
 			sess.MarkMessage(msg, "")
 			continue
 		}
 
 		if err := h.handler(messaging.ProtoToGitleaksRuleSet(&ruleSet)); err != nil {
-			// Log or handle error, but don't necessarily stop processing
+			log.Printf("[%s] Error handling rules: %v", h.clientID, err)
+		} else {
+			log.Printf("[%s] Successfully processed rules message", h.clientID)
 		}
 		sess.MarkMessage(msg, "")
 	}

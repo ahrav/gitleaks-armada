@@ -85,15 +85,11 @@ func (c *Coordinator) Start(ctx context.Context) error {
 }
 
 // Stop gracefully shuts down the coordinator.
-func (c *Coordinator) Stop() error {
-	return nil
-}
+func (c *Coordinator) Stop() error { return nil }
 
 // OnLeadershipChange registers a callback that will be invoked when this instance
 // gains or loses leadership.
-func (c *Coordinator) OnLeadershipChange(cb func(isLeader bool)) {
-	c.leadershipChangeCB = cb
-}
+func (c *Coordinator) OnLeadershipChange(cb func(isLeader bool)) { c.leadershipChangeCB = cb }
 
 func (c *Coordinator) onStartedLeading(ctx context.Context) {
 	log.Println("became leader")

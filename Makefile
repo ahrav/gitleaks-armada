@@ -36,6 +36,7 @@ KAFKA_TASK_TOPIC := scanner-tasks
 KAFKA_RESULTS_TOPIC := scanner-results
 KAFKA_PROGRESS_TOPIC := scanner-progress
 KAFKA_RULES_TOPIC := scanner-rules
+POSTGRES_URL = postgres://postgres:postgres@localhost:5432/secretscanner?sslmode=disable
 
 # -------------------------------------------------------------------------------
 # Targets
@@ -313,3 +314,92 @@ postgres-restart: postgres-delete postgres-setup
 # sqlc proto gen
 sqlc-proto-gen:
 	sqlc generate
+
+# Add these new targets
+postgres-port-forward:
+	@echo "Port forwarding PostgreSQL..."
+	kubectl port-forward -n $(NAMESPACE) svc/postgres 5432:5432 &
+
+postgres-fix-dirty:
+	@echo "Fixing dirty database state..."
+	migrate -database "$(POSTGRES_URL)" -path db/migrations force 1
+
+postgres-migrate-status:
+	@echo "Checking migration status..."
+	migrate -database "$(POSTGRES_URL)" -path db/migrations version
+
+postgres-migrate-up:
+	@echo "Running migrations..."
+	migrate -database "$(POSTGRES_URL)" -path db/migrations up
+
+postgres-migrate-down:
+	@echo "Rolling back migrations..."
+	migrate -database "$(POSTGRES_URL)" -path db/migrations down 1
+
+# Use this to fix the dirty state and re-run migrations
+postgres-migrate-fix: postgres-port-forward postgres-fix-dirty postgres-migrate-up
+	@echo "Migration fix complete"
+
+# Individual consumer group checks
+kafka-debug-controller-consumers:
+	@echo "Checking controller consumer group..."
+	kubectl exec -it -n $(NAMESPACE) deployment/kafka -- /opt/bitnami/kafka/bin/kafka-consumer-groups.sh \
+		--describe \
+		--group controller-workers \
+		--bootstrap-server localhost:9092
+
+kafka-debug-scanner-consumers:
+	@echo "Checking scanner consumer group..."
+	kubectl exec -it -n $(NAMESPACE) deployment/kafka -- /opt/bitnami/kafka/bin/kafka-consumer-groups.sh \
+		--describe \
+		--group scanner-workers \
+		--bootstrap-server localhost:9092
+
+# Individual topic checks
+kafka-debug-rules-topic:
+	@echo "Checking rules topic..."
+	kubectl exec -it -n $(NAMESPACE) deployment/kafka -- /opt/bitnami/kafka/bin/kafka-topics.sh \
+		--describe \
+		--topic $(KAFKA_RULES_TOPIC) \
+		--bootstrap-server localhost:9092
+
+kafka-debug-tasks-topic:
+	@echo "Checking tasks topic..."
+	kubectl exec -it -n $(NAMESPACE) deployment/kafka -- /opt/bitnami/kafka/bin/kafka-topics.sh \
+		--describe \
+		--topic $(KAFKA_TASK_TOPIC) \
+		--bootstrap-server localhost:9092
+
+kafka-debug-results-topic:
+	@echo "Checking results topic..."
+	kubectl exec -it -n $(NAMESPACE) deployment/kafka -- /opt/bitnami/kafka/bin/kafka-topics.sh \
+		--describe \
+		--topic $(KAFKA_RESULTS_TOPIC) \
+		--bootstrap-server localhost:9092
+
+kafka-debug-progress-topic:
+	@echo "Checking progress topic..."
+	kubectl exec -it -n $(NAMESPACE) deployment/kafka -- /opt/bitnami/kafka/bin/kafka-topics.sh \
+		--describe \
+		--topic $(KAFKA_PROGRESS_TOPIC) \
+		--bootstrap-server localhost:9092
+
+# Comprehensive Kafka debug target
+kafka-debug: kafka-debug-controller-consumers kafka-debug-scanner-consumers
+	@echo "\nChecking all topics..."
+	kubectl exec -it -n $(NAMESPACE) deployment/kafka -- /opt/bitnami/kafka/bin/kafka-topics.sh \
+		--list \
+		--bootstrap-server localhost:9092
+	@echo "\nChecking all consumer groups..."
+	kubectl exec -it -n $(NAMESPACE) deployment/kafka -- /opt/bitnami/kafka/bin/kafka-consumer-groups.sh \
+		--describe \
+		--all-groups \
+		--bootstrap-server localhost:9092
+	@echo "\nChecking topic details..."
+	for topic in $(KAFKA_TASK_TOPIC) $(KAFKA_RESULTS_TOPIC) $(KAFKA_PROGRESS_TOPIC) $(KAFKA_RULES_TOPIC); do \
+		echo "\nTopic: $$topic"; \
+		kubectl exec -it -n $(NAMESPACE) deployment/kafka -- /opt/bitnami/kafka/bin/kafka-topics.sh \
+			--describe \
+			--topic $$topic \
+			--bootstrap-server localhost:9092; \
+	done
