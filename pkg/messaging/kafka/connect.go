@@ -1,4 +1,4 @@
-package common
+package kafka
 
 import (
 	"fmt"
@@ -8,13 +8,12 @@ import (
 	"github.com/cenkalti/backoff"
 
 	"github.com/ahrav/gitleaks-armada/pkg/messaging"
-	"github.com/ahrav/gitleaks-armada/pkg/messaging/kafka"
 )
 
-// ConnectKafkaWithRetry attempts to establish a connection to Kafka with exponential backoff.
+// ConnectWithRetry attempts to establish a connection to Kafka with exponential backoff.
 // It will retry failed connection attempts for up to 5 minutes, starting with 5 second intervals.
 // This helps handle temporary network issues or Kafka cluster unavailability during startup.
-func ConnectKafkaWithRetry(cfg *kafka.Config) (messaging.Broker, error) {
+func ConnectWithRetry(cfg *Config) (messaging.Broker, error) {
 	var broker messaging.Broker
 
 	expBackoff := backoff.NewExponentialBackOff()
@@ -23,7 +22,7 @@ func ConnectKafkaWithRetry(cfg *kafka.Config) (messaging.Broker, error) {
 
 	operation := func() error {
 		var err error
-		broker, err = kafka.NewBroker(cfg)
+		broker, err = NewBroker(cfg)
 		if err != nil {
 			log.Printf("Failed to connect to Kafka, will retry: %v", err)
 			return err

@@ -46,7 +46,7 @@ func main() {
 		ClientID:     fmt.Sprintf("scanner-%s", hostname),
 	}
 
-	broker, err := common.ConnectKafkaWithRetry(kafkaCfg)
+	broker, err := kafka.ConnectWithRetry(kafkaCfg)
 	if err != nil {
 		log.Fatalf("[%s] Failed to create Kafka broker: %v", hostname, err)
 	}
