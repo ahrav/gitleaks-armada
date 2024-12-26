@@ -48,6 +48,11 @@ spec:
             configMapKeyRef:
               name: scanner-config
               key: KAFKA_RESULTS_TOPIC
+        - name: KAFKA_RULES_TOPIC
+          valueFrom:
+            configMapKeyRef:
+              name: scanner-config
+              key: KAFKA_RULES_TOPIC
         - name: KAFKA_BROKERS
           valueFrom:
             configMapKeyRef:

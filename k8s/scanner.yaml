@@ -44,6 +44,11 @@ spec:
             configMapKeyRef:
               name: scanner-config
               key: KAFKA_RESULTS_TOPIC
+        - name: KAFKA_RULES_TOPIC
+          valueFrom:
+            configMapKeyRef:
+              name: scanner-config
+              key: KAFKA_RULES_TOPIC
         - name: KAFKA_GROUP_ID
           value: "scanner-workers"
         - name: POD_NAME

@@ -35,6 +35,7 @@ POSTGRES_IMAGE := postgres:17.2
 KAFKA_TASK_TOPIC := scanner-tasks
 KAFKA_RESULTS_TOPIC := scanner-results
 KAFKA_PROGRESS_TOPIC := scanner-progress
+KAFKA_RULES_TOPIC := scanner-rules
 
 # -------------------------------------------------------------------------------
 # Targets
@@ -194,6 +195,12 @@ kafka-setup:
 		--bootstrap-server localhost:9092 \
 		--partitions 3 \
 		--replication-factor 1
+	kubectl exec -it -n $(NAMESPACE) deployment/kafka -- /opt/bitnami/kafka/bin/kafka-topics.sh \
+		--create --if-not-exists \
+		--topic $(KAFKA_RULES_TOPIC) \
+		--bootstrap-server localhost:9092 \
+		--partitions 3 \
+		--replication-factor 1
 
 kafka-logs:
 	@echo "Kafka logs:"
@@ -236,6 +243,10 @@ kafka-delete-topics:
 		--bootstrap-server localhost:9092 \
 		--delete \
 		--topic $(KAFKA_PROGRESS_TOPIC) || true
+	kubectl exec -it -n $(NAMESPACE) deployment/kafka -- /opt/bitnami/kafka/bin/kafka-topics.sh \
+		--bootstrap-server localhost:9092 \
+		--delete \
+		--topic $(KAFKA_RULES_TOPIC) || true
 
 kafka-restart: kafka-delete
 	@echo "Loading Kafka images..."

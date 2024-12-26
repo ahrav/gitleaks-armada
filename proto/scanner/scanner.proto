@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package scanner;
 
+import "google/protobuf/struct.proto";
+
 option go_package = "github.com/ahrav/gitleaks-armada/proto/scanner;scanner";
 
 message ScanTask {
@@ -29,26 +31,43 @@ message ScanProgress {
   map<string, string> metadata = 6; // Additional data as needed
 }
 
+// The final outcome of a scan, containing all discovered findings, status, etc.
 message ScanResult {
+  // Ties back to the ScanTask this result belongs to.
   string task_id = 1;
+  // All secrets or matches found during this scan.
   repeated Finding findings = 2;
-  ScanStatus status = 3;
-  string error = 4; // populated if status is ERROR
+  // Status of this job, matching your DB enum.
+  ScanJobStatus status = 3;
+  // If status == SCAN_JOB_STATUS_FAILED, short error info here.
+  string error = 4;
 }
 
+// A single discovered secret or match, typically stored in your DB 'findings'
+// table.
 message Finding {
-  // Generic location identifier (could be file path, URL, etc.)
-  string location = 1;
-  int32 line_number = 2;
-  string secret_type = 3;
-  string match = 4;
-  float confidence = 5;
+  // A unique key for deduplication (e.g., hash of path + secret).
+  string fingerprint = 1;
+  // The path or location of the found secret (universal).
+  string file_path = 2;
+  // Line number if relevant (e.g., scanning code).
+  int32 line_number = 3;
+  // Entire line of text, if captured. (Optional but convenient.)
+  string line = 4;
+  // The actual match that was found.
+  string match = 5;
+  // The author's email address.
+  string author_email = 6;
+  // For ephemeral or extended data: commit hash, message, etc.
+  google.protobuf.Struct raw_finding = 7;
 }
 
-enum ScanStatus {
-  SCAN_STATUS_UNSPECIFIED = 0;
-  SCAN_STATUS_SUCCESS = 1;
-  SCAN_STATUS_ERROR = 2;
+enum ScanJobStatus {
+  SCAN_JOB_STATUS_UNSPECIFIED = 0;
+  SCAN_JOB_STATUS_QUEUED = 1;
+  SCAN_JOB_STATUS_RUNNING = 2;
+  SCAN_JOB_STATUS_COMPLETED = 3;
+  SCAN_JOB_STATUS_FAILED = 4;
 }
 
 message TaskCredentials {
@@ -56,7 +75,6 @@ message TaskCredentials {
     UnauthenticatedCredentials unauthenticated = 1;
     GitHubCredentials github = 2;
     S3Credentials s3 = 3;
-    // Add more credential types as needed
   }
 }
 

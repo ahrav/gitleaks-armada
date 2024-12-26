@@ -30,12 +30,6 @@ CREATE TABLE enumeration_states (
     CONSTRAINT unique_session_id UNIQUE (session_id)  -- single record per session_id
 );
 
--- Target Types Table
-CREATE TABLE target_types (
-    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    name VARCHAR(255) NOT NULL UNIQUE -- Exact table name (e.g., "github_repositories")
-);
-
 -- Github Repositories Table
 CREATE TABLE github_repositories (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -50,13 +44,14 @@ CREATE TABLE github_repositories (
 -- Scan Targets Table
 CREATE TABLE scan_targets (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    target_type_id BIGINT NOT NULL REFERENCES target_types (id),
-    target_id BIGINT NOT NULL,
+    target_type VARCHAR(255) NOT NULL,  -- e.g. "github_repositories"
+    target_id BIGINT NOT NULL,          -- references the row in that table
     last_scan_time TIMESTAMPTZ,
     metadata JSONB,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
 
 -- Scan Job Status Enum
 CREATE TYPE scan_job_status AS ENUM (
@@ -143,22 +138,26 @@ CREATE TABLE findings (
     scan_job_id BIGINT NOT NULL REFERENCES scan_jobs (id),
     rule_id BIGINT NOT NULL REFERENCES rules (id),
     scan_target_id BIGINT NOT NULL REFERENCES scan_targets (id),
-    file_path TEXT,
-    line_number INTEGER,
-    line TEXT,
-    commit_hash VARCHAR(255),
-    author VARCHAR(255),
+
+    fingerprint VARCHAR(255) NOT NULL UNIQUE,  -- For deduping
+    file_path TEXT,        -- The path where the secret was found
+    line_number INTEGER,   -- The line number
+    line TEXT,             -- The entire line (if you want quick reference)
+    match TEXT,
     author_email VARCHAR(255),
-    fingerprint VARCHAR(255) NOT NULL UNIQUE,
+
+    -- JSONB for ephemeral/per-scan data: commit hash, secret, commit message, start line, end line, etc.
     raw_finding JSONB NOT NULL,
+
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
 
 -- Indexes
 CREATE INDEX idx_github_repositories_name ON github_repositories (name);
 CREATE INDEX idx_github_repositories_url ON github_repositories (url);
 
-CREATE INDEX idx_scan_targets_target_type_id ON scan_targets (target_type_id);
+CREATE INDEX idx_scan_targets_target_type ON scan_targets (target_type);
 CREATE INDEX idx_scan_targets_target_id ON scan_targets (target_id);
 
 CREATE INDEX idx_scan_jobs_scan_target_id ON scan_jobs (scan_target_id);
@@ -168,8 +167,6 @@ CREATE INDEX idx_scan_jobs_commit_hash ON scan_jobs (commit_hash);
 CREATE INDEX idx_findings_scan_job_id ON findings (scan_job_id);
 CREATE INDEX idx_findings_rule_id ON findings (rule_id);
 CREATE INDEX idx_findings_scan_target_id ON findings (scan_target_id);
-CREATE INDEX idx_findings_file_path ON findings (file_path);
-CREATE INDEX idx_findings_commit_hash ON findings (commit_hash);
 CREATE INDEX idx_findings_fingerprint ON findings (fingerprint);
 
 CREATE INDEX idx_allowlists_rule_id ON allowlists (rule_id);

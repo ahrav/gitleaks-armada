@@ -18,33 +18,7 @@ import (
 // PublishResult publishes a scan result to Kafka.
 // It converts domain findings and status to protobuf format before publishing.
 func (k *Broker) PublishResult(ctx context.Context, result messaging.ScanResult) error {
-	pbFindings := make([]*pb.Finding, len(result.Findings))
-	for i, f := range result.Findings {
-		pbFindings[i] = &pb.Finding{
-			Location:   f.Location,
-			LineNumber: f.LineNumber,
-			SecretType: f.SecretType,
-			Match:      f.Match,
-			Confidence: float32(f.Confidence),
-		}
-	}
-
-	pbStatus := pb.ScanStatus_SCAN_STATUS_UNSPECIFIED
-	switch result.Status {
-	case messaging.ScanStatusSuccess:
-		pbStatus = pb.ScanStatus_SCAN_STATUS_SUCCESS
-	case messaging.ScanStatusError:
-		pbStatus = pb.ScanStatus_SCAN_STATUS_ERROR
-	}
-
-	pbResult := &pb.ScanResult{
-		TaskId:   result.TaskID,
-		Findings: pbFindings,
-		Status:   pbStatus,
-		Error:    result.Error,
-	}
-
-	data, err := proto.Marshal(pbResult)
+	data, err := proto.Marshal(result.ToProto())
 	if err != nil {
 		return fmt.Errorf("failed to marshal ScanResult: %w", err)
 	}
@@ -86,37 +60,12 @@ func (h *resultsHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, claim sa
 			continue
 		}
 
-		findings := make([]messaging.Finding, len(pbResult.Findings))
-		for i, f := range pbResult.Findings {
-			findings[i] = messaging.Finding{
-				Location:   f.Location,
-				LineNumber: f.LineNumber,
-				SecretType: f.SecretType,
-				Match:      f.Match,
-				Confidence: float64(f.Confidence),
-			}
-		}
-
-		var status messaging.ScanStatus
-		switch pbResult.Status {
-		case pb.ScanStatus_SCAN_STATUS_SUCCESS:
-			status = messaging.ScanStatusSuccess
-		case pb.ScanStatus_SCAN_STATUS_ERROR:
-			status = messaging.ScanStatusError
-		default:
-			status = messaging.ScanStatusUnspecified
-		}
-
-		result := messaging.ScanResult{
-			TaskID:   pbResult.TaskId,
-			Findings: findings,
-			Status:   status,
-			Error:    pbResult.Error,
-		}
+		result := messaging.ProtoToScanResult(&pbResult)
 
 		if err := h.handler(result); err != nil {
 			// Handler errors are logged but don't stop processing
 		}
+
 		sess.MarkMessage(msg, "")
 	}
 	return nil

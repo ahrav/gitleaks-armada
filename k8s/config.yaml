@@ -6,6 +6,7 @@ metadata:
 data:
   KAFKA_TASK_TOPIC: "scanner-tasks"
   KAFKA_RESULTS_TOPIC: "scanner-results"
+  KAFKA_RULES_TOPIC: "scanner-rules"
   KAFKA_BROKERS: "kafka:9092"
   POSTGRES_HOST: "postgres"
   POSTGRES_PORT: "5432"

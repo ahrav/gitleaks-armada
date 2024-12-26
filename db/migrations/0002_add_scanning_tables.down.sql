@@ -15,3 +15,5 @@ DROP TABLE IF EXISTS scan_jobs;
 DROP TABLE IF EXISTS scan_targets;
 DROP TABLE IF EXISTS github_repositories;
 DROP TABLE IF EXISTS target_types;
+
+DROP TABLE IF EXISTS scan_job_status;

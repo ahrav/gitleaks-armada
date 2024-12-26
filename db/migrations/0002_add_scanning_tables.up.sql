@@ -1,12 +1,6 @@
 -- 0002_add_scanning_tables.up.sql
 
--- 1. Create the target_types table
-CREATE TABLE target_types (
-    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    name VARCHAR(255) NOT NULL UNIQUE -- Exact table name (e.g., "github_repositories")
-);
-
--- 2. Create the github_repositories table
+-- Github Repositories Table
 CREATE TABLE github_repositories (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
@@ -17,18 +11,19 @@ CREATE TABLE github_repositories (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 3. Create the scan_targets table
+-- Scan Targets Table
 CREATE TABLE scan_targets (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    target_type_id BIGINT NOT NULL REFERENCES target_types (id),
-    target_id BIGINT NOT NULL,
+    target_type VARCHAR(255) NOT NULL,  -- e.g. "github_repositories"
+    target_id BIGINT NOT NULL,          -- references the row in that table
     last_scan_time TIMESTAMPTZ,
     metadata JSONB,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 4. Create the scan_job_status enum
+
+-- Scan Job Status Enum
 CREATE TYPE scan_job_status AS ENUM (
     'queued',
     'running',
@@ -36,7 +31,7 @@ CREATE TYPE scan_job_status AS ENUM (
     'failed'
 );
 
--- 5. Create the scan_jobs table
+-- Scan Jobs Table
 CREATE TABLE scan_jobs (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     scan_target_id BIGINT NOT NULL REFERENCES scan_targets (id),
@@ -49,7 +44,7 @@ CREATE TABLE scan_jobs (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 6. Create the rules table
+-- Rules Table
 CREATE TABLE rules (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     rule_id VARCHAR(255) NOT NULL UNIQUE,
@@ -64,7 +59,7 @@ CREATE TABLE rules (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 7. Create the allowlists table
+-- Allowlist Table
 CREATE TABLE allowlists (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     rule_id BIGINT NOT NULL REFERENCES rules (id) ON DELETE CASCADE,
@@ -75,7 +70,7 @@ CREATE TABLE allowlists (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 8. Create the allowlist_commits table
+-- Allowlist Commits Table
 CREATE TABLE allowlist_commits (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     allowlist_id BIGINT NOT NULL REFERENCES allowlists (id) ON DELETE CASCADE,
@@ -83,7 +78,7 @@ CREATE TABLE allowlist_commits (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 9. Create the allowlist_paths table
+-- Allowlist Paths Table
 CREATE TABLE allowlist_paths (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     allowlist_id BIGINT NOT NULL REFERENCES allowlists (id) ON DELETE CASCADE,
@@ -91,7 +86,7 @@ CREATE TABLE allowlist_paths (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 10. Create the allowlist_regexes table
+-- Allowlist Regexes Table
 CREATE TABLE allowlist_regexes (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     allowlist_id BIGINT NOT NULL REFERENCES allowlists (id) ON DELETE CASCADE,
@@ -99,7 +94,7 @@ CREATE TABLE allowlist_regexes (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 11. Create the allowlist_stopwords table
+-- Allowlist Stopwords Table
 CREATE TABLE allowlist_stopwords (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     allowlist_id BIGINT NOT NULL REFERENCES allowlists (id) ON DELETE CASCADE,
@@ -107,7 +102,56 @@ CREATE TABLE allowlist_stopwords (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 12. Create the findings table
+-- Findings Table
 CREATE TABLE findings (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    scan
+    scan_job_id BIGINT NOT NULL REFERENCES scan_jobs (id),
+    rule_id BIGINT NOT NULL REFERENCES rules (id),
+    scan_target_id BIGINT NOT NULL REFERENCES scan_targets (id),
+
+    fingerprint VARCHAR(255) NOT NULL UNIQUE,  -- For deduping
+    file_path TEXT,        -- The path where the secret was found
+    line_number INTEGER,   -- The line number
+    line TEXT,             -- The entire line (if you want quick reference)
+    match TEXT,
+    author_email VARCHAR(255),
+
+    -- JSONB for ephemeral/per-scan data: commit hash, secret, commit message, start line, end line, etc.
+    raw_finding JSONB NOT NULL,
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+
+-- Indexes
+CREATE INDEX idx_github_repositories_name ON github_repositories (name);
+CREATE INDEX idx_github_repositories_url ON github_repositories (url);
+
+CREATE INDEX idx_scan_targets_target_type ON scan_targets (target_type);
+CREATE INDEX idx_scan_targets_target_id ON scan_targets (target_id);
+
+CREATE INDEX idx_scan_jobs_scan_target_id ON scan_jobs (scan_target_id);
+CREATE INDEX idx_scan_jobs_status ON scan_jobs (status);
+CREATE INDEX idx_scan_jobs_commit_hash ON scan_jobs (commit_hash);
+
+CREATE INDEX idx_findings_scan_job_id ON findings (scan_job_id);
+CREATE INDEX idx_findings_rule_id ON findings (rule_id);
+CREATE INDEX idx_findings_scan_target_id ON findings (scan_target_id);
+CREATE INDEX idx_findings_fingerprint ON findings (fingerprint);
+
+CREATE INDEX idx_allowlists_rule_id ON allowlists (rule_id);
+
+CREATE INDEX idx_allowlist_commits_allowlist_id ON allowlist_commits (allowlist_id);
+CREATE UNIQUE INDEX idx_unique_commits_per_allowlist ON allowlist_commits (allowlist_id, commit);
+
+CREATE INDEX idx_allowlist_paths_allowlist_id ON allowlist_paths (allowlist_id);
+
+CREATE INDEX idx_allowlist_regexes_allowlist_id ON allowlist_regexes (allowlist_id);
+
+CREATE INDEX idx_allowlist_stopwords_allowlist_id ON allowlist_stopwords (allowlist_id);
+CREATE UNIQUE INDEX idx_unique_stopwords_per_allowlist ON allowlist_stopwords (allowlist_id, stopword);
+
+-- Insert initial target types
+INSERT INTO target_types (name) VALUES
+    ('github_repositories');
+

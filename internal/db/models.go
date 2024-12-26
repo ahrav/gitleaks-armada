@@ -164,13 +164,12 @@ type Finding struct {
 	ScanJobID    int64
 	RuleID       int64
 	ScanTargetID int64
+	Fingerprint  string
 	FilePath     sql.NullString
 	LineNumber   sql.NullInt32
 	Line         sql.NullString
-	CommitHash   sql.NullString
-	Author       sql.NullString
+	Match        sql.NullString
 	AuthorEmail  sql.NullString
-	Fingerprint  string
 	RawFinding   json.RawMessage
 	CreatedAt    time.Time
 }
@@ -213,15 +212,10 @@ type ScanJob struct {
 
 type ScanTarget struct {
 	ID           int64
-	TargetTypeID int64
+	TargetType   string
 	TargetID     int64
 	LastScanTime sql.NullTime
 	Metadata     pqtype.NullRawMessage
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
-}
-
-type TargetType struct {
-	ID   int64
-	Name string
 }
