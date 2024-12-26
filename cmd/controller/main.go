@@ -29,6 +29,11 @@ import (
 func main() {
 	_, _ = maxprocs.Set()
 
+	hostname, err := os.Hostname()
+	if err != nil {
+		log.Fatalf("failed to get hostname: %v", err)
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -36,7 +41,7 @@ func main() {
 	healthServer := common.NewHealthServer(ready)
 	defer func() {
 		if err := healthServer.Server().Shutdown(ctx); err != nil {
-			log.Printf("Error shutting down health server: %v", err)
+			log.Printf("[%s] Error shutting down health server: %v", hostname, err)
 		}
 	}()
 
@@ -66,24 +71,24 @@ func main() {
 
 	dbConn, err := sql.Open("postgres", dsn)
 	if err != nil {
-		log.Fatalf("failed to open db: %v", err)
+		log.Fatalf("[%s] failed to open db: %v", hostname, err)
 	}
 	defer dbConn.Close()
 
 	if err := runMigrations(dbConn); err != nil {
-		log.Fatalf("failed to run migrations: %v", err)
+		log.Fatalf("[%s] failed to run migrations: %v", hostname, err)
 	}
 
-	log.Println("Migrations applied successfully. Starting application...")
+	log.Printf("[%s] Migrations applied successfully. Starting application...", hostname)
 
 	podName := os.Getenv("POD_NAME")
 	if podName == "" {
-		log.Fatal("POD_NAME environment variable must be set")
+		log.Fatalf("[%s] POD_NAME environment variable must be set", hostname)
 	}
 
 	namespace := os.Getenv("POD_NAMESPACE")
 	if namespace == "" {
-		log.Fatal("POD_NAMESPACE environment variable must be set")
+		log.Fatalf("[%s] POD_NAMESPACE environment variable must be set", hostname)
 	}
 
 	cfg := &kubernetes.K8sConfig{
@@ -96,14 +101,9 @@ func main() {
 
 	coord, err := kubernetes.NewCoordinator(cfg)
 	if err != nil {
-		log.Fatalf("failed to create coordinator: %v", err)
+		log.Fatalf("[%s] failed to create coordinator: %v", hostname, err)
 	}
 	defer coord.Stop()
-
-	hostname, err := os.Hostname()
-	if err != nil {
-		log.Fatalf("failed to get hostname: %v", err)
-	}
 
 	kafkaCfg := &kafka.Config{
 		Brokers:       strings.Split(os.Getenv("KAFKA_BROKERS"), ","),
@@ -117,14 +117,14 @@ func main() {
 
 	broker, err := common.ConnectKafkaWithRetry(kafkaCfg)
 	if err != nil {
-		log.Fatalf("Failed to create Kafka broker: %v", err)
+		log.Fatalf("[%s] Failed to create Kafka broker: %v", hostname, err)
 	}
-	log.Println("Successfully connected to Kafka")
+	log.Printf("[%s] Successfully connected to Kafka", hostname)
 
 	m := metrics.New("scanner_controller")
 	go func() {
 		if err := metrics.StartServer(":8081"); err != nil {
-			log.Printf("metrics server error: %v", err)
+			log.Printf("[%s] metrics server error: %v", hostname, err)
 		}
 	}()
 
@@ -133,31 +133,39 @@ func main() {
 
 	configLoader := config.NewFileLoader("/etc/scanner/config/config.yaml")
 
-	ctrl := controller.NewController(coord, broker, enumStateStorage, checkpointStorage, configLoader, m)
-	log.Println("Controller initialized")
+	ctrl := controller.NewController(
+		hostname,
+		coord,
+		broker,
+		enumStateStorage,
+		checkpointStorage,
+		configLoader,
+		m,
+	)
+	log.Printf("[%s] Controller initialized", hostname)
 
 	ready.Store(true)
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
-	log.Println("Starting controller...")
+	log.Printf("[%s] Starting controller...", hostname)
 	leaderChan, err := ctrl.Run(ctx)
 	if err != nil {
-		log.Fatalf("failed to run controller: %v", err)
+		log.Fatalf("[%s] failed to run controller: %v", hostname, err)
 	}
 
 	// Wait for shutdown signal or leadership.
 	select {
 	case <-leaderChan:
-		log.Println("Leadership acquired, controller running...")
+		log.Printf("[%s] Leadership acquired, controller running...", hostname)
 		// Wait for shutdown signal
 		<-sigChan
-		log.Println("Shutdown signal received, stopping controller...")
+		log.Printf("[%s] Shutdown signal received, stopping controller...", hostname)
 	case <-sigChan:
-		log.Println("Shutdown signal received before leadership, stopping...")
+		log.Printf("[%s] Shutdown signal received before leadership, stopping...", hostname)
 	case <-ctx.Done():
-		log.Println("Context cancelled, stopping controller...")
+		log.Printf("[%s] Context cancelled, stopping controller...", hostname)
 	}
 }
 

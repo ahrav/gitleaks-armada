@@ -17,6 +17,8 @@ import (
 // It manages a pool of workers to concurrently scan repositories for sensitive information
 // while tracking metrics about task processing performance.
 type Scanner struct {
+	id string
+
 	broker  messaging.Broker
 	metrics metrics.ScannerMetrics
 	scanner *GitLeaksScanner
@@ -29,8 +31,9 @@ type Scanner struct {
 // NewScanner creates a Scanner that will process tasks from the provided broker.
 // It configures the scanner to use the system's CPU count for worker concurrency
 // and initializes metrics collection.
-func NewScanner(ctx context.Context, broker messaging.Broker, metrics metrics.ScannerMetrics) *Scanner {
+func NewScanner(ctx context.Context, id string, broker messaging.Broker, metrics metrics.ScannerMetrics) *Scanner {
 	return &Scanner{
+		id:      id,
 		broker:  broker,
 		metrics: metrics,
 		scanner: NewGitLeaksScanner(ctx, broker),
@@ -41,7 +44,7 @@ func NewScanner(ctx context.Context, broker messaging.Broker, metrics metrics.Sc
 // Run starts the scanner with a pool of workers to process tasks concurrently.
 func (s *Scanner) Run(ctx context.Context) error {
 	s.stopCh = make(chan struct{})
-	log.Printf("Starting scanner with %d workers...", s.workers)
+	log.Printf("[%s] Starting scanner with %d workers...", s.id, s.workers)
 
 	taskCh := make(chan messaging.Task, 1)
 
@@ -61,15 +64,16 @@ func (s *Scanner) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-s.stopCh:
-			return fmt.Errorf("scanner stopping")
+			return fmt.Errorf("[%s] scanner stopping", s.id)
 		}
 	}); err != nil {
 		close(taskCh)
 		s.workerWg.Wait()
-		return fmt.Errorf("failed to subscribe to tasks: %w", err)
+		return fmt.Errorf("[%s] failed to subscribe to tasks: %w", s.id, err)
 	}
 
 	<-ctx.Done()
+	log.Printf("[%s] Context cancelled, stopping scanner...", s.id)
 
 	close(s.stopCh)
 	close(taskCh)
@@ -79,22 +83,22 @@ func (s *Scanner) Run(ctx context.Context) error {
 
 // worker processes tasks from the task channel until it's closed or context is cancelled.
 func (s *Scanner) worker(ctx context.Context, id int, taskCh <-chan messaging.Task) {
-	log.Printf("Worker %d started", id)
+	log.Printf("[%s] Worker %d started", s.id, id)
 	for {
 		select {
 		case task, ok := <-taskCh:
 			if !ok {
-				log.Printf("Worker %d shutting down: task channel closed", id)
+				log.Printf("[%s] Worker %d shutting down: task channel closed", s.id, id)
 				return
 			}
 			if err := s.handleScanTask(ctx, task); err != nil {
-				log.Printf("Worker %d failed to process task: %v", id, err)
+				log.Printf("[%s] Worker %d failed to process task: %v", s.id, id, err)
 			}
 		case <-ctx.Done():
-			log.Printf("Worker %d shutting down: context cancelled", id)
+			log.Printf("[%s] Worker %d shutting down: context cancelled", s.id, id)
 			return
 		case <-s.stopCh:
-			log.Printf("Worker %d shutting down: stop signal received", id)
+			log.Printf("[%s] Worker %d shutting down: stop signal received", s.id, id)
 			return
 		}
 	}
@@ -104,7 +108,7 @@ func (s *Scanner) worker(ctx context.Context, id int, taskCh <-chan messaging.Ta
 // It updates metrics for task processing and delegates the actual scanning
 // to the configured scanner implementation.
 func (s *Scanner) handleScanTask(ctx context.Context, task messaging.Task) error {
-	log.Printf("Scanning repository: %s", task.ResourceURI)
+	log.Printf("[%s] Scanning repository: %s", s.id, task.ResourceURI)
 	s.metrics.IncTasksDequeued()
 
 	return s.metrics.TrackTask(func() error {

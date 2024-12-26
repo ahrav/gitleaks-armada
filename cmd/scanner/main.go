@@ -21,6 +21,11 @@ import (
 func main() {
 	_, _ = maxprocs.Set()
 
+	hostname, err := os.Hostname()
+	if err != nil {
+		log.Fatalf("Failed to get hostname: %v", err)
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -28,14 +33,9 @@ func main() {
 	healthServer := common.NewHealthServer(ready)
 	defer func() {
 		if err := healthServer.Server().Shutdown(ctx); err != nil {
-			log.Printf("Error shutting down health server: %v", err)
+			log.Printf("[%s] Error shutting down health server: %v", hostname, err)
 		}
 	}()
-
-	hostname, err := os.Hostname()
-	if err != nil {
-		log.Fatalf("Failed to get hostname: %v", err)
-	}
 
 	kafkaCfg := &kafka.Config{
 		Brokers:      strings.Split(os.Getenv("KAFKA_BROKERS"), ","),
@@ -48,16 +48,16 @@ func main() {
 
 	broker, err := common.ConnectKafkaWithRetry(kafkaCfg)
 	if err != nil {
-		log.Fatalf("Failed to create Kafka broker: %v", err)
+		log.Fatalf("[%s] Failed to create Kafka broker: %v", hostname, err)
 	}
-	log.Printf("Scanner %s connected to Kafka", hostname)
+	log.Printf("[%s] Scanner connected to Kafka", hostname)
 
 	m := metrics.New("scanner_worker")
-	scanner := scanner.NewScanner(ctx, broker, m)
+	scanner := scanner.NewScanner(ctx, hostname, broker, m)
 
 	go func() {
 		if err := metrics.StartServer(":8081"); err != nil {
-			log.Printf("metrics server error: %v", err)
+			log.Printf("[%s] metrics server error: %v", hostname, err)
 		}
 	}()
 
@@ -68,15 +68,15 @@ func main() {
 
 	go func() {
 		<-sigChan
-		log.Printf("Scanner %s shutting down...", hostname)
+		log.Printf("[%s] Scanner shutting down...", hostname)
 		cancel()
 	}()
 
-	log.Printf("Starting scanner %s...", hostname)
+	log.Printf("[%s] Starting scanner...", hostname)
 	if err := scanner.Run(ctx); err != nil {
-		log.Printf("Scanner error: %v", err)
+		log.Printf("[%s] Scanner error: %v", hostname, err)
 	}
 
 	<-ctx.Done()
-	log.Printf("Scanner %s shutdown complete", hostname)
+	log.Printf("[%s] Scanner shutdown complete", hostname)
 }

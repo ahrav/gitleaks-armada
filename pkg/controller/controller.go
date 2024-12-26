@@ -21,6 +21,8 @@ import (
 
 // Controller coordinates work distribution across a cluster of workers.
 type Controller struct {
+	id string
+
 	coordinator  cluster.Coordinator
 	workQueue    messaging.Broker
 	configLoader config.Loader
@@ -46,6 +48,7 @@ type Controller struct {
 // NewController creates a Controller instance that coordinates work distribution
 // using the provided coordinator for leader election and broker for task queuing.
 func NewController(
+	id string,
 	coord cluster.Coordinator,
 	queue messaging.Broker,
 	enumerationStateStorage storage.EnumerationStateStorage,
@@ -59,6 +62,7 @@ func NewController(
 	}
 
 	return &Controller{
+		id:                      id,
 		coordinator:             coord,
 		workQueue:               queue,
 		credStore:               credStore,
@@ -83,11 +87,11 @@ func (o *Controller) Run(ctx context.Context) (<-chan struct{}, error) {
 	leaderCh := make(chan bool, 1)
 
 	if err := o.workQueue.SubscribeRules(ctx, o.handleRules); err != nil {
-		return nil, fmt.Errorf("failed to subscribe to rules: %v", err)
+		return nil, fmt.Errorf("[%s] failed to subscribe to rules: %v", o.id, err)
 	}
 
 	o.coordinator.OnLeadershipChange(func(isLeader bool) {
-		log.Printf("Leadership change: isLeader=%v", isLeader)
+		log.Printf("[%s] Leadership change: isLeader=%v", o.id, isLeader)
 
 		o.mu.Lock()
 		o.running = isLeader
@@ -99,9 +103,9 @@ func (o *Controller) Run(ctx context.Context) (<-chan struct{}, error) {
 
 		select {
 		case leaderCh <- isLeader:
-			log.Printf("Sent leadership status: %v", isLeader)
+			log.Printf("[%s] Sent leadership status: %v", o.id, isLeader)
 		default:
-			log.Printf("Warning: leadership channel full, skipping update")
+			log.Printf("[%s] Warning: leadership channel full, skipping update", o.id)
 		}
 	})
 
@@ -113,29 +117,29 @@ func (o *Controller) Run(ctx context.Context) (<-chan struct{}, error) {
 			select {
 			case isLeader := <-leaderCh:
 				if !isLeader {
-					log.Println("Not leader, waiting...")
+					log.Printf("[%s] Not leader, waiting...", o.id)
 					continue
 				}
 
-				log.Println("Leadership acquired, processing targets...")
+				log.Printf("[%s] Leadership acquired, processing targets...", o.id)
 
 				// Try to resume any in-progress enumeration.
 				activeStates, err := o.enumerationStateStorage.GetActiveStates(ctx)
 				if err != nil {
-					log.Printf("Error loading enumeration state: %v", err)
+					log.Printf("[%s] Error loading enumeration state: %v", o.id, err)
 				}
-				log.Printf("Loaded %d active enumeration states", len(activeStates))
+				log.Printf("[%s] Loaded %d active enumeration states", o.id, len(activeStates))
 
 				if len(activeStates) == 0 {
 					// No existing state, start fresh from config.
 					if err := o.ProcessTarget(ctx); err != nil {
-						log.Printf("Failed to process targets: %v", err)
+						log.Printf("[%s] Failed to process targets: %v", o.id, err)
 					}
 				} else {
 					// Resume from existing state.
 					for _, state := range activeStates {
 						if err := o.doEnumeration(ctx, state); err != nil {
-							log.Printf("Failed to resume enumeration: %v", err)
+							log.Printf("[%s] Failed to resume enumeration: %v", o.id, err)
 						}
 					}
 				}
@@ -146,7 +150,7 @@ func (o *Controller) Run(ctx context.Context) (<-chan struct{}, error) {
 				}
 
 			case <-ctx.Done():
-				log.Println("Context cancelled, shutting down")
+				log.Printf("[%s] Context cancelled, shutting down", o.id)
 				if !readyClosed {
 					close(ready)
 				}
@@ -157,7 +161,7 @@ func (o *Controller) Run(ctx context.Context) (<-chan struct{}, error) {
 
 	log.Println("Starting coordinator...")
 	if err := o.coordinator.Start(ctx); err != nil {
-		return nil, fmt.Errorf("failed to start coordinator: %v", err)
+		return nil, fmt.Errorf("[%s] failed to start coordinator: %v", o.id, err)
 	}
 
 	return ready, nil
@@ -177,7 +181,7 @@ func (o *Controller) Stop() error {
 	}
 	o.mu.Unlock()
 
-	log.Println("[Controller] Stopped.")
+	log.Printf("[%s] Stopped.", o.id)
 	return nil
 }
 
@@ -188,33 +192,33 @@ func (o *Controller) Stop() error {
 func (o *Controller) ProcessTarget(ctx context.Context) error {
 	cfg, err := o.configLoader.Load(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to load configuration: %w", err)
+		return fmt.Errorf("[%s] failed to load configuration: %w", o.id, err)
 	}
 
 	// Create new credential store with loaded config
 	credStore, err := NewCredentialStore(cfg.Auth)
 	if err != nil {
-		return fmt.Errorf("failed to initialize credential store: %w", err)
+		return fmt.Errorf("[%s] failed to initialize credential store: %w", o.id, err)
 	}
 	o.credStore = credStore
-	log.Println("Credential store updated successfully.")
+	log.Printf("[%s] Credential store updated successfully.", o.id)
 
 	for _, target := range cfg.Targets {
 		enumState := &storage.EnumerationState{
 			SessionID:      generateSessionID(),
 			SourceType:     string(target.SourceType),
-			Config:         marshalConfig(target, cfg.Auth),
+			Config:         o.marshalConfig(target, cfg.Auth),
 			LastCheckpoint: nil, // No checkpoint initially
 			LastUpdated:    time.Now(),
 			Status:         storage.StatusInitialized,
 		}
 
 		if err := o.enumerationStateStorage.Save(ctx, enumState); err != nil {
-			return fmt.Errorf("failed to save initial enumeration state: %w", err)
+			return fmt.Errorf("[%s] failed to save initial enumeration state: %w", o.id, err)
 		}
 
 		if err := o.doEnumeration(ctx, enumState); err != nil {
-			log.Printf("Failed to enumerate target: %v", err)
+			log.Printf("[%s] Failed to enumerate target: %v", o.id, err)
 		}
 
 	}
@@ -234,7 +238,7 @@ func (o *Controller) doEnumeration(ctx context.Context, state *storage.Enumerati
 	}
 
 	if err := json.Unmarshal(state.Config, &combined); err != nil {
-		return fmt.Errorf("failed to unmarshal target config: %w", err)
+		return fmt.Errorf("[%s] failed to unmarshal target config: %w", o.id, err)
 	}
 
 	// Initialize credential store with the embedded auth config.
@@ -243,7 +247,7 @@ func (o *Controller) doEnumeration(ctx context.Context, state *storage.Enumerati
 			combined.AuthRef: combined.Auth,
 		})
 		if err != nil {
-			return fmt.Errorf("failed to initialize credential store: %w", err)
+			return fmt.Errorf("[%s] failed to initialize credential store: %w", o.id, err)
 		}
 		o.credStore = credStore
 	}
@@ -256,7 +260,7 @@ func (o *Controller) doEnumeration(ctx context.Context, state *storage.Enumerati
 	if state.Status == storage.StatusInitialized {
 		state.UpdateStatus(storage.StatusInProgress)
 		if saveErr := o.enumerationStateStorage.Save(ctx, state); saveErr != nil {
-			return fmt.Errorf("failed to mark enumeration state InProgress: %w", saveErr)
+			return fmt.Errorf("[%s] failed to mark enumeration state InProgress: %w", o.id, saveErr)
 		}
 	}
 
@@ -267,28 +271,28 @@ func (o *Controller) doEnumeration(ctx context.Context, state *storage.Enumerati
 		defer wg.Done()
 		for tasks := range taskCh {
 			if err := o.workQueue.PublishTasks(ctx, tasks); err != nil {
-				log.Printf("Failed to publish tasks: %v", err)
+				log.Printf("[%s] Failed to publish tasks: %v", o.id, err)
 				return
 			}
-			log.Printf("Published batch of %d tasks", len(tasks))
+			log.Printf("[%s] Published batch of %d tasks", o.id, len(tasks))
 		}
 	}()
 
 	if err := enumerator.Enumerate(ctx, state, taskCh); err != nil {
 		state.UpdateStatus(storage.StatusFailed)
 		if saveErr := o.enumerationStateStorage.Save(ctx, state); saveErr != nil {
-			log.Printf("Failed to save enumeration state after error: %v", saveErr)
+			log.Printf("[%s] Failed to save enumeration state after error: %v", o.id, saveErr)
 		}
 		close(taskCh)
 		wg.Wait()
-		return fmt.Errorf("enumeration failed: %w", err)
+		return fmt.Errorf("[%s] enumeration failed: %w", o.id, err)
 	}
 
 	state.UpdateStatus(storage.StatusCompleted)
 	if err := o.enumerationStateStorage.Save(ctx, state); err != nil {
 		close(taskCh)
 		wg.Wait()
-		return fmt.Errorf("failed to save enumeration state: %w", err)
+		return fmt.Errorf("[%s] failed to save enumeration state: %w", o.id, err)
 	}
 
 	close(taskCh)
@@ -300,31 +304,31 @@ func (o *Controller) doEnumeration(ctx context.Context, state *storage.Enumerati
 // It handles credential setup and validation for the target type.
 func (o *Controller) createEnumerator(target config.TargetSpec) (storage.TargetEnumerator, error) {
 	if o.credStore == nil {
-		return nil, fmt.Errorf("credential store not initialized")
+		return nil, fmt.Errorf("[%s] credential store not initialized", o.id)
 	}
 
 	creds, err := o.credStore.GetCredentials(target.AuthRef)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get credentials: %w", err)
+		return nil, fmt.Errorf("[%s] failed to get credentials: %w", o.id, err)
 	}
 
 	var enumerator storage.TargetEnumerator
 	switch target.SourceType {
 	case config.SourceTypeGitHub:
 		if target.GitHub == nil {
-			return nil, fmt.Errorf("github target configuration is missing")
+			return nil, fmt.Errorf("[%s] github target configuration is missing", o.id)
 		}
 		ghClient, err := NewGitHubClient(o.httpClient, creds)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create GitHub client: %w", err)
+			return nil, fmt.Errorf("[%s] failed to create GitHub client: %w", o.id, err)
 		}
 		enumerator = NewGitHubEnumerator(ghClient, creds, o.enumerationStateStorage, target.GitHub)
 
 	case config.SourceTypeS3:
-		return nil, fmt.Errorf("S3 enumerator not implemented yet")
+		return nil, fmt.Errorf("[%s] S3 enumerator not implemented yet", o.id)
 
 	default:
-		return nil, fmt.Errorf("unsupported source type: %s", target.SourceType)
+		return nil, fmt.Errorf("[%s] unsupported source type: %s", o.id, target.SourceType)
 	}
 
 	return enumerator, nil
@@ -336,7 +340,7 @@ func generateSessionID() string { return uuid.New().String() }
 
 // marshalConfig serializes the target configuration into a JSON raw message.
 // This allows storing the complete target configuration with the enumeration state.
-func marshalConfig(target config.TargetSpec, auth map[string]config.AuthConfig) json.RawMessage {
+func (o *Controller) marshalConfig(target config.TargetSpec, auth map[string]config.AuthConfig) json.RawMessage {
 	// Create a complete config that includes both target and its auth
 	completeConfig := struct {
 		config.TargetSpec
@@ -352,7 +356,7 @@ func marshalConfig(target config.TargetSpec, auth map[string]config.AuthConfig) 
 
 	data, err := json.Marshal(completeConfig)
 	if err != nil {
-		log.Printf("Failed to marshal target config: %v", err)
+		log.Printf("[%s] Failed to marshal target config: %v", o.id, err)
 		return nil
 	}
 	return data
@@ -372,9 +376,9 @@ func (c *Controller) handleRules(rules messaging.GitleaksRuleSet) error {
 	// 2. Storing in database
 	// 3. Handling any conflicts or versioning
 
-	log.Printf("Received and stored new ruleset with %d rules", len(rules.Rules))
+	log.Printf("[%s] Received and stored new ruleset with %d rules", c.id, len(rules.Rules))
 	for _, rule := range rules.Rules {
-		log.Printf("Rule: %+v", rule)
+		log.Printf("[%s] Rule: %+v", c.id, rule)
 	}
 	return nil
 }
