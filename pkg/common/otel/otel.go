@@ -22,10 +22,11 @@ import (
 
 // Config defines the information needed to init tracing.
 type Config struct {
-	ServiceName    string
-	Host           string
-	ExcludedRoutes map[string]struct{}
-	Probability    float64
+	ServiceName        string
+	Host               string
+	ExcludedRoutes     map[string]struct{}
+	Probability        float64
+	ResourceAttributes map[string]string
 }
 
 // InitTracing configures open telemetry to be used with the service.
@@ -52,6 +53,12 @@ func InitTracing(log *logger.Logger, cfg Config) (trace.TracerProvider, func(ctx
 	default:
 		log.Info(context.Background(), "OTEL", "tracer", cfg.Host)
 
+		attrs := make([]attribute.KeyValue, 0, len(cfg.ResourceAttributes)+1)
+		attrs = append(attrs, semconv.ServiceNameKey.String(cfg.ServiceName))
+		for k, v := range cfg.ResourceAttributes {
+			attrs = append(attrs, attribute.String(k, v))
+		}
+
 		tp := sdktrace.NewTracerProvider(
 			sdktrace.WithSampler(newEndpointExcluder(cfg.ExcludedRoutes, cfg.Probability)),
 			sdktrace.WithBatcher(exporter,
@@ -62,7 +69,7 @@ func InitTracing(log *logger.Logger, cfg Config) (trace.TracerProvider, func(ctx
 			sdktrace.WithResource(
 				resource.NewWithAttributes(
 					semconv.SchemaURL,
-					semconv.ServiceNameKey.String(cfg.ServiceName),
+					attrs...,
 				),
 			),
 		)
@@ -93,4 +100,13 @@ func AddSpan(ctx context.Context, tracer trace.Tracer, spanName string, keyValue
 		span.SetAttributes(kv)
 	}
 	return ctx, span
+}
+
+// Helper function to convert map to attribute.KeyValue slice
+func attributesFromMap(m map[string]string) []attribute.KeyValue {
+	attrs := make([]attribute.KeyValue, 0, len(m))
+	for k, v := range m {
+		attrs = append(attrs, attribute.String(k, v))
+	}
+	return attrs
 }

@@ -144,6 +144,11 @@ func main() {
 			"/v1/readiness": {},
 		},
 		Probability: prob,
+		ResourceAttributes: map[string]string{
+			"k8s.pod.name":     os.Getenv("POD_NAME"),
+			"k8s.namespace":    os.Getenv("POD_NAMESPACE"),
+			"k8s.container.id": hostname,
+		},
 	})
 	if err != nil {
 		log.Error(ctx, "failed to initialize tracing", "error", err)
