@@ -101,7 +101,7 @@ func scanJobStatusToProto(ds ScanJobStatus) pb.ScanJobStatus {
 func structMapToProto(m map[string]any) *structpb.Struct {
 	pbStruct, err := structpb.NewStruct(m)
 	if err != nil {
-		// TODO(ahrav): Handle error or log it.
+		// TODO: Handle error or log it.
 	}
 	return pbStruct
 }

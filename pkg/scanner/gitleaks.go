@@ -13,6 +13,8 @@ import (
 	"github.com/zricethezav/gitleaks/v8/config"
 	"github.com/zricethezav/gitleaks/v8/detect"
 	"github.com/zricethezav/gitleaks/v8/sources"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/messaging"
@@ -21,45 +23,88 @@ import (
 type GitLeaksScanner struct {
 	detector *detect.Detector
 	logger   *logger.Logger
+	tracer   trace.Tracer
 }
 
 // NewGitLeaksScanner constructs and returns a GitLeaksScanner instance with the detector set up.
-func NewGitLeaksScanner(ctx context.Context, broker messaging.Broker, logger *logger.Logger) *GitLeaksScanner {
+func NewGitLeaksScanner(
+	ctx context.Context,
+	broker messaging.Broker,
+	logger *logger.Logger,
+	tracer trace.Tracer,
+) *GitLeaksScanner {
 	detector := setupGitleaksDetector()
 	if err := publishRulesOnStartup(ctx, broker, detector, logger); err != nil {
 		logger.Error(ctx, "failed to publish rules on startup", "error", err)
 	}
 
-	return &GitLeaksScanner{detector: detector, logger: logger}
+	return &GitLeaksScanner{
+		detector: detector,
+		logger:   logger,
+		tracer:   tracer,
+	}
 }
 
 // Scan clones the repository to a temporary directory and scans it for secrets.
 // It ensures the cloned repository is cleaned up after scanning.
 func (s *GitLeaksScanner) Scan(ctx context.Context, repoURL string) error {
+	// Parent span for the entire scan operation
+	ctx, span := s.tracer.Start(ctx, "gitleaks.scan",
+		trace.WithAttributes(
+			attribute.String("repository.url", repoURL),
+		))
+	defer span.End()
+
+	_, dirSpan := s.tracer.Start(ctx, "create_temp_dir")
 	tempDir, err := os.MkdirTemp("", "gitleaks-scan-")
 	if err != nil {
+		dirSpan.RecordError(err)
+		dirSpan.End()
 		return fmt.Errorf("failed to create temp directory: %w", err)
 	}
+	dirSpan.End()
 
 	defer func() {
+		cleanupCtx, cleanupSpan := s.tracer.Start(ctx, "cleanup_temp_dir")
 		if err := os.RemoveAll(tempDir); err != nil {
-			s.logger.Error(ctx, "failed to cleanup temp directory", "error", err)
+			cleanupSpan.RecordError(err)
+			s.logger.Error(cleanupCtx, "failed to cleanup temp directory", "error", err)
 		}
+		cleanupSpan.End()
 	}()
 
-	if err := cloneRepo(ctx, repoURL, tempDir); err != nil {
+	cloneCtx, cloneSpan := s.tracer.Start(ctx, "git.clone",
+		trace.WithAttributes(
+			attribute.String("repository.url", repoURL),
+			attribute.String("clone.path", tempDir),
+		))
+	if err := cloneRepo(cloneCtx, repoURL, tempDir); err != nil {
+		cloneSpan.RecordError(err)
+		cloneSpan.End()
 		return fmt.Errorf("failed to clone repository: %w", err)
 	}
+	cloneSpan.End()
 
+	_, cmdSpan := s.tracer.Start(ctx, "git.setup_log_cmd")
 	gitCmd, err := sources.NewGitLogCmd(tempDir, "")
 	if err != nil {
+		cmdSpan.RecordError(err)
+		cmdSpan.End()
 		return fmt.Errorf("failed to create git log command: %w", err)
 	}
+	cmdSpan.End()
 
+	_, detectSpan := s.tracer.Start(ctx, "gitleaks.detect")
 	findings, err := s.detector.DetectGit(gitCmd)
 	if err != nil {
+		detectSpan.RecordError(err)
+		detectSpan.End()
 		return fmt.Errorf("failed to scan repository: %w", err)
 	}
+	detectSpan.SetAttributes(
+		attribute.Int("findings.count", len(findings)),
+	)
+	detectSpan.End()
 
 	s.logger.Info(ctx, "found %d findings in repository %s", len(findings), repoURL)
 	return nil
@@ -105,6 +150,7 @@ func publishRulesOnStartup(
 	logger *logger.Logger,
 ) error {
 	rules := convertDetectorConfigToRuleSet(detector.Config.Rules)
+	// TODO: Remove this log.
 	logger.Info(ctx, "Publishing rules: %+v", rules)
 	return broker.PublishRules(ctx, rules)
 }

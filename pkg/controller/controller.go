@@ -43,7 +43,7 @@ type Controller struct {
 	logger  *logger.Logger
 	metrics metrics.ControllerMetrics
 
-	// TODO(ahrav): This is a temporary store for rules.
+	// TODO: This is a temporary store for rules.
 	rules *atomic.Value
 
 	tracer trace.Tracer

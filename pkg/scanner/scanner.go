@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"sync"
 
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
@@ -48,7 +49,7 @@ func NewScanner(
 		id:      id,
 		broker:  broker,
 		metrics: metrics,
-		scanner: NewGitLeaksScanner(ctx, broker, logger),
+		scanner: NewGitLeaksScanner(ctx, broker, logger, tracer),
 		workers: runtime.NumCPU(),
 		logger:  logger,
 		tracer:  tracer,
@@ -125,7 +126,19 @@ func (s *Scanner) handleScanTask(ctx context.Context, task messaging.Task) error
 	s.logger.Info(ctx, "[%s] Scanning repository: %s", s.id, task.ResourceURI)
 	s.metrics.IncTasksDequeued()
 
+	// Start a new span for the entire task processing
+	ctx, span := s.tracer.Start(ctx, "process_scan_task",
+		trace.WithAttributes(
+			attribute.String("task.id", task.TaskID),
+			attribute.String("resource.uri", task.ResourceURI),
+		))
+	defer span.End()
+
 	return s.metrics.TrackTask(func() error {
-		return s.scanner.Scan(ctx, task.ResourceURI)
+		if err := s.scanner.Scan(ctx, task.ResourceURI); err != nil {
+			span.RecordError(err)
+			return err
+		}
+		return nil
 	})
 }
