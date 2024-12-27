@@ -34,7 +34,7 @@ func NewGitLeaksScanner(
 	tracer trace.Tracer,
 ) *GitLeaksScanner {
 	detector := setupGitleaksDetector()
-	if err := publishRulesOnStartup(ctx, broker, detector, logger); err != nil {
+	if err := publishRulesOnStartup(ctx, broker, detector, tracer); err != nil {
 		logger.Error(ctx, "failed to publish rules on startup", "error", err)
 	}
 
@@ -147,19 +147,29 @@ func publishRulesOnStartup(
 	ctx context.Context,
 	broker messaging.Broker,
 	detector *detect.Detector,
-	logger *logger.Logger,
+	tracer trace.Tracer,
 ) error {
+	// Create span for rules conversion and publishing
+	ctx, span := tracer.Start(ctx, "gitleaks.publish_rules",
+		trace.WithAttributes(
+			attribute.Int("rules.count", len(detector.Config.Rules)),
+		))
+	defer span.End()
+
 	rules := convertDetectorConfigToRuleSet(detector.Config.Rules)
-	// TODO: Remove this log.
-	logger.Info(ctx, "Publishing rules: %+v", rules)
-	return broker.PublishRules(ctx, rules)
+	if err := broker.PublishRules(ctx, rules); err != nil {
+		span.RecordError(err)
+		return fmt.Errorf("failed to publish rules: %w", err)
+	}
+
+	return nil
 }
 
 // convertDetectorConfigToRuleSet transforms Gitleaks detection rules into a serializable format
 // that can be shared across system components. This conversion is necessary because the internal
 // Gitleaks rules contain compiled regular expressions that cannot be directly serialized.
 func convertDetectorConfigToRuleSet(rules map[string]config.Rule) messaging.GitleaksRuleSet {
-	var domainRules []messaging.GitleaksRule
+	domainRules := make([]messaging.GitleaksRule, 0, len(rules))
 	for _, gRule := range rules {
 		dRule := messaging.GitleaksRule{
 			RuleID:      gRule.RuleID,
@@ -175,9 +185,7 @@ func convertDetectorConfigToRuleSet(rules map[string]config.Rule) messaging.Gitl
 		domainRules = append(domainRules, dRule)
 	}
 
-	return messaging.GitleaksRuleSet{
-		Rules: domainRules,
-	}
+	return messaging.GitleaksRuleSet{Rules: domainRules}
 }
 
 // regexToString safely converts a compiled regular expression to its string pattern.
