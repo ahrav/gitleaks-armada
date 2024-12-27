@@ -14,19 +14,23 @@ import (
 	"github.com/zricethezav/gitleaks/v8/detect"
 	"github.com/zricethezav/gitleaks/v8/sources"
 
+	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/messaging"
 )
 
-type GitLeaksScanner struct{ detector *detect.Detector }
+type GitLeaksScanner struct {
+	detector *detect.Detector
+	logger   *logger.Logger
+}
 
 // NewGitLeaksScanner constructs and returns a GitLeaksScanner instance with the detector set up.
-func NewGitLeaksScanner(ctx context.Context, broker messaging.Broker) *GitLeaksScanner {
+func NewGitLeaksScanner(ctx context.Context, broker messaging.Broker, logger *logger.Logger) *GitLeaksScanner {
 	detector := setupGitleaksDetector()
-	if err := publishRulesOnStartup(ctx, broker, detector); err != nil {
-		log.Fatalf("failed to publish rules on startup: %v", err)
+	if err := publishRulesOnStartup(ctx, broker, detector, logger); err != nil {
+		logger.Error(ctx, "failed to publish rules on startup", "error", err)
 	}
 
-	return &GitLeaksScanner{detector: detector}
+	return &GitLeaksScanner{detector: detector, logger: logger}
 }
 
 // Scan clones the repository to a temporary directory and scans it for secrets.
@@ -39,7 +43,7 @@ func (s *GitLeaksScanner) Scan(ctx context.Context, repoURL string) error {
 
 	defer func() {
 		if err := os.RemoveAll(tempDir); err != nil {
-			log.Printf("failed to cleanup temp directory %s: %v", tempDir, err)
+			s.logger.Error(ctx, "failed to cleanup temp directory", "error", err)
 		}
 	}()
 
@@ -57,7 +61,7 @@ func (s *GitLeaksScanner) Scan(ctx context.Context, repoURL string) error {
 		return fmt.Errorf("failed to scan repository: %w", err)
 	}
 
-	log.Printf("found %d findings in repository %s", len(findings), repoURL)
+	s.logger.Info(ctx, "found %d findings in repository %s", len(findings), repoURL)
 	return nil
 }
 
@@ -94,9 +98,14 @@ func setupGitleaksDetector() *detect.Detector {
 // publishRulesOnStartup sends the current Gitleaks detection rules to the message broker
 // when the scanner starts up. This ensures all components have access to the latest
 // rule definitions for consistent secret detection.
-func publishRulesOnStartup(ctx context.Context, broker messaging.Broker, detector *detect.Detector) error {
+func publishRulesOnStartup(
+	ctx context.Context,
+	broker messaging.Broker,
+	detector *detect.Detector,
+	logger *logger.Logger,
+) error {
 	rules := convertDetectorConfigToRuleSet(detector.Config.Rules)
-	log.Printf("Publishing rules: %+v", rules)
+	logger.Info(ctx, "Publishing rules: %+v", rules)
 	return broker.PublishRules(ctx, rules)
 }
 

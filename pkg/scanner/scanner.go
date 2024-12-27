@@ -8,6 +8,8 @@ import (
 	"runtime"
 	"sync"
 
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/messaging"
 	"github.com/ahrav/gitleaks-armada/pkg/metrics"
@@ -28,6 +30,7 @@ type Scanner struct {
 	workerWg sync.WaitGroup
 
 	logger *logger.Logger
+	tracer trace.Tracer
 }
 
 // NewScanner creates a Scanner that will process tasks from the provided broker.
@@ -39,14 +42,16 @@ func NewScanner(
 	broker messaging.Broker,
 	metrics metrics.ScannerMetrics,
 	logger *logger.Logger,
+	tracer trace.Tracer,
 ) *Scanner {
 	return &Scanner{
 		id:      id,
 		broker:  broker,
 		metrics: metrics,
-		scanner: NewGitLeaksScanner(ctx, broker),
+		scanner: NewGitLeaksScanner(ctx, broker, logger),
 		workers: runtime.NumCPU(),
 		logger:  logger,
+		tracer:  tracer,
 	}
 }
 
