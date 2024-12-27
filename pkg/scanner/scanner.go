@@ -57,7 +57,7 @@ func (s *Scanner) Run(ctx context.Context) error {
 	}
 
 	// Set up the subscription to feed tasks to workers.
-	if err := s.broker.SubscribeTasks(ctx, func(task messaging.Task) error {
+	if err := s.broker.SubscribeTasks(ctx, func(ctx context.Context, task messaging.Task) error {
 		select {
 		case taskCh <- task:
 			return nil

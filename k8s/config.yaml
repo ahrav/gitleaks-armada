@@ -12,3 +12,5 @@ data:
   POSTGRES_PORT: "5432"
   POSTGRES_DB: "secretscanner"
   POSTGRES_USER: "postgres"
+  TEMPO_HOST: "tempo:4317"
+  TEMPO_PROBABILITY: "0.5"

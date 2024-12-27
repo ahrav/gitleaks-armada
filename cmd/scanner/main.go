@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -13,6 +14,8 @@ import (
 	"go.uber.org/automaxprocs/maxprocs"
 
 	"github.com/ahrav/gitleaks-armada/pkg/common"
+	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
+	"github.com/ahrav/gitleaks-armada/pkg/common/otel"
 	"github.com/ahrav/gitleaks-armada/pkg/messaging/kafka"
 	"github.com/ahrav/gitleaks-armada/pkg/metrics"
 	"github.com/ahrav/gitleaks-armada/pkg/scanner"
@@ -26,6 +29,21 @@ func main() {
 		log.Fatalf("Failed to get hostname: %v", err)
 	}
 
+	var log *logger.Logger
+
+	events := logger.Events{
+		Error: func(ctx context.Context, r logger.Record) {
+			log.Info(ctx, "******* SEND ALERT *******")
+		},
+	}
+
+	traceIDFn := func(ctx context.Context) string {
+		return otel.GetTraceID(ctx)
+	}
+
+	svcName := fmt.Sprintf("SCANNER-%s", hostname)
+	log = logger.NewWithEvents(os.Stdout, logger.LevelInfo, svcName, traceIDFn, events)
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -33,7 +51,7 @@ func main() {
 	healthServer := common.NewHealthServer(ready)
 	defer func() {
 		if err := healthServer.Server().Shutdown(ctx); err != nil {
-			log.Printf("[%s] Error shutting down health server: %v", hostname, err)
+			log.Error(ctx, "Error shutting down health server", "error", err)
 		}
 	}()
 
@@ -46,18 +64,45 @@ func main() {
 		ClientID:     fmt.Sprintf("scanner-%s", hostname),
 	}
 
-	broker, err := kafka.ConnectWithRetry(kafkaCfg)
+	// Initialize tracing.
+	prob, err := strconv.ParseFloat(os.Getenv("TEMPO_PROBABILITY"), 64)
 	if err != nil {
-		log.Fatalf("[%s] Failed to create Kafka broker: %v", hostname, err)
+		log.Error(ctx, "failed to parse TEMPO_PROBABILITY", "error", err)
+		os.Exit(1)
 	}
-	log.Printf("[%s] Scanner connected to Kafka", hostname)
 
-	m := metrics.New("scanner_worker")
+	log.Info(ctx, "Initializing tracing support")
+	traceProvider, tracingTeardown, err := otel.InitTracing(log, otel.Config{
+		ServiceName: os.Getenv("TEMPO_SERVICE_NAME"),
+		Host:        os.Getenv("TEMPO_HOST"),
+		ExcludedRoutes: map[string]struct{}{
+			"/v1/health":    {},
+			"/v1/readiness": {},
+		},
+		Probability: prob,
+	})
+	if err != nil {
+		log.Error(ctx, "failed to initialize tracing", "error", err)
+		os.Exit(1)
+	}
+	defer tracingTeardown(ctx)
+
+	tracer := traceProvider.Tracer(os.Getenv("TEMPO_SERVICE_NAME"))
+
+	broker, err := kafka.ConnectWithRetry(kafkaCfg, tracer)
+	if err != nil {
+		log.Error(ctx, "failed to create kafka broker", "error", err)
+		os.Exit(1)
+	}
+
+	log.Info(ctx, "Scanner connected to Kafka")
+
+	m := metrics.New("scanner")
 	scanner := scanner.NewScanner(ctx, hostname, broker, m)
 
 	go func() {
 		if err := metrics.StartServer(":8081"); err != nil {
-			log.Printf("[%s] metrics server error: %v", hostname, err)
+			log.Error(ctx, "metrics server error", "error", err)
 		}
 	}()
 
@@ -68,15 +113,15 @@ func main() {
 
 	go func() {
 		<-sigChan
-		log.Printf("[%s] Scanner shutting down...", hostname)
+		log.Info(ctx, "Scanner shutting down...")
 		cancel()
 	}()
 
-	log.Printf("[%s] Starting scanner...", hostname)
+	log.Info(ctx, "Starting scanner...")
 	if err := scanner.Run(ctx); err != nil {
-		log.Printf("[%s] Scanner error: %v", hostname, err)
+		log.Error(ctx, "Scanner error", "error", err)
 	}
 
 	<-ctx.Done()
-	log.Printf("[%s] Scanner shutdown complete", hostname)
+	log.Info(ctx, "Scanner shutdown complete")
 }

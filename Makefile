@@ -13,6 +13,7 @@ SCANNER_IMAGE := $(SCANNER_APP):latest
 # Add monitoring variables
 PROMETHEUS_IMAGE := prom/prometheus:v2.55.0
 GRAFANA_IMAGE := grafana/grafana:11.3.0
+TEMPO_IMAGE := grafana/tempo:2.6.0
 
 K8S_MANIFESTS := k8s
 
@@ -91,6 +92,7 @@ dev-apply:
 	kubectl apply -f $(K8S_MANIFESTS)/controller.yaml -n $(NAMESPACE)
 	kubectl apply -f $(K8S_MANIFESTS)/scanner.yaml -n $(NAMESPACE)
 	kubectl apply -f $(K8S_MANIFESTS)/prometheus.yaml -n $(NAMESPACE)
+	kubectl apply -f $(K8S_MANIFESTS)/tempo.yaml -n $(NAMESPACE)
 	kubectl apply -f $(K8S_MANIFESTS)/grafana.yaml -n $(NAMESPACE)
 
 # Show status
@@ -279,19 +281,25 @@ monitoring-setup:
 	@echo "Loading monitoring images..."
 	docker pull $(PROMETHEUS_IMAGE)
 	docker pull $(GRAFANA_IMAGE)
+	docker pull $(TEMPO_IMAGE)
 	kind load docker-image $(PROMETHEUS_IMAGE) --name $(KIND_CLUSTER)
 	kind load docker-image $(GRAFANA_IMAGE) --name $(KIND_CLUSTER)
+	kind load docker-image $(TEMPO_IMAGE) --name $(KIND_CLUSTER)
 	kubectl apply -f $(K8S_MANIFESTS)/prometheus.yaml -n $(NAMESPACE)
+	kubectl apply -f $(K8S_MANIFESTS)/tempo.yaml -n $(NAMESPACE)
 	kubectl apply -f $(K8S_MANIFESTS)/grafana.yaml -n $(NAMESPACE)
 
 monitoring-port-forward:
 	@echo "Access Prometheus at http://localhost:9090"
 	@echo "Access Grafana at http://localhost:3000 (admin/admin)"
+	@echo "Access Tempo at http://localhost:3200"
 	kubectl port-forward -n $(NAMESPACE) svc/prometheus 9090:9090 & \
-	kubectl port-forward -n $(NAMESPACE) svc/grafana 3000:3000
+	kubectl port-forward -n $(NAMESPACE) svc/grafana 3000:3000 & \
+	kubectl port-forward -n $(NAMESPACE) svc/tempo 3200:3200
 
 monitoring-cleanup:
 	kubectl delete -f $(K8S_MANIFESTS)/prometheus.yaml -n $(NAMESPACE) || true
+	kubectl delete -f $(K8S_MANIFESTS)/tempo.yaml -n $(NAMESPACE) || true
 	kubectl delete -f $(K8S_MANIFESTS)/grafana.yaml -n $(NAMESPACE) || true
 
 # Add new postgres targets
@@ -403,3 +411,25 @@ kafka-debug: kafka-debug-controller-consumers kafka-debug-scanner-consumers
 			--topic $$topic \
 			--bootstrap-server localhost:9092; \
 	done
+
+# Tempo-specific targets
+tempo-logs:
+	kubectl logs -l app=tempo -n $(NAMESPACE) --tail=100 -f
+
+tempo-restart:
+	kubectl rollout restart deployment/tempo -n $(NAMESPACE)
+
+# Individual monitoring service restart targets
+grafana-restart:
+	kubectl rollout restart deployment/grafana -n $(NAMESPACE)
+
+prometheus-restart:
+	kubectl rollout restart deployment/prometheus -n $(NAMESPACE)
+
+# Restart all monitoring services
+monitoring-restart: tempo-restart grafana-restart prometheus-restart
+	@echo "All monitoring services restarted"
+
+# Restart everything (monitoring + application)
+restart-all: monitoring-restart rollout-restart
+	@echo "All services restarted"

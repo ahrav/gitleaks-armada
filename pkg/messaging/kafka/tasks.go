@@ -5,9 +5,11 @@ import (
 	"fmt"
 
 	"github.com/IBM/sarama"
+	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/ahrav/gitleaks-armada/pkg/messaging"
+	"github.com/ahrav/gitleaks-armada/pkg/messaging/kafka/tracing"
 	pb "github.com/ahrav/gitleaks-armada/proto/scanner"
 )
 
@@ -19,6 +21,9 @@ import (
 // It serializes the task to protobuf format and uses the task ID as the message key
 // for consistent partition routing.
 func (k *Broker) PublishTask(ctx context.Context, task messaging.Task) error {
+	ctx, span := tracing.StartProducerSpan(ctx, k.taskTopic, k.tracer)
+	defer span.End()
+
 	pbTask := &pb.ScanTask{
 		TaskId:      task.TaskID,
 		ResourceUri: task.ResourceURI,
@@ -27,6 +32,7 @@ func (k *Broker) PublishTask(ctx context.Context, task messaging.Task) error {
 	}
 	data, err := proto.Marshal(pbTask)
 	if err != nil {
+		span.RecordError(err)
 		return fmt.Errorf("failed to marshal ScanTask: %w", err)
 	}
 
@@ -35,7 +41,12 @@ func (k *Broker) PublishTask(ctx context.Context, task messaging.Task) error {
 		Key:   sarama.StringEncoder(task.TaskID),
 		Value: sarama.ByteEncoder(data),
 	}
+	tracing.InjectTraceContext(ctx, msg)
+
 	_, _, err = k.producer.SendMessage(msg)
+	if err != nil {
+		span.RecordError(err)
+	}
 	return err
 }
 
@@ -52,11 +63,12 @@ func (k *Broker) PublishTasks(ctx context.Context, tasks []messaging.Task) error
 
 // SubscribeTasks registers a handler function to process incoming scan tasks.
 // The handler is called for each task message received from the task topic.
-func (k *Broker) SubscribeTasks(ctx context.Context, handler func(messaging.Task) error) error {
+func (k *Broker) SubscribeTasks(ctx context.Context, handler func(context.Context, messaging.Task) error) error {
 	h := &taskHandler{
 		taskTopic: k.taskTopic,
 		handler:   handler,
 		clientID:  k.clientID,
+		tracer:    k.tracer,
 	}
 
 	go consumeLoop(ctx, k.consumerGroup, []string{k.taskTopic}, h)
@@ -64,9 +76,12 @@ func (k *Broker) SubscribeTasks(ctx context.Context, handler func(messaging.Task
 }
 
 type taskHandler struct {
+	clientID string
+
 	taskTopic string
-	handler   func(messaging.Task) error
-	clientID  string
+	handler   func(context.Context, messaging.Task) error
+
+	tracer trace.Tracer
 }
 
 func (h *taskHandler) Setup(sess sarama.ConsumerGroupSession) error {
@@ -82,8 +97,13 @@ func (h *taskHandler) Cleanup(sess sarama.ConsumerGroupSession) error {
 func (h *taskHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
 	logPartitionStart(h.clientID, claim.Partition(), sess.MemberID())
 	for msg := range claim.Messages() {
+		msgCtx := tracing.ExtractTraceContext(sess.Context(), msg)
+		msgCtx, span := tracing.StartConsumerSpan(msgCtx, msg, h.tracer)
+
 		var pbTask pb.ScanTask
 		if err := proto.Unmarshal(msg.Value, &pbTask); err != nil {
+			span.RecordError(err)
+			span.End()
 			sess.MarkMessage(msg, "")
 			continue
 		}
@@ -94,9 +114,11 @@ func (h *taskHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, claim saram
 			Metadata:    pbTask.Metadata,
 		}
 
-		if err := h.handler(task); err != nil {
-			// Handler errors are logged but don't stop processing
+		if err := h.handler(msgCtx, task); err != nil {
+			span.RecordError(err)
 		}
+
+		span.End()
 		sess.MarkMessage(msg, "")
 	}
 	return nil

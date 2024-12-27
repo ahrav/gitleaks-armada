@@ -366,7 +366,7 @@ func (o *Controller) marshalConfig(target config.TargetSpec, auth map[string]con
 // This allows tracking individual tasks through the processing pipeline.
 func generateTaskID() string { return uuid.New().String() }
 
-func (c *Controller) handleRules(rules messaging.GitleaksRuleSet) error {
+func (c *Controller) handleRules(ctx context.Context, rules messaging.GitleaksRuleSet) error {
 	// Store rules in memory for immediate use
 	c.rules.Store(rules)
 

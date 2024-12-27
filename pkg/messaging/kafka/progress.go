@@ -6,9 +6,11 @@ import (
 	"log"
 
 	"github.com/IBM/sarama"
+	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/ahrav/gitleaks-armada/pkg/messaging"
+	"github.com/ahrav/gitleaks-armada/pkg/messaging/kafka/tracing"
 	pb "github.com/ahrav/gitleaks-armada/proto/scanner"
 )
 
@@ -43,11 +45,12 @@ func (k *Broker) PublishProgress(ctx context.Context, progress messaging.ScanPro
 
 // SubscribeProgress registers a handler function to process incoming progress updates.
 // The handler is called for each progress message received from the progress topic.
-func (k *Broker) SubscribeProgress(ctx context.Context, handler func(messaging.ScanProgress) error) error {
+func (k *Broker) SubscribeProgress(ctx context.Context, handler func(context.Context, messaging.ScanProgress) error) error {
 	h := &progressHandler{
 		progressTopic: k.progressTopic,
 		handler:       handler,
 		clientID:      k.clientID,
+		tracer:        k.tracer,
 	}
 	log.Printf("[%s] Subscribing to progress topic: %s", k.clientID, k.progressTopic)
 	go consumeLoop(ctx, k.consumerGroup, []string{k.progressTopic}, h)
@@ -55,9 +58,12 @@ func (k *Broker) SubscribeProgress(ctx context.Context, handler func(messaging.S
 }
 
 type progressHandler struct {
+	clientID string
+
 	progressTopic string
-	handler       func(messaging.ScanProgress) error
-	clientID      string
+	handler       func(context.Context, messaging.ScanProgress) error
+
+	tracer trace.Tracer
 }
 
 func (h *progressHandler) Setup(sess sarama.ConsumerGroupSession) error {
@@ -73,8 +79,13 @@ func (h *progressHandler) Cleanup(sess sarama.ConsumerGroupSession) error {
 func (h *progressHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
 	logPartitionStart(h.clientID, claim.Partition(), sess.MemberID())
 	for msg := range claim.Messages() {
+		msgCtx := tracing.ExtractTraceContext(sess.Context(), msg)
+		msgCtx, span := tracing.StartConsumerSpan(msgCtx, msg, h.tracer)
+
 		var pbProgress pb.ScanProgress
 		if err := proto.Unmarshal(msg.Value, &pbProgress); err != nil {
+			span.RecordError(err)
+			span.End()
 			sess.MarkMessage(msg, "")
 			continue
 		}
@@ -87,9 +98,11 @@ func (h *progressHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, claim s
 			Metadata:        pbProgress.Metadata,
 		}
 
-		if err := h.handler(progress); err != nil {
-			// Handler errors are logged but don't stop processing
+		if err := h.handler(msgCtx, progress); err != nil {
+			span.RecordError(err)
 		}
+
+		span.End()
 		sess.MarkMessage(msg, "")
 	}
 	return nil

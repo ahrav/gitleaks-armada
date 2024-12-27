@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -19,6 +20,8 @@ import (
 
 	"github.com/ahrav/gitleaks-armada/pkg/cluster/kubernetes"
 	"github.com/ahrav/gitleaks-armada/pkg/common"
+	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
+	"github.com/ahrav/gitleaks-armada/pkg/common/otel"
 	"github.com/ahrav/gitleaks-armada/pkg/config"
 	"github.com/ahrav/gitleaks-armada/pkg/controller"
 	"github.com/ahrav/gitleaks-armada/pkg/messaging/kafka"
@@ -34,6 +37,21 @@ func main() {
 		log.Fatalf("failed to get hostname: %v", err)
 	}
 
+	var log *logger.Logger
+
+	events := logger.Events{
+		Error: func(ctx context.Context, r logger.Record) {
+			log.Info(ctx, "******* SEND ALERT *******")
+		},
+	}
+
+	traceIDFn := func(ctx context.Context) string {
+		return otel.GetTraceID(ctx)
+	}
+
+	svcName := fmt.Sprintf("CONTROLLER-%s", hostname)
+	log = logger.NewWithEvents(os.Stdout, logger.LevelInfo, svcName, traceIDFn, events)
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -41,7 +59,7 @@ func main() {
 	healthServer := common.NewHealthServer(ready)
 	defer func() {
 		if err := healthServer.Server().Shutdown(ctx); err != nil {
-			log.Printf("[%s] Error shutting down health server: %v", hostname, err)
+			log.Error(ctx, "Error shutting down health server", "error", err)
 		}
 	}()
 
@@ -71,24 +89,28 @@ func main() {
 
 	dbConn, err := sql.Open("postgres", dsn)
 	if err != nil {
-		log.Fatalf("[%s] failed to open db: %v", hostname, err)
+		log.Error(ctx, "failed to open db", "error", err)
+		os.Exit(1)
 	}
 	defer dbConn.Close()
 
 	if err := runMigrations(dbConn); err != nil {
-		log.Fatalf("[%s] failed to run migrations: %v", hostname, err)
+		log.Error(ctx, "failed to run migrations", "error", err)
+		os.Exit(1)
 	}
 
-	log.Printf("[%s] Migrations applied successfully. Starting application...", hostname)
+	log.Info(ctx, "Migrations applied successfully. Starting application...")
 
 	podName := os.Getenv("POD_NAME")
 	if podName == "" {
-		log.Fatalf("[%s] POD_NAME environment variable must be set", hostname)
+		log.Error(ctx, "POD_NAME environment variable must be set", "error", err)
+		os.Exit(1)
 	}
 
 	namespace := os.Getenv("POD_NAMESPACE")
 	if namespace == "" {
-		log.Fatalf("[%s] POD_NAMESPACE environment variable must be set", hostname)
+		log.Error(ctx, "POD_NAMESPACE environment variable must be set", "error", err)
+		os.Exit(1)
 	}
 
 	cfg := &kubernetes.K8sConfig{
@@ -101,7 +123,8 @@ func main() {
 
 	coord, err := kubernetes.NewCoordinator(cfg)
 	if err != nil {
-		log.Fatalf("[%s] failed to create coordinator: %v", hostname, err)
+		log.Error(ctx, "failed to create coordinator", "error", err)
+		os.Exit(1)
 	}
 	defer coord.Stop()
 
@@ -115,16 +138,42 @@ func main() {
 		ClientID:      fmt.Sprintf("scanner-%s", hostname),
 	}
 
-	broker, err := kafka.ConnectWithRetry(kafkaCfg)
+	// Initialize tracing.
+	prob, err := strconv.ParseFloat(os.Getenv("TEMPO_PROBABILITY"), 64)
 	if err != nil {
-		log.Fatalf("[%s] Failed to create Kafka broker: %v", hostname, err)
+		log.Error(ctx, "failed to parse TEMPO_PROBABILITY", "error", err)
+		os.Exit(1)
 	}
-	log.Printf("[%s] Successfully connected to Kafka", hostname)
 
-	m := metrics.New("scanner_controller")
+	log.Info(ctx, "Initializing tracing support")
+	traceProvider, tracingTeardown, err := otel.InitTracing(log, otel.Config{
+		ServiceName: os.Getenv("TEMPO_SERVICE_NAME"),
+		Host:        os.Getenv("TEMPO_HOST"),
+		ExcludedRoutes: map[string]struct{}{
+			"/v1/health":    {},
+			"/v1/readiness": {},
+		},
+		Probability: prob,
+	})
+	if err != nil {
+		log.Error(ctx, "failed to initialize tracing", "error", err)
+		os.Exit(1)
+	}
+	defer tracingTeardown(ctx)
+
+	tracer := traceProvider.Tracer(os.Getenv("TEMPO_SERVICE_NAME"))
+
+	broker, err := kafka.ConnectWithRetry(kafkaCfg, tracer)
+	if err != nil {
+		log.Error(ctx, "failed to create kafka broker", "error", err)
+		os.Exit(1)
+	}
+	log.Info(ctx, "Controller connected to Kafka")
+
+	m := metrics.New("controller")
 	go func() {
 		if err := metrics.StartServer(":8081"); err != nil {
-			log.Printf("[%s] metrics server error: %v", hostname, err)
+			log.Error(ctx, "metrics server error", "error", err)
 		}
 	}()
 
@@ -142,30 +191,31 @@ func main() {
 		configLoader,
 		m,
 	)
-	log.Printf("[%s] Controller initialized", hostname)
+	log.Info(ctx, "Controller initialized")
 
 	ready.Store(true)
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
-	log.Printf("[%s] Starting controller...", hostname)
+	log.Info(ctx, "Starting controller...")
 	leaderChan, err := ctrl.Run(ctx)
 	if err != nil {
-		log.Fatalf("[%s] failed to run controller: %v", hostname, err)
+		log.Error(ctx, "failed to run controller", "error", err)
+		os.Exit(1)
 	}
 
 	// Wait for shutdown signal or leadership.
 	select {
 	case <-leaderChan:
-		log.Printf("[%s] Leadership acquired, controller running...", hostname)
+		log.Info(ctx, "Leadership acquired, controller running...")
 		// Wait for shutdown signal
 		<-sigChan
-		log.Printf("[%s] Shutdown signal received, stopping controller...", hostname)
+		log.Info(ctx, "Shutdown signal received, stopping controller...")
 	case <-sigChan:
-		log.Printf("[%s] Shutdown signal received before leadership, stopping...", hostname)
+		log.Info(ctx, "Shutdown signal received before leadership, stopping...")
 	case <-ctx.Done():
-		log.Printf("[%s] Context cancelled, stopping controller...", hostname)
+		log.Info(ctx, "Context cancelled, stopping controller...")
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/IBM/sarama"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/ahrav/gitleaks-armada/pkg/messaging"
 )
@@ -37,6 +38,8 @@ var _ messaging.Broker = new(Broker)
 // It handles publishing and subscribing to messages across different topics
 // for scan tasks, results, progress updates, and rules.
 type Broker struct {
+	clientID string
+
 	producer      sarama.SyncProducer
 	consumerGroup sarama.ConsumerGroup
 
@@ -45,13 +48,13 @@ type Broker struct {
 	progressTopic string
 	rulesTopic    string
 
-	clientID string
+	tracer trace.Tracer
 }
 
 // NewBroker creates a new Kafka broker with the provided configuration.
 // It sets up both a producer and consumer group with appropriate settings
 // for reliable message delivery and consumption.
-func NewBroker(cfg *Config) (*Broker, error) {
+func NewBroker(cfg *Config, tracer trace.Tracer) (*Broker, error) {
 	// Configure the producer for reliable delivery with acknowledgments.
 	producerConfig := sarama.NewConfig()
 	producerConfig.Producer.RequiredAcks = sarama.WaitForAll
@@ -96,5 +99,6 @@ func NewBroker(cfg *Config) (*Broker, error) {
 		progressTopic: cfg.ProgressTopic,
 		rulesTopic:    cfg.RulesTopic,
 		clientID:      cfg.ClientID,
+		tracer:        tracer,
 	}, nil
 }

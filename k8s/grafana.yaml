@@ -64,3 +64,26 @@ spec:
   - port: 3000
     targetPort: http
     name: http
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: secret-scanner
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+    - name: Prometheus
+      type: prometheus
+      url: http://prometheus:9090
+      access: proxy
+      isDefault: true
+    - name: Tempo
+      type: tempo
+      url: http://tempo:3200
+      access: proxy
+      jsonData:
+        httpMethod: GET
+        serviceMap:
+          datasourceUid: prometheus

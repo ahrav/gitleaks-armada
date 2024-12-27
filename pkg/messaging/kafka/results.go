@@ -6,9 +6,11 @@ import (
 	"log"
 
 	"github.com/IBM/sarama"
+	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/ahrav/gitleaks-armada/pkg/messaging"
+	"github.com/ahrav/gitleaks-armada/pkg/messaging/kafka/tracing"
 	pb "github.com/ahrav/gitleaks-armada/proto/scanner"
 )
 
@@ -19,8 +21,13 @@ import (
 // PublishResult publishes a scan result to Kafka.
 // It converts domain findings and status to protobuf format before publishing.
 func (k *Broker) PublishResult(ctx context.Context, result messaging.ScanResult) error {
-	data, err := proto.Marshal(result.ToProto())
+	ctx, span := tracing.StartProducerSpan(ctx, k.resultsTopic, k.tracer)
+	defer span.End()
+
+	pbResult := result.ToProto()
+	data, err := proto.Marshal(pbResult)
 	if err != nil {
+		span.RecordError(err)
 		return fmt.Errorf("failed to marshal ScanResult: %w", err)
 	}
 
@@ -29,17 +36,23 @@ func (k *Broker) PublishResult(ctx context.Context, result messaging.ScanResult)
 		Key:   sarama.StringEncoder(result.TaskID),
 		Value: sarama.ByteEncoder(data),
 	}
+	tracing.InjectTraceContext(ctx, msg)
+
 	_, _, err = k.producer.SendMessage(msg)
+	if err != nil {
+		span.RecordError(err)
+	}
 	return err
 }
 
 // SubscribeResults registers a handler function to process incoming scan results.
 // The handler is called for each result message received from the results topic.
-func (k *Broker) SubscribeResults(ctx context.Context, handler func(messaging.ScanResult) error) error {
+func (k *Broker) SubscribeResults(ctx context.Context, handler func(context.Context, messaging.ScanResult) error) error {
 	h := &resultsHandler{
 		resultsTopic: k.resultsTopic,
 		handler:      handler,
 		clientID:     k.clientID,
+		tracer:       k.tracer,
 	}
 	log.Printf("[%s] Subscribing to results topic: %s", k.clientID, k.resultsTopic)
 	go consumeLoop(ctx, k.consumerGroup, []string{k.resultsTopic}, h)
@@ -47,9 +60,12 @@ func (k *Broker) SubscribeResults(ctx context.Context, handler func(messaging.Sc
 }
 
 type resultsHandler struct {
+	clientID string
+
 	resultsTopic string
-	handler      func(messaging.ScanResult) error
-	clientID     string
+	handler      func(context.Context, messaging.ScanResult) error
+
+	tracer trace.Tracer
 }
 
 func (h *resultsHandler) Setup(sess sarama.ConsumerGroupSession) error {
@@ -65,18 +81,23 @@ func (h *resultsHandler) Cleanup(sess sarama.ConsumerGroupSession) error {
 func (h *resultsHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
 	logPartitionStart(h.clientID, claim.Partition(), sess.MemberID())
 	for msg := range claim.Messages() {
+		msgCtx := tracing.ExtractTraceContext(sess.Context(), msg)
+		msgCtx, span := tracing.StartConsumerSpan(msgCtx, msg, h.tracer)
+
 		var pbResult pb.ScanResult
 		if err := proto.Unmarshal(msg.Value, &pbResult); err != nil {
+			span.RecordError(err)
+			span.End()
 			sess.MarkMessage(msg, "")
 			continue
 		}
 
 		result := messaging.ProtoToScanResult(&pbResult)
-
-		if err := h.handler(result); err != nil {
-			// Handler errors are logged but don't stop processing
+		if err := h.handler(msgCtx, result); err != nil {
+			span.RecordError(err)
 		}
 
+		span.End()
 		sess.MarkMessage(msg, "")
 	}
 	return nil

@@ -18,6 +18,7 @@ spec:
         prometheus.io/scrape: "true"
         prometheus.io/path: "/metrics"
         prometheus.io/port: "8081"
+        prometheus.io/scheme: "http"
     spec:
       containers:
       - name: scanner
@@ -59,6 +60,18 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
+        - name: TEMPO_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: scanner-config
+              key: TEMPO_HOST
+        - name: TEMPO_SERVICE_NAME
+          value: "scanner-worker"
+        - name: TEMPO_PROBABILITY
+          valueFrom:
+            configMapKeyRef:
+              name: scanner-config
+              key: TEMPO_PROBABILITY
         resources:
           requests:
             memory: "256Mi"
