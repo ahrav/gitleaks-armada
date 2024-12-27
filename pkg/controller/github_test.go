@@ -2,11 +2,15 @@ package controller
 
 import (
 	"context"
+	"io"
+	"log/slog"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
+	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
+	"github.com/ahrav/gitleaks-armada/pkg/common/otel"
 	"github.com/ahrav/gitleaks-armada/pkg/config"
 	"github.com/ahrav/gitleaks-armada/pkg/messaging"
 	"github.com/ahrav/gitleaks-armada/pkg/storage"
@@ -254,6 +258,8 @@ func TestGitHubEnumerator_Enumerate(t *testing.T) {
 			mockStorage := &MockStorage{}
 			tt.setupMocks(mockAPI, mockStorage)
 
+			tracer, _, _ := otel.InitTracing(logger.NewWithHandler(slog.NewJSONHandler(io.Discard, nil)), otel.Config{})
+
 			enumerator := NewGitHubEnumerator(
 				mockAPI,
 				&messaging.TaskCredentials{
@@ -264,6 +270,7 @@ func TestGitHubEnumerator_Enumerate(t *testing.T) {
 				},
 				mockStorage,
 				&config.GitHubTarget{Org: "test-org"},
+				tracer.Tracer("test"),
 			)
 
 			taskCh := make(chan []messaging.Task, 10)

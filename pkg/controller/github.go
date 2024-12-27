@@ -14,6 +14,8 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/config"
 	"github.com/ahrav/gitleaks-armada/pkg/messaging"
 	"github.com/ahrav/gitleaks-armada/pkg/storage"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 var _ storage.TargetEnumerator = new(GitHubEnumerator)
@@ -34,6 +36,7 @@ type GitHubEnumerator struct {
 
 	ghClient GitHubAPI
 	storage  storage.EnumerationStateStorage
+	tracer   trace.Tracer
 }
 
 // NewGitHubEnumerator creates a new GitHubEnumerator with the provided HTTP client,
@@ -43,12 +46,14 @@ func NewGitHubEnumerator(
 	creds *messaging.TaskCredentials,
 	storage storage.EnumerationStateStorage,
 	ghConfig *config.GitHubTarget,
+	tracer trace.Tracer,
 ) *GitHubEnumerator {
 	return &GitHubEnumerator{
 		ghClient: client,
 		creds:    creds,
 		storage:  storage,
 		ghConfig: ghConfig,
+		tracer:   tracer,
 	}
 }
 
@@ -71,6 +76,13 @@ func extractGitHubToken(creds *messaging.TaskCredentials) (string, error) {
 // The method streams batches of tasks through the provided channel and updates progress
 // in the enumeration state storage.
 func (e *GitHubEnumerator) Enumerate(ctx context.Context, state *storage.EnumerationState, taskCh chan<- []messaging.Task) error {
+	ctx, span := e.tracer.Start(ctx, "github.enumerate",
+		trace.WithAttributes(
+			attribute.String("org", e.ghConfig.Org),
+			attribute.String("session_id", state.SessionID),
+		))
+	defer span.End()
+
 	if e.ghConfig.Org == "" && len(e.ghConfig.RepoList) < 1 {
 		return fmt.Errorf("must provide either an org or a repo_list")
 	}
@@ -100,12 +112,18 @@ func (e *GitHubEnumerator) Enumerate(ctx context.Context, state *storage.Enumera
 
 	const batchSize = 100 // GitHub GraphQL API limit per query
 	for {
-		respData, err := e.ghClient.ListRepositories(ctx, e.ghConfig.Org, endCursor)
+		// Create child span for API calls
+		apiCtx, apiSpan := e.tracer.Start(ctx, "github.list_repositories")
+		respData, err := e.ghClient.ListRepositories(apiCtx, e.ghConfig.Org, endCursor)
 		if err != nil {
-			return err
+			apiSpan.RecordError(err)
+			apiSpan.End()
+			return fmt.Errorf("failed to list repositories: %w", err)
 		}
+		apiSpan.End()
 
-		tasks := make([]messaging.Task, 0, batchSize)
+		_, taskSpan := e.tracer.Start(ctx, "create_tasks")
+		tasks := make([]messaging.Task, 0, len(respData.Data.Organization.Repositories.Nodes))
 		for _, node := range respData.Data.Organization.Repositories.Nodes {
 			tasks = append(tasks, messaging.Task{
 				TaskID:      generateTaskID(),
@@ -114,9 +132,12 @@ func (e *GitHubEnumerator) Enumerate(ctx context.Context, state *storage.Enumera
 				Credentials: e.creds,
 			})
 		}
+		taskSpan.End()
 
 		if len(tasks) > 0 {
+			_, publishSpan := e.tracer.Start(ctx, "publish_tasks")
 			taskCh <- tasks
+			publishSpan.End()
 		}
 
 		pageInfo := respData.Data.Organization.Repositories.PageInfo

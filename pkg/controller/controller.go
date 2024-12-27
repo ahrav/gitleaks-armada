@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/ahrav/gitleaks-armada/pkg/cluster"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
@@ -44,6 +45,8 @@ type Controller struct {
 
 	// TODO(ahrav): This is a temporary store for rules.
 	rules *atomic.Value
+
+	tracer trace.Tracer
 }
 
 // NewController creates a Controller instance that coordinates work distribution
@@ -57,6 +60,7 @@ func NewController(
 	configLoader config.Loader,
 	logger *logger.Logger,
 	metrics metrics.ControllerMetrics,
+	tracer trace.Tracer,
 ) *Controller {
 	credStore, err := NewCredentialStore(make(map[string]config.AuthConfig))
 	if err != nil {
@@ -75,6 +79,7 @@ func NewController(
 		metrics:                 metrics,
 		rules:                   new(atomic.Value),
 		logger:                  logger,
+		tracer:                  tracer,
 	}
 }
 
@@ -325,7 +330,13 @@ func (c *Controller) createEnumerator(target config.TargetSpec) (storage.TargetE
 		if err != nil {
 			return nil, fmt.Errorf("[%s] failed to create GitHub client: %w", c.id, err)
 		}
-		enumerator = NewGitHubEnumerator(ghClient, creds, c.enumerationStateStorage, target.GitHub)
+		enumerator = NewGitHubEnumerator(
+			ghClient,
+			creds,
+			c.enumerationStateStorage,
+			target.GitHub,
+			c.tracer,
+		)
 
 	case config.SourceTypeS3:
 		return nil, fmt.Errorf("[%s] S3 enumerator not implemented yet", c.id)

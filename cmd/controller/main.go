@@ -190,6 +190,7 @@ func main() {
 		configLoader,
 		log,
 		m,
+		tracer,
 	)
 	defer ctrl.Stop(ctx)
 
