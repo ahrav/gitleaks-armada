@@ -2,6 +2,8 @@ package kubernetes
 
 import (
 	"context"
+	"io"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -10,6 +12,8 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/tools/leaderelection"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
+
+	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
 
 func TestNewCoordinator(t *testing.T) {
@@ -36,7 +40,7 @@ func TestNewCoordinator(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := NewCoordinator(tt.cfg)
+			_, err := NewCoordinator(tt.cfg, logger.NewWithHandler(slog.NewJSONHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError})))
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {

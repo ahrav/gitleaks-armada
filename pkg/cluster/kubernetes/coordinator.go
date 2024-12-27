@@ -4,7 +4,6 @@ package kubernetes
 import (
 	"context"
 	"fmt"
-	"log"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -13,6 +12,7 @@ import (
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
 
 	"github.com/ahrav/gitleaks-armada/pkg/cluster"
+	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
 
 // Compile-time check to verify that Coordinator implements the Coordinator interface.
@@ -25,6 +25,8 @@ type Coordinator struct {
 	client kubernetes.Interface
 	config *K8sConfig
 
+	logger *logger.Logger
+
 	leaderElector *leaderelection.LeaderElector
 	// Called when leadership status changes.
 	leadershipChangeCB func(isLeader bool)
@@ -32,7 +34,7 @@ type Coordinator struct {
 
 // NewCoordinator creates a new coordinator with the given configuration.
 // It sets up leader election using Kubernetes lease locks.
-func NewCoordinator(cfg *K8sConfig) (*Coordinator, error) {
+func NewCoordinator(cfg *K8sConfig, logger *logger.Logger) (*Coordinator, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("config is required")
 	}
@@ -42,7 +44,7 @@ func NewCoordinator(cfg *K8sConfig) (*Coordinator, error) {
 		return nil, fmt.Errorf("creating kubernetes client for coordinator: %w", err)
 	}
 
-	coordinator := &Coordinator{client: client, config: cfg}
+	coordinator := &Coordinator{client: client, config: cfg, logger: logger}
 
 	// Configure lease-based leader election lock.
 	lock := &resourcelock.LeaseLock{
@@ -92,14 +94,14 @@ func (c *Coordinator) Stop() error { return nil }
 func (c *Coordinator) OnLeadershipChange(cb func(isLeader bool)) { c.leadershipChangeCB = cb }
 
 func (c *Coordinator) onStartedLeading(ctx context.Context) {
-	log.Println("became leader")
+	c.logger.Info(ctx, "became leader")
 	if c.leadershipChangeCB != nil {
 		c.leadershipChangeCB(true)
 	}
 }
 
 func (c *Coordinator) onStoppedLeading() {
-	log.Println("stopped being leader")
+	c.logger.Info(context.Background(), "stopped being leader")
 	if c.leadershipChangeCB != nil {
 		c.leadershipChangeCB(false)
 	}
