@@ -89,7 +89,7 @@ func main() {
 
 	tracer := traceProvider.Tracer(os.Getenv("TEMPO_SERVICE_NAME"))
 
-	broker, err := kafka.ConnectWithRetry(kafkaCfg, tracer)
+	broker, err := kafka.ConnectWithRetry(kafkaCfg, log, tracer)
 	if err != nil {
 		log.Error(ctx, "failed to create kafka broker", "error", err)
 		os.Exit(1)

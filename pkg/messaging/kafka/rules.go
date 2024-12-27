@@ -3,12 +3,12 @@ package kafka
 import (
 	"context"
 	"fmt"
-	"log"
 
 	"github.com/IBM/sarama"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/messaging"
 	"github.com/ahrav/gitleaks-armada/pkg/messaging/kafka/tracing"
 	pb "github.com/ahrav/gitleaks-armada/proto/scanner"
@@ -52,9 +52,10 @@ func (k *Broker) SubscribeRules(ctx context.Context, handler func(context.Contex
 		handler:    handler,
 		clientID:   k.clientID,
 		tracer:     k.tracer,
+		logger:     k.logger,
 	}
-	log.Printf("[%s] Subscribing to rules topic: %s", k.clientID, k.rulesTopic)
-	go consumeLoop(ctx, k.consumerGroup, []string{k.rulesTopic}, h)
+	k.logger.Info(context.Background(), "[%s] Subscribing to rules topic: %s", k.clientID, k.rulesTopic)
+	go k.consumeLoop(ctx, k.consumerGroup, []string{k.rulesTopic}, h)
 	return nil
 }
 
@@ -65,20 +66,21 @@ type rulesHandler struct {
 	handler    func(context.Context, messaging.GitleaksRuleSet) error
 
 	tracer trace.Tracer
+	logger *logger.Logger
 }
 
 func (h *rulesHandler) Setup(sess sarama.ConsumerGroupSession) error {
-	logSetup(h.clientID, sess)
+	logSetup(h.logger, h.clientID, sess)
 	return nil
 }
 
 func (h *rulesHandler) Cleanup(sess sarama.ConsumerGroupSession) error {
-	logCleanup(h.clientID, sess)
+	logCleanup(h.logger, h.clientID, sess)
 	return nil
 }
 
 func (h *rulesHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
-	logPartitionStart(h.clientID, claim.Partition(), sess.MemberID())
+	logPartitionStart(h.logger, h.clientID, claim.Partition(), sess.MemberID())
 	for msg := range claim.Messages() {
 		msgCtx := tracing.ExtractTraceContext(sess.Context(), msg)
 		msgCtx, span := tracing.StartConsumerSpan(msgCtx, msg, h.tracer)

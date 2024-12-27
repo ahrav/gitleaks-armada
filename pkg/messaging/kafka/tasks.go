@@ -8,6 +8,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/messaging"
 	"github.com/ahrav/gitleaks-armada/pkg/messaging/kafka/tracing"
 	pb "github.com/ahrav/gitleaks-armada/proto/scanner"
@@ -69,9 +70,10 @@ func (k *Broker) SubscribeTasks(ctx context.Context, handler func(context.Contex
 		handler:   handler,
 		clientID:  k.clientID,
 		tracer:    k.tracer,
+		logger:    k.logger,
 	}
 
-	go consumeLoop(ctx, k.consumerGroup, []string{k.taskTopic}, h)
+	go k.consumeLoop(ctx, k.consumerGroup, []string{k.taskTopic}, h)
 	return nil
 }
 
@@ -82,20 +84,21 @@ type taskHandler struct {
 	handler   func(context.Context, messaging.Task) error
 
 	tracer trace.Tracer
+	logger *logger.Logger
 }
 
 func (h *taskHandler) Setup(sess sarama.ConsumerGroupSession) error {
-	logSetup(h.clientID, sess)
+	logSetup(h.logger, h.clientID, sess)
 	return nil
 }
 
 func (h *taskHandler) Cleanup(sess sarama.ConsumerGroupSession) error {
-	logCleanup(h.clientID, sess)
+	logCleanup(h.logger, h.clientID, sess)
 	return nil
 }
 
 func (h *taskHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
-	logPartitionStart(h.clientID, claim.Partition(), sess.MemberID())
+	logPartitionStart(h.logger, h.clientID, claim.Partition(), sess.MemberID())
 	for msg := range claim.Messages() {
 		msgCtx := tracing.ExtractTraceContext(sess.Context(), msg)
 		msgCtx, span := tracing.StartConsumerSpan(msgCtx, msg, h.tracer)

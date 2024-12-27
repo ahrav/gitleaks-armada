@@ -8,6 +8,7 @@ import (
 	"github.com/IBM/sarama"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/messaging"
 )
 
@@ -48,13 +49,14 @@ type Broker struct {
 	progressTopic string
 	rulesTopic    string
 
+	logger *logger.Logger
 	tracer trace.Tracer
 }
 
 // NewBroker creates a new Kafka broker with the provided configuration.
 // It sets up both a producer and consumer group with appropriate settings
 // for reliable message delivery and consumption.
-func NewBroker(cfg *Config, tracer trace.Tracer) (*Broker, error) {
+func NewBroker(cfg *Config, logger *logger.Logger, tracer trace.Tracer) (*Broker, error) {
 	// Configure the producer for reliable delivery with acknowledgments.
 	producerConfig := sarama.NewConfig()
 	producerConfig.Producer.RequiredAcks = sarama.WaitForAll
@@ -99,6 +101,7 @@ func NewBroker(cfg *Config, tracer trace.Tracer) (*Broker, error) {
 		progressTopic: cfg.ProgressTopic,
 		rulesTopic:    cfg.RulesTopic,
 		clientID:      cfg.ClientID,
+		logger:        logger,
 		tracer:        tracer,
 	}, nil
 }

@@ -3,12 +3,12 @@ package kafka
 import (
 	"context"
 	"fmt"
-	"log"
 
 	"github.com/IBM/sarama"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/messaging"
 	"github.com/ahrav/gitleaks-armada/pkg/messaging/kafka/tracing"
 	pb "github.com/ahrav/gitleaks-armada/proto/scanner"
@@ -50,10 +50,11 @@ func (k *Broker) SubscribeProgress(ctx context.Context, handler func(context.Con
 		progressTopic: k.progressTopic,
 		handler:       handler,
 		clientID:      k.clientID,
+		logger:        k.logger,
 		tracer:        k.tracer,
 	}
-	log.Printf("[%s] Subscribing to progress topic: %s", k.clientID, k.progressTopic)
-	go consumeLoop(ctx, k.consumerGroup, []string{k.progressTopic}, h)
+	k.logger.Info(context.Background(), "[%s] Subscribing to progress topic: %s", k.clientID, k.progressTopic)
+	go k.consumeLoop(ctx, k.consumerGroup, []string{k.progressTopic}, h)
 	return nil
 }
 
@@ -63,21 +64,22 @@ type progressHandler struct {
 	progressTopic string
 	handler       func(context.Context, messaging.ScanProgress) error
 
+	logger *logger.Logger
 	tracer trace.Tracer
 }
 
 func (h *progressHandler) Setup(sess sarama.ConsumerGroupSession) error {
-	logSetup(h.clientID, sess)
+	logSetup(h.logger, h.clientID, sess)
 	return nil
 }
 
 func (h *progressHandler) Cleanup(sess sarama.ConsumerGroupSession) error {
-	logCleanup(h.clientID, sess)
+	logCleanup(h.logger, h.clientID, sess)
 	return nil
 }
 
 func (h *progressHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
-	logPartitionStart(h.clientID, claim.Partition(), sess.MemberID())
+	logPartitionStart(h.logger, h.clientID, claim.Partition(), sess.MemberID())
 	for msg := range claim.Messages() {
 		msgCtx := tracing.ExtractTraceContext(sess.Context(), msg)
 		msgCtx, span := tracing.StartConsumerSpan(msgCtx, msg, h.tracer)
