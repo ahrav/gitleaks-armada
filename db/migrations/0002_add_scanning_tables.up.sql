@@ -11,6 +11,9 @@ CREATE TABLE github_repositories (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE INDEX idx_github_repositories_name ON github_repositories (name);
+CREATE INDEX idx_github_repositories_url ON github_repositories (url);
+
 -- Scan Targets Table
 CREATE TABLE scan_targets (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -22,6 +25,8 @@ CREATE TABLE scan_targets (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE INDEX idx_scan_targets_target_type ON scan_targets (target_type);
+CREATE INDEX idx_scan_targets_target_id ON scan_targets (target_id);
 
 -- Scan Job Status Enum
 CREATE TYPE scan_job_status AS ENUM (
@@ -43,6 +48,10 @@ CREATE TABLE scan_jobs (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE INDEX idx_scan_jobs_scan_target_id ON scan_jobs (scan_target_id);
+CREATE INDEX idx_scan_jobs_status ON scan_jobs (status);
+CREATE INDEX idx_scan_jobs_commit_hash ON scan_jobs (commit_hash);
 
 -- Rules Table
 CREATE TABLE rules (
@@ -70,6 +79,8 @@ CREATE TABLE allowlists (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE INDEX idx_allowlists_rule_id ON allowlists (rule_id);
+
 -- Allowlist Commits Table
 CREATE TABLE allowlist_commits (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -77,6 +88,9 @@ CREATE TABLE allowlist_commits (
     commit VARCHAR(255) NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE INDEX idx_allowlist_commits_allowlist_id ON allowlist_commits (allowlist_id);
+CREATE UNIQUE INDEX idx_unique_commits_per_allowlist ON allowlist_commits (allowlist_id, commit);
 
 -- Allowlist Paths Table
 CREATE TABLE allowlist_paths (
@@ -86,6 +100,8 @@ CREATE TABLE allowlist_paths (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE INDEX idx_allowlist_paths_allowlist_id ON allowlist_paths (allowlist_id);
+
 -- Allowlist Regexes Table
 CREATE TABLE allowlist_regexes (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -94,6 +110,8 @@ CREATE TABLE allowlist_regexes (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE INDEX idx_allowlist_regexes_allowlist_id ON allowlist_regexes (allowlist_id);
+
 -- Allowlist Stopwords Table
 CREATE TABLE allowlist_stopwords (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -101,6 +119,9 @@ CREATE TABLE allowlist_stopwords (
     stopword VARCHAR(255) NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE INDEX idx_allowlist_stopwords_allowlist_id ON allowlist_stopwords (allowlist_id);
+CREATE UNIQUE INDEX idx_unique_stopwords_per_allowlist ON allowlist_stopwords (allowlist_id, stopword);
 
 -- Findings Table
 CREATE TABLE findings (
@@ -122,31 +143,7 @@ CREATE TABLE findings (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-
--- Indexes
-CREATE INDEX idx_github_repositories_name ON github_repositories (name);
-CREATE INDEX idx_github_repositories_url ON github_repositories (url);
-
-CREATE INDEX idx_scan_targets_target_type ON scan_targets (target_type);
-CREATE INDEX idx_scan_targets_target_id ON scan_targets (target_id);
-
-CREATE INDEX idx_scan_jobs_scan_target_id ON scan_jobs (scan_target_id);
-CREATE INDEX idx_scan_jobs_status ON scan_jobs (status);
-CREATE INDEX idx_scan_jobs_commit_hash ON scan_jobs (commit_hash);
-
 CREATE INDEX idx_findings_scan_job_id ON findings (scan_job_id);
 CREATE INDEX idx_findings_rule_id ON findings (rule_id);
 CREATE INDEX idx_findings_scan_target_id ON findings (scan_target_id);
 CREATE INDEX idx_findings_fingerprint ON findings (fingerprint);
-
-CREATE INDEX idx_allowlists_rule_id ON allowlists (rule_id);
-
-CREATE INDEX idx_allowlist_commits_allowlist_id ON allowlist_commits (allowlist_id);
-CREATE UNIQUE INDEX idx_unique_commits_per_allowlist ON allowlist_commits (allowlist_id, commit);
-
-CREATE INDEX idx_allowlist_paths_allowlist_id ON allowlist_paths (allowlist_id);
-
-CREATE INDEX idx_allowlist_regexes_allowlist_id ON allowlist_regexes (allowlist_id);
-
-CREATE INDEX idx_allowlist_stopwords_allowlist_id ON allowlist_stopwords (allowlist_id);
-CREATE UNIQUE INDEX idx_unique_stopwords_per_allowlist ON allowlist_stopwords (allowlist_id, stopword);
