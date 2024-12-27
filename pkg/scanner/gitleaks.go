@@ -149,7 +149,6 @@ func publishRulesOnStartup(
 	detector *detect.Detector,
 	tracer trace.Tracer,
 ) error {
-	// Create span for rules conversion and publishing
 	ctx, span := tracer.Start(ctx, "gitleaks.publish_rules",
 		trace.WithAttributes(
 			attribute.Int("rules.count", len(detector.Config.Rules)),
