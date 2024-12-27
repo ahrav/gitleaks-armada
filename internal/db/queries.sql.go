@@ -7,9 +7,173 @@ package db
 
 import (
 	"context"
-	"database/sql"
-	"encoding/json"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
+
+type BulkInsertAllowlistCommitsParams struct {
+	AllowlistID int64
+	Commit      string
+}
+
+type BulkInsertAllowlistPathsParams struct {
+	AllowlistID int64
+	Path        string
+}
+
+type BulkInsertAllowlistRegexesParams struct {
+	AllowlistID int64
+	Regex       string
+}
+
+type BulkInsertAllowlistStopwordsParams struct {
+	AllowlistID int64
+	Stopword    string
+}
+
+type BulkInsertAllowlistsParams struct {
+	RuleID         int64
+	Description    pgtype.Text
+	MatchCondition string
+	RegexTarget    pgtype.Text
+}
+
+type BulkInsertRulesParams struct {
+	RuleID      string
+	Description pgtype.Text
+	Entropy     pgtype.Float8
+	SecretGroup pgtype.Int4
+	Regex       string
+	Path        pgtype.Text
+	Tags        []string
+	Keywords    []string
+}
+
+const createAllowlist = `-- name: CreateAllowlist :one
+INSERT INTO allowlists (
+    rule_id, description, match_condition, regex_target
+) VALUES (
+    $1, $2, $3, $4
+)
+ON CONFLICT (rule_id, match_condition, regex_target) DO UPDATE
+SET description = EXCLUDED.description,
+    updated_at = NOW()
+RETURNING id
+`
+
+type CreateAllowlistParams struct {
+	RuleID         int64
+	Description    pgtype.Text
+	MatchCondition string
+	RegexTarget    pgtype.Text
+}
+
+// ============================================
+// Allowlists
+// ============================================
+func (q *Queries) CreateAllowlist(ctx context.Context, arg CreateAllowlistParams) (int64, error) {
+	row := q.db.QueryRow(ctx, createAllowlist,
+		arg.RuleID,
+		arg.Description,
+		arg.MatchCondition,
+		arg.RegexTarget,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const createAllowlistCommit = `-- name: CreateAllowlistCommit :exec
+INSERT INTO allowlist_commits (
+    allowlist_id, commit
+) VALUES (
+    $1, $2
+)
+ON CONFLICT (allowlist_id, commit) DO UPDATE
+SET created_at = NOW()
+`
+
+type CreateAllowlistCommitParams struct {
+	AllowlistID int64
+	Commit      string
+}
+
+// ============================================
+// Allowlist Commits
+// ============================================
+func (q *Queries) CreateAllowlistCommit(ctx context.Context, arg CreateAllowlistCommitParams) error {
+	_, err := q.db.Exec(ctx, createAllowlistCommit, arg.AllowlistID, arg.Commit)
+	return err
+}
+
+const createAllowlistPath = `-- name: CreateAllowlistPath :exec
+INSERT INTO allowlist_paths (
+    allowlist_id, path
+) VALUES (
+    $1, $2
+)
+ON CONFLICT (allowlist_id, path) DO UPDATE
+SET created_at = NOW()
+`
+
+type CreateAllowlistPathParams struct {
+	AllowlistID int64
+	Path        string
+}
+
+// ============================================
+// Allowlist Paths
+// ============================================
+func (q *Queries) CreateAllowlistPath(ctx context.Context, arg CreateAllowlistPathParams) error {
+	_, err := q.db.Exec(ctx, createAllowlistPath, arg.AllowlistID, arg.Path)
+	return err
+}
+
+const createAllowlistRegex = `-- name: CreateAllowlistRegex :exec
+INSERT INTO allowlist_regexes (
+    allowlist_id, regex
+) VALUES (
+    $1, $2
+)
+ON CONFLICT (allowlist_id, regex) DO UPDATE
+SET created_at = NOW()
+`
+
+type CreateAllowlistRegexParams struct {
+	AllowlistID int64
+	Regex       string
+}
+
+// ============================================
+// Allowlist Regexes
+// ============================================
+func (q *Queries) CreateAllowlistRegex(ctx context.Context, arg CreateAllowlistRegexParams) error {
+	_, err := q.db.Exec(ctx, createAllowlistRegex, arg.AllowlistID, arg.Regex)
+	return err
+}
+
+const createAllowlistStopword = `-- name: CreateAllowlistStopword :exec
+INSERT INTO allowlist_stopwords (
+    allowlist_id, stopword
+) VALUES (
+    $1, $2
+)
+ON CONFLICT (allowlist_id, stopword) DO UPDATE
+SET created_at = NOW()
+`
+
+type CreateAllowlistStopwordParams struct {
+	AllowlistID int64
+	Stopword    string
+}
+
+// ============================================
+// Allowlist Stopwords
+// ============================================
+func (q *Queries) CreateAllowlistStopword(ctx context.Context, arg CreateAllowlistStopwordParams) error {
+	_, err := q.db.Exec(ctx, createAllowlistStopword, arg.AllowlistID, arg.Stopword)
+	return err
+}
 
 const createOrUpdateCheckpoint = `-- name: CreateOrUpdateCheckpoint :one
 
@@ -23,7 +187,7 @@ RETURNING id
 
 type CreateOrUpdateCheckpointParams struct {
 	TargetID string
-	Data     json.RawMessage
+	Data     []byte
 }
 
 // queries.sql
@@ -31,7 +195,7 @@ type CreateOrUpdateCheckpointParams struct {
 // Checkpoints
 // ============================================
 func (q *Queries) CreateOrUpdateCheckpoint(ctx context.Context, arg CreateOrUpdateCheckpointParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, createOrUpdateCheckpoint, arg.TargetID, arg.Data)
+	row := q.db.QueryRow(ctx, createOrUpdateCheckpoint, arg.TargetID, arg.Data)
 	var id int64
 	err := row.Scan(&id)
 	return id, err
@@ -54,8 +218,8 @@ SET source_type        = EXCLUDED.source_type,
 type CreateOrUpdateEnumerationStateParams struct {
 	SessionID        string
 	SourceType       string
-	Config           json.RawMessage
-	LastCheckpointID sql.NullInt64
+	Config           []byte
+	LastCheckpointID pgtype.Int8
 	Status           EnumerationStatus
 }
 
@@ -63,7 +227,7 @@ type CreateOrUpdateEnumerationStateParams struct {
 // Enumeration States
 // ============================================
 func (q *Queries) CreateOrUpdateEnumerationState(ctx context.Context, arg CreateOrUpdateEnumerationStateParams) error {
-	_, err := q.db.ExecContext(ctx, createOrUpdateEnumerationState,
+	_, err := q.db.Exec(ctx, createOrUpdateEnumerationState,
 		arg.SessionID,
 		arg.SourceType,
 		arg.Config,
@@ -79,7 +243,7 @@ WHERE target_id = $1
 `
 
 func (q *Queries) DeleteCheckpoint(ctx context.Context, targetID string) error {
-	_, err := q.db.ExecContext(ctx, deleteCheckpoint, targetID)
+	_, err := q.db.Exec(ctx, deleteCheckpoint, targetID)
 	return err
 }
 
@@ -89,7 +253,7 @@ WHERE session_id = $1
 `
 
 func (q *Queries) DeleteEnumerationState(ctx context.Context, sessionID string) error {
-	_, err := q.db.ExecContext(ctx, deleteEnumerationState, sessionID)
+	_, err := q.db.Exec(ctx, deleteEnumerationState, sessionID)
 	return err
 }
 
@@ -102,7 +266,7 @@ ORDER BY created_at DESC
 `
 
 func (q *Queries) GetActiveEnumerationStates(ctx context.Context) ([]EnumerationState, error) {
-	rows, err := q.db.QueryContext(ctx, getActiveEnumerationStates)
+	rows, err := q.db.Query(ctx, getActiveEnumerationStates)
 	if err != nil {
 		return nil, err
 	}
@@ -124,9 +288,6 @@ func (q *Queries) GetActiveEnumerationStates(ctx context.Context) ([]Enumeration
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -140,7 +301,7 @@ WHERE target_id = $1
 `
 
 func (q *Queries) GetCheckpoint(ctx context.Context, targetID string) (Checkpoint, error) {
-	row := q.db.QueryRowContext(ctx, getCheckpoint, targetID)
+	row := q.db.QueryRow(ctx, getCheckpoint, targetID)
 	var i Checkpoint
 	err := row.Scan(
 		&i.ID,
@@ -159,7 +320,7 @@ WHERE id = $1
 `
 
 func (q *Queries) GetCheckpointByID(ctx context.Context, id int64) (Checkpoint, error) {
-	row := q.db.QueryRowContext(ctx, getCheckpointByID, id)
+	row := q.db.QueryRow(ctx, getCheckpointByID, id)
 	var i Checkpoint
 	err := row.Scan(
 		&i.ID,
@@ -179,7 +340,7 @@ WHERE session_id = $1
 `
 
 func (q *Queries) GetEnumerationState(ctx context.Context, sessionID string) (EnumerationState, error) {
-	row := q.db.QueryRowContext(ctx, getEnumerationState, sessionID)
+	row := q.db.QueryRow(ctx, getEnumerationState, sessionID)
 	var i EnumerationState
 	err := row.Scan(
 		&i.ID,
@@ -203,7 +364,7 @@ LIMIT $1
 `
 
 func (q *Queries) ListEnumerationStates(ctx context.Context, limit int32) ([]EnumerationState, error) {
-	rows, err := q.db.QueryContext(ctx, listEnumerationStates, limit)
+	rows, err := q.db.Query(ctx, listEnumerationStates, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -225,11 +386,56 @@ func (q *Queries) ListEnumerationStates(ctx context.Context, limit int32) ([]Enu
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 	return items, nil
+}
+
+const upsertRule = `-- name: UpsertRule :one
+INSERT INTO rules (
+    rule_id, description, entropy, secret_group, regex, path, tags, keywords
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7, $8
+)
+ON CONFLICT (rule_id) DO UPDATE
+SET description = EXCLUDED.description,
+    entropy = EXCLUDED.entropy,
+    secret_group = EXCLUDED.secret_group,
+    regex = EXCLUDED.regex,
+    path = EXCLUDED.path,
+    tags = EXCLUDED.tags,
+    keywords = EXCLUDED.keywords,
+    updated_at = NOW()
+RETURNING id
+`
+
+type UpsertRuleParams struct {
+	RuleID      string
+	Description pgtype.Text
+	Entropy     pgtype.Float8
+	SecretGroup pgtype.Int4
+	Regex       string
+	Path        pgtype.Text
+	Tags        []string
+	Keywords    []string
+}
+
+// ============================================
+// Rules
+// ============================================
+func (q *Queries) UpsertRule(ctx context.Context, arg UpsertRuleParams) (int64, error) {
+	row := q.db.QueryRow(ctx, upsertRule,
+		arg.RuleID,
+		arg.Description,
+		arg.Entropy,
+		arg.SecretGroup,
+		arg.Regex,
+		arg.Path,
+		arg.Tags,
+		arg.Keywords,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }

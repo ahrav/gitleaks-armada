@@ -5,13 +5,10 @@
 package db
 
 import (
-	"database/sql"
 	"database/sql/driver"
-	"encoding/json"
 	"fmt"
-	"time"
 
-	"github.com/sqlc-dev/pqtype"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type EnumerationStatus string
@@ -105,58 +102,58 @@ func (ns NullScanJobStatus) Value() (driver.Value, error) {
 type Allowlist struct {
 	ID             int64
 	RuleID         int64
-	Description    sql.NullString
+	Description    pgtype.Text
 	MatchCondition string
-	RegexTarget    sql.NullString
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	RegexTarget    pgtype.Text
+	CreatedAt      pgtype.Timestamptz
+	UpdatedAt      pgtype.Timestamptz
 }
 
 type AllowlistCommit struct {
 	ID          int64
 	AllowlistID int64
 	Commit      string
-	CreatedAt   time.Time
+	CreatedAt   pgtype.Timestamptz
 }
 
 type AllowlistPath struct {
 	ID          int64
 	AllowlistID int64
 	Path        string
-	CreatedAt   time.Time
+	CreatedAt   pgtype.Timestamptz
 }
 
 type AllowlistRegex struct {
 	ID          int64
 	AllowlistID int64
 	Regex       string
-	CreatedAt   time.Time
+	CreatedAt   pgtype.Timestamptz
 }
 
 type AllowlistStopword struct {
 	ID          int64
 	AllowlistID int64
 	Stopword    string
-	CreatedAt   time.Time
+	CreatedAt   pgtype.Timestamptz
 }
 
 type Checkpoint struct {
 	ID        int64
 	TargetID  string
-	Data      json.RawMessage
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	Data      []byte
+	CreatedAt pgtype.Timestamptz
+	UpdatedAt pgtype.Timestamptz
 }
 
 type EnumerationState struct {
 	ID               int64
 	SessionID        string
 	SourceType       string
-	Config           json.RawMessage
-	LastCheckpointID sql.NullInt64
+	Config           []byte
+	LastCheckpointID pgtype.Int8
 	Status           EnumerationStatus
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	CreatedAt        pgtype.Timestamptz
+	UpdatedAt        pgtype.Timestamptz
 }
 
 type Finding struct {
@@ -165,13 +162,13 @@ type Finding struct {
 	RuleID       int64
 	ScanTargetID int64
 	Fingerprint  string
-	FilePath     sql.NullString
-	LineNumber   sql.NullInt32
-	Line         sql.NullString
-	Match        sql.NullString
-	AuthorEmail  sql.NullString
-	RawFinding   json.RawMessage
-	CreatedAt    time.Time
+	FilePath     pgtype.Text
+	LineNumber   pgtype.Int4
+	Line         pgtype.Text
+	Match        pgtype.Text
+	AuthorEmail  pgtype.Text
+	RawFinding   []byte
+	CreatedAt    pgtype.Timestamptz
 }
 
 type GithubRepository struct {
@@ -179,43 +176,43 @@ type GithubRepository struct {
 	Name      string
 	Url       string
 	IsActive  bool
-	Metadata  pqtype.NullRawMessage
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	Metadata  []byte
+	CreatedAt pgtype.Timestamptz
+	UpdatedAt pgtype.Timestamptz
 }
 
 type Rule struct {
 	ID          int64
 	RuleID      string
-	Description sql.NullString
-	Entropy     sql.NullFloat64
-	SecretGroup sql.NullInt32
+	Description pgtype.Text
+	Entropy     pgtype.Float8
+	SecretGroup pgtype.Int4
 	Regex       string
-	Path        sql.NullString
+	Path        pgtype.Text
 	Tags        []string
 	Keywords    []string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	CreatedAt   pgtype.Timestamptz
+	UpdatedAt   pgtype.Timestamptz
 }
 
 type ScanJob struct {
 	ID           int64
 	ScanTargetID int64
 	Status       ScanJobStatus
-	StartTime    sql.NullTime
-	EndTime      sql.NullTime
-	CommitHash   sql.NullString
-	KafkaOffset  sql.NullInt64
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	StartTime    pgtype.Timestamptz
+	EndTime      pgtype.Timestamptz
+	CommitHash   pgtype.Text
+	KafkaOffset  pgtype.Int8
+	CreatedAt    pgtype.Timestamptz
+	UpdatedAt    pgtype.Timestamptz
 }
 
 type ScanTarget struct {
 	ID           int64
 	TargetType   string
 	TargetID     int64
-	LastScanTime sql.NullTime
-	Metadata     pqtype.NullRawMessage
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	LastScanTime pgtype.Timestamptz
+	Metadata     []byte
+	CreatedAt    pgtype.Timestamptz
+	UpdatedAt    pgtype.Timestamptz
 }

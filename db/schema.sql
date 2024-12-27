@@ -107,9 +107,10 @@ CREATE TABLE allowlists (
     rule_id BIGINT NOT NULL REFERENCES rules (id) ON DELETE CASCADE,
     description TEXT,
     match_condition VARCHAR(3) NOT NULL, -- 'OR' or 'AND'
-    regex_target VARCHAR(5), -- Can be NULL, 'match', or 'line'.
+    regex_target VARCHAR(5), -- Can be NULL, 'match', or 'line'
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT unique_allowlist_config UNIQUE (rule_id, match_condition, regex_target)  -- Added unique constraint
 );
 
 -- Indexes
@@ -132,7 +133,8 @@ CREATE TABLE allowlist_paths (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     allowlist_id BIGINT NOT NULL REFERENCES allowlists (id) ON DELETE CASCADE,
     path TEXT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT unique_path_per_allowlist UNIQUE (allowlist_id, path)
 );
 
 -- Indexes
@@ -143,7 +145,8 @@ CREATE TABLE allowlist_regexes (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     allowlist_id BIGINT NOT NULL REFERENCES allowlists (id) ON DELETE CASCADE,
     regex TEXT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT unique_regex_per_allowlist UNIQUE (allowlist_id, regex)
 );
 
 -- Indexes

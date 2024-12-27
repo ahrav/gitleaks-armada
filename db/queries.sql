@@ -64,3 +64,115 @@ SELECT id, session_id, source_type, config, last_checkpoint_id,
 FROM enumeration_states
 ORDER BY created_at DESC
 LIMIT $1;
+
+-- ============================================
+-- Rules
+-- ============================================
+-- name: UpsertRule :one
+INSERT INTO rules (
+    rule_id, description, entropy, secret_group, regex, path, tags, keywords
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7, $8
+)
+ON CONFLICT (rule_id) DO UPDATE
+SET description = EXCLUDED.description,
+    entropy = EXCLUDED.entropy,
+    secret_group = EXCLUDED.secret_group,
+    regex = EXCLUDED.regex,
+    path = EXCLUDED.path,
+    tags = EXCLUDED.tags,
+    keywords = EXCLUDED.keywords,
+    updated_at = NOW()
+RETURNING id;
+
+-- name: BulkInsertRules :copyfrom
+INSERT INTO rules (
+    rule_id, description, entropy, secret_group, regex, path, tags, keywords
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8);
+
+-- ============================================
+-- Allowlists
+-- ============================================
+-- name: CreateAllowlist :one
+INSERT INTO allowlists (
+    rule_id, description, match_condition, regex_target
+) VALUES (
+    $1, $2, $3, $4
+)
+ON CONFLICT (rule_id, match_condition, regex_target) DO UPDATE
+SET description = EXCLUDED.description,
+    updated_at = NOW()
+RETURNING id;
+
+-- name: BulkInsertAllowlists :copyfrom
+INSERT INTO allowlists (
+    rule_id, description, match_condition, regex_target
+) VALUES ($1, $2, $3, $4);
+
+-- ============================================
+-- Allowlist Commits
+-- ============================================
+-- name: CreateAllowlistCommit :exec
+INSERT INTO allowlist_commits (
+    allowlist_id, commit
+) VALUES (
+    $1, $2
+)
+ON CONFLICT (allowlist_id, commit) DO UPDATE
+SET created_at = NOW();
+
+-- name: BulkInsertAllowlistCommits :copyfrom
+INSERT INTO allowlist_commits (
+    allowlist_id, commit
+) VALUES ($1, $2);
+
+-- ============================================
+-- Allowlist Paths
+-- ============================================
+-- name: CreateAllowlistPath :exec
+INSERT INTO allowlist_paths (
+    allowlist_id, path
+) VALUES (
+    $1, $2
+)
+ON CONFLICT (allowlist_id, path) DO UPDATE
+SET created_at = NOW();
+
+-- name: BulkInsertAllowlistPaths :copyfrom
+INSERT INTO allowlist_paths (
+    allowlist_id, path
+) VALUES ($1, $2);
+
+-- ============================================
+-- Allowlist Regexes
+-- ============================================
+-- name: CreateAllowlistRegex :exec
+INSERT INTO allowlist_regexes (
+    allowlist_id, regex
+) VALUES (
+    $1, $2
+)
+ON CONFLICT (allowlist_id, regex) DO UPDATE
+SET created_at = NOW();
+
+-- name: BulkInsertAllowlistRegexes :copyfrom
+INSERT INTO allowlist_regexes (
+    allowlist_id, regex
+) VALUES ($1, $2);
+
+-- ============================================
+-- Allowlist Stopwords
+-- ============================================
+-- name: CreateAllowlistStopword :exec
+INSERT INTO allowlist_stopwords (
+    allowlist_id, stopword
+) VALUES (
+    $1, $2
+)
+ON CONFLICT (allowlist_id, stopword) DO UPDATE
+SET created_at = NOW();
+
+-- name: BulkInsertAllowlistStopwords :copyfrom
+INSERT INTO allowlist_stopwords (
+    allowlist_id, stopword
+) VALUES ($1, $2);
