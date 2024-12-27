@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"sync"
 	"sync/atomic"
@@ -13,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/ahrav/gitleaks-armada/pkg/cluster"
+	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/config"
 	"github.com/ahrav/gitleaks-armada/pkg/messaging"
 	"github.com/ahrav/gitleaks-armada/pkg/metrics"
@@ -39,6 +39,7 @@ type Controller struct {
 
 	httpClient *http.Client
 
+	logger  *logger.Logger
 	metrics metrics.ControllerMetrics
 
 	// TODO(ahrav): This is a temporary store for rules.
@@ -54,11 +55,12 @@ func NewController(
 	enumerationStateStorage storage.EnumerationStateStorage,
 	checkpointStorage storage.CheckpointStorage,
 	configLoader config.Loader,
+	logger *logger.Logger,
 	metrics metrics.ControllerMetrics,
 ) *Controller {
 	credStore, err := NewCredentialStore(make(map[string]config.AuthConfig))
 	if err != nil {
-		log.Printf("Warning: failed to initialize empty credential store: %v", err)
+		logger.Error(context.Background(), "Warning: failed to initialize empty credential store", "error", err)
 	}
 
 	return &Controller{
@@ -72,6 +74,7 @@ func NewController(
 		httpClient:              new(http.Client),
 		metrics:                 metrics,
 		rules:                   new(atomic.Value),
+		logger:                  logger,
 	}
 }
 
@@ -91,7 +94,7 @@ func (o *Controller) Run(ctx context.Context) (<-chan struct{}, error) {
 	}
 
 	o.coordinator.OnLeadershipChange(func(isLeader bool) {
-		log.Printf("[%s] Leadership change: isLeader=%v", o.id, isLeader)
+		o.logger.Info(ctx, "[%s] Leadership change: isLeader=%v", o.id, isLeader)
 
 		o.mu.Lock()
 		o.running = isLeader
@@ -103,43 +106,43 @@ func (o *Controller) Run(ctx context.Context) (<-chan struct{}, error) {
 
 		select {
 		case leaderCh <- isLeader:
-			log.Printf("[%s] Sent leadership status: %v", o.id, isLeader)
+			o.logger.Info(ctx, "[%s] Sent leadership status: %v", o.id, isLeader)
 		default:
-			log.Printf("[%s] Warning: leadership channel full, skipping update", o.id)
+			o.logger.Info(ctx, "[%s] Warning: leadership channel full, skipping update", o.id)
 		}
 	})
 
 	go func() {
 		readyClosed := false
-		log.Println("Waiting for leadership signal...")
+		o.logger.Info(ctx, "Waiting for leadership signal...")
 
 		for {
 			select {
 			case isLeader := <-leaderCh:
 				if !isLeader {
-					log.Printf("[%s] Not leader, waiting...", o.id)
+					o.logger.Info(ctx, "[%s] Not leader, waiting...", o.id)
 					continue
 				}
 
-				log.Printf("[%s] Leadership acquired, processing targets...", o.id)
+				o.logger.Info(ctx, "[%s] Leadership acquired, processing targets...", o.id)
 
 				// Try to resume any in-progress enumeration.
 				activeStates, err := o.enumerationStateStorage.GetActiveStates(ctx)
 				if err != nil {
-					log.Printf("[%s] Error loading enumeration state: %v", o.id, err)
+					o.logger.Error(ctx, "[%s] Error loading enumeration state", o.id, "error", err)
 				}
-				log.Printf("[%s] Loaded %d active enumeration states", o.id, len(activeStates))
+				o.logger.Info(ctx, "[%s] Loaded %d active enumeration states", o.id, len(activeStates))
 
 				if len(activeStates) == 0 {
 					// No existing state, start fresh from config.
 					if err := o.ProcessTarget(ctx); err != nil {
-						log.Printf("[%s] Failed to process targets: %v", o.id, err)
+						o.logger.Error(ctx, "[%s] Failed to process targets", o.id, "error", err)
 					}
 				} else {
 					// Resume from existing state.
 					for _, state := range activeStates {
 						if err := o.doEnumeration(ctx, state); err != nil {
-							log.Printf("[%s] Failed to resume enumeration: %v", o.id, err)
+							o.logger.Error(ctx, "[%s] Failed to resume enumeration", o.id, "error", err)
 						}
 					}
 				}
@@ -150,7 +153,7 @@ func (o *Controller) Run(ctx context.Context) (<-chan struct{}, error) {
 				}
 
 			case <-ctx.Done():
-				log.Printf("[%s] Context cancelled, shutting down", o.id)
+				o.logger.Info(ctx, "[%s] Context cancelled, shutting down", o.id)
 				if !readyClosed {
 					close(ready)
 				}
@@ -159,7 +162,7 @@ func (o *Controller) Run(ctx context.Context) (<-chan struct{}, error) {
 		}
 	}()
 
-	log.Println("Starting coordinator...")
+	o.logger.Info(ctx, "Starting coordinator...")
 	if err := o.coordinator.Start(ctx); err != nil {
 		return nil, fmt.Errorf("[%s] failed to start coordinator: %v", o.id, err)
 	}
@@ -169,7 +172,7 @@ func (o *Controller) Run(ctx context.Context) (<-chan struct{}, error) {
 
 // Stop gracefully shuts down the controller if it is running.
 // It is safe to call multiple times.
-func (o *Controller) Stop() error {
+func (o *Controller) Stop(ctx context.Context) error {
 	o.mu.Lock()
 	if !o.running {
 		o.mu.Unlock()
@@ -181,7 +184,7 @@ func (o *Controller) Stop() error {
 	}
 	o.mu.Unlock()
 
-	log.Printf("[%s] Stopped.", o.id)
+	o.logger.Info(ctx, "[%s] Stopped.", o.id)
 	return nil
 }
 
@@ -201,13 +204,13 @@ func (o *Controller) ProcessTarget(ctx context.Context) error {
 		return fmt.Errorf("[%s] failed to initialize credential store: %w", o.id, err)
 	}
 	o.credStore = credStore
-	log.Printf("[%s] Credential store updated successfully.", o.id)
+	o.logger.Info(ctx, "[%s] Credential store updated successfully.", o.id)
 
 	for _, target := range cfg.Targets {
 		enumState := &storage.EnumerationState{
 			SessionID:      generateSessionID(),
 			SourceType:     string(target.SourceType),
-			Config:         o.marshalConfig(target, cfg.Auth),
+			Config:         o.marshalConfig(ctx, target, cfg.Auth),
 			LastCheckpoint: nil, // No checkpoint initially
 			LastUpdated:    time.Now(),
 			Status:         storage.StatusInitialized,
@@ -218,7 +221,7 @@ func (o *Controller) ProcessTarget(ctx context.Context) error {
 		}
 
 		if err := o.doEnumeration(ctx, enumState); err != nil {
-			log.Printf("[%s] Failed to enumerate target: %v", o.id, err)
+			o.logger.Error(ctx, "[%s] Failed to enumerate target", o.id, "error", err)
 		}
 
 	}
@@ -271,17 +274,17 @@ func (o *Controller) doEnumeration(ctx context.Context, state *storage.Enumerati
 		defer wg.Done()
 		for tasks := range taskCh {
 			if err := o.workQueue.PublishTasks(ctx, tasks); err != nil {
-				log.Printf("[%s] Failed to publish tasks: %v", o.id, err)
+				o.logger.Error(ctx, "[%s] Failed to publish tasks", o.id, "error", err)
 				return
 			}
-			log.Printf("[%s] Published batch of %d tasks", o.id, len(tasks))
+			o.logger.Info(ctx, "[%s] Published batch of %d tasks", o.id, len(tasks))
 		}
 	}()
 
 	if err := enumerator.Enumerate(ctx, state, taskCh); err != nil {
 		state.UpdateStatus(storage.StatusFailed)
 		if saveErr := o.enumerationStateStorage.Save(ctx, state); saveErr != nil {
-			log.Printf("[%s] Failed to save enumeration state after error: %v", o.id, saveErr)
+			o.logger.Error(ctx, "[%s] Failed to save enumeration state after error", o.id, "error", saveErr)
 		}
 		close(taskCh)
 		wg.Wait()
@@ -340,7 +343,7 @@ func generateSessionID() string { return uuid.New().String() }
 
 // marshalConfig serializes the target configuration into a JSON raw message.
 // This allows storing the complete target configuration with the enumeration state.
-func (o *Controller) marshalConfig(target config.TargetSpec, auth map[string]config.AuthConfig) json.RawMessage {
+func (o *Controller) marshalConfig(ctx context.Context, target config.TargetSpec, auth map[string]config.AuthConfig) json.RawMessage {
 	// Create a complete config that includes both target and its auth
 	completeConfig := struct {
 		config.TargetSpec
@@ -356,7 +359,7 @@ func (o *Controller) marshalConfig(target config.TargetSpec, auth map[string]con
 
 	data, err := json.Marshal(completeConfig)
 	if err != nil {
-		log.Printf("[%s] Failed to marshal target config: %v", o.id, err)
+		o.logger.Error(ctx, "[%s] Failed to marshal target config", o.id, "error", err)
 		return nil
 	}
 	return data
@@ -376,9 +379,9 @@ func (c *Controller) handleRules(ctx context.Context, rules messaging.GitleaksRu
 	// 2. Storing in database
 	// 3. Handling any conflicts or versioning
 
-	log.Printf("[%s] Received and stored new ruleset with %d rules", c.id, len(rules.Rules))
+	c.logger.Info(ctx, "[%s] Received and stored new ruleset with %d rules", c.id, len(rules.Rules))
 	for _, rule := range rules.Rules {
-		log.Printf("[%s] Rule: %+v", c.id, rule)
+		c.logger.Info(ctx, "[%s] Rule: %+v", c.id, rule)
 	}
 	return nil
 }

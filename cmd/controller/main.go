@@ -128,16 +128,6 @@ func main() {
 	}
 	defer coord.Stop()
 
-	kafkaCfg := &kafka.Config{
-		Brokers:       strings.Split(os.Getenv("KAFKA_BROKERS"), ","),
-		TaskTopic:     os.Getenv("KAFKA_TASK_TOPIC"),
-		ResultsTopic:  os.Getenv("KAFKA_RESULTS_TOPIC"),
-		RulesTopic:    os.Getenv("KAFKA_RULES_TOPIC"),
-		GroupID:       os.Getenv("KAFKA_GROUP_ID"),
-		ProgressTopic: os.Getenv("KAFKA_PROGRESS_TOPIC"),
-		ClientID:      fmt.Sprintf("scanner-%s", hostname),
-	}
-
 	// Initialize tracing.
 	prob, err := strconv.ParseFloat(os.Getenv("TEMPO_PROBABILITY"), 64)
 	if err != nil {
@@ -163,6 +153,15 @@ func main() {
 
 	tracer := traceProvider.Tracer(os.Getenv("TEMPO_SERVICE_NAME"))
 
+	kafkaCfg := &kafka.Config{
+		Brokers:       strings.Split(os.Getenv("KAFKA_BROKERS"), ","),
+		TaskTopic:     os.Getenv("KAFKA_TASK_TOPIC"),
+		ResultsTopic:  os.Getenv("KAFKA_RESULTS_TOPIC"),
+		RulesTopic:    os.Getenv("KAFKA_RULES_TOPIC"),
+		GroupID:       os.Getenv("KAFKA_GROUP_ID"),
+		ProgressTopic: os.Getenv("KAFKA_PROGRESS_TOPIC"),
+		ClientID:      fmt.Sprintf("scanner-%s", hostname),
+	}
 	broker, err := kafka.ConnectWithRetry(kafkaCfg, log, tracer)
 	if err != nil {
 		log.Error(ctx, "failed to create kafka broker", "error", err)
@@ -189,8 +188,11 @@ func main() {
 		enumStateStorage,
 		checkpointStorage,
 		configLoader,
+		log,
 		m,
 	)
+	defer ctrl.Stop(ctx)
+
 	log.Info(ctx, "Controller initialized")
 
 	ready.Store(true)
