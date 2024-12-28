@@ -28,7 +28,8 @@ type RulesStorage struct {
 	tracer trace.Tracer
 }
 
-// NewRulesStorage creates a new PostgreSQL-backed rules storage using the provided database connection.
+// NewRulesStorage creates a new PostgreSQL-backed rules storage. It initializes the underlying
+// database queries and tracing components needed for rule persistence and monitoring.
 func NewRulesStorage(conn *pgxpool.Pool, tracer trace.Tracer) *RulesStorage {
 	return &RulesStorage{
 		q:      db.New(conn),
@@ -37,8 +38,58 @@ func NewRulesStorage(conn *pgxpool.Pool, tracer trace.Tracer) *RulesStorage {
 	}
 }
 
-// SaveRuleset persists a complete Gitleaks ruleset and its allowlists to PostgreSQL.
-// It executes all operations within a transaction to ensure atomic updates.
+// bulkInsertParams constrains the generic type parameter to valid bulk insert parameter types.
+// This enables code reuse across different allowlist component inserts while maintaining type safety.
+type bulkInsertParams interface {
+	db.BulkInsertAllowlistCommitsParams |
+		db.BulkInsertAllowlistPathsParams |
+		db.BulkInsertAllowlistRegexesParams |
+		db.BulkInsertAllowlistStopwordsParams
+}
+
+// bulkInsertOperation represents a database operation that can bulk insert records of type T.
+type bulkInsertOperation[T bulkInsertParams] func(context.Context, []T) (int64, error)
+
+// bulkInsert provides a generic implementation for bulk inserting allowlist components.
+// It handles common tasks like parameter preparation, execution tracing, and result validation
+// to avoid code duplication across different component types.
+func bulkInsert[T bulkInsertParams](
+	ctx context.Context,
+	tracer trace.Tracer,
+	spanName string,
+	allowlistID int64,
+	items []string,
+	itemType string,
+	newParams func(allowlistID int64, item string) T,
+	operation bulkInsertOperation[T],
+) error {
+	if len(items) == 0 {
+		return nil
+	}
+
+	return executeAndTrace(ctx, tracer, spanName, []attribute.KeyValue{
+		attribute.Int64("allowlist_id", allowlistID),
+		attribute.Int(fmt.Sprintf("%s_count", itemType), len(items)),
+	}, func(ctx context.Context) error {
+		params := make([]T, len(items))
+		for i, item := range items {
+			params[i] = newParams(allowlistID, item)
+		}
+
+		rows, err := operation(ctx, params)
+		if err != nil {
+			return fmt.Errorf("failed to bulk insert %s: %w", itemType, err)
+		}
+		if rows != int64(len(items)) {
+			return fmt.Errorf("expected to insert %d %s, but inserted %d", len(items), itemType, rows)
+		}
+		return nil
+	})
+}
+
+// SaveRuleset persists a complete Gitleaks ruleset to PostgreSQL. It ensures atomic updates
+// by executing all operations within a transaction, preventing partial or inconsistent updates
+// that could affect scanning accuracy.
 func (s *RulesStorage) SaveRuleset(ctx context.Context, ruleset messaging.GitleaksRuleSet) error {
 	// Set a context timeout to prevent transaction deadlocks and resource exhaustion.
 	// We use a serializable isolation level and a relatively short timeout since
@@ -108,8 +159,9 @@ func (s *RulesStorage) SaveRuleset(ctx context.Context, ruleset messaging.Gitlea
 	})
 }
 
-// bulkInsertAllowlistComponents handles the insertion of all allowlist components
-// (commits, paths, regexes, stopwords) for a given allowlist ID.
+// bulkInsertAllowlistComponents handles the insertion of all allowlist components for a given allowlist.
+// It coordinates the insertion of commits, paths, regexes, and stopwords while maintaining proper error
+// handling and tracing.
 func (s *RulesStorage) bulkInsertAllowlistComponents(
 	ctx context.Context,
 	qtx *db.Queries,
@@ -131,146 +183,70 @@ func (s *RulesStorage) bulkInsertAllowlistComponents(
 			return err
 		}
 
-		return s.bulkInsertStopwords(ctx, qtx, allowlistID, al.StopWords)
-	})
-}
-
-// bulkInsertCommits efficiently inserts multiple commit allowlist entries in a single operation.
-// It validates that all expected rows were inserted.
-func (s *RulesStorage) bulkInsertCommits(
-	ctx context.Context,
-	qtx *db.Queries,
-	allowlistID int64,
-	commits []string,
-) error {
-	if len(commits) == 0 {
-		return nil
-	}
-
-	return executeAndTrace(ctx, s.tracer, "postgres.bulk_insert_commits", []attribute.KeyValue{
-		attribute.Int64("allowlist_id", allowlistID),
-		attribute.Int("commit_count", len(commits)),
-	}, func(ctx context.Context) error {
-		commitParams := make([]db.BulkInsertAllowlistCommitsParams, len(commits))
-		for i, commit := range commits {
-			commitParams[i] = db.BulkInsertAllowlistCommitsParams{
-				AllowlistID: allowlistID,
-				Commit:      commit,
-			}
+		if err := s.bulkInsertStopwords(ctx, qtx, allowlistID, al.StopWords); err != nil {
+			return err
 		}
 
-		rows, err := qtx.BulkInsertAllowlistCommits(ctx, commitParams)
-		if err != nil {
-			return fmt.Errorf("failed to bulk insert commits: %w", err)
-		}
-		if rows != int64(len(commits)) {
-			return fmt.Errorf("expected to insert %d commits, but inserted %d", len(commits), rows)
-		}
 		return nil
 	})
 }
 
-// bulkInsertPaths efficiently inserts multiple path allowlist entries in a single operation.
-// It validates that all expected rows were inserted.
-func (s *RulesStorage) bulkInsertPaths(
-	ctx context.Context,
-	qtx *db.Queries,
-	allowlistID int64,
-	paths []string,
-) error {
-	if len(paths) == 0 {
-		return nil
-	}
-
-	return executeAndTrace(ctx, s.tracer, "postgres.bulk_insert_paths", []attribute.KeyValue{
-		attribute.Int64("allowlist_id", allowlistID),
-		attribute.Int("path_count", len(paths)),
-	}, func(ctx context.Context) error {
-		pathParams := make([]db.BulkInsertAllowlistPathsParams, len(paths))
-		for i, path := range paths {
-			pathParams[i] = db.BulkInsertAllowlistPathsParams{
-				AllowlistID: allowlistID,
-				Path:        path,
-			}
-		}
-
-		rows, err := qtx.BulkInsertAllowlistPaths(ctx, pathParams)
-		if err != nil {
-			return fmt.Errorf("failed to bulk insert paths: %w", err)
-		}
-		if rows != int64(len(paths)) {
-			return fmt.Errorf("expected to insert %d paths, but inserted %d", len(paths), rows)
-		}
-		return nil
-	})
+func (s *RulesStorage) bulkInsertCommits(ctx context.Context, qtx *db.Queries, allowlistID int64, commits []string) error {
+	return bulkInsert(
+		ctx,
+		s.tracer,
+		"postgres.bulk_insert_commits",
+		allowlistID,
+		commits,
+		"commit",
+		func(id int64, commit string) db.BulkInsertAllowlistCommitsParams {
+			return db.BulkInsertAllowlistCommitsParams{AllowlistID: id, Commit: commit}
+		},
+		qtx.BulkInsertAllowlistCommits,
+	)
 }
 
-// bulkInsertRegexes efficiently inserts multiple regex allowlist entries in a single operation.
-// It validates that all expected rows were inserted.
-func (s *RulesStorage) bulkInsertRegexes(
-	ctx context.Context,
-	qtx *db.Queries,
-	allowlistID int64,
-	regexes []string,
-) error {
-	if len(regexes) == 0 {
-		return nil
-	}
-
-	return executeAndTrace(ctx, s.tracer, "postgres.bulk_insert_regexes", []attribute.KeyValue{
-		attribute.Int64("allowlist_id", allowlistID),
-		attribute.Int("regex_count", len(regexes)),
-	}, func(ctx context.Context) error {
-		regexParams := make([]db.BulkInsertAllowlistRegexesParams, len(regexes))
-		for i, regex := range regexes {
-			regexParams[i] = db.BulkInsertAllowlistRegexesParams{
-				AllowlistID: allowlistID,
-				Regex:       regex,
-			}
-		}
-
-		rows, err := qtx.BulkInsertAllowlistRegexes(ctx, regexParams)
-		if err != nil {
-			return fmt.Errorf("failed to bulk insert regexes: %w", err)
-		}
-		if rows != int64(len(regexes)) {
-			return fmt.Errorf("expected to insert %d regexes, but inserted %d", len(regexes), rows)
-		}
-		return nil
-	})
+func (s *RulesStorage) bulkInsertPaths(ctx context.Context, qtx *db.Queries, allowlistID int64, paths []string) error {
+	return bulkInsert(
+		ctx,
+		s.tracer,
+		"postgres.bulk_insert_paths",
+		allowlistID,
+		paths,
+		"path",
+		func(id int64, path string) db.BulkInsertAllowlistPathsParams {
+			return db.BulkInsertAllowlistPathsParams{AllowlistID: id, Path: path}
+		},
+		qtx.BulkInsertAllowlistPaths,
+	)
 }
 
-// bulkInsertStopwords efficiently inserts multiple stopword allowlist entries in a single operation.
-// It validates that all expected rows were inserted.
-func (s *RulesStorage) bulkInsertStopwords(
-	ctx context.Context,
-	qtx *db.Queries,
-	allowlistID int64,
-	stopwords []string,
-) error {
-	if len(stopwords) == 0 {
-		return nil
-	}
+func (s *RulesStorage) bulkInsertRegexes(ctx context.Context, qtx *db.Queries, allowlistID int64, regexes []string) error {
+	return bulkInsert(
+		ctx,
+		s.tracer,
+		"postgres.bulk_insert_regexes",
+		allowlistID,
+		regexes,
+		"regex",
+		func(id int64, regex string) db.BulkInsertAllowlistRegexesParams {
+			return db.BulkInsertAllowlistRegexesParams{AllowlistID: id, Regex: regex}
+		},
+		qtx.BulkInsertAllowlistRegexes,
+	)
+}
 
-	return executeAndTrace(ctx, s.tracer, "postgres.bulk_insert_stopwords", []attribute.KeyValue{
-		attribute.Int64("allowlist_id", allowlistID),
-		attribute.Int("stopword_count", len(stopwords)),
-	}, func(ctx context.Context) error {
-		stopwordParams := make([]db.BulkInsertAllowlistStopwordsParams, len(stopwords))
-		for i, stopword := range stopwords {
-			stopwordParams[i] = db.BulkInsertAllowlistStopwordsParams{
-				AllowlistID: allowlistID,
-				Stopword:    stopword,
-			}
-		}
-
-		rows, err := qtx.BulkInsertAllowlistStopwords(ctx, stopwordParams)
-		if err != nil {
-			return fmt.Errorf("failed to bulk insert stopwords: %w", err)
-		}
-		if rows != int64(len(stopwords)) {
-			return fmt.Errorf("expected to insert %d stopwords, but inserted %d", len(stopwords), rows)
-		}
-		return nil
-	})
+func (s *RulesStorage) bulkInsertStopwords(ctx context.Context, qtx *db.Queries, allowlistID int64, stopwords []string) error {
+	return bulkInsert(
+		ctx,
+		s.tracer,
+		"postgres.bulk_insert_stopwords",
+		allowlistID,
+		stopwords,
+		"stopword",
+		func(id int64, stopword string) db.BulkInsertAllowlistStopwordsParams {
+			return db.BulkInsertAllowlistStopwordsParams{AllowlistID: id, Stopword: stopword}
+		},
+		qtx.BulkInsertAllowlistStopwords,
+	)
 }
