@@ -43,6 +43,7 @@ func (s *RulesStorage) SaveRuleset(ctx context.Context, ruleset messaging.Gitlea
 	// Set a context timeout to prevent transaction deadlocks and resource exhaustion.
 	// We use a serializable isolation level and a relatively short timeout since
 	// rule updates should be quick and we want to fail fast if there are issues.
+	// TODO: Figure out if this is the best timeout value.
 	const txTimeout = 10 * time.Second
 	ctx, cancel := context.WithTimeout(ctx, txTimeout)
 	defer cancel()
