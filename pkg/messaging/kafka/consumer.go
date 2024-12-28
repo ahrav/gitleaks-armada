@@ -28,16 +28,31 @@ func (k *Broker) consumeLoop(
 
 // Add these helper functions to standardize logging
 func logSetup(logger *logger.Logger, clientID string, sess sarama.ConsumerGroupSession) {
-	logger.Info(context.Background(), "[%s] Consumer group session setup - GenerationID: %d, MemberID: %s",
-		clientID, sess.GenerationID(), sess.MemberID())
+	logger.Info(
+		context.Background(),
+		"Consumer group session setup",
+		"client_id", clientID,
+		"generation_id", sess.GenerationID(),
+		"member_id", sess.MemberID(),
+	)
 }
 
 func logCleanup(logger *logger.Logger, clientID string, sess sarama.ConsumerGroupSession) {
-	logger.Info(context.Background(), "[%s] Consumer group session cleanup - GenerationID: %d, MemberID: %s",
-		clientID, sess.GenerationID(), sess.MemberID())
+	logger.Info(
+		context.Background(),
+		"Consumer group session cleanup",
+		"client_id", clientID,
+		"generation_id", sess.GenerationID(),
+		"member_id", sess.MemberID(),
+	)
 }
 
 func logPartitionStart(logger *logger.Logger, clientID string, partition int32, memberID string) {
-	logger.Info(context.Background(), "[%s] Starting to consume from partition: %d, member: %s",
-		clientID, partition, memberID)
+	logger.Info(
+		context.Background(),
+		"Starting to consume from partition",
+		"client_id", clientID,
+		"partition", partition,
+		"member_id", memberID,
+	)
 }

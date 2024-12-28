@@ -11,7 +11,7 @@ CREATE TYPE enumeration_status AS ENUM (
 -- 2. Create checkpoints table
 CREATE TABLE checkpoints (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    target_id TEXT NOT NULL UNIQUE,
+    target_id VARCHAR(512) NOT NULL UNIQUE,
     data JSONB NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -20,8 +20,8 @@ CREATE TABLE checkpoints (
 -- 3. Create enumeration_states table
 CREATE TABLE enumeration_states (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    session_id TEXT NOT NULL,
-    source_type TEXT NOT NULL,
+    session_id VARCHAR(64) NOT NULL,
+    source_type VARCHAR(32) NOT NULL,
     config JSONB NOT NULL,
     last_checkpoint_id BIGINT REFERENCES checkpoints (id),
     status enumeration_status NOT NULL,

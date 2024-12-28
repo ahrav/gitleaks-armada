@@ -11,7 +11,7 @@ CREATE TYPE enumeration_status AS ENUM (
 -- Checkpoints Table
 CREATE TABLE checkpoints (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    target_id TEXT NOT NULL UNIQUE,
+    target_id VARCHAR(512) NOT NULL UNIQUE,
     data JSONB NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -20,8 +20,8 @@ CREATE TABLE checkpoints (
 -- Enumeration States Table
 CREATE TABLE enumeration_states (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    session_id TEXT NOT NULL,
-    source_type TEXT NOT NULL,
+    session_id VARCHAR(64) NOT NULL,
+    source_type VARCHAR(32) NOT NULL,
     config JSONB NOT NULL,
     last_checkpoint_id BIGINT REFERENCES checkpoints (id),
     status enumeration_status NOT NULL,
@@ -34,7 +34,7 @@ CREATE TABLE enumeration_states (
 CREATE TABLE github_repositories (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
-    url TEXT NOT NULL UNIQUE,
+    url VARCHAR(512) NOT NULL UNIQUE,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     metadata JSONB,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -90,13 +90,13 @@ CREATE INDEX idx_scan_jobs_commit_hash ON scan_jobs (commit_hash);
 CREATE TABLE rules (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     rule_id VARCHAR(255) NOT NULL UNIQUE,
-    description TEXT,
+    description VARCHAR(1024),
     entropy FLOAT,
     secret_group INTEGER,
-    regex TEXT NOT NULL,
-    path TEXT,
-    tags TEXT[],
-    keywords TEXT[],
+    regex VARCHAR(1024) NOT NULL,
+    path VARCHAR(512),
+    tags VARCHAR(64)[],
+    keywords VARCHAR(64)[],
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -105,12 +105,12 @@ CREATE TABLE rules (
 CREATE TABLE allowlists (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     rule_id BIGINT NOT NULL REFERENCES rules (id) ON DELETE CASCADE,
-    description TEXT,
+    description VARCHAR(1024),
     match_condition VARCHAR(3) NOT NULL, -- 'OR' or 'AND'
     regex_target VARCHAR(5), -- Can be NULL, 'match', or 'line'
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT unique_allowlist_config UNIQUE (rule_id, match_condition, regex_target)  -- Added unique constraint
+    CONSTRAINT unique_allowlist_config UNIQUE (rule_id, match_condition, regex_target)
 );
 
 -- Indexes
@@ -132,7 +132,7 @@ CREATE UNIQUE INDEX idx_unique_commits_per_allowlist ON allowlist_commits (allow
 CREATE TABLE allowlist_paths (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     allowlist_id BIGINT NOT NULL REFERENCES allowlists (id) ON DELETE CASCADE,
-    path TEXT NOT NULL,
+    path VARCHAR(512) NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT unique_path_per_allowlist UNIQUE (allowlist_id, path)
 );
@@ -144,7 +144,7 @@ CREATE INDEX idx_allowlist_paths_allowlist_id ON allowlist_paths (allowlist_id);
 CREATE TABLE allowlist_regexes (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     allowlist_id BIGINT NOT NULL REFERENCES allowlists (id) ON DELETE CASCADE,
-    regex TEXT NOT NULL,
+    regex VARCHAR(1024) NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT unique_regex_per_allowlist UNIQUE (allowlist_id, regex)
 );
@@ -172,10 +172,10 @@ CREATE TABLE findings (
     scan_target_id BIGINT NOT NULL REFERENCES scan_targets (id),
 
     fingerprint VARCHAR(255) NOT NULL UNIQUE,  -- For deduping
-    file_path TEXT,        -- The path where the secret was found
-    line_number INTEGER,   -- The line number
-    line TEXT,             -- The entire line (if you want quick reference)
-    match TEXT,
+    file_path VARCHAR(512),        -- The path where the secret was found
+    line_number INTEGER,           -- The line number
+    line VARCHAR(1024),            -- The entire line (if you want quick reference)
+    match VARCHAR(1024),
     author_email VARCHAR(255),
 
     -- JSONB for ephemeral/per-scan data: commit hash, secret, commit message, start line, end line, etc.
