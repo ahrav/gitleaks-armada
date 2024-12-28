@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"path/filepath"
 	"runtime"
@@ -11,17 +10,20 @@ import (
 
 	"github.com/docker/go-connections/nat"
 	"github.com/golang-migrate/migrate/v4"
-	"github.com/golang-migrate/migrate/v4/database/postgres"
+	"github.com/golang-migrate/migrate/v4/database/pgx"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 
+	"github.com/ahrav/gitleaks-armada/internal/db"
 	"github.com/ahrav/gitleaks-armada/pkg/storage"
 )
 
-func setupTestContainer(t *testing.T) (*sql.DB, func()) {
+func setupTestContainer(t *testing.T) (db.DBTX, func()) {
 	ctx := context.Background()
 
 	req := testcontainers.ContainerRequest{
@@ -46,11 +48,20 @@ func setupTestContainer(t *testing.T) (*sql.DB, func()) {
 	port, err := container.MappedPort(ctx, "5432")
 	require.NoError(t, err)
 
-	dbURL := fmt.Sprintf("postgresql://test:test@localhost:%s/testdb?sslmode=disable", port.Port())
-	db, err := sql.Open("postgres", dbURL)
+	dsn := fmt.Sprintf("postgres://test:test@localhost:%s/testdb?sslmode=disable", port.Port())
+
+	// Create a pgx pool
+	pool, err := pgxpool.New(ctx, dsn)
 	require.NoError(t, err)
 
-	driver, err := postgres.WithInstance(db, &postgres.Config{})
+	conn, err := pool.Acquire(ctx)
+	require.NoError(t, err)
+	defer conn.Release()
+
+	db := stdlib.OpenDBFromPool(pool)
+
+	// For migrations, use the pgx driver.
+	driver, err := pgx.WithInstance(db, &pgx.Config{})
 	require.NoError(t, err)
 
 	_, currentFile, _, _ := runtime.Caller(0)
@@ -67,7 +78,7 @@ func setupTestContainer(t *testing.T) (*sql.DB, func()) {
 		container.Terminate(ctx)
 	}
 
-	return db, cleanup
+	return pool, cleanup
 }
 
 func TestPGCheckpointStorage_SaveAndLoad(t *testing.T) {

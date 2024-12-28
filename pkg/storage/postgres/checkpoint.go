@@ -2,8 +2,10 @@ package postgres
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
+	"errors"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/ahrav/gitleaks-armada/internal/db"
 	"github.com/ahrav/gitleaks-armada/pkg/storage"
@@ -17,7 +19,7 @@ type CheckpointStorage struct{ q *db.Queries }
 // NewCheckpointStorage creates a new PostgreSQL-backed checkpoint storage using
 // the provided database connection. It initializes the underlying sqlc queries
 // used for checkpoint operations.
-func NewCheckpointStorage(dbConn *sql.DB) *CheckpointStorage {
+func NewCheckpointStorage(dbConn db.DBTX) *CheckpointStorage {
 	return &CheckpointStorage{q: db.New(dbConn)}
 }
 
@@ -46,7 +48,7 @@ func (p *CheckpointStorage) Save(ctx context.Context, cp *storage.Checkpoint) er
 func (p *CheckpointStorage) Load(ctx context.Context, targetID string) (*storage.Checkpoint, error) {
 	dbCp, err := p.q.GetCheckpoint(ctx, targetID)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, err
@@ -60,7 +62,7 @@ func (p *CheckpointStorage) Load(ctx context.Context, targetID string) (*storage
 		ID:        dbCp.ID,
 		TargetID:  dbCp.TargetID,
 		Data:      data,
-		UpdatedAt: dbCp.UpdatedAt,
+		UpdatedAt: dbCp.UpdatedAt.Time,
 	}, nil
 }
 
@@ -68,7 +70,7 @@ func (p *CheckpointStorage) Load(ctx context.Context, targetID string) (*storage
 func (p *CheckpointStorage) LoadByID(ctx context.Context, id int64) (*storage.Checkpoint, error) {
 	dbCp, err := p.q.GetCheckpointByID(ctx, id)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, err
@@ -82,7 +84,7 @@ func (p *CheckpointStorage) LoadByID(ctx context.Context, id int64) (*storage.Ch
 		ID:        dbCp.ID,
 		TargetID:  dbCp.TargetID,
 		Data:      data,
-		UpdatedAt: dbCp.UpdatedAt,
+		UpdatedAt: dbCp.UpdatedAt.Time,
 	}, nil
 }
 

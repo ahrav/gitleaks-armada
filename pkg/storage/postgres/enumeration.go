@@ -2,8 +2,11 @@ package postgres
 
 import (
 	"context"
-	"database/sql"
+	"errors"
 	"fmt"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/ahrav/gitleaks-armada/internal/db"
 	"github.com/ahrav/gitleaks-armada/pkg/storage"
@@ -19,7 +22,7 @@ type EnumerationStateStorage struct {
 
 // NewEnumerationStateStorage creates a new PostgreSQL-backed enumeration state storage
 // using the provided database connection and checkpoint store.
-func NewEnumerationStateStorage(dbConn *sql.DB, checkpointStore storage.CheckpointStorage) *EnumerationStateStorage {
+func NewEnumerationStateStorage(dbConn db.DBTX, checkpointStore storage.CheckpointStorage) *EnumerationStateStorage {
 	return &EnumerationStateStorage{q: db.New(dbConn), checkpointStore: checkpointStore}
 }
 
@@ -27,13 +30,13 @@ func NewEnumerationStateStorage(dbConn *sql.DB, checkpointStore storage.Checkpoi
 // It ensures atomic updates by saving the checkpoint first, then updating the enumeration state
 // with a reference to the checkpoint.
 func (s *EnumerationStateStorage) Save(ctx context.Context, state *storage.EnumerationState) error {
-	var lastCheckpointID sql.NullInt64
+	var lastCheckpointID pgtype.Int8
 	if state.LastCheckpoint != nil {
 		// Save checkpoint first to maintain referential integrity.
 		if err := s.checkpointStore.Save(ctx, state.LastCheckpoint); err != nil {
 			return err
 		}
-		lastCheckpointID = sql.NullInt64{Int64: state.LastCheckpoint.ID, Valid: true}
+		lastCheckpointID = pgtype.Int8{Int64: state.LastCheckpoint.ID, Valid: true}
 	}
 
 	err := s.q.CreateOrUpdateEnumerationState(ctx, db.CreateOrUpdateEnumerationStateParams{
@@ -51,7 +54,7 @@ func (s *EnumerationStateStorage) Save(ctx context.Context, state *storage.Enume
 func (s *EnumerationStateStorage) Load(ctx context.Context, sessionID string) (*storage.EnumerationState, error) {
 	dbState, err := s.q.GetEnumerationState(ctx, sessionID)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, err
@@ -81,7 +84,7 @@ func (s *EnumerationStateStorage) convertDBStateToEnumState(ctx context.Context,
 		SessionID:   dbState.SessionID,
 		SourceType:  dbState.SourceType,
 		Config:      dbState.Config,
-		LastUpdated: dbState.UpdatedAt,
+		LastUpdated: dbState.UpdatedAt.Time,
 		Status:      storage.EnumerationStatus(dbState.Status),
 	}
 

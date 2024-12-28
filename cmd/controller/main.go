@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"log"
 	"os"
@@ -13,9 +12,10 @@ import (
 	"syscall"
 
 	"github.com/golang-migrate/migrate/v4"
-	"github.com/golang-migrate/migrate/v4/database/postgres"
+	"github.com/golang-migrate/migrate/v4/database/pgx"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
-	_ "github.com/lib/pq"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5/stdlib"
 	"go.uber.org/automaxprocs/maxprocs"
 
 	"github.com/ahrav/gitleaks-armada/pkg/cluster/kubernetes"
@@ -87,14 +87,14 @@ func main() {
 			user, password, host, dbname)
 	}
 
-	dbConn, err := sql.Open("postgres", dsn)
+	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {
 		log.Error(ctx, "failed to open db", "error", err)
 		os.Exit(1)
 	}
-	defer dbConn.Close()
+	defer pool.Close()
 
-	if err := runMigrations(dbConn); err != nil {
+	if err := runMigrations(ctx, pool); err != nil {
 		log.Error(ctx, "failed to run migrations", "error", err)
 		os.Exit(1)
 	}
@@ -181,8 +181,8 @@ func main() {
 		}
 	}()
 
-	checkpointStorage := pg.NewCheckpointStorage(dbConn)
-	enumStateStorage := pg.NewEnumerationStateStorage(dbConn, checkpointStorage)
+	checkpointStorage := pg.NewCheckpointStorage(pool)
+	enumStateStorage := pg.NewEnumerationStateStorage(pool, checkpointStorage)
 
 	configLoader := config.NewFileLoader("/etc/scanner/config/config.yaml")
 
@@ -229,20 +229,36 @@ func main() {
 
 // TODO: consider moving this to an init container.
 // runMigrations uses golang-migrate to apply all up migrations from "db/migrations".
-func runMigrations(dbConn *sql.DB) error {
-	driver, err := postgres.WithInstance(dbConn, new(postgres.Config))
+// runMigrations acquires a single pgx connection from the pool, runs migrations,
+// and then releases the connection back to the pool.
+func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
+	// Acquire a connection from the pool
+	conn, err := pool.Acquire(ctx)
 	if err != nil {
-		return fmt.Errorf("could not create postgres driver: %w", err)
+		return fmt.Errorf("could not acquire connection: %w", err)
+	}
+	defer conn.Release() // Ensure the connection is released
+
+	db := stdlib.OpenDBFromPool(pool)
+	if err != nil {
+		return fmt.Errorf("could not open db from pool: %w", err)
+	}
+
+	driver, err := pgx.WithInstance(db, &pgx.Config{})
+	if err != nil {
+		return fmt.Errorf("could not create pgx driver: %w", err)
 	}
 
 	const migrationsPath = "file:///app/db/migrations"
-	migrations, err := migrate.NewWithDatabaseInstance(migrationsPath, "postgres", driver)
+	m, err := migrate.NewWithDatabaseInstance(migrationsPath, "postgres", driver)
 	if err != nil {
 		return fmt.Errorf("could not create migrate instance: %w", err)
 	}
 
-	if err := migrations.Up(); err != nil && err != migrate.ErrNoChange {
+	// Run the migrations
+	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
 		return fmt.Errorf("migration up failed: %w", err)
 	}
+
 	return nil
 }
