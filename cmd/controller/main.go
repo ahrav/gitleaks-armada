@@ -183,7 +183,7 @@ func main() {
 
 	checkpointStorage := pg.NewCheckpointStorage(pool, tracer)
 	enumStateStorage := pg.NewEnumerationStateStorage(pool, checkpointStorage, tracer)
-
+	rulesStorage := pg.NewRulesStorage(pool, tracer)
 	configLoader := config.NewFileLoader("/etc/scanner/config/config.yaml")
 
 	ctrl := controller.NewController(
@@ -192,6 +192,7 @@ func main() {
 		broker,
 		enumStateStorage,
 		checkpointStorage,
+		rulesStorage,
 		configLoader,
 		log,
 		m,

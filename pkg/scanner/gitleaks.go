@@ -106,7 +106,7 @@ func (s *GitLeaksScanner) Scan(ctx context.Context, repoURL string) error {
 	)
 	detectSpan.End()
 
-	s.logger.Info(ctx, "found %d findings in repository %s", len(findings), repoURL)
+	s.logger.Info(ctx, "found findings in repository", "repo_url", repoURL, "num_findings", len(findings))
 	return nil
 }
 

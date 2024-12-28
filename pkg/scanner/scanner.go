@@ -59,7 +59,7 @@ func NewScanner(
 // Run starts the scanner with a pool of workers to process tasks concurrently.
 func (s *Scanner) Run(ctx context.Context) error {
 	s.stopCh = make(chan struct{})
-	s.logger.Info(ctx, "[%s] Starting scanner with %d workers...", s.id, s.workers)
+	s.logger.Info(ctx, "Starting scanner", "scanner_id", s.id, "num_workers", s.workers)
 
 	taskCh := make(chan messaging.Task, 1)
 
@@ -79,16 +79,16 @@ func (s *Scanner) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-s.stopCh:
-			return fmt.Errorf("[%s] scanner stopping", s.id)
+			return fmt.Errorf("scanner[%s]: stopping", s.id)
 		}
 	}); err != nil {
 		close(taskCh)
 		s.workerWg.Wait()
-		return fmt.Errorf("[%s] failed to subscribe to tasks: %w", s.id, err)
+		return fmt.Errorf("scanner[%s]: failed to subscribe to tasks: %w", s.id, err)
 	}
 
 	<-ctx.Done()
-	s.logger.Info(ctx, "[%s] Context cancelled, stopping scanner...", s.id)
+	s.logger.Info(ctx, "Context cancelled, stopping scanner", "scanner_id", s.id)
 
 	close(s.stopCh)
 	close(taskCh)
@@ -98,22 +98,22 @@ func (s *Scanner) Run(ctx context.Context) error {
 
 // worker processes tasks from the task channel until it's closed or context is cancelled.
 func (s *Scanner) worker(ctx context.Context, id int, taskCh <-chan messaging.Task) {
-	s.logger.Info(ctx, "[%s] Worker %d started", s.id, id)
+	s.logger.Info(ctx, "Worker started", "scanner_id", s.id, "worker_id", id)
 	for {
 		select {
 		case task, ok := <-taskCh:
 			if !ok {
-				s.logger.Info(ctx, "[%s] Worker %d shutting down: task channel closed", s.id, id)
+				s.logger.Info(ctx, "Worker shutting down", "scanner_id", s.id, "worker_id", id, "reason", "task_channel_closed")
 				return
 			}
 			if err := s.handleScanTask(ctx, task); err != nil {
-				s.logger.Error(ctx, "[%s] Worker %d failed to process task: %v", s.id, id, err)
+				s.logger.Error(ctx, "Worker failed to process task", "scanner_id", s.id, "worker_id", id, "error", err)
 			}
 		case <-ctx.Done():
-			s.logger.Info(ctx, "[%s] Worker %d shutting down: context cancelled", s.id, id)
+			s.logger.Info(ctx, "Worker shutting down", "scanner_id", s.id, "worker_id", id, "reason", "context_cancelled")
 			return
 		case <-s.stopCh:
-			s.logger.Info(ctx, "[%s] Worker %d shutting down: stop signal received", s.id, id)
+			s.logger.Info(ctx, "Worker shutting down", "scanner_id", s.id, "worker_id", id, "reason", "stop_signal_received")
 			return
 		}
 	}
@@ -123,7 +123,7 @@ func (s *Scanner) worker(ctx context.Context, id int, taskCh <-chan messaging.Ta
 // It updates metrics for task processing and delegates the actual scanning
 // to the configured scanner implementation.
 func (s *Scanner) handleScanTask(ctx context.Context, task messaging.Task) error {
-	s.logger.Info(ctx, "[%s] Scanning repository: %s", s.id, task.ResourceURI)
+	s.logger.Info(ctx, "Scanning repository", "scanner_id", s.id, "resource_uri", task.ResourceURI)
 	s.metrics.IncTasksDequeued()
 
 	// Start a new span for the entire task processing

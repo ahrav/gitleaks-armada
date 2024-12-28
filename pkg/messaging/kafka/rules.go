@@ -54,7 +54,8 @@ func (k *Broker) SubscribeRules(ctx context.Context, handler func(context.Contex
 		tracer:     k.tracer,
 		logger:     k.logger,
 	}
-	k.logger.Info(context.Background(), "[%s] Subscribing to rules topic: %s", k.clientID, k.rulesTopic)
+
+	k.logger.Info(context.Background(), "Subscribing to rules topic", "client_id", k.clientID, "topic", k.rulesTopic)
 	go k.consumeLoop(ctx, k.consumerGroup, []string{k.rulesTopic}, h)
 	return nil
 }

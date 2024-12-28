@@ -53,7 +53,8 @@ func (k *Broker) SubscribeProgress(ctx context.Context, handler func(context.Con
 		logger:        k.logger,
 		tracer:        k.tracer,
 	}
-	k.logger.Info(context.Background(), "[%s] Subscribing to progress topic: %s", k.clientID, k.progressTopic)
+
+	k.logger.Info(context.Background(), "Subscribing to progress topic", "client_id", k.clientID, "topic", k.progressTopic)
 	go k.consumeLoop(ctx, k.consumerGroup, []string{k.progressTopic}, h)
 	return nil
 }

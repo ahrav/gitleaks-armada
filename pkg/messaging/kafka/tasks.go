@@ -73,6 +73,7 @@ func (k *Broker) SubscribeTasks(ctx context.Context, handler func(context.Contex
 		logger:    k.logger,
 	}
 
+	k.logger.Info(ctx, "Subscribing to tasks topic", "client_id", k.clientID, "topic", k.taskTopic)
 	go k.consumeLoop(ctx, k.consumerGroup, []string{k.taskTopic}, h)
 	return nil
 }
