@@ -4,15 +4,20 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log/slog"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
+	"github.com/ahrav/gitleaks-armada/pkg/common/otel"
 	"github.com/ahrav/gitleaks-armada/pkg/storage"
 )
 
 func createTestCheckpoint(t *testing.T, ctx context.Context, store *CheckpointStorage, targetID string, data map[string]any) *storage.Checkpoint {
+	t.Helper()
 	checkpoint := &storage.Checkpoint{
 		TargetID: targetID,
 		Data:     data,
@@ -25,15 +30,24 @@ func createTestCheckpoint(t *testing.T, ctx context.Context, store *CheckpointSt
 	return saved
 }
 
+func setupEnumerationTest(t *testing.T) (context.Context, *EnumerationStateStorage, *CheckpointStorage, func()) {
+	t.Helper()
+
+	db, cleanup := setupTestContainer(t)
+	tracer, _, _ := otel.InitTracing(logger.NewWithHandler(slog.NewJSONHandler(io.Discard, nil)), otel.Config{})
+	testTracer := tracer.Tracer("test")
+	checkpointStore := NewCheckpointStorage(db, testTracer)
+	store := NewEnumerationStateStorage(db, checkpointStore, testTracer)
+	ctx := context.Background()
+
+	return ctx, store, checkpointStore, cleanup
+}
+
 func TestPGEnumerationStateStorage_SaveAndLoad(t *testing.T) {
 	t.Parallel()
 
-	db, cleanup := setupTestContainer(t)
+	ctx, store, checkpointStore, cleanup := setupEnumerationTest(t)
 	defer cleanup()
-
-	checkpointStore := NewCheckpointStorage(db)
-	store := NewEnumerationStateStorage(db, checkpointStore)
-	ctx := context.Background()
 
 	checkpoint := createTestCheckpoint(t, ctx, checkpointStore, "test-target", map[string]any{
 		"cursor": "abc123",
@@ -69,12 +83,8 @@ func TestPGEnumerationStateStorage_SaveAndLoad(t *testing.T) {
 func TestPGEnumerationStateStorage_LoadEmpty(t *testing.T) {
 	t.Parallel()
 
-	db, cleanup := setupTestContainer(t)
+	ctx, store, _, cleanup := setupEnumerationTest(t)
 	defer cleanup()
-
-	checkpointStore := NewCheckpointStorage(db)
-	store := NewEnumerationStateStorage(db, checkpointStore)
-	ctx := context.Background()
 
 	loaded, err := store.Load(ctx, "non-existent-session")
 	require.NoError(t, err)
@@ -84,12 +94,8 @@ func TestPGEnumerationStateStorage_LoadEmpty(t *testing.T) {
 func TestPGEnumerationStateStorage_Update(t *testing.T) {
 	t.Parallel()
 
-	db, cleanup := setupTestContainer(t)
+	ctx, store, checkpointStore, cleanup := setupEnumerationTest(t)
 	defer cleanup()
-
-	checkpointStore := NewCheckpointStorage(db)
-	store := NewEnumerationStateStorage(db, checkpointStore)
-	ctx := context.Background()
 
 	checkpoint := createTestCheckpoint(t, ctx, checkpointStore, "test-target", map[string]any{
 		"cursor": "abc123",
@@ -118,12 +124,8 @@ func TestPGEnumerationStateStorage_Update(t *testing.T) {
 func TestPGEnumerationStateStorage_Mutability(t *testing.T) {
 	t.Parallel()
 
-	db, cleanup := setupTestContainer(t)
+	ctx, store, checkpointStore, cleanup := setupEnumerationTest(t)
 	defer cleanup()
-
-	checkpointStore := NewCheckpointStorage(db)
-	store := NewEnumerationStateStorage(db, checkpointStore)
-	ctx := context.Background()
 
 	checkpoint := createTestCheckpoint(t, ctx, checkpointStore, "test-target", map[string]any{
 		"cursor": "abc123",
@@ -167,12 +169,9 @@ func TestPGEnumerationStateStorage_Mutability(t *testing.T) {
 func TestPGEnumerationStateStorage_ConcurrentOperations(t *testing.T) {
 	t.Parallel()
 
-	db, cleanup := setupTestContainer(t)
+	ctx, store, checkpointStore, cleanup := setupEnumerationTest(t)
 	defer cleanup()
 
-	checkpointStore := NewCheckpointStorage(db)
-	store := NewEnumerationStateStorage(db, checkpointStore)
-	ctx := context.Background()
 	const goroutines = 10
 	done := make(chan bool)
 
@@ -214,12 +213,8 @@ func TestPGEnumerationStateStorage_ConcurrentOperations(t *testing.T) {
 func TestPGEnumerationStateStorage_GetActiveStates(t *testing.T) {
 	t.Parallel()
 
-	db, cleanup := setupTestContainer(t)
+	ctx, store, _, cleanup := setupEnumerationTest(t)
 	defer cleanup()
-
-	checkpointStore := NewCheckpointStorage(db)
-	store := NewEnumerationStateStorage(db, checkpointStore)
-	ctx := context.Background()
 
 	// Create states with different statuses.
 	states := []*storage.EnumerationState{
@@ -263,12 +258,8 @@ func TestPGEnumerationStateStorage_GetActiveStates(t *testing.T) {
 func TestPGEnumerationStateStorage_List(t *testing.T) {
 	t.Parallel()
 
-	db, cleanup := setupTestContainer(t)
+	ctx, store, _, cleanup := setupEnumerationTest(t)
 	defer cleanup()
-
-	checkpointStore := NewCheckpointStorage(db)
-	store := NewEnumerationStateStorage(db, checkpointStore)
-	ctx := context.Background()
 
 	states := []*storage.EnumerationState{
 		{

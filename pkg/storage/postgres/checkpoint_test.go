@@ -3,6 +3,8 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"io"
+	"log/slog"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -20,6 +22,8 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/ahrav/gitleaks-armada/internal/db"
+	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
+	"github.com/ahrav/gitleaks-armada/pkg/common/otel"
 	"github.com/ahrav/gitleaks-armada/pkg/storage"
 )
 
@@ -81,14 +85,22 @@ func setupTestContainer(t *testing.T) (db.DBTX, func()) {
 	return pool, cleanup
 }
 
+func setupCheckpointTest(t *testing.T) (context.Context, *CheckpointStorage, func()) {
+	t.Helper()
+
+	db, cleanup := setupTestContainer(t)
+	tracer, _, _ := otel.InitTracing(logger.NewWithHandler(slog.NewJSONHandler(io.Discard, nil)), otel.Config{})
+	store := NewCheckpointStorage(db, tracer.Tracer("test"))
+	ctx := context.Background()
+
+	return ctx, store, cleanup
+}
+
 func TestPGCheckpointStorage_SaveAndLoad(t *testing.T) {
 	t.Parallel()
 
-	db, cleanup := setupTestContainer(t)
+	ctx, store, cleanup := setupCheckpointTest(t)
 	defer cleanup()
-
-	store := NewCheckpointStorage(db)
-	ctx := context.Background()
 
 	checkpoint := &storage.Checkpoint{
 		TargetID: "test-target",
@@ -114,11 +126,8 @@ func TestPGCheckpointStorage_SaveAndLoad(t *testing.T) {
 func TestPGCheckpointStorage_LoadNonExistent(t *testing.T) {
 	t.Parallel()
 
-	db, cleanup := setupTestContainer(t)
+	ctx, store, cleanup := setupCheckpointTest(t)
 	defer cleanup()
-
-	store := NewCheckpointStorage(db)
-	ctx := context.Background()
 
 	loaded, err := store.Load(ctx, "non-existent")
 	require.NoError(t, err)
@@ -128,11 +137,8 @@ func TestPGCheckpointStorage_LoadNonExistent(t *testing.T) {
 func TestPGCheckpointStorage_Delete(t *testing.T) {
 	t.Parallel()
 
-	db, cleanup := setupTestContainer(t)
+	ctx, store, cleanup := setupCheckpointTest(t)
 	defer cleanup()
-
-	store := NewCheckpointStorage(db)
-	ctx := context.Background()
 
 	checkpoint := &storage.Checkpoint{
 		TargetID: "test-target",
@@ -155,11 +161,8 @@ func TestPGCheckpointStorage_Delete(t *testing.T) {
 func TestPGCheckpointStorage_DeleteNonExistent(t *testing.T) {
 	t.Parallel()
 
-	db, cleanup := setupTestContainer(t)
+	ctx, store, cleanup := setupCheckpointTest(t)
 	defer cleanup()
-
-	store := NewCheckpointStorage(db)
-	ctx := context.Background()
 
 	err := store.Delete(ctx, "non-existent")
 	require.NoError(t, err)
@@ -168,11 +171,8 @@ func TestPGCheckpointStorage_DeleteNonExistent(t *testing.T) {
 func TestPGCheckpointStorage_Update(t *testing.T) {
 	t.Parallel()
 
-	db, cleanup := setupTestContainer(t)
+	ctx, store, cleanup := setupCheckpointTest(t)
 	defer cleanup()
-
-	store := NewCheckpointStorage(db)
-	ctx := context.Background()
 
 	checkpoint := &storage.Checkpoint{
 		TargetID: "test-target",
@@ -207,11 +207,9 @@ func TestPGCheckpointStorage_Update(t *testing.T) {
 func TestPGCheckpointStorage_ConcurrentOperations(t *testing.T) {
 	t.Parallel()
 
-	db, cleanup := setupTestContainer(t)
+	ctx, store, cleanup := setupCheckpointTest(t)
 	defer cleanup()
 
-	store := NewCheckpointStorage(db)
-	ctx := context.Background()
 	const goroutines = 10
 	done := make(chan bool)
 
@@ -247,11 +245,8 @@ func TestPGCheckpointStorage_ConcurrentOperations(t *testing.T) {
 func TestPGCheckpointStorage_Mutability(t *testing.T) {
 	t.Parallel()
 
-	db, cleanup := setupTestContainer(t)
+	ctx, store, cleanup := setupCheckpointTest(t)
 	defer cleanup()
-
-	store := NewCheckpointStorage(db)
-	ctx := context.Background()
 
 	original := &storage.Checkpoint{
 		TargetID: "test-target",
@@ -288,11 +283,8 @@ func TestPGCheckpointStorage_Mutability(t *testing.T) {
 func TestPGCheckpointStorage_LoadByID(t *testing.T) {
 	t.Parallel()
 
-	db, cleanup := setupTestContainer(t)
+	ctx, store, cleanup := setupCheckpointTest(t)
 	defer cleanup()
-
-	store := NewCheckpointStorage(db)
-	ctx := context.Background()
 
 	checkpoint := &storage.Checkpoint{
 		TargetID: "test-target",

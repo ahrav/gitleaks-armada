@@ -181,8 +181,8 @@ func main() {
 		}
 	}()
 
-	checkpointStorage := pg.NewCheckpointStorage(pool)
-	enumStateStorage := pg.NewEnumerationStateStorage(pool, checkpointStorage)
+	checkpointStorage := pg.NewCheckpointStorage(pool, tracer)
+	enumStateStorage := pg.NewEnumerationStateStorage(pool, checkpointStorage, tracer)
 
 	configLoader := config.NewFileLoader("/etc/scanner/config/config.yaml")
 

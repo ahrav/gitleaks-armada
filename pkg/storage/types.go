@@ -95,3 +95,9 @@ type EnumerationStateStorage interface {
 	// List returns the most recent enumeration states, limited by count
 	List(ctx context.Context, limit int) ([]*EnumerationState, error)
 }
+
+// RulesStorage provides persistent storage for Gitleaks rules.
+type RulesStorage interface {
+	// SaveRuleset persists a complete set of rules and their allowlists to storage.
+	SaveRuleset(ctx context.Context, rules messaging.GitleaksRuleSet) error
+}
