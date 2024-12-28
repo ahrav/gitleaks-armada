@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
@@ -27,7 +28,7 @@ type EnumerationStateStorage struct {
 
 // NewEnumerationStateStorage creates a new PostgreSQL-backed enumeration state storage
 // using the provided database connection and checkpoint store.
-func NewEnumerationStateStorage(dbConn db.DBTX, checkpointStore storage.CheckpointStorage, tracer trace.Tracer) *EnumerationStateStorage {
+func NewEnumerationStateStorage(dbConn *pgxpool.Pool, checkpointStore storage.CheckpointStorage, tracer trace.Tracer) *EnumerationStateStorage {
 	return &EnumerationStateStorage{
 		q:               db.New(dbConn),
 		checkpointStore: checkpointStore,

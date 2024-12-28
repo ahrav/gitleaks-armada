@@ -11,6 +11,8 @@ import (
 )
 
 func TestRulesStorage_SaveRuleset(t *testing.T) {
+	t.Parallel()
+
 	dbConn, cleanup := setupTestContainer(t)
 	defer cleanup()
 
@@ -31,7 +33,7 @@ func TestRulesStorage_SaveRuleset(t *testing.T) {
 					{
 						Description:    "Example allowlist",
 						MatchCondition: "ANY",
-						RegexTarget:    "target",
+						RegexTarget:    "match",
 						Commits:        []string{"c1", "c2"},
 						PathRegexes:    []string{"p1"},
 						Regexes:        []string{"r1"},
@@ -46,18 +48,16 @@ func TestRulesStorage_SaveRuleset(t *testing.T) {
 	err := rulesStorage.SaveRuleset(ctx, ruleset)
 	require.NoError(t, err)
 
-	// 5. (Optionally) Query DB to verify data was inserted
-	// If you have a getter or some other method, call it. For example:
+	// TODO: Add a getter or some other method to verify data was inserted.
+	// We don't currently have a getter since we don't have a use case for it yet.
+	// Example:
 	//   loadedRule, err := someGetRuleMethod(dbConn, "rule-1")
 	//   require.NoError(t, err)
 	//   require.NotNil(t, loadedRule)
 	//   assert.Equal(t, "test rule", loadedRule.Description)
 	// etc.
 
-	// If you don't have a direct getter, you can query with raw SQL or
-	// create additional sqlc queries for testing.
-
-	// Example (raw SQL):
+	// TODO: Remove this once we have a getter or some other method to verify data was inserted.
 	rows, err := dbConn.Query(ctx, "SELECT rule_id, description FROM rules WHERE rule_id = $1", "rule-1")
 	require.NoError(t, err)
 	defer rows.Close()

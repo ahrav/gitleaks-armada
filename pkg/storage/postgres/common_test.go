@@ -19,12 +19,11 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/ahrav/gitleaks-armada/internal/db"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/common/otel"
 )
 
-func setupTestContainer(t *testing.T) (db.DBTX, func()) {
+func setupTestContainer(t *testing.T) (*pgxpool.Pool, func()) {
 	t.Helper()
 
 	ctx := context.Background()
@@ -53,14 +52,11 @@ func setupTestContainer(t *testing.T) (db.DBTX, func()) {
 
 	dsn := fmt.Sprintf("postgres://test:test@localhost:%s/testdb?sslmode=disable", port.Port())
 
-	// Create a pgx pool
 	pool, err := pgxpool.New(ctx, dsn)
 	require.NoError(t, err)
 
-	conn, err := pool.Acquire(ctx)
-	require.NoError(t, err)
-	defer conn.Release()
-
+	// We need this to run migrations.
+	// TODO: Figure out if there is a less hacky way to do this.
 	db := stdlib.OpenDBFromPool(pool)
 
 	// For migrations, use the pgx driver.

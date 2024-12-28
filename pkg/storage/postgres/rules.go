@@ -3,9 +3,11 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
@@ -22,15 +24,15 @@ var _ storage.RulesStorage = (*RulesStorage)(nil)
 // data consistency.
 type RulesStorage struct {
 	q      *db.Queries
-	conn   *pgx.Conn
+	conn   *pgxpool.Pool
 	tracer trace.Tracer
 }
 
 // NewRulesStorage creates a new PostgreSQL-backed rules storage using the provided database connection.
-func NewRulesStorage(conn db.DBTX, tracer trace.Tracer) *RulesStorage {
+func NewRulesStorage(conn *pgxpool.Pool, tracer trace.Tracer) *RulesStorage {
 	return &RulesStorage{
 		q:      db.New(conn),
-		conn:   conn.(*pgx.Conn),
+		conn:   conn,
 		tracer: tracer,
 	}
 }
@@ -43,6 +45,13 @@ func (s *RulesStorage) SaveRuleset(ctx context.Context, ruleset messaging.Gitlea
 			attribute.Int("rule_count", len(ruleset.Rules)),
 		))
 	defer span.End()
+
+	// Set a context timeout to prevent transaction deadlocks and resource exhaustion.
+	// We use a serializable isolation level and a relatively short timeout since
+	// rule updates should be quick and we want to fail fast if there are issues.
+	const txTimeout = 10 * time.Second
+	ctx, cancel := context.WithTimeout(ctx, txTimeout)
+	defer cancel()
 
 	return pgx.BeginTxFunc(ctx, s.conn, pgx.TxOptions{IsoLevel: pgx.Serializable}, func(tx pgx.Tx) error {
 		qtx := s.q.WithTx(tx)

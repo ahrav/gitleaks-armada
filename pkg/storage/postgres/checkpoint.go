@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
@@ -27,7 +28,7 @@ type CheckpointStorage struct {
 // NewCheckpointStorage creates a new PostgreSQL-backed checkpoint storage using
 // the provided database connection. It initializes the underlying sqlc queries
 // used for checkpoint operations.
-func NewCheckpointStorage(dbConn db.DBTX, tracer trace.Tracer) *CheckpointStorage {
+func NewCheckpointStorage(dbConn *pgxpool.Pool, tracer trace.Tracer) *CheckpointStorage {
 	return &CheckpointStorage{
 		q:      db.New(dbConn),
 		tracer: tracer,
