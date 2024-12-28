@@ -4,15 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"log/slog"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
-	"github.com/ahrav/gitleaks-armada/pkg/common/otel"
 	"github.com/ahrav/gitleaks-armada/pkg/storage"
 )
 
@@ -34,10 +30,8 @@ func setupEnumerationTest(t *testing.T) (context.Context, *EnumerationStateStora
 	t.Helper()
 
 	db, cleanup := setupTestContainer(t)
-	tracer, _, _ := otel.InitTracing(logger.NewWithHandler(slog.NewJSONHandler(io.Discard, nil)), otel.Config{})
-	testTracer := tracer.Tracer("test")
-	checkpointStore := NewCheckpointStorage(db, testTracer)
-	store := NewEnumerationStateStorage(db, checkpointStore, testTracer)
+	checkpointStore := NewCheckpointStorage(db, noOpTracer())
+	store := NewEnumerationStateStorage(db, checkpointStore, noOpTracer())
 	ctx := context.Background()
 
 	return ctx, store, checkpointStore, cleanup
