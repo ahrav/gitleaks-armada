@@ -65,3 +65,7 @@ _testmain.go
 # Build artifacts
 /controller
 /scanner
+
+# Test coverage
+coverage.out
+coverage.html

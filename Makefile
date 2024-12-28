@@ -42,7 +42,7 @@ POSTGRES_URL = postgres://postgres:postgres@localhost:5432/secretscanner?sslmode
 # -------------------------------------------------------------------------------
 # Targets
 # -------------------------------------------------------------------------------
-.PHONY: all build-controller build-scanner docker-controller docker-scanner kind-up kind-down kind-load dev-apply dev-status clean proto proto-gen kafka-setup kafka-logs kafka-topics kafka-restart kafka-delete kafka-consumer-groups kafka-delete-topics kafka-reset create-config-secret monitoring-setup monitoring-port-forward monitoring-cleanup postgres-setup postgres-logs postgres-restart postgres-delete sqlc-proto-gen rollout-restart-controller rollout-restart-scanner rollout-restart
+.PHONY: all build-controller build-scanner docker-controller docker-scanner kind-up kind-down kind-load dev-apply dev-status clean proto proto-gen kafka-setup kafka-logs kafka-topics kafka-restart kafka-delete kafka-consumer-groups kafka-delete-topics kafka-reset create-config-secret monitoring-setup monitoring-port-forward monitoring-cleanup postgres-setup postgres-logs postgres-restart postgres-delete sqlc-proto-gen rollout-restart-controller rollout-restart-scanner rollout-restart test test-coverage
 
 all: build-all docker-all kind-load kafka-setup postgres-setup dev-apply create-config-secret monitoring-setup
 
@@ -433,3 +433,14 @@ monitoring-restart: tempo-restart grafana-restart prometheus-restart
 # Restart everything (monitoring + application)
 restart-all: monitoring-restart rollout-restart
 	@echo "All services restarted"
+
+# Test targets
+test:
+	@echo "Running all tests..."
+	go test -v -race -parallel=10 ./...
+
+test-coverage:
+	@echo "Running tests with coverage report..."
+	go test -v -race -coverprofile=coverage.out ./...
+	go tool cover -html=coverage.out -o coverage.html
+	@echo "Coverage report generated at coverage.html"
