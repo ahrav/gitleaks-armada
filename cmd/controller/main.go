@@ -24,8 +24,8 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/common/otel"
 	"github.com/ahrav/gitleaks-armada/pkg/config"
 	"github.com/ahrav/gitleaks-armada/pkg/controller"
+	"github.com/ahrav/gitleaks-armada/pkg/controller/metrics"
 	"github.com/ahrav/gitleaks-armada/pkg/messaging/kafka"
-	"github.com/ahrav/gitleaks-armada/pkg/metrics"
 	pg "github.com/ahrav/gitleaks-armada/pkg/storage/postgres"
 )
 
@@ -174,16 +174,16 @@ func main() {
 	}
 	log.Info(ctx, "Controller connected to Kafka")
 
-	m := metrics.New("controller")
+	metricCollector := metrics.New()
 	go func() {
-		if err := metrics.StartServer(":8081"); err != nil {
+		if err := common.RunMetricsServer(":8081"); err != nil {
 			log.Error(ctx, "metrics server error", "error", err)
 		}
 	}()
 
 	checkpointStorage := pg.NewCheckpointStorage(pool, tracer)
 	enumStateStorage := pg.NewEnumerationStateStorage(pool, checkpointStorage, tracer)
-	rulesStorage := pg.NewRulesStorage(pool, tracer)
+	rulesStorage := pg.NewRulesStorage(pool, tracer, metricCollector)
 	configLoader := config.NewFileLoader("/etc/scanner/config/config.yaml")
 
 	ctrl := controller.NewController(
@@ -195,7 +195,7 @@ func main() {
 		rulesStorage,
 		configLoader,
 		log,
-		m,
+		metricCollector,
 		tracer,
 	)
 	defer ctrl.Stop(ctx)

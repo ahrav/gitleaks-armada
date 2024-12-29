@@ -17,8 +17,8 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/common/otel"
 	"github.com/ahrav/gitleaks-armada/pkg/messaging/kafka"
-	"github.com/ahrav/gitleaks-armada/pkg/metrics"
 	"github.com/ahrav/gitleaks-armada/pkg/scanner"
+	"github.com/ahrav/gitleaks-armada/pkg/scanner/metrics"
 )
 
 func main() {
@@ -101,11 +101,11 @@ func main() {
 
 	log.Info(ctx, "Scanner connected to Kafka")
 
-	m := metrics.New("scanner")
-	scanner := scanner.NewScanner(ctx, hostname, broker, m, log, tracer)
+	metricsCollector := metrics.New()
+	scanner := scanner.NewScanner(ctx, hostname, broker, metricsCollector, log, tracer)
 
 	go func() {
-		if err := metrics.StartServer(":8081"); err != nil {
+		if err := common.RunMetricsServer(":8081"); err != nil {
 			log.Error(ctx, "metrics server error", "error", err)
 		}
 	}()

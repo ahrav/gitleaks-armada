@@ -14,8 +14,8 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/cluster"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/config"
+	"github.com/ahrav/gitleaks-armada/pkg/controller/metrics"
 	"github.com/ahrav/gitleaks-armada/pkg/messaging"
-	"github.com/ahrav/gitleaks-armada/pkg/metrics"
 	"github.com/ahrav/gitleaks-armada/pkg/storage"
 )
 
@@ -98,6 +98,7 @@ func (c *Controller) Run(ctx context.Context) (<-chan struct{}, error) {
 
 	c.coordinator.OnLeadershipChange(func(isLeader bool) {
 		c.logger.Info(ctx, "Leadership change", "controller_id", c.id, "is_leader", isLeader)
+		c.metrics.SetLeaderStatus(isLeader)
 
 		c.mu.Lock()
 		c.running = isLeader
@@ -198,8 +199,10 @@ func (c *Controller) Stop(ctx context.Context) error {
 func (c *Controller) ProcessTarget(ctx context.Context) error {
 	cfg, err := c.configLoader.Load(ctx)
 	if err != nil {
+		c.metrics.IncConfigReloadErrors()
 		return fmt.Errorf("controller[%s]: failed to load configuration: %w", c.id, err)
 	}
+	c.metrics.IncConfigReloads()
 
 	// Create new credential store with loaded config
 	credStore, err := NewCredentialStore(cfg.Auth)
@@ -210,6 +213,8 @@ func (c *Controller) ProcessTarget(ctx context.Context) error {
 	c.logger.Info(ctx, "Credential store updated successfully.", "controller_id", c.id)
 
 	for _, target := range cfg.Targets {
+		start := time.Now()
+
 		enumState := &storage.EnumerationState{
 			SessionID:      generateSessionID(),
 			SourceType:     string(target.SourceType),
@@ -225,8 +230,12 @@ func (c *Controller) ProcessTarget(ctx context.Context) error {
 
 		if err := c.doEnumeration(ctx, enumState); err != nil {
 			c.logger.Error(ctx, "Failed to enumerate target", "controller_id", c.id, "error", err)
+			continue
 		}
 
+		// Only record success metrics if target was processed without error.
+		c.metrics.ObserveTargetProcessingTime(time.Since(start))
+		c.metrics.IncTargetsProcessed()
 	}
 
 	return nil
@@ -237,73 +246,77 @@ func (c *Controller) ProcessTarget(ctx context.Context) error {
 // The function coordinates between the enumerator that produces tasks and the work queue
 // that distributes them to workers.
 func (c *Controller) doEnumeration(ctx context.Context, state *storage.EnumerationState) error {
-	// We need the target config and the auth config to initialize the credential store.
-	var combined struct {
-		config.TargetSpec
-		Auth config.AuthConfig `json:"auth,omitempty"`
-	}
-
-	if err := json.Unmarshal(state.Config, &combined); err != nil {
-		return fmt.Errorf("controller[%s]: failed to unmarshal target config: %w", c.id, err)
-	}
-
-	// Initialize credential store with the embedded auth config.
-	if combined.Auth.Type != "" {
-		credStore, err := NewCredentialStore(map[string]config.AuthConfig{
-			combined.AuthRef: combined.Auth,
-		})
-		if err != nil {
-			return fmt.Errorf("controller[%s]: failed to initialize credential store: %w", c.id, err)
+	return c.metrics.TrackEnumeration(func() error {
+		// We need the target config and the auth config to initialize the credential store.
+		var combined struct {
+			config.TargetSpec
+			Auth config.AuthConfig `json:"auth,omitempty"`
 		}
-		c.credStore = credStore
-	}
 
-	enumerator, err := c.createEnumerator(combined.TargetSpec)
-	if err != nil {
-		return fmt.Errorf("controller[%s]: %w", c.id, err)
-	}
-
-	if state.Status == storage.StatusInitialized {
-		state.UpdateStatus(storage.StatusInProgress)
-		if saveErr := c.enumerationStateStorage.Save(ctx, state); saveErr != nil {
-			return fmt.Errorf("controller[%s]: failed to mark enumeration state InProgress: %w", c.id, saveErr)
+		if err := json.Unmarshal(state.Config, &combined); err != nil {
+			return fmt.Errorf("controller[%s]: failed to unmarshal target config: %w", c.id, err)
 		}
-	}
 
-	taskCh := make(chan []messaging.Task)
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for tasks := range taskCh {
-			if err := c.workQueue.PublishTasks(ctx, tasks); err != nil {
-				c.logger.Error(ctx, "Failed to publish tasks", "controller_id", c.id, "error", err)
-				return
+		// Initialize credential store with the embedded auth config.
+		if combined.Auth.Type != "" {
+			credStore, err := NewCredentialStore(map[string]config.AuthConfig{
+				combined.AuthRef: combined.Auth,
+			})
+			if err != nil {
+				return fmt.Errorf("controller[%s]: failed to initialize credential store: %w", c.id, err)
 			}
-			c.logger.Info(ctx, "Published batch of tasks", "controller_id", c.id, "num_tasks", len(tasks))
+			c.credStore = credStore
 		}
-	}()
 
-	if err := enumerator.Enumerate(ctx, state, taskCh); err != nil {
-		state.UpdateStatus(storage.StatusFailed)
-		if saveErr := c.enumerationStateStorage.Save(ctx, state); saveErr != nil {
-			c.logger.Error(ctx, "Failed to save enumeration state after error", "controller_id", c.id, "error", saveErr)
+		enumerator, err := c.createEnumerator(combined.TargetSpec)
+		if err != nil {
+			return fmt.Errorf("controller[%s]: %w", c.id, err)
 		}
+
+		if state.Status == storage.StatusInitialized {
+			state.UpdateStatus(storage.StatusInProgress)
+			if saveErr := c.enumerationStateStorage.Save(ctx, state); saveErr != nil {
+				return fmt.Errorf("controller[%s]: failed to mark enumeration state InProgress: %w", c.id, saveErr)
+			}
+		}
+
+		taskCh := make(chan []messaging.Task)
+		var wg sync.WaitGroup
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for tasks := range taskCh {
+				if err := c.workQueue.PublishTasks(ctx, tasks); err != nil {
+					c.logger.Error(ctx, "Failed to publish tasks", "controller_id", c.id, "error", err)
+					c.metrics.IncTasksFailedToEnqueue()
+					return
+				}
+				c.metrics.IncTasksEnqueued()
+				c.logger.Info(ctx, "Published batch of tasks", "controller_id", c.id, "num_tasks", len(tasks))
+			}
+		}()
+
+		if err := enumerator.Enumerate(ctx, state, taskCh); err != nil {
+			state.UpdateStatus(storage.StatusFailed)
+			if saveErr := c.enumerationStateStorage.Save(ctx, state); saveErr != nil {
+				c.logger.Error(ctx, "Failed to save enumeration state after error", "controller_id", c.id, "error", saveErr)
+			}
+			close(taskCh)
+			wg.Wait()
+			return fmt.Errorf("controller[%s]: enumeration failed: %w", c.id, err)
+		}
+
+		state.UpdateStatus(storage.StatusCompleted)
+		if err := c.enumerationStateStorage.Save(ctx, state); err != nil {
+			close(taskCh)
+			wg.Wait()
+			return fmt.Errorf("controller[%s]: failed to save enumeration state: %w", c.id, err)
+		}
+
 		close(taskCh)
 		wg.Wait()
-		return fmt.Errorf("controller[%s]: enumeration failed: %w", c.id, err)
-	}
-
-	state.UpdateStatus(storage.StatusCompleted)
-	if err := c.enumerationStateStorage.Save(ctx, state); err != nil {
-		close(taskCh)
-		wg.Wait()
-		return fmt.Errorf("controller[%s]: failed to save enumeration state: %w", c.id, err)
-	}
-
-	close(taskCh)
-	wg.Wait()
-	return nil
+		return nil
+	})
 }
 
 // createEnumerator constructs the appropriate target enumerator based on the source type.
@@ -378,15 +391,15 @@ func (c *Controller) marshalConfig(ctx context.Context, target config.TargetSpec
 // This allows tracking individual tasks through the processing pipeline.
 func generateTaskID() string { return uuid.New().String() }
 
-func (c *Controller) handleRules(ctx context.Context, rules messaging.GitleaksRuleSet) error {
+func (c *Controller) handleRules(ctx context.Context, ruleset messaging.GitleaksRuleSet) error {
 	ctx, span := c.tracer.Start(ctx, "controller.handleRules")
 	defer span.End()
 
-	if err := c.rulesStorage.SaveRuleset(ctx, rules); err != nil {
+	if err := c.rulesStorage.SaveRuleset(ctx, ruleset); err != nil {
 		span.RecordError(err)
 		return fmt.Errorf("controller[%s]: failed to save ruleset: %w", c.id, err)
 	}
 
-	c.logger.Info(ctx, "Received and stored new ruleset", "controller_id", c.id, "num_rules", len(rules.Rules))
+	c.logger.Info(ctx, "Received and stored new ruleset", "controller_id", c.id, "num_rules", len(ruleset.Rules))
 	return nil
 }

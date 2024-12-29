@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ahrav/gitleaks-armada/pkg/controller/metrics"
 	"github.com/ahrav/gitleaks-armada/pkg/messaging"
 )
 
@@ -16,7 +17,8 @@ func TestRulesStorage_SaveRuleset(t *testing.T) {
 	dbConn, cleanup := setupTestContainer(t)
 	defer cleanup()
 
-	rulesStorage := NewRulesStorage(dbConn, noOpTracer())
+	// TODO: Replace this with a mock metrics implementation.
+	rulesStorage := NewRulesStorage(dbConn, noOpTracer(), new(metrics.Controller))
 
 	ruleset := messaging.GitleaksRuleSet{
 		Rules: []messaging.GitleaksRule{

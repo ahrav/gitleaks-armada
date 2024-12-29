@@ -34,7 +34,7 @@ func NewGitLeaksScanner(
 	tracer trace.Tracer,
 ) *GitLeaksScanner {
 	detector := setupGitleaksDetector()
-	if err := publishRulesOnStartup(ctx, broker, detector, tracer); err != nil {
+	if err := publishRulesOnStartup(ctx, broker, detector, logger, tracer); err != nil {
 		logger.Error(ctx, "failed to publish rules on startup", "error", err)
 	}
 
@@ -147,6 +147,7 @@ func publishRulesOnStartup(
 	ctx context.Context,
 	broker messaging.Broker,
 	detector *detect.Detector,
+	logger *logger.Logger,
 	tracer trace.Tracer,
 ) error {
 	ctx, span := tracer.Start(ctx, "gitleaks.publish_rules",
@@ -160,6 +161,7 @@ func publishRulesOnStartup(
 		span.RecordError(err)
 		return fmt.Errorf("failed to publish rules: %w", err)
 	}
+	logger.Info(ctx, "Published rules", "rules_count", len(rules.Rules))
 
 	return nil
 }

@@ -23,18 +23,29 @@ var _ storage.RulesStorage = (*RulesStorage)(nil)
 // It handles atomic updates of rule sets and their associated allowlist components to maintain
 // data consistency.
 type RulesStorage struct {
-	q      *db.Queries
-	conn   *pgxpool.Pool
-	tracer trace.Tracer
+	q       *db.Queries
+	conn    *pgxpool.Pool
+	tracer  trace.Tracer
+	metrics RulesMetrics
+}
+
+// RulesMetrics defines the interface for tracking metrics related to rule operations.
+type RulesMetrics interface {
+	// AddRulesPublished increments the counter for successfully published rules by the given count.
+	AddRulesPublished(count int)
+
+	// IncRulePublishErrors increments the counter for rule publish failures.
+	IncRulePublishErrors()
 }
 
 // NewRulesStorage creates a new PostgreSQL-backed rules storage. It initializes the underlying
 // database queries and tracing components needed for rule persistence and monitoring.
-func NewRulesStorage(conn *pgxpool.Pool, tracer trace.Tracer) *RulesStorage {
+func NewRulesStorage(conn *pgxpool.Pool, tracer trace.Tracer, metrics RulesMetrics) *RulesStorage {
 	return &RulesStorage{
-		q:      db.New(conn),
-		conn:   conn,
-		tracer: tracer,
+		q:       db.New(conn),
+		conn:    conn,
+		tracer:  tracer,
+		metrics: metrics,
 	}
 }
 
@@ -102,7 +113,7 @@ func (s *RulesStorage) SaveRuleset(ctx context.Context, ruleset messaging.Gitlea
 	return executeAndTrace(ctx, s.tracer, "postgres.save_ruleset", []attribute.KeyValue{
 		attribute.Int("rule_count", len(ruleset.Rules)),
 	}, func(ctx context.Context) error {
-		return pgx.BeginTxFunc(ctx, s.conn, pgx.TxOptions{IsoLevel: pgx.Serializable}, func(tx pgx.Tx) error {
+		err := pgx.BeginTxFunc(ctx, s.conn, pgx.TxOptions{IsoLevel: pgx.Serializable}, func(tx pgx.Tx) error {
 			qtx := s.q.WithTx(tx)
 
 			for _, rule := range ruleset.Rules {
@@ -156,6 +167,14 @@ func (s *RulesStorage) SaveRuleset(ctx context.Context, ruleset messaging.Gitlea
 			}
 			return nil
 		})
+
+		if err != nil {
+			s.metrics.IncRulePublishErrors()
+			return err
+		}
+
+		s.metrics.AddRulesPublished(len(ruleset.Rules))
+		return nil
 	})
 }
 

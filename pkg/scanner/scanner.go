@@ -13,7 +13,7 @@ import (
 
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/messaging"
-	"github.com/ahrav/gitleaks-armada/pkg/metrics"
+	"github.com/ahrav/gitleaks-armada/pkg/scanner/metrics"
 )
 
 // Scanner processes repository scanning tasks received from a message broker.
