@@ -71,17 +71,17 @@ type resultsHandler struct {
 }
 
 func (h *resultsHandler) Setup(sess sarama.ConsumerGroupSession) error {
-	logSetup(h.logger, h.clientID, sess)
+	logSetup(h.logger, h.clientID, h.resultsTopic, sess)
 	return nil
 }
 
 func (h *resultsHandler) Cleanup(sess sarama.ConsumerGroupSession) error {
-	logCleanup(h.logger, h.clientID, sess)
+	logCleanup(h.logger, h.clientID, h.resultsTopic, sess)
 	return nil
 }
 
 func (h *resultsHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
-	logPartitionStart(h.logger, h.clientID, claim.Partition(), sess.MemberID())
+	logPartitionStart(h.logger, h.clientID, h.resultsTopic, claim.Partition(), sess.MemberID())
 	for msg := range claim.Messages() {
 		msgCtx := tracing.ExtractTraceContext(sess.Context(), msg)
 		msgCtx, span := tracing.StartConsumerSpan(msgCtx, msg, h.tracer)

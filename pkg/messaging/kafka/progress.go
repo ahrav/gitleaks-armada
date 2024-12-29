@@ -70,17 +70,17 @@ type progressHandler struct {
 }
 
 func (h *progressHandler) Setup(sess sarama.ConsumerGroupSession) error {
-	logSetup(h.logger, h.clientID, sess)
+	logSetup(h.logger, h.clientID, h.progressTopic, sess)
 	return nil
 }
 
 func (h *progressHandler) Cleanup(sess sarama.ConsumerGroupSession) error {
-	logCleanup(h.logger, h.clientID, sess)
+	logCleanup(h.logger, h.clientID, h.progressTopic, sess)
 	return nil
 }
 
 func (h *progressHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
-	logPartitionStart(h.logger, h.clientID, claim.Partition(), sess.MemberID())
+	logPartitionStart(h.logger, h.clientID, h.progressTopic, claim.Partition(), sess.MemberID())
 	for msg := range claim.Messages() {
 		msgCtx := tracing.ExtractTraceContext(sess.Context(), msg)
 		msgCtx, span := tracing.StartConsumerSpan(msgCtx, msg, h.tracer)

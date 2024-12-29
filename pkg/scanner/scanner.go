@@ -124,7 +124,6 @@ func (s *Scanner) worker(ctx context.Context, id int, taskCh <-chan messaging.Ta
 // to the configured scanner implementation.
 func (s *Scanner) handleScanTask(ctx context.Context, task messaging.Task) error {
 	s.logger.Info(ctx, "Scanning repository", "scanner_id", s.id, "resource_uri", task.ResourceURI)
-	s.metrics.IncTasksDequeued()
 
 	// Start a new span for the entire task processing
 	ctx, span := s.tracer.Start(ctx, "process_scan_task",

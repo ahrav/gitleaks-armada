@@ -5,12 +5,16 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+
+	"github.com/ahrav/gitleaks-armada/pkg/messaging/kafka"
 )
 
 // ScannerMetrics defines metrics operations needed by the scanner.
 type ScannerMetrics interface {
+	// Messaging metrics
+	kafka.BrokerMetrics
+
 	// Task metrics
-	IncTasksDequeued()
 	IncTasksProcessed()
 	IncTaskErrors()
 	TrackTask(f func() error) error
@@ -21,8 +25,6 @@ type ScannerMetrics interface {
 
 	// Finding metrics
 	ObserveFindings(count int)
-	IncFindingsPublished()
-	IncFindingPublishErrors()
 
 	// Worker metrics
 	SetActiveWorkers(count int)
@@ -32,7 +34,11 @@ type ScannerMetrics interface {
 // Scanner implements ScannerMetrics
 type Scanner struct {
 	// Task metrics
-	TasksDequeued   prometheus.Counter
+	MessagesPublished *prometheus.CounterVec // labels: topic
+	MessagesConsumed  *prometheus.CounterVec // labels: topic
+	PublishErrors     *prometheus.CounterVec // labels: topic
+	ConsumeErrors     *prometheus.CounterVec // labels: topic
+
 	TasksProcessed  prometheus.Counter
 	TaskErrors      prometheus.Counter
 	ActiveTasks     prometheus.Gauge
@@ -44,8 +50,6 @@ type Scanner struct {
 
 	// Finding metrics
 	FindingsPerTask      prometheus.Histogram
-	FindingsPublished    prometheus.Counter
-	FindingPublishErrors prometheus.Counter
 	LastFindingFoundTime prometheus.Gauge
 
 	// Worker metrics
@@ -59,11 +63,27 @@ const namespace = "scanner"
 func New() *Scanner {
 	return &Scanner{
 		// Task metrics
-		TasksDequeued: promauto.NewCounter(prometheus.CounterOpts{
+		MessagesPublished: promauto.NewCounterVec(prometheus.CounterOpts{
 			Namespace: namespace,
-			Name:      "tasks_dequeued_total",
-			Help:      "Total number of tasks consumed from Kafka",
-		}),
+			Name:      "messages_published_total",
+			Help:      "Total number of messages published",
+		}, []string{"topic"}),
+		MessagesConsumed: promauto.NewCounterVec(prometheus.CounterOpts{
+			Namespace: namespace,
+			Name:      "messages_consumed_total",
+			Help:      "Total number of messages consumed",
+		}, []string{"topic"}),
+		PublishErrors: promauto.NewCounterVec(prometheus.CounterOpts{
+			Namespace: namespace,
+			Name:      "publish_errors_total",
+			Help:      "Total number of publish errors",
+		}, []string{"topic"}),
+		ConsumeErrors: promauto.NewCounterVec(prometheus.CounterOpts{
+			Namespace: namespace,
+			Name:      "consume_errors_total",
+			Help:      "Total number of consume errors",
+		}, []string{"topic"}),
+
 		TasksProcessed: promauto.NewCounter(prometheus.CounterOpts{
 			Namespace: namespace,
 			Name:      "tasks_processed_total",
@@ -106,16 +126,6 @@ func New() *Scanner {
 			Help:      "Number of findings discovered per task",
 			Buckets:   prometheus.LinearBuckets(0, 5, 20),
 		}),
-		FindingsPublished: promauto.NewCounter(prometheus.CounterOpts{
-			Namespace: namespace,
-			Name:      "findings_published_total",
-			Help:      "Total number of findings published",
-		}),
-		FindingPublishErrors: promauto.NewCounter(prometheus.CounterOpts{
-			Namespace: namespace,
-			Name:      "finding_publish_errors_total",
-			Help:      "Total number of finding publish errors",
-		}),
 		LastFindingFoundTime: promauto.NewGauge(prometheus.GaugeOpts{
 			Namespace: namespace,
 			Name:      "last_finding_timestamp",
@@ -137,8 +147,6 @@ func New() *Scanner {
 }
 
 // Task metrics implementations
-func (m *Scanner) IncTasksDequeued() { m.TasksDequeued.Inc() }
-
 func (m *Scanner) IncTasksProcessed() { m.TasksProcessed.Inc() }
 
 func (m *Scanner) IncTaskErrors() { m.TaskErrors.Inc() }
@@ -166,11 +174,24 @@ func (m *Scanner) ObserveFindings(count int) {
 	m.LastFindingFoundTime.SetToCurrentTime()
 }
 
-func (m *Scanner) IncFindingsPublished() { m.FindingsPublished.Inc() }
-
-func (m *Scanner) IncFindingPublishErrors() { m.FindingPublishErrors.Inc() }
-
 // Worker metrics implementations
 func (m *Scanner) SetActiveWorkers(count int) { m.ActiveWorkers.Set(float64(count)) }
 
 func (m *Scanner) IncWorkerErrors() { m.WorkerErrors.Inc() }
+
+// Kafka BrokerMetrics implementations
+func (m *Scanner) IncMessagePublished(topic string) {
+	m.MessagesPublished.WithLabelValues(topic).Inc()
+}
+
+func (m *Scanner) IncMessageConsumed(topic string) {
+	m.MessagesConsumed.WithLabelValues(topic).Inc()
+}
+
+func (m *Scanner) IncPublishError(topic string) {
+	m.PublishErrors.WithLabelValues(topic).Inc()
+}
+
+func (m *Scanner) IncConsumeError(topic string) {
+	m.ConsumeErrors.WithLabelValues(topic).Inc()
+}

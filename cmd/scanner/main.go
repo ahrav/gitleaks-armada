@@ -83,6 +83,13 @@ func main() {
 	}
 	defer tracingTeardown(ctx)
 
+	metricsCollector := metrics.New()
+	go func() {
+		if err := common.RunMetricsServer(":8081"); err != nil {
+			log.Error(ctx, "metrics server error", "error", err)
+		}
+	}()
+
 	tracer := traceProvider.Tracer(os.Getenv("TEMPO_SERVICE_NAME"))
 
 	kafkaCfg := &kafka.Config{
@@ -93,7 +100,7 @@ func main() {
 		GroupID:      os.Getenv("KAFKA_GROUP_ID"),
 		ClientID:     fmt.Sprintf("scanner-%s", hostname),
 	}
-	broker, err := kafka.ConnectWithRetry(kafkaCfg, log, tracer)
+	broker, err := kafka.ConnectWithRetry(kafkaCfg, log, metricsCollector, tracer)
 	if err != nil {
 		log.Error(ctx, "failed to create kafka broker", "error", err)
 		os.Exit(1)
@@ -101,14 +108,7 @@ func main() {
 
 	log.Info(ctx, "Scanner connected to Kafka")
 
-	metricsCollector := metrics.New()
 	scanner := scanner.NewScanner(ctx, hostname, broker, metricsCollector, log, tracer)
-
-	go func() {
-		if err := common.RunMetricsServer(":8081"); err != nil {
-			log.Error(ctx, "metrics server error", "error", err)
-		}
-	}()
 
 	ready.Store(true)
 

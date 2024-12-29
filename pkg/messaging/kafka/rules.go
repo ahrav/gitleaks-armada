@@ -28,11 +28,13 @@ func (k *Broker) PublishRules(ctx context.Context, rules messaging.GitleaksRuleS
 	data, err := proto.Marshal(pbRules)
 	if err != nil {
 		span.RecordError(err)
+		k.metrics.IncPublishError(k.rulesTopic)
 		return fmt.Errorf("failed to marshal GitleaksRuleSet: %w", err)
 	}
 
 	msg := &sarama.ProducerMessage{
 		Topic: k.rulesTopic,
+		Key:   sarama.StringEncoder(rules.Hash),
 		Value: sarama.ByteEncoder(data),
 	}
 	tracing.InjectTraceContext(ctx, msg)
@@ -40,8 +42,12 @@ func (k *Broker) PublishRules(ctx context.Context, rules messaging.GitleaksRuleS
 	_, _, err = k.producer.SendMessage(msg)
 	if err != nil {
 		span.RecordError(err)
+		k.metrics.IncPublishError(k.rulesTopic)
+		return fmt.Errorf("failed to send message: %w", err)
 	}
-	return err
+
+	k.metrics.IncMessagePublished(k.rulesTopic)
+	return nil
 }
 
 // SubscribeRules registers a handler function to process incoming scanning rules.
@@ -53,6 +59,7 @@ func (k *Broker) SubscribeRules(ctx context.Context, handler func(context.Contex
 		clientID:   k.clientID,
 		tracer:     k.tracer,
 		logger:     k.logger,
+		metrics:    k.metrics,
 	}
 
 	k.logger.Info(context.Background(), "Subscribing to rules topic", "client_id", k.clientID, "topic", k.rulesTopic)
@@ -66,23 +73,29 @@ type rulesHandler struct {
 	rulesTopic string
 	handler    func(context.Context, messaging.GitleaksRuleSet) error
 
-	tracer trace.Tracer
-	logger *logger.Logger
+	tracer  trace.Tracer
+	logger  *logger.Logger
+	metrics BrokerMetrics
 }
 
 func (h *rulesHandler) Setup(sess sarama.ConsumerGroupSession) error {
-	logSetup(h.logger, h.clientID, sess)
+	logSetup(h.logger, h.clientID, h.rulesTopic, sess)
 	return nil
 }
 
 func (h *rulesHandler) Cleanup(sess sarama.ConsumerGroupSession) error {
-	logCleanup(h.logger, h.clientID, sess)
+	logCleanup(h.logger, h.clientID, h.rulesTopic, sess)
 	return nil
 }
 
 func (h *rulesHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
-	logPartitionStart(h.logger, h.clientID, claim.Partition(), sess.MemberID())
+	logPartitionStart(h.logger, h.clientID, h.rulesTopic, claim.Partition(), sess.MemberID())
 	for msg := range claim.Messages() {
+		h.logger.Info(sess.Context(), "Received message on rules topic",
+			"client_id", h.clientID,
+			"partition", claim.Partition(),
+			"offset", msg.Offset)
+
 		msgCtx := tracing.ExtractTraceContext(sess.Context(), msg)
 		msgCtx, span := tracing.StartConsumerSpan(msgCtx, msg, h.tracer)
 
@@ -91,12 +104,21 @@ func (h *rulesHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, claim sara
 			span.RecordError(err)
 			span.End()
 			sess.MarkMessage(msg, "")
+			h.metrics.IncConsumeError(h.rulesTopic)
 			continue
 		}
 
 		rules := messaging.ProtoToGitleaksRuleSet(&pbRules)
 		if err := h.handler(msgCtx, rules); err != nil {
 			span.RecordError(err)
+			h.metrics.IncConsumeError(h.rulesTopic)
+			h.logger.Error(msgCtx, "Failed to handle rules message",
+				"client_id", h.clientID,
+				"error", err)
+		} else {
+			h.metrics.IncMessageConsumed(h.rulesTopic)
+			h.logger.Info(msgCtx, "Successfully processed rules message",
+				"client_id", h.clientID)
 		}
 
 		span.End()

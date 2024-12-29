@@ -12,6 +12,14 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/messaging"
 )
 
+// BrokerMetrics defines the subset of metrics operations needed by the broker.
+type BrokerMetrics interface {
+	IncMessagePublished(topic string)
+	IncMessageConsumed(topic string)
+	IncPublishError(topic string)
+	IncConsumeError(topic string)
+}
+
 // Config contains settings for connecting to and interacting with Kafka brokers.
 // It defines the topics, consumer group, and client identifiers needed for message routing.
 type Config struct {
@@ -49,14 +57,15 @@ type Broker struct {
 	progressTopic string
 	rulesTopic    string
 
-	logger *logger.Logger
-	tracer trace.Tracer
+	logger  *logger.Logger
+	metrics BrokerMetrics
+	tracer  trace.Tracer
 }
 
 // NewBroker creates a new Kafka broker with the provided configuration.
 // It sets up both a producer and consumer group with appropriate settings
 // for reliable message delivery and consumption.
-func NewBroker(cfg *Config, logger *logger.Logger, tracer trace.Tracer) (*Broker, error) {
+func NewBroker(cfg *Config, logger *logger.Logger, metrics BrokerMetrics, tracer trace.Tracer) (*Broker, error) {
 	// Configure the producer for reliable delivery with acknowledgments.
 	producerConfig := sarama.NewConfig()
 	producerConfig.Producer.RequiredAcks = sarama.WaitForAll
@@ -75,8 +84,9 @@ func NewBroker(cfg *Config, logger *logger.Logger, tracer trace.Tracer) (*Broker
 	consumerConfig.ClientID = cfg.ClientID
 	consumerConfig.Consumer.Group.Rebalance.Strategy = sarama.NewBalanceStrategyRoundRobin()
 
-	// Start from newest offset to avoid processing historical messages.
-	consumerConfig.Consumer.Offsets.Initial = sarama.OffsetNewest
+	// Start from the oldest offset as this ensures we don't miss any messages
+	// published before the broker was started.
+	consumerConfig.Consumer.Offsets.Initial = sarama.OffsetOldest
 
 	// Configure session management timeouts.
 	consumerConfig.Consumer.Group.Session.Timeout = 20 * time.Second
@@ -103,5 +113,6 @@ func NewBroker(cfg *Config, logger *logger.Logger, tracer trace.Tracer) (*Broker
 		clientID:      cfg.ClientID,
 		logger:        logger,
 		tracer:        tracer,
+		metrics:       metrics,
 	}, nil
 }

@@ -16,6 +16,15 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/storage"
 )
 
+// RulesMetrics defines the interface for tracking metrics related to rule operations.
+type RulesMetrics interface {
+	// AddRulesPublished increments the counter for successfully published rules by the given count.
+	AddRulesSaved(count int)
+
+	// IncRuleSaveErrors increments the counter for rule save failures.
+	IncRuleSaveErrors()
+}
+
 // Compile-time check that RulesStorage implements storage.RulesStorage.
 var _ storage.RulesStorage = (*RulesStorage)(nil)
 
@@ -27,15 +36,6 @@ type RulesStorage struct {
 	conn    *pgxpool.Pool
 	tracer  trace.Tracer
 	metrics RulesMetrics
-}
-
-// RulesMetrics defines the interface for tracking metrics related to rule operations.
-type RulesMetrics interface {
-	// AddRulesPublished increments the counter for successfully published rules by the given count.
-	AddRulesPublished(count int)
-
-	// IncRulePublishErrors increments the counter for rule publish failures.
-	IncRulePublishErrors()
 }
 
 // NewRulesStorage creates a new PostgreSQL-backed rules storage. It initializes the underlying
@@ -169,11 +169,11 @@ func (s *RulesStorage) SaveRuleset(ctx context.Context, ruleset messaging.Gitlea
 		})
 
 		if err != nil {
-			s.metrics.IncRulePublishErrors()
+			s.metrics.IncRuleSaveErrors()
 			return err
 		}
 
-		s.metrics.AddRulesPublished(len(ruleset.Rules))
+		s.metrics.AddRulesSaved(len(ruleset.Rules))
 		return nil
 	})
 }

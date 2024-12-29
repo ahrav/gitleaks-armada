@@ -156,6 +156,13 @@ func main() {
 	}
 	defer tracingTeardown(ctx)
 
+	metricCollector := metrics.New()
+	go func() {
+		if err := common.RunMetricsServer(":8081"); err != nil {
+			log.Error(ctx, "metrics server error", "error", err)
+		}
+	}()
+
 	tracer := traceProvider.Tracer(os.Getenv("TEMPO_SERVICE_NAME"))
 
 	kafkaCfg := &kafka.Config{
@@ -165,21 +172,14 @@ func main() {
 		RulesTopic:    os.Getenv("KAFKA_RULES_TOPIC"),
 		GroupID:       os.Getenv("KAFKA_GROUP_ID"),
 		ProgressTopic: os.Getenv("KAFKA_PROGRESS_TOPIC"),
-		ClientID:      fmt.Sprintf("scanner-%s", hostname),
+		ClientID:      fmt.Sprintf("controller-%s", hostname),
 	}
-	broker, err := kafka.ConnectWithRetry(kafkaCfg, log, tracer)
+	broker, err := kafka.ConnectWithRetry(kafkaCfg, log, metricCollector, tracer)
 	if err != nil {
 		log.Error(ctx, "failed to create kafka broker", "error", err)
 		os.Exit(1)
 	}
 	log.Info(ctx, "Controller connected to Kafka")
-
-	metricCollector := metrics.New()
-	go func() {
-		if err := common.RunMetricsServer(":8081"); err != nil {
-			log.Error(ctx, "metrics server error", "error", err)
-		}
-	}()
 
 	checkpointStorage := pg.NewCheckpointStorage(pool, tracer)
 	enumStateStorage := pg.NewEnumerationStateStorage(pool, checkpointStorage, tracer)

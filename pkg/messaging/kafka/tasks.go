@@ -34,6 +34,7 @@ func (k *Broker) PublishTask(ctx context.Context, task messaging.Task) error {
 	data, err := proto.Marshal(pbTask)
 	if err != nil {
 		span.RecordError(err)
+		k.metrics.IncPublishError(k.taskTopic)
 		return fmt.Errorf("failed to marshal ScanTask: %w", err)
 	}
 
@@ -47,7 +48,10 @@ func (k *Broker) PublishTask(ctx context.Context, task messaging.Task) error {
 	_, _, err = k.producer.SendMessage(msg)
 	if err != nil {
 		span.RecordError(err)
+		k.metrics.IncPublishError(k.taskTopic)
 	}
+	k.metrics.IncMessagePublished(k.taskTopic)
+
 	return err
 }
 
@@ -71,6 +75,7 @@ func (k *Broker) SubscribeTasks(ctx context.Context, handler func(context.Contex
 		clientID:  k.clientID,
 		tracer:    k.tracer,
 		logger:    k.logger,
+		metrics:   k.metrics,
 	}
 
 	k.logger.Info(ctx, "Subscribing to tasks topic", "client_id", k.clientID, "topic", k.taskTopic)
@@ -84,22 +89,23 @@ type taskHandler struct {
 	taskTopic string
 	handler   func(context.Context, messaging.Task) error
 
-	tracer trace.Tracer
-	logger *logger.Logger
+	tracer  trace.Tracer
+	metrics BrokerMetrics
+	logger  *logger.Logger
 }
 
 func (h *taskHandler) Setup(sess sarama.ConsumerGroupSession) error {
-	logSetup(h.logger, h.clientID, sess)
+	logSetup(h.logger, h.clientID, h.taskTopic, sess)
 	return nil
 }
 
 func (h *taskHandler) Cleanup(sess sarama.ConsumerGroupSession) error {
-	logCleanup(h.logger, h.clientID, sess)
+	logCleanup(h.logger, h.clientID, h.taskTopic, sess)
 	return nil
 }
 
 func (h *taskHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
-	logPartitionStart(h.logger, h.clientID, claim.Partition(), sess.MemberID())
+	logPartitionStart(h.logger, h.clientID, h.taskTopic, claim.Partition(), sess.MemberID())
 	for msg := range claim.Messages() {
 		msgCtx := tracing.ExtractTraceContext(sess.Context(), msg)
 		msgCtx, span := tracing.StartConsumerSpan(msgCtx, msg, h.tracer)
@@ -107,6 +113,7 @@ func (h *taskHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, claim saram
 		var pbTask pb.ScanTask
 		if err := proto.Unmarshal(msg.Value, &pbTask); err != nil {
 			span.RecordError(err)
+			h.metrics.IncConsumeError(h.taskTopic)
 			span.End()
 			sess.MarkMessage(msg, "")
 			continue
@@ -120,6 +127,9 @@ func (h *taskHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, claim saram
 
 		if err := h.handler(msgCtx, task); err != nil {
 			span.RecordError(err)
+			h.metrics.IncConsumeError(h.taskTopic)
+		} else {
+			h.metrics.IncMessageConsumed(h.taskTopic)
 		}
 
 		span.End()

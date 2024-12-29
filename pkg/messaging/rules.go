@@ -1,6 +1,13 @@
 package messaging
 
-import pb "github.com/ahrav/gitleaks-armada/proto/scanner"
+import (
+	"crypto/md5"
+	"encoding/hex"
+	"fmt"
+	"sort"
+
+	pb "github.com/ahrav/gitleaks-armada/proto/scanner"
+)
 
 // GitleaksRule is your domain representation of a scanning rule.
 type GitleaksRule struct {
@@ -36,6 +43,29 @@ const (
 // GitleaksRuleSet is a container for multiple GitleaksRule.
 type GitleaksRuleSet struct {
 	Rules []GitleaksRule
+	Hash  string
+}
+
+// Hash generates a deterministic MD5 hash of the essential ruleset content.
+func (rs GitleaksRuleSet) GenerateHash() string {
+	h := md5.New()
+
+	// Sort rules by RuleID to ensure consistent ordering.
+	rules := make([]GitleaksRule, len(rs.Rules))
+	copy(rules, rs.Rules)
+	sort.Slice(rules, func(i, j int) bool {
+		return rules[i].RuleID < rules[j].RuleID
+	})
+
+	// Only hash essential fields that would affect detection.
+	// TODO: Double check this is correct.
+	for _, r := range rules {
+		h.Write([]byte(r.RuleID))
+		h.Write([]byte(r.Regex))
+		h.Write([]byte(fmt.Sprintf("%f", r.Entropy)))
+	}
+
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 func (rs GitleaksRuleSet) ToProto() *pb.RuleSet {
@@ -43,7 +73,10 @@ func (rs GitleaksRuleSet) ToProto() *pb.RuleSet {
 	for _, r := range rs.Rules {
 		protoRules = append(protoRules, ruleToProto(r))
 	}
-	return &pb.RuleSet{Rules: protoRules}
+	return &pb.RuleSet{
+		Rules:       protoRules,
+		ContentHash: rs.Hash,
+	}
 }
 
 func ruleToProto(r GitleaksRule) *pb.Rule {
@@ -92,7 +125,10 @@ func ProtoToGitleaksRuleSet(rs *pb.RuleSet) GitleaksRuleSet {
 	for _, pr := range rs.Rules {
 		rules = append(rules, protoToRule(pr))
 	}
-	return GitleaksRuleSet{Rules: rules}
+	return GitleaksRuleSet{
+		Rules: rules,
+		Hash:  rs.ContentHash,
+	}
 }
 
 func protoToRule(pr *pb.Rule) GitleaksRule {

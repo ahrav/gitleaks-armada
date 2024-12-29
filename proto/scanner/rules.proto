@@ -1,4 +1,3 @@
-
 syntax = "proto3";
 
 package scanner;
@@ -64,8 +63,9 @@ message Rule {
 
 // A container for one or more rules. Often you might send them in a batch.
 message RuleSet {
-  // If you want a versioning scheme, you can add it here.
-  // string version = 1;
-
   repeated Rule rules = 1;
+
+  // MD5 hash of essential rule contents for deduplication.
+  string content_hash = 2;
+  // string version = 3;
 }

@@ -157,6 +157,11 @@ func publishRulesOnStartup(
 	defer span.End()
 
 	rules := convertDetectorConfigToRuleSet(detector.Config.Rules)
+	// We need to generate a hash of the ruleset to ensure that we don't
+	// process the same ruleset multiple times.
+	// This avoids additional load on the storage layer.
+	rules.Hash = rules.GenerateHash()
+
 	if err := broker.PublishRules(ctx, rules); err != nil {
 		span.RecordError(err)
 		return fmt.Errorf("failed to publish rules: %w", err)

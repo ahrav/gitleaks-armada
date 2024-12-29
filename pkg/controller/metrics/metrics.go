@@ -3,16 +3,15 @@ package metrics
 import (
 	"time"
 
+	"github.com/ahrav/gitleaks-armada/pkg/messaging/kafka"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
 // ControllerMetrics defines metrics operations needed by the controller.
 type ControllerMetrics interface {
-	// Task metrics
-	IncTasksEnqueued()
-	IncTasksRetried()
-	IncTasksFailedToEnqueue()
+	// Messaging metrics
+	kafka.BrokerMetrics
 
 	// Enumeration metrics
 	TrackEnumeration(f func() error) error
@@ -28,13 +27,19 @@ type ControllerMetrics interface {
 	IncConfigReloads()
 	IncConfigReloadErrors()
 
-	// Rule metrics
-	AddRulesPublished(count int)
-	IncRulePublishErrors()
+	// Rules storage metrics (renamed to be more clear)
+	AddRulesSaved(count int) // Tracks individual rules saved to DB from a ruleset
+	IncRuleSaveErrors()      // Tracks errors saving rules to DB
 }
 
 // Controller implements ControllerMetrics
 type Controller struct {
+	// Broker metrics.
+	MessagesPublished *prometheus.CounterVec // labels: topic
+	MessagesConsumed  *prometheus.CounterVec // labels: topic
+	PublishErrors     *prometheus.CounterVec // labels: topic
+	ConsumeErrors     *prometheus.CounterVec // labels: topic
+
 	// Task metrics
 	TasksEnqueued        prometheus.Counter
 	TasksRetried         prometheus.Counter
@@ -56,9 +61,9 @@ type Controller struct {
 	ConfigReloads      prometheus.Counter
 	ConfigReloadErrors prometheus.Counter
 
-	// Rule metrics
-	RulesPublished    prometheus.Counter
-	RulePublishErrors prometheus.Counter
+	// Rules storage metrics
+	RulesSaved     prometheus.Counter // Total number of individual rules saved to DB
+	RuleSaveErrors prometheus.Counter // Total number of errors saving rules to DB
 }
 
 const namespace = "controller"
@@ -66,6 +71,28 @@ const namespace = "controller"
 // New creates a new Controller instance.
 func New() *Controller {
 	return &Controller{
+		// Messaging metrics
+		MessagesPublished: promauto.NewCounterVec(prometheus.CounterOpts{
+			Namespace: namespace,
+			Name:      "messages_published_total",
+			Help:      "Total number of messages published",
+		}, []string{"topic"}),
+		MessagesConsumed: promauto.NewCounterVec(prometheus.CounterOpts{
+			Namespace: namespace,
+			Name:      "messages_consumed_total",
+			Help:      "Total number of messages consumed",
+		}, []string{"topic"}),
+		PublishErrors: promauto.NewCounterVec(prometheus.CounterOpts{
+			Namespace: namespace,
+			Name:      "publish_errors_total",
+			Help:      "Total number of publish errors",
+		}, []string{"topic"}),
+		ConsumeErrors: promauto.NewCounterVec(prometheus.CounterOpts{
+			Namespace: namespace,
+			Name:      "consume_errors_total",
+			Help:      "Total number of consume errors",
+		}, []string{"topic"}),
+
 		// Task metrics
 		TasksEnqueued: promauto.NewCounter(prometheus.CounterOpts{
 			Namespace: namespace,
@@ -133,31 +160,38 @@ func New() *Controller {
 			Help:      "Total number of configuration reload errors",
 		}),
 
-		// Rule metrics
-		RulesPublished: promauto.NewCounter(prometheus.CounterOpts{
+		// Rules storage metrics (renamed)
+		RulesSaved: promauto.NewCounter(prometheus.CounterOpts{
 			Namespace: namespace,
-			Name:      "rules_published_total",
-			Help:      "Total number of rules published",
+			Name:      "rules_saved_total",
+			Help:      "Total number of individual rules saved to DB",
 		}),
-		RulePublishErrors: promauto.NewCounter(prometheus.CounterOpts{
+		RuleSaveErrors: promauto.NewCounter(prometheus.CounterOpts{
 			Namespace: namespace,
-			Name:      "rule_publish_errors_total",
-			Help:      "Total number of rule publish errors",
+			Name:      "rule_save_errors_total",
+			Help:      "Total number of errors saving rules to DB",
 		}),
 	}
 }
 
 // Interface implementation methods.
-func (c *Controller) IncTasksEnqueued()        { c.TasksEnqueued.Inc() }
-func (c *Controller) IncTasksRetried()         { c.TasksRetried.Inc() }
-func (c *Controller) IncTasksFailedToEnqueue() { c.TasksFailedToEnqueue.Inc() }
-func (c *Controller) IncTargetsProcessed()     { c.TargetsProcessed.Inc() }
-func (c *Controller) IncConfigReloads()        { c.ConfigReloads.Inc() }
-func (c *Controller) IncConfigReloadErrors()   { c.ConfigReloadErrors.Inc() }
-func (c *Controller) AddRulesPublished(count int) {
-	c.RulesPublished.Add(float64(count))
+func (c *Controller) IncMessagePublished(topic string) {
+	c.MessagesPublished.WithLabelValues(topic).Inc()
 }
-func (c *Controller) IncRulePublishErrors() { c.RulePublishErrors.Inc() }
+func (c *Controller) IncMessageConsumed(topic string) {
+	c.MessagesConsumed.WithLabelValues(topic).Inc()
+}
+func (c *Controller) IncPublishError(topic string) { c.PublishErrors.WithLabelValues(topic).Inc() }
+func (c *Controller) IncConsumeError(topic string) { c.ConsumeErrors.WithLabelValues(topic).Inc() }
+func (c *Controller) IncTasksEnqueued()            { c.TasksEnqueued.Inc() }
+func (c *Controller) IncTasksRetried()             { c.TasksRetried.Inc() }
+func (c *Controller) IncTasksFailedToEnqueue()     { c.TasksFailedToEnqueue.Inc() }
+func (c *Controller) IncTargetsProcessed()         { c.TargetsProcessed.Inc() }
+func (c *Controller) IncConfigReloads()            { c.ConfigReloads.Inc() }
+func (c *Controller) IncConfigReloadErrors()       { c.ConfigReloadErrors.Inc() }
+func (c *Controller) AddRulesSaved(count int)      { c.RulesSaved.Add(float64(count)) }
+func (c *Controller) IncRuleSaveErrors()           { c.RuleSaveErrors.Inc() }
+
 func (c *Controller) SetLeaderStatus(isLeader bool) {
 	if isLeader {
 		c.LeaderStatus.Set(1)

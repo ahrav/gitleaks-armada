@@ -44,6 +44,10 @@ type Controller struct {
 	metrics metrics.ControllerMetrics
 
 	tracer trace.Tracer
+
+	// TODO: Use a ttl cache, or move this into its own pkg.
+	processedRules map[string]time.Time // Map to track processed rule hashes
+	rulesMutex     sync.RWMutex
 }
 
 // NewController creates a Controller instance that coordinates work distribution
@@ -78,6 +82,8 @@ func NewController(
 		metrics:                 metrics,
 		logger:                  logger,
 		tracer:                  tracer,
+		processedRules:          make(map[string]time.Time),
+		rulesMutex:              sync.RWMutex{},
 	}
 }
 
@@ -288,10 +294,8 @@ func (c *Controller) doEnumeration(ctx context.Context, state *storage.Enumerati
 			for tasks := range taskCh {
 				if err := c.workQueue.PublishTasks(ctx, tasks); err != nil {
 					c.logger.Error(ctx, "Failed to publish tasks", "controller_id", c.id, "error", err)
-					c.metrics.IncTasksFailedToEnqueue()
 					return
 				}
-				c.metrics.IncTasksEnqueued()
 				c.logger.Info(ctx, "Published batch of tasks", "controller_id", c.id, "num_tasks", len(tasks))
 			}
 		}()
@@ -395,11 +399,41 @@ func (c *Controller) handleRules(ctx context.Context, ruleset messaging.Gitleaks
 	ctx, span := c.tracer.Start(ctx, "controller.handleRules")
 	defer span.End()
 
+	// Check if we've recently processed this ruleset.
+	c.rulesMutex.RLock()
+	lastProcessed, exists := c.processedRules[ruleset.Hash]
+	c.rulesMutex.RUnlock()
+
+	const (
+		ttlDuration = 5 * time.Minute
+		purgeAfter  = 10 * time.Minute
+	)
+
+	if exists && time.Since(lastProcessed) < ttlDuration {
+		c.logger.Info(ctx, "Skipping duplicate ruleset",
+			"controller_id", c.id,
+			"hash", ruleset.Hash)
+		return nil
+	}
+
 	if err := c.rulesStorage.SaveRuleset(ctx, ruleset); err != nil {
 		span.RecordError(err)
 		return fmt.Errorf("controller[%s]: failed to save ruleset: %w", c.id, err)
 	}
 
-	c.logger.Info(ctx, "Received and stored new ruleset", "controller_id", c.id, "num_rules", len(ruleset.Rules))
+	c.rulesMutex.Lock()
+	c.processedRules[ruleset.Hash] = time.Now()
+	// Clean up old entries.
+	for hash, t := range c.processedRules {
+		if time.Since(t) > purgeAfter {
+			delete(c.processedRules, hash)
+		}
+	}
+	c.rulesMutex.Unlock()
+
+	c.logger.Info(ctx, "Received and stored new ruleset",
+		"controller_id", c.id,
+		"num_rules", len(ruleset.Rules),
+		"hash", ruleset.Hash)
 	return nil
 }

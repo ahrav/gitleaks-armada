@@ -44,7 +44,7 @@ POSTGRES_URL = postgres://postgres:postgres@localhost:5432/secretscanner?sslmode
 # -------------------------------------------------------------------------------
 .PHONY: all build-controller build-scanner docker-controller docker-scanner kind-up kind-down kind-load dev-apply dev-status clean proto proto-gen kafka-setup kafka-logs kafka-topics kafka-restart kafka-delete kafka-consumer-groups kafka-delete-topics kafka-reset create-config-secret monitoring-setup monitoring-port-forward monitoring-cleanup postgres-setup postgres-logs postgres-restart postgres-delete sqlc-proto-gen rollout-restart-controller rollout-restart-scanner rollout-restart test test-coverage
 
-all: build-all docker-all kind-load kafka-setup postgres-setup dev-apply create-config-secret monitoring-setup
+all: build-all docker-all kind-load postgres-setup kafka-setup create-config-secret dev-apply monitoring-setup
 
 # Build targets
 build-all: proto-gen sqlc-proto-gen build-controller build-scanner
@@ -91,9 +91,6 @@ dev-apply:
 	kubectl apply -f $(K8S_MANIFESTS)/kafka.yaml -n $(NAMESPACE)
 	kubectl apply -f $(K8S_MANIFESTS)/controller.yaml -n $(NAMESPACE)
 	kubectl apply -f $(K8S_MANIFESTS)/scanner.yaml -n $(NAMESPACE)
-	kubectl apply -f $(K8S_MANIFESTS)/prometheus.yaml -n $(NAMESPACE)
-	kubectl apply -f $(K8S_MANIFESTS)/tempo.yaml -n $(NAMESPACE)
-	kubectl apply -f $(K8S_MANIFESTS)/grafana.yaml -n $(NAMESPACE)
 
 # Show status
 dev-status:
@@ -113,24 +110,20 @@ clean:
 # Additional convenience targets
 dev: kind-up all
 
-redeploy-controller: build-controller docker-controller kind-load-controller
-	kubectl rollout restart deployment/scanner-controller -n $(NAMESPACE)
-
-redeploy-scanner: build-scanner docker-scanner kind-load-scanner
-	kubectl rollout restart deployment/scanner-worker -n $(NAMESPACE)
-
 # Rebuild and redeploy without recreating cluster
-redeploy: build-all docker-all kind-load dev-apply
-	kubectl rollout restart deployment/scanner-controller -n $(NAMESPACE)
-	kubectl rollout restart deployment/scanner-worker -n $(NAMESPACE)
+redeploy: build-all docker-all kind-load dev-apply rollout-restart
+
+rollout-restart: rollout-restart-controller rollout-restart-scanner
+
+redeploy-%:
+	$(MAKE) build-$* docker-$* kind-load-$*
+	kubectl rollout restart deployment/scanner-$* -n $(NAMESPACE)
 
 rollout-restart-controller:
 	kubectl rollout restart deployment/scanner-controller -n $(NAMESPACE)
 
 rollout-restart-scanner:
 	kubectl rollout restart deployment/scanner-worker -n $(NAMESPACE)
-
-rollout-restart: rollout-restart-controller rollout-restart-scanner
 
 # View logs
 logs-controller:
@@ -361,35 +354,6 @@ kafka-debug-scanner-consumers:
 	kubectl exec -it -n $(NAMESPACE) deployment/kafka -- /opt/bitnami/kafka/bin/kafka-consumer-groups.sh \
 		--describe \
 		--group scanner-workers \
-		--bootstrap-server localhost:9092
-
-# Individual topic checks
-kafka-debug-rules-topic:
-	@echo "Checking rules topic..."
-	kubectl exec -it -n $(NAMESPACE) deployment/kafka -- /opt/bitnami/kafka/bin/kafka-topics.sh \
-		--describe \
-		--topic $(KAFKA_RULES_TOPIC) \
-		--bootstrap-server localhost:9092
-
-kafka-debug-tasks-topic:
-	@echo "Checking tasks topic..."
-	kubectl exec -it -n $(NAMESPACE) deployment/kafka -- /opt/bitnami/kafka/bin/kafka-topics.sh \
-		--describe \
-		--topic $(KAFKA_TASK_TOPIC) \
-		--bootstrap-server localhost:9092
-
-kafka-debug-results-topic:
-	@echo "Checking results topic..."
-	kubectl exec -it -n $(NAMESPACE) deployment/kafka -- /opt/bitnami/kafka/bin/kafka-topics.sh \
-		--describe \
-		--topic $(KAFKA_RESULTS_TOPIC) \
-		--bootstrap-server localhost:9092
-
-kafka-debug-progress-topic:
-	@echo "Checking progress topic..."
-	kubectl exec -it -n $(NAMESPACE) deployment/kafka -- /opt/bitnami/kafka/bin/kafka-topics.sh \
-		--describe \
-		--topic $(KAFKA_PROGRESS_TOPIC) \
 		--bootstrap-server localhost:9092
 
 # Comprehensive Kafka debug target
