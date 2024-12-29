@@ -38,8 +38,9 @@ type RulesStorage struct {
 	metrics RulesMetrics
 }
 
-// NewRulesStorage creates a new PostgreSQL-backed rules storage. It initializes the underlying
-// database queries and tracing components needed for rule persistence and monitoring.
+// NewRulesStorage creates a new PostgreSQL-backed rules storage.
+// It initializes the underlying database queries and tracing components
+// needed for rule persistence and monitoring.
 func NewRulesStorage(conn *pgxpool.Pool, tracer trace.Tracer, metrics RulesMetrics) *RulesStorage {
 	return &RulesStorage{
 		q:       db.New(conn),
