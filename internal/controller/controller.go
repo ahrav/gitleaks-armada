@@ -11,10 +11,11 @@ import (
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/ahrav/gitleaks-armada/internal/controller/metrics"
 	"github.com/ahrav/gitleaks-armada/pkg/cluster"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/config"
-	"github.com/ahrav/gitleaks-armada/pkg/controller/metrics"
+	"github.com/ahrav/gitleaks-armada/pkg/enumeration"
 	"github.com/ahrav/gitleaks-armada/pkg/messaging"
 	"github.com/ahrav/gitleaks-armada/pkg/storage"
 )
@@ -325,7 +326,7 @@ func (c *Controller) doEnumeration(ctx context.Context, state *storage.Enumerati
 
 // createEnumerator constructs the appropriate target enumerator based on the source type.
 // It handles credential setup and validation for the target type.
-func (c *Controller) createEnumerator(target config.TargetSpec) (storage.TargetEnumerator, error) {
+func (c *Controller) createEnumerator(target config.TargetSpec) (enumeration.TargetEnumerator, error) {
 	if c.credStore == nil {
 		return nil, fmt.Errorf("controller[%s]: credential store not initialized", c.id)
 	}
@@ -335,7 +336,7 @@ func (c *Controller) createEnumerator(target config.TargetSpec) (storage.TargetE
 		return nil, fmt.Errorf("controller[%s]: failed to get credentials: %w", c.id, err)
 	}
 
-	var enumerator storage.TargetEnumerator
+	var enumerator enumeration.TargetEnumerator
 	switch target.SourceType {
 	case config.SourceTypeGitHub:
 		if target.GitHub == nil {

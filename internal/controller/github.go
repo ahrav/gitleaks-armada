@@ -10,15 +10,17 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/ahrav/gitleaks-armada/pkg/common"
-	"github.com/ahrav/gitleaks-armada/pkg/config"
-	"github.com/ahrav/gitleaks-armada/pkg/messaging"
-	"github.com/ahrav/gitleaks-armada/pkg/storage"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/ahrav/gitleaks-armada/pkg/common"
+	"github.com/ahrav/gitleaks-armada/pkg/config"
+	"github.com/ahrav/gitleaks-armada/pkg/enumeration"
+	"github.com/ahrav/gitleaks-armada/pkg/messaging"
+	"github.com/ahrav/gitleaks-armada/pkg/storage"
 )
 
-var _ storage.TargetEnumerator = new(GitHubEnumerator)
+var _ enumeration.TargetEnumerator = new(GitHubEnumerator)
 
 // GitHubAPI defines the interface for interacting with GitHub's API.
 type GitHubAPI interface {

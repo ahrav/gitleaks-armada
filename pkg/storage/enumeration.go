@@ -4,37 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"time"
-
-	"github.com/ahrav/gitleaks-armada/pkg/messaging"
 )
-
-// Checkpoint stores progress information for resumable target enumeration.
-// It enables reliable scanning of large data sources by tracking the last
-// successfully processed position.
-type Checkpoint struct {
-	ID        int64          `json:"id"`
-	TargetID  string         `json:"target_id"`
-	Data      map[string]any `json:"data"`
-	UpdatedAt time.Time      `json:"updated_at"`
-}
-
-// CheckpointStorage provides persistent storage for enumeration checkpoints.
-// Implementations allow saving and retrieving checkpoint state to enable
-// resumable scanning across process restarts.
-type CheckpointStorage interface {
-	// Save persists a checkpoint for later retrieval.
-	Save(ctx context.Context, checkpoint *Checkpoint) error
-
-	// Load by target ID (for business logic)
-	Load(ctx context.Context, targetID string) (*Checkpoint, error)
-
-	// LoadByID loads a checkpoint by its database ID.
-	LoadByID(ctx context.Context, id int64) (*Checkpoint, error)
-
-	// Delete removes a checkpoint for the given target.
-	// It is not an error if the checkpoint does not exist.
-	Delete(ctx context.Context, targetID string) error
-}
 
 // EnumerationStatus represents the lifecycle states of an enumeration session.
 type EnumerationStatus string
@@ -74,15 +44,6 @@ func (s *EnumerationState) UpdateStatus(status EnumerationStatus) {
 	s.LastUpdated = time.Now()
 }
 
-// TargetEnumerator generates scan tasks by enumerating a data source.
-// Implementations handle source-specific pagination and checkpointing.
-type TargetEnumerator interface {
-	// Enumerate walks through a data source to generate scan tasks.
-	// It uses the enumeration state for context and checkpoint data,
-	// and streams tasks through taskCh.
-	Enumerate(ctx context.Context, state *EnumerationState, taskCh chan<- []messaging.Task) error
-}
-
 // EnumerationStateStorage provides persistent storage for enumeration session state.
 // This enables resumable scanning across process restarts.
 type EnumerationStateStorage interface {
@@ -94,10 +55,4 @@ type EnumerationStateStorage interface {
 	GetActiveStates(ctx context.Context) ([]*EnumerationState, error)
 	// List returns the most recent enumeration states, limited by count
 	List(ctx context.Context, limit int) ([]*EnumerationState, error)
-}
-
-// RulesStorage provides persistent storage for Gitleaks rules.
-type RulesStorage interface {
-	// SaveRule persists a single rule and its allowlists to storage.
-	SaveRule(ctx context.Context, rule messaging.GitleaksRule) error
 }
