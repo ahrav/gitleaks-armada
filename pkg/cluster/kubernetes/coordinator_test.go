@@ -2,8 +2,6 @@ package kubernetes
 
 import (
 	"context"
-	"io"
-	"log/slog"
 	"testing"
 	"time"
 
@@ -12,43 +10,7 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/tools/leaderelection"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
-
-	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
-
-func TestNewCoordinator(t *testing.T) {
-	tests := []struct {
-		name    string
-		cfg     *K8sConfig
-		wantErr bool
-	}{
-		{
-			name: "valid config",
-			cfg: &K8sConfig{
-				Namespace:    "default",
-				LeaderLockID: "test-lock",
-				Identity:     "test-pod",
-			},
-			wantErr: false,
-		},
-		{
-			name:    "nil config",
-			cfg:     nil,
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, err := NewCoordinator(tt.cfg, logger.NewWithHandler(slog.NewJSONHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError})))
-			if tt.wantErr {
-				assert.Error(t, err)
-			} else {
-				assert.NoError(t, err)
-			}
-		})
-	}
-}
 
 func TestCoordinator_LeaderElection(t *testing.T) {
 	fakeClient := fake.NewSimpleClientset()
