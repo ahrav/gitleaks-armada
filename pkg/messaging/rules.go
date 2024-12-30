@@ -8,7 +8,7 @@ import (
 	pb "github.com/ahrav/gitleaks-armada/proto/scanner"
 )
 
-// GitleaksRule is your domain representation of a scanning rule.
+// GitleaksRule is a representation of a Gitleaks rule.
 type GitleaksRule struct {
 	RuleID      string
 	Description string
@@ -49,15 +49,41 @@ type GitleaksRuleMessage struct {
 func (r GitleaksRule) GenerateHash() string {
 	h := md5.New()
 
-	// Hash essential fields that would affect detection.
 	h.Write([]byte(r.RuleID))
 	h.Write([]byte(r.Regex))
 	h.Write([]byte(fmt.Sprintf("%f", r.Entropy)))
 
+	// Include keywords and allowlists in the hash calculation to detect when these
+	// components are modified. This ensures we can identify when a rule has been
+	// updated with new keywords or allowlist entries, even if the core rule
+	// properties remain unchanged.
+	for _, keyword := range r.Keywords {
+		h.Write([]byte(keyword))
+	}
+
+	for _, allowlist := range r.Allowlists {
+		h.Write([]byte(allowlist.Description))
+		h.Write([]byte(string(allowlist.MatchCondition)))
+
+		for _, commit := range allowlist.Commits {
+			h.Write([]byte(commit))
+		}
+		for _, pathRegex := range allowlist.PathRegexes {
+			h.Write([]byte(pathRegex))
+		}
+		for _, regex := range allowlist.Regexes {
+			h.Write([]byte(regex))
+		}
+		h.Write([]byte(allowlist.RegexTarget))
+		for _, stopWord := range allowlist.StopWords {
+			h.Write([]byte(stopWord))
+		}
+	}
+
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// ToProto converts a single rule message to its protobuf representation
+// ToProto converts a single rule message to its protobuf representation.
 func (rm GitleaksRuleMessage) ToProto() *pb.RuleMessage {
 	return &pb.RuleMessage{
 		Rule: ruleToProto(rm.Rule),
