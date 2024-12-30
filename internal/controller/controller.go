@@ -12,6 +12,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/ahrav/gitleaks-armada/internal/controller/metrics"
+	"github.com/ahrav/gitleaks-armada/internal/enumerators"
 	"github.com/ahrav/gitleaks-armada/pkg/cluster"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/config"
@@ -342,11 +343,11 @@ func (c *Controller) createEnumerator(target config.TargetSpec) (enumeration.Tar
 		if target.GitHub == nil {
 			return nil, fmt.Errorf("controller[%s]: github target configuration is missing", c.id)
 		}
-		ghClient, err := NewGitHubClient(c.httpClient, creds)
+		ghClient, err := enumerators.NewGitHubClient(c.httpClient, creds)
 		if err != nil {
 			return nil, fmt.Errorf("controller[%s]: failed to create GitHub client: %w", c.id, err)
 		}
-		enumerator = NewGitHubEnumerator(
+		enumerator = enumerators.NewGitHubEnumerator(
 			ghClient,
 			creds,
 			c.enumerationStateStorage,
