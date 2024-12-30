@@ -210,131 +210,89 @@ func (s *RulesStorage) bulkInsertAllowlistComponents(
 }
 
 func (s *RulesStorage) bulkInsertCommits(ctx context.Context, qtx *db.Queries, allowlistID int64, commits []string) error {
-	if len(commits) == 0 {
-		return nil
+	if err := qtx.DeleteAllowlistCommits(ctx, allowlistID); err != nil {
+		return fmt.Errorf("failed to delete existing commits: %w", err)
 	}
 
-	return executeAndTrace(ctx, s.tracer, "postgres.bulk_insert_commits", []attribute.KeyValue{
-		attribute.Int64("allowlist_id", allowlistID),
-		attribute.Int("commit_count", len(commits)),
-	}, func(ctx context.Context) error {
-		// First delete existing entries
-		if err := qtx.DeleteAllowlistCommits(ctx, allowlistID); err != nil {
-			return fmt.Errorf("failed to delete existing commits: %w", err)
-		}
-
-		// Then bulk insert new ones
-		params := make([]db.BulkInsertAllowlistCommitsParams, len(commits))
-		for i, commit := range commits {
-			params[i] = db.BulkInsertAllowlistCommitsParams{
+	return bulkInsert(
+		ctx,
+		s.tracer,
+		"postgres.bulk_insert_commits",
+		allowlistID,
+		commits,
+		"commits",
+		func(allowlistID int64, commit string) db.BulkInsertAllowlistCommitsParams {
+			return db.BulkInsertAllowlistCommitsParams{
 				AllowlistID: allowlistID,
 				Commit:      commit,
 			}
-		}
-
-		rows, err := qtx.BulkInsertAllowlistCommits(ctx, params)
-		if err != nil {
-			return fmt.Errorf("failed to bulk insert commits: %w", err)
-		}
-		if rows != int64(len(commits)) {
-			return fmt.Errorf("expected to insert %d commits, but inserted %d", len(commits), rows)
-		}
-		return nil
-	})
+		},
+		qtx.BulkInsertAllowlistCommits,
+	)
 }
 
 func (s *RulesStorage) bulkInsertPaths(ctx context.Context, qtx *db.Queries, allowlistID int64, paths []string) error {
-	if len(paths) == 0 {
-		return nil
+	if err := qtx.DeleteAllowlistPaths(ctx, allowlistID); err != nil {
+		return fmt.Errorf("failed to delete existing paths: %w", err)
 	}
 
-	return executeAndTrace(ctx, s.tracer, "postgres.bulk_insert_paths", []attribute.KeyValue{
-		attribute.Int64("allowlist_id", allowlistID),
-		attribute.Int("path_count", len(paths)),
-	}, func(ctx context.Context) error {
-		if err := qtx.DeleteAllowlistPaths(ctx, allowlistID); err != nil {
-			return fmt.Errorf("failed to delete existing paths: %w", err)
-		}
-
-		params := make([]db.BulkInsertAllowlistPathsParams, len(paths))
-		for i, path := range paths {
-			params[i] = db.BulkInsertAllowlistPathsParams{
+	return bulkInsert(
+		ctx,
+		s.tracer,
+		"postgres.bulk_insert_paths",
+		allowlistID,
+		paths,
+		"paths",
+		func(allowlistID int64, path string) db.BulkInsertAllowlistPathsParams {
+			return db.BulkInsertAllowlistPathsParams{
 				AllowlistID: allowlistID,
 				Path:        path,
 			}
-		}
-
-		rows, err := qtx.BulkInsertAllowlistPaths(ctx, params)
-		if err != nil {
-			return fmt.Errorf("failed to bulk insert paths: %w", err)
-		}
-		if rows != int64(len(paths)) {
-			return fmt.Errorf("expected to insert %d paths, but inserted %d", len(paths), rows)
-		}
-		return nil
-	})
+		},
+		qtx.BulkInsertAllowlistPaths,
+	)
 }
 
 func (s *RulesStorage) bulkInsertRegexes(ctx context.Context, qtx *db.Queries, allowlistID int64, regexes []string) error {
-	if len(regexes) == 0 {
-		return nil
+	if err := qtx.DeleteAllowlistRegexes(ctx, allowlistID); err != nil {
+		return fmt.Errorf("failed to delete existing regexes: %w", err)
 	}
 
-	return executeAndTrace(ctx, s.tracer, "postgres.bulk_insert_regexes", []attribute.KeyValue{
-		attribute.Int64("allowlist_id", allowlistID),
-		attribute.Int("regex_count", len(regexes)),
-	}, func(ctx context.Context) error {
-		if err := qtx.DeleteAllowlistRegexes(ctx, allowlistID); err != nil {
-			return fmt.Errorf("failed to delete existing regexes: %w", err)
-		}
-
-		params := make([]db.BulkInsertAllowlistRegexesParams, len(regexes))
-		for i, regex := range regexes {
-			params[i] = db.BulkInsertAllowlistRegexesParams{
+	return bulkInsert(
+		ctx,
+		s.tracer,
+		"postgres.bulk_insert_regexes",
+		allowlistID,
+		regexes,
+		"regexes",
+		func(allowlistID int64, regex string) db.BulkInsertAllowlistRegexesParams {
+			return db.BulkInsertAllowlistRegexesParams{
 				AllowlistID: allowlistID,
 				Regex:       regex,
 			}
-		}
-
-		rows, err := qtx.BulkInsertAllowlistRegexes(ctx, params)
-		if err != nil {
-			return fmt.Errorf("failed to bulk insert regexes: %w", err)
-		}
-		if rows != int64(len(regexes)) {
-			return fmt.Errorf("expected to insert %d regexes, but inserted %d", len(regexes), rows)
-		}
-		return nil
-	})
+		},
+		qtx.BulkInsertAllowlistRegexes,
+	)
 }
 
 func (s *RulesStorage) bulkInsertStopwords(ctx context.Context, qtx *db.Queries, allowlistID int64, stopwords []string) error {
-	if len(stopwords) == 0 {
-		return nil
+	if err := qtx.DeleteAllowlistStopwords(ctx, allowlistID); err != nil {
+		return fmt.Errorf("failed to delete existing stopwords: %w", err)
 	}
 
-	return executeAndTrace(ctx, s.tracer, "postgres.bulk_insert_stopwords", []attribute.KeyValue{
-		attribute.Int64("allowlist_id", allowlistID),
-		attribute.Int("stopword_count", len(stopwords)),
-	}, func(ctx context.Context) error {
-		if err := qtx.DeleteAllowlistStopwords(ctx, allowlistID); err != nil {
-			return fmt.Errorf("failed to delete existing stopwords: %w", err)
-		}
-
-		params := make([]db.BulkInsertAllowlistStopwordsParams, len(stopwords))
-		for i, stopword := range stopwords {
-			params[i] = db.BulkInsertAllowlistStopwordsParams{
+	return bulkInsert(
+		ctx,
+		s.tracer,
+		"postgres.bulk_insert_stopwords",
+		allowlistID,
+		stopwords,
+		"stopwords",
+		func(allowlistID int64, stopword string) db.BulkInsertAllowlistStopwordsParams {
+			return db.BulkInsertAllowlistStopwordsParams{
 				AllowlistID: allowlistID,
 				Stopword:    stopword,
 			}
-		}
-
-		rows, err := qtx.BulkInsertAllowlistStopwords(ctx, params)
-		if err != nil {
-			return fmt.Errorf("failed to bulk insert stopwords: %w", err)
-		}
-		if rows != int64(len(stopwords)) {
-			return fmt.Errorf("expected to insert %d stopwords, but inserted %d", len(stopwords), rows)
-		}
-		return nil
-	})
+		},
+		qtx.BulkInsertAllowlistStopwords,
+	)
 }
