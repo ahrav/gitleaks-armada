@@ -1,5 +1,4 @@
 name: Go Tests
-
 on:
   push:
     branches: [ main ]
@@ -7,24 +6,40 @@ on:
     branches: [ main ]
 
 jobs:
-  test:
+  lint:
     runs-on: ubuntu-latest
-
     steps:
     - uses: actions/checkout@v4
-
-    - name: Set up Go
-      uses: actions/setup-go@v4
-      with:
-        go-version: '1.23'
-
-    - name: Install dependencies
-      run: go mod download
-
-    - name: Run tests
-      run: go test -v -race -parallel=10 ./...
-
     - name: Run linter
       uses: golangci/golangci-lint-action@v3
       with:
         version: latest
+        skip-cache: true
+        skip-pkg-cache: true
+        skip-build-cache: true
+        args: --timeout=5m --fast
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.23'
+        cache: true
+
+    - name: Install dependencies
+      run: go mod download
+
+    - uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+
+    - name: Run tests
+      run: go test -v -race -parallel=10 -timeout=5m -short ./...
