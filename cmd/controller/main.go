@@ -18,7 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/stdlib"
 	"go.uber.org/automaxprocs/maxprocs"
 
-	"github.com/ahrav/gitleaks-armada/pkg/cluster/kubernetes"
+	"github.com/ahrav/gitleaks-armada/internal/cluster/kubernetes"
 	"github.com/ahrav/gitleaks-armada/pkg/common"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/common/otel"
