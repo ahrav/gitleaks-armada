@@ -32,14 +32,5 @@ jobs:
     - name: Install dependencies
       run: go mod download
 
-    - uses: actions/cache@v3
-      with:
-        path: |
-          ~/.cache/go-build
-          ~/go/pkg/mod
-        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-        restore-keys: |
-          ${{ runner.os }}-go-
-
     - name: Run tests
       run: go test -v -race -parallel=10 -timeout=5m -short ./...
