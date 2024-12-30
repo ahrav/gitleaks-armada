@@ -11,43 +11,39 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/messaging"
 )
 
-func TestRulesStorage_SaveRuleset(t *testing.T) {
+func TestRulesStorage_SaveRule(t *testing.T) {
 	t.Parallel()
 
 	dbConn, cleanup := setupTestContainer(t)
 	defer cleanup()
 
 	// TODO: Replace this with a mock metrics implementation.
-	rulesStorage := NewRulesStorage(dbConn, noOpTracer(), new(metrics.Controller))
+	rulesStorage := NewRulesStorage(dbConn, noOpTracer(), metrics.New())
 
-	ruleset := messaging.GitleaksRuleSet{
-		Rules: []messaging.GitleaksRule{
+	rule := messaging.GitleaksRule{
+		RuleID:      "rule-1",
+		Description: "test rule",
+		Entropy:     3.14,
+		SecretGroup: 42,
+		Regex:       "test-regex",
+		Path:        "some/path",
+		Tags:        []string{"tag1"},
+		Keywords:    []string{"keyword1", "keyword2"},
+		Allowlists: []messaging.GitleaksAllowlist{
 			{
-				RuleID:      "rule-1",
-				Description: "test rule",
-				Entropy:     3.14,
-				SecretGroup: 42,
-				Regex:       "test-regex",
-				Path:        "some/path",
-				Tags:        []string{"tag1"},
-				Keywords:    []string{"keyword1", "keyword2"},
-				Allowlists: []messaging.GitleaksAllowlist{
-					{
-						Description:    "Example allowlist",
-						MatchCondition: "ANY",
-						RegexTarget:    "match",
-						Commits:        []string{"c1", "c2"},
-						PathRegexes:    []string{"p1"},
-						Regexes:        []string{"r1"},
-						StopWords:      []string{"s1"},
-					},
-				},
+				Description:    "Example allowlist",
+				MatchCondition: "ANY",
+				RegexTarget:    "match",
+				Commits:        []string{"c1", "c2"},
+				PathRegexes:    []string{"p1"},
+				Regexes:        []string{"r1"},
+				StopWords:      []string{"s1"},
 			},
 		},
 	}
 
 	ctx := context.Background()
-	err := rulesStorage.SaveRuleset(ctx, ruleset)
+	err := rulesStorage.SaveRule(ctx, rule)
 	require.NoError(t, err)
 
 	// TODO: Add a getter or some other method to verify data was inserted.

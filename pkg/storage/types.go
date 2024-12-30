@@ -98,6 +98,6 @@ type EnumerationStateStorage interface {
 
 // RulesStorage provides persistent storage for Gitleaks rules.
 type RulesStorage interface {
-	// SaveRuleset persists a complete set of rules and their allowlists to storage.
-	SaveRuleset(ctx context.Context, rules messaging.GitleaksRuleSet) error
+	// SaveRule persists a single rule and its allowlists to storage.
+	SaveRule(ctx context.Context, rule messaging.GitleaksRule) error
 }

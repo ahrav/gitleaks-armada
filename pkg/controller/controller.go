@@ -98,7 +98,7 @@ func (c *Controller) Run(ctx context.Context) (<-chan struct{}, error) {
 	ready := make(chan struct{})
 	leaderCh := make(chan bool, 1)
 
-	if err := c.workQueue.SubscribeRules(ctx, c.handleRules); err != nil {
+	if err := c.workQueue.SubscribeRules(ctx, c.handleRule); err != nil {
 		return nil, fmt.Errorf("controller[%s]: failed to subscribe to rules: %v", c.id, err)
 	}
 
@@ -395,13 +395,13 @@ func (c *Controller) marshalConfig(ctx context.Context, target config.TargetSpec
 // This allows tracking individual tasks through the processing pipeline.
 func generateTaskID() string { return uuid.New().String() }
 
-func (c *Controller) handleRules(ctx context.Context, ruleset messaging.GitleaksRuleSet) error {
-	ctx, span := c.tracer.Start(ctx, "controller.handleRules")
+func (c *Controller) handleRule(ctx context.Context, ruleMsg messaging.GitleaksRuleMessage) error {
+	ctx, span := c.tracer.Start(ctx, "controller.handleRule")
 	defer span.End()
 
-	// Check if we've recently processed this ruleset.
+	// Check if we've recently processed this rule.
 	c.rulesMutex.RLock()
-	lastProcessed, exists := c.processedRules[ruleset.Hash]
+	lastProcessed, exists := c.processedRules[ruleMsg.Hash]
 	c.rulesMutex.RUnlock()
 
 	const (
@@ -410,19 +410,20 @@ func (c *Controller) handleRules(ctx context.Context, ruleset messaging.Gitleaks
 	)
 
 	if exists && time.Since(lastProcessed) < ttlDuration {
-		c.logger.Info(ctx, "Skipping duplicate ruleset",
+		c.logger.Info(ctx, "Skipping duplicate rule",
 			"controller_id", c.id,
-			"hash", ruleset.Hash)
+			"rule_id", ruleMsg.Rule.RuleID,
+			"hash", ruleMsg.Hash)
 		return nil
 	}
 
-	if err := c.rulesStorage.SaveRuleset(ctx, ruleset); err != nil {
+	if err := c.rulesStorage.SaveRule(ctx, ruleMsg.Rule); err != nil {
 		span.RecordError(err)
-		return fmt.Errorf("controller[%s]: failed to save ruleset: %w", c.id, err)
+		return fmt.Errorf("controller[%s]: failed to save rule: %w", c.id, err)
 	}
 
 	c.rulesMutex.Lock()
-	c.processedRules[ruleset.Hash] = time.Now()
+	c.processedRules[ruleMsg.Hash] = time.Now()
 	// Clean up old entries.
 	for hash, t := range c.processedRules {
 		if time.Since(t) > purgeAfter {
@@ -431,9 +432,9 @@ func (c *Controller) handleRules(ctx context.Context, ruleset messaging.Gitleaks
 	}
 	c.rulesMutex.Unlock()
 
-	c.logger.Info(ctx, "Received and stored new ruleset",
+	c.logger.Info(ctx, "Received and stored new rule",
 		"controller_id", c.id,
-		"num_rules", len(ruleset.Rules),
-		"hash", ruleset.Hash)
+		"rule_id", ruleMsg.Rule.RuleID,
+		"hash", ruleMsg.Hash)
 	return nil
 }

@@ -18,8 +18,8 @@ import (
 
 // RulesMetrics defines the interface for tracking metrics related to rule operations.
 type RulesMetrics interface {
-	// AddRulesPublished increments the counter for successfully published rules by the given count.
-	AddRulesSaved(count int)
+	// IncRulesSaved increments the counter for successfully saved rules
+	IncRulesSaved()
 
 	// IncRuleSaveErrors increments the counter for rule save failures.
 	IncRuleSaveErrors()
@@ -99,10 +99,10 @@ func bulkInsert[T bulkInsertParams](
 	})
 }
 
-// SaveRuleset persists a complete Gitleaks ruleset to PostgreSQL. It ensures atomic updates
-// by executing all operations within a transaction, preventing partial or inconsistent updates
-// that could affect scanning accuracy.
-func (s *RulesStorage) SaveRuleset(ctx context.Context, ruleset messaging.GitleaksRuleSet) error {
+// SaveRule persists a single rule and its allowlists to PostgreSQL.
+// It ensures atomic updates by executing all operations within a transaction,
+// preventing partial or inconsistent updates that could affect scanning accuracy.
+func (s *RulesStorage) SaveRule(ctx context.Context, rule messaging.GitleaksRule) error {
 	// Set a context timeout to prevent transaction deadlocks and resource exhaustion.
 	// We use a serializable isolation level and a relatively short timeout since
 	// rule updates should be quick and we want to fail fast if there are issues.
@@ -112,59 +112,57 @@ func (s *RulesStorage) SaveRuleset(ctx context.Context, ruleset messaging.Gitlea
 	defer cancel()
 
 	return executeAndTrace(ctx, s.tracer, "postgres.save_ruleset", []attribute.KeyValue{
-		attribute.Int("rule_count", len(ruleset.Rules)),
+		attribute.Int("rule_count", 1),
 	}, func(ctx context.Context) error {
 		err := pgx.BeginTxFunc(ctx, s.conn, pgx.TxOptions{IsoLevel: pgx.Serializable}, func(tx pgx.Tx) error {
 			qtx := s.q.WithTx(tx)
 
-			for _, rule := range ruleset.Rules {
-				err := executeAndTrace(ctx, s.tracer, "postgres.upsert_rule", []attribute.KeyValue{
-					attribute.String("rule_id", rule.RuleID),
-					attribute.Int("allowlist_count", len(rule.Allowlists)),
-				}, func(ctx context.Context) error {
-					ruleID, err := qtx.UpsertRule(ctx, db.UpsertRuleParams{
-						RuleID:      rule.RuleID,
-						Description: pgtype.Text{String: rule.Description, Valid: true},
-						Entropy:     pgtype.Float8{Float64: rule.Entropy, Valid: rule.Entropy > 0},
-						SecretGroup: pgtype.Int4{Int32: int32(rule.SecretGroup), Valid: rule.SecretGroup > 0},
-						Regex:       rule.Regex,
-						Path:        pgtype.Text{String: rule.Path, Valid: rule.Path != ""},
-						Tags:        rule.Tags,
-						Keywords:    rule.Keywords,
-					})
-					if err != nil {
-						return fmt.Errorf("failed to upsert rule: %w", err)
-					}
-
-					for _, al := range rule.Allowlists {
-						err := executeAndTrace(ctx, s.tracer, "postgres.create_allowlist", []attribute.KeyValue{
-							attribute.String("rule_id", rule.RuleID),
-							attribute.Int("commit_count", len(al.Commits)),
-							attribute.Int("path_count", len(al.PathRegexes)),
-							attribute.Int("regex_count", len(al.Regexes)),
-							attribute.Int("stopword_count", len(al.StopWords)),
-						}, func(ctx context.Context) error {
-							allowlistID, err := qtx.CreateAllowlist(ctx, db.CreateAllowlistParams{
-								RuleID:         ruleID,
-								Description:    pgtype.Text{String: al.Description, Valid: true},
-								MatchCondition: string(al.MatchCondition),
-								RegexTarget:    pgtype.Text{String: al.RegexTarget, Valid: al.RegexTarget != ""},
-							})
-							if err != nil {
-								return fmt.Errorf("failed to create allowlist: %w", err)
-							}
-
-							return s.bulkInsertAllowlistComponents(ctx, qtx, allowlistID, al)
-						})
-						if err != nil {
-							return err
-						}
-					}
-					return nil
+			err := executeAndTrace(ctx, s.tracer, "postgres.upsert_rule", []attribute.KeyValue{
+				attribute.String("rule_id", rule.RuleID),
+				attribute.Int("allowlist_count", len(rule.Allowlists)),
+			}, func(ctx context.Context) error {
+				ruleID, err := qtx.UpsertRule(ctx, db.UpsertRuleParams{
+					RuleID:      rule.RuleID,
+					Description: pgtype.Text{String: rule.Description, Valid: true},
+					Entropy:     pgtype.Float8{Float64: rule.Entropy, Valid: rule.Entropy > 0},
+					SecretGroup: pgtype.Int4{Int32: int32(rule.SecretGroup), Valid: rule.SecretGroup > 0},
+					Regex:       rule.Regex,
+					Path:        pgtype.Text{String: rule.Path, Valid: rule.Path != ""},
+					Tags:        rule.Tags,
+					Keywords:    rule.Keywords,
 				})
 				if err != nil {
-					return err
+					return fmt.Errorf("failed to upsert rule: %w", err)
 				}
+
+				for _, al := range rule.Allowlists {
+					err := executeAndTrace(ctx, s.tracer, "postgres.create_allowlist", []attribute.KeyValue{
+						attribute.String("rule_id", rule.RuleID),
+						attribute.Int("commit_count", len(al.Commits)),
+						attribute.Int("path_count", len(al.PathRegexes)),
+						attribute.Int("regex_count", len(al.Regexes)),
+						attribute.Int("stopword_count", len(al.StopWords)),
+					}, func(ctx context.Context) error {
+						allowlistID, err := qtx.CreateAllowlist(ctx, db.CreateAllowlistParams{
+							RuleID:         ruleID,
+							Description:    pgtype.Text{String: al.Description, Valid: true},
+							MatchCondition: string(al.MatchCondition),
+							RegexTarget:    pgtype.Text{String: al.RegexTarget, Valid: al.RegexTarget != ""},
+						})
+						if err != nil {
+							return fmt.Errorf("failed to create allowlist: %w", err)
+						}
+
+						return s.bulkInsertAllowlistComponents(ctx, qtx, allowlistID, al)
+					})
+					if err != nil {
+						return err
+					}
+				}
+				return nil
+			})
+			if err != nil {
+				return err
 			}
 			return nil
 		})
@@ -174,7 +172,7 @@ func (s *RulesStorage) SaveRuleset(ctx context.Context, ruleset messaging.Gitlea
 			return err
 		}
 
-		s.metrics.AddRulesSaved(len(ruleset.Rules))
+		s.metrics.IncRulesSaved()
 		return nil
 	})
 }

@@ -4,7 +4,6 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"fmt"
-	"sort"
 
 	pb "github.com/ahrav/gitleaks-armada/proto/scanner"
 )
@@ -40,42 +39,29 @@ const (
 	MatchConditionAND         AllowlistMatchCondition = "AND"
 )
 
-// GitleaksRuleSet is a container for multiple GitleaksRule.
-type GitleaksRuleSet struct {
-	Rules []GitleaksRule
-	Hash  string
+// GitleaksRuleMessage represents a single rule and its metadata for transmission.
+type GitleaksRuleMessage struct {
+	Rule GitleaksRule
+	Hash string // Hash of this specific rule's content
 }
 
-// Hash generates a deterministic MD5 hash of the essential ruleset content.
-func (rs GitleaksRuleSet) GenerateHash() string {
+// GenerateHash generates a deterministic MD5 hash of the essential rule content.
+func (r GitleaksRule) GenerateHash() string {
 	h := md5.New()
 
-	// Sort rules by RuleID to ensure consistent ordering.
-	rules := make([]GitleaksRule, len(rs.Rules))
-	copy(rules, rs.Rules)
-	sort.Slice(rules, func(i, j int) bool {
-		return rules[i].RuleID < rules[j].RuleID
-	})
-
-	// Only hash essential fields that would affect detection.
-	// TODO: Double check this is correct.
-	for _, r := range rules {
-		h.Write([]byte(r.RuleID))
-		h.Write([]byte(r.Regex))
-		h.Write([]byte(fmt.Sprintf("%f", r.Entropy)))
-	}
+	// Hash essential fields that would affect detection.
+	h.Write([]byte(r.RuleID))
+	h.Write([]byte(r.Regex))
+	h.Write([]byte(fmt.Sprintf("%f", r.Entropy)))
 
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-func (rs GitleaksRuleSet) ToProto() *pb.RuleSet {
-	protoRules := make([]*pb.Rule, 0, len(rs.Rules))
-	for _, r := range rs.Rules {
-		protoRules = append(protoRules, ruleToProto(r))
-	}
-	return &pb.RuleSet{
-		Rules:       protoRules,
-		ContentHash: rs.Hash,
+// ToProto converts a single rule message to its protobuf representation
+func (rm GitleaksRuleMessage) ToProto() *pb.RuleMessage {
+	return &pb.RuleMessage{
+		Rule: ruleToProto(rm.Rule),
+		Hash: rm.Hash,
 	}
 }
 
@@ -120,14 +106,10 @@ func conditionToProto(mc AllowlistMatchCondition) pb.AllowlistMatchCondition {
 	}
 }
 
-func ProtoToGitleaksRuleSet(rs *pb.RuleSet) GitleaksRuleSet {
-	rules := make([]GitleaksRule, 0, len(rs.Rules))
-	for _, pr := range rs.Rules {
-		rules = append(rules, protoToRule(pr))
-	}
-	return GitleaksRuleSet{
-		Rules: rules,
-		Hash:  rs.ContentHash,
+func ProtoToGitleaksRuleMessage(pr *pb.RuleMessage) GitleaksRuleMessage {
+	return GitleaksRuleMessage{
+		Rule: protoToRule(pr.Rule),
+		Hash: pr.Hash,
 	}
 }
 

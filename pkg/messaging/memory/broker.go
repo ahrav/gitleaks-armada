@@ -23,7 +23,7 @@ type Broker struct {
 	taskHandlers     handlerList[messaging.Task]
 	resultHandlers   handlerList[messaging.ScanResult]
 	progressHandlers handlerList[messaging.ScanProgress]
-	ruleHandlers     handlerList[messaging.GitleaksRuleSet]
+	ruleHandlers     handlerList[messaging.GitleaksRuleMessage]
 }
 
 // NewBroker creates and initializes a new in-memory message broker with empty
@@ -33,7 +33,7 @@ func NewBroker() *Broker {
 		taskHandlers:     make(handlerList[messaging.Task], 0),
 		resultHandlers:   make(handlerList[messaging.ScanResult], 0),
 		progressHandlers: make(handlerList[messaging.ScanProgress], 0),
-		ruleHandlers:     make(handlerList[messaging.GitleaksRuleSet], 0),
+		ruleHandlers:     make(handlerList[messaging.GitleaksRuleMessage], 0),
 	}
 }
 
@@ -137,12 +137,12 @@ func (b *Broker) SubscribeProgress(ctx context.Context, handler func(messaging.S
 
 // PublishRules broadcasts Gitleaks rule sets to all subscribed handlers.
 // The handlers are copied before iteration to prevent deadlocks and ensure consistency.
-func (b *Broker) PublishRules(ctx context.Context, rules messaging.GitleaksRuleSet) error {
+func (b *Broker) PublishRules(ctx context.Context, rules messaging.GitleaksRuleMessage) error {
 	return publish(ctx, &b.mu, b.ruleHandlers, rules)
 }
 
 // SubscribeRules registers a new handler function for processing Gitleaks rule sets.
 // Multiple handlers can be registered and will all receive published rule sets.
-func (b *Broker) SubscribeRules(ctx context.Context, handler func(messaging.GitleaksRuleSet) error) error {
+func (b *Broker) SubscribeRules(ctx context.Context, handler func(messaging.GitleaksRuleMessage) error) error {
 	return subscribe(ctx, &b.mu, &b.ruleHandlers, handler)
 }

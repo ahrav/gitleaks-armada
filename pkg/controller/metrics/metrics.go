@@ -3,9 +3,10 @@ package metrics
 import (
 	"time"
 
-	"github.com/ahrav/gitleaks-armada/pkg/messaging/kafka"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+
+	"github.com/ahrav/gitleaks-armada/pkg/messaging/kafka"
 )
 
 // ControllerMetrics defines metrics operations needed by the controller.
@@ -28,8 +29,8 @@ type ControllerMetrics interface {
 	IncConfigReloadErrors()
 
 	// Rules storage metrics (renamed to be more clear)
-	AddRulesSaved(count int) // Tracks individual rules saved to DB from a ruleset
-	IncRuleSaveErrors()      // Tracks errors saving rules to DB
+	IncRulesSaved()     // Tracks individual rules saved to DB
+	IncRuleSaveErrors() // Tracks errors saving rules to DB
 }
 
 // Controller implements ControllerMetrics
@@ -160,7 +161,7 @@ func New() *Controller {
 			Help:      "Total number of configuration reload errors",
 		}),
 
-		// Rules storage metrics (renamed)
+		// Rules storage metrics
 		RulesSaved: promauto.NewCounter(prometheus.CounterOpts{
 			Namespace: namespace,
 			Name:      "rules_saved_total",
@@ -189,7 +190,7 @@ func (c *Controller) IncTasksFailedToEnqueue()     { c.TasksFailedToEnqueue.Inc(
 func (c *Controller) IncTargetsProcessed()         { c.TargetsProcessed.Inc() }
 func (c *Controller) IncConfigReloads()            { c.ConfigReloads.Inc() }
 func (c *Controller) IncConfigReloadErrors()       { c.ConfigReloadErrors.Inc() }
-func (c *Controller) AddRulesSaved(count int)      { c.RulesSaved.Add(float64(count)) }
+func (c *Controller) IncRulesSaved()               { c.RulesSaved.Inc() }
 func (c *Controller) IncRuleSaveErrors()           { c.RuleSaveErrors.Inc() }
 
 func (c *Controller) SetLeaderStatus(isLeader bool) {

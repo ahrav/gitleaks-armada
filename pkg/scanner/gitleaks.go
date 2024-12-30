@@ -156,42 +156,36 @@ func publishRulesOnStartup(
 		))
 	defer span.End()
 
-	rules := convertDetectorConfigToRuleSet(detector.Config.Rules)
-	// We need to generate a hash of the ruleset to ensure that we don't
-	// process the same ruleset multiple times.
-	// This avoids additional load on the storage layer.
-	rules.Hash = rules.GenerateHash()
-
-	if err := broker.PublishRules(ctx, rules); err != nil {
-		span.RecordError(err)
-		return fmt.Errorf("failed to publish rules: %w", err)
+	// Convert and publish rules individually
+	for _, rule := range detector.Config.Rules {
+		domainRule := convertDetectorRuleToMessage(rule)
+		if err := broker.PublishRule(ctx, domainRule); err != nil {
+			span.RecordError(err)
+			return fmt.Errorf("failed to publish rule %s: %w", rule.RuleID, err)
+		}
 	}
-	logger.Info(ctx, "Published rules", "rules_count", len(rules.Rules))
 
+	logger.Info(ctx, "Published rules individually", "rules_count", len(detector.Config.Rules))
 	return nil
 }
 
-// convertDetectorConfigToRuleSet transforms Gitleaks detection rules into a serializable format
-// that can be shared across system components. This conversion is necessary because the internal
-// Gitleaks rules contain compiled regular expressions that cannot be directly serialized.
-func convertDetectorConfigToRuleSet(rules map[string]config.Rule) messaging.GitleaksRuleSet {
-	domainRules := make([]messaging.GitleaksRule, 0, len(rules))
-	for _, gRule := range rules {
-		dRule := messaging.GitleaksRule{
-			RuleID:      gRule.RuleID,
-			Description: gRule.Description,
-			Entropy:     gRule.Entropy,
-			SecretGroup: gRule.SecretGroup,
-			Regex:       regexToString(gRule.Regex),
-			Path:        regexToString(gRule.Path),
-			Tags:        gRule.Tags,
-			Keywords:    gRule.Keywords,
-			Allowlists:  convertAllowlists(gRule.Allowlists),
-		}
-		domainRules = append(domainRules, dRule)
+func convertDetectorRuleToMessage(rule config.Rule) messaging.GitleaksRuleMessage {
+	domainRule := messaging.GitleaksRule{
+		RuleID:      rule.RuleID,
+		Description: rule.Description,
+		Entropy:     rule.Entropy,
+		SecretGroup: rule.SecretGroup,
+		Regex:       regexToString(rule.Regex),
+		Path:        regexToString(rule.Path),
+		Tags:        rule.Tags,
+		Keywords:    rule.Keywords,
+		Allowlists:  convertAllowlists(rule.Allowlists),
 	}
 
-	return messaging.GitleaksRuleSet{Rules: domainRules}
+	return messaging.GitleaksRuleMessage{
+		Rule: domainRule,
+		Hash: domainRule.GenerateHash(),
+	}
 }
 
 // regexToString safely converts a compiled regular expression to its string pattern.

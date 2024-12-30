@@ -61,11 +61,8 @@ message Rule {
   repeated Allowlist allowlists = 9;
 }
 
-// A container for one or more rules. Often you might send them in a batch.
-message RuleSet {
-  repeated Rule rules = 1;
-
-  // MD5 hash of essential rule contents for deduplication.
-  string content_hash = 2;
-  // string version = 3;
+// A single rule message for transmission.
+message RuleMessage {
+  Rule rule = 1;
+  string hash = 2; // Hash of the rule content for deduplication
 }

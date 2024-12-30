@@ -18,9 +18,9 @@ import (
 // -- Rules Publishing and Subscribing --
 // -------------------------------------------------------------------------------------------------
 
-// PublishRules publishes a set of scanning rules to Kafka.
+// PublishRule publishes a single scanning rule to Kafka.
 // These rules define patterns for detecting sensitive information in scanned content.
-func (k *Broker) PublishRules(ctx context.Context, rules messaging.GitleaksRuleSet) error {
+func (k *Broker) PublishRule(ctx context.Context, rules messaging.GitleaksRuleMessage) error {
 	ctx, span := tracing.StartProducerSpan(ctx, k.rulesTopic, k.tracer)
 	defer span.End()
 
@@ -52,7 +52,7 @@ func (k *Broker) PublishRules(ctx context.Context, rules messaging.GitleaksRuleS
 
 // SubscribeRules registers a handler function to process incoming scanning rules.
 // The handler is called for each rules message received from the rules topic.
-func (k *Broker) SubscribeRules(ctx context.Context, handler func(context.Context, messaging.GitleaksRuleSet) error) error {
+func (k *Broker) SubscribeRules(ctx context.Context, handler func(context.Context, messaging.GitleaksRuleMessage) error) error {
 	h := &rulesHandler{
 		rulesTopic: k.rulesTopic,
 		handler:    handler,
@@ -71,7 +71,7 @@ type rulesHandler struct {
 	clientID string
 
 	rulesTopic string
-	handler    func(context.Context, messaging.GitleaksRuleSet) error
+	handler    func(context.Context, messaging.GitleaksRuleMessage) error
 
 	tracer  trace.Tracer
 	logger  *logger.Logger
@@ -99,7 +99,7 @@ func (h *rulesHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, claim sara
 		msgCtx := tracing.ExtractTraceContext(sess.Context(), msg)
 		msgCtx, span := tracing.StartConsumerSpan(msgCtx, msg, h.tracer)
 
-		var pbRules pb.RuleSet
+		var pbRules pb.RuleMessage
 		if err := proto.Unmarshal(msg.Value, &pbRules); err != nil {
 			span.RecordError(err)
 			span.End()
@@ -108,8 +108,8 @@ func (h *rulesHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, claim sara
 			continue
 		}
 
-		rules := messaging.ProtoToGitleaksRuleSet(&pbRules)
-		if err := h.handler(msgCtx, rules); err != nil {
+		rule := messaging.ProtoToGitleaksRuleMessage(&pbRules)
+		if err := h.handler(msgCtx, rule); err != nil {
 			span.RecordError(err)
 			h.metrics.IncConsumeError(h.rulesTopic)
 			h.logger.Error(msgCtx, "Failed to handle rules message",

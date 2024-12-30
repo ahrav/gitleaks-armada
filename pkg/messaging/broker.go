@@ -21,8 +21,8 @@ type Broker interface {
 	// SubscribeProgress listens for progress updates from ongoing scan tasks.
 	SubscribeProgress(ctx context.Context, handler func(context.Context, ScanProgress) error) error
 
-	// PublishRules publishes the rules for the scanner to use.
-	PublishRules(ctx context.Context, ruleSet GitleaksRuleSet) error
+	// PublishRule publishes the rules for the scanner to use.
+	PublishRule(ctx context.Context, rule GitleaksRuleMessage) error
 	// SubscribeRules listens for rules to be used by the scanner.
-	SubscribeRules(ctx context.Context, handler func(context.Context, GitleaksRuleSet) error) error
+	SubscribeRules(ctx context.Context, handler func(context.Context, GitleaksRuleMessage) error) error
 }
