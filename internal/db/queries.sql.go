@@ -83,98 +83,6 @@ func (q *Queries) CreateAllowlist(ctx context.Context, arg CreateAllowlistParams
 	return id, err
 }
 
-const createAllowlistCommit = `-- name: CreateAllowlistCommit :exec
-INSERT INTO allowlist_commits (
-    allowlist_id, commit
-) VALUES (
-    $1, $2
-)
-ON CONFLICT (allowlist_id, commit) DO UPDATE
-SET created_at = NOW()
-`
-
-type CreateAllowlistCommitParams struct {
-	AllowlistID int64
-	Commit      string
-}
-
-// ============================================
-// Allowlist Commits
-// ============================================
-func (q *Queries) CreateAllowlistCommit(ctx context.Context, arg CreateAllowlistCommitParams) error {
-	_, err := q.db.Exec(ctx, createAllowlistCommit, arg.AllowlistID, arg.Commit)
-	return err
-}
-
-const createAllowlistPath = `-- name: CreateAllowlistPath :exec
-INSERT INTO allowlist_paths (
-    allowlist_id, path
-) VALUES (
-    $1, $2
-)
-ON CONFLICT (allowlist_id, path) DO UPDATE
-SET created_at = NOW()
-`
-
-type CreateAllowlistPathParams struct {
-	AllowlistID int64
-	Path        string
-}
-
-// ============================================
-// Allowlist Paths
-// ============================================
-func (q *Queries) CreateAllowlistPath(ctx context.Context, arg CreateAllowlistPathParams) error {
-	_, err := q.db.Exec(ctx, createAllowlistPath, arg.AllowlistID, arg.Path)
-	return err
-}
-
-const createAllowlistRegex = `-- name: CreateAllowlistRegex :exec
-INSERT INTO allowlist_regexes (
-    allowlist_id, regex
-) VALUES (
-    $1, $2
-)
-ON CONFLICT (allowlist_id, regex) DO UPDATE
-SET created_at = NOW()
-`
-
-type CreateAllowlistRegexParams struct {
-	AllowlistID int64
-	Regex       string
-}
-
-// ============================================
-// Allowlist Regexes
-// ============================================
-func (q *Queries) CreateAllowlistRegex(ctx context.Context, arg CreateAllowlistRegexParams) error {
-	_, err := q.db.Exec(ctx, createAllowlistRegex, arg.AllowlistID, arg.Regex)
-	return err
-}
-
-const createAllowlistStopword = `-- name: CreateAllowlistStopword :exec
-INSERT INTO allowlist_stopwords (
-    allowlist_id, stopword
-) VALUES (
-    $1, $2
-)
-ON CONFLICT (allowlist_id, stopword) DO UPDATE
-SET created_at = NOW()
-`
-
-type CreateAllowlistStopwordParams struct {
-	AllowlistID int64
-	Stopword    string
-}
-
-// ============================================
-// Allowlist Stopwords
-// ============================================
-func (q *Queries) CreateAllowlistStopword(ctx context.Context, arg CreateAllowlistStopwordParams) error {
-	_, err := q.db.Exec(ctx, createAllowlistStopword, arg.AllowlistID, arg.Stopword)
-	return err
-}
-
 const createOrUpdateCheckpoint = `-- name: CreateOrUpdateCheckpoint :one
 
 INSERT INTO checkpoints (target_id, data, created_at, updated_at)
@@ -234,6 +142,54 @@ func (q *Queries) CreateOrUpdateEnumerationState(ctx context.Context, arg Create
 		arg.LastCheckpointID,
 		arg.Status,
 	)
+	return err
+}
+
+const deleteAllowlistCommits = `-- name: DeleteAllowlistCommits :exec
+DELETE FROM allowlist_commits WHERE allowlist_id = $1
+`
+
+// ============================================
+// Allowlist Commits
+// ============================================
+func (q *Queries) DeleteAllowlistCommits(ctx context.Context, allowlistID int64) error {
+	_, err := q.db.Exec(ctx, deleteAllowlistCommits, allowlistID)
+	return err
+}
+
+const deleteAllowlistPaths = `-- name: DeleteAllowlistPaths :exec
+DELETE FROM allowlist_paths WHERE allowlist_id = $1
+`
+
+// ============================================
+// Allowlist Paths
+// ============================================
+func (q *Queries) DeleteAllowlistPaths(ctx context.Context, allowlistID int64) error {
+	_, err := q.db.Exec(ctx, deleteAllowlistPaths, allowlistID)
+	return err
+}
+
+const deleteAllowlistRegexes = `-- name: DeleteAllowlistRegexes :exec
+DELETE FROM allowlist_regexes WHERE allowlist_id = $1
+`
+
+// ============================================
+// Allowlist Regexes
+// ============================================
+func (q *Queries) DeleteAllowlistRegexes(ctx context.Context, allowlistID int64) error {
+	_, err := q.db.Exec(ctx, deleteAllowlistRegexes, allowlistID)
+	return err
+}
+
+const deleteAllowlistStopwords = `-- name: DeleteAllowlistStopwords :exec
+DELETE FROM allowlist_stopwords WHERE allowlist_id = $1
+`
+
+// ============================================
+// Allowlist Stopwords
+// ============================================
+func (q *Queries) DeleteAllowlistStopwords(ctx context.Context, allowlistID int64) error {
+	_, err := q.db.Exec(ctx, deleteAllowlistStopwords, allowlistID)
 	return err
 }
 
