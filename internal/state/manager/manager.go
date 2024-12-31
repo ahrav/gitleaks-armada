@@ -238,7 +238,7 @@ func (sm *StateManager) DetectStaleTasks(ctx context.Context) ([]*state.StalledT
 				continue
 			}
 
-			if now.Sub(summary.GetLastUpdateTime()) >= sm.staleTaskTimeout {
+			if now.Sub(summary.GetLastUpdateTimestamp()) >= sm.staleTaskTimeout {
 				job.UpdateTask(summary.GetTaskID(), func(task *state.ScanTask) {
 					stalledTask := task.ToStalledTask(state.StallReasonNoProgress, task.GetLastUpdateTime())
 					stalledTasks = append(stalledTasks, stalledTask)

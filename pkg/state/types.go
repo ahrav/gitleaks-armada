@@ -237,7 +237,7 @@ func (t *ScanTask) GetSummary(duration time.Duration) TaskSummary {
 		status:          t.status,
 		itemsProcessed:  t.itemsProcessed,
 		duration:        duration,
-		lastUpdate:      t.lastUpdate,
+		lastUpdateTs:    t.lastUpdate,
 		progressDetails: t.progressDetails,
 	}
 }
@@ -288,7 +288,7 @@ type TaskSummary struct {
 	status          TaskStatus
 	itemsProcessed  int64
 	duration        time.Duration
-	lastUpdate      time.Time
+	lastUpdateTs    time.Time
 	progressDetails json.RawMessage
 }
 
@@ -298,8 +298,8 @@ func (s TaskSummary) GetTaskID() string { return s.taskID }
 // GetStatus returns the current execution status of the scan task.
 func (s TaskSummary) GetStatus() TaskStatus { return s.status }
 
-// GetLastUpdateTime returns when this task last reported progress.
-func (s TaskSummary) GetLastUpdateTime() time.Time { return s.lastUpdate }
+// GetLastUpdateTimestamp returns when this task last reported progress.
+func (s TaskSummary) GetLastUpdateTimestamp() time.Time { return s.lastUpdateTs }
 
 // JobSummary provides an aggregated overview of job execution progress.
 // It combines overall job status with task-level metrics to enable job monitoring.
