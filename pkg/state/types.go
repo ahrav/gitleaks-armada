@@ -80,30 +80,47 @@ type ScanTask struct {
 	lastCheckpoint  *Checkpoint
 }
 
-// StallReason identifies the specific cause of a task stall, enabling targeted recovery strategies.
-type StallReason string
-
-const (
-	// StallReasonNoProgress indicates the task has stopped sending progress updates.
-	StallReasonNoProgress StallReason = "NO_PROGRESS"
-	// StallReasonLowThroughput indicates the task's processing rate has fallen below acceptable thresholds.
-	StallReasonLowThroughput StallReason = "LOW_THROUGHPUT"
-	// StallReasonHighErrors indicates the task has exceeded error thresholds and requires intervention.
-	StallReasonHighErrors StallReason = "HIGH_ERRORS"
-)
-
-// StalledTask encapsulates a stalled scanning task and its recovery context. It provides
-// the necessary information to diagnose issues and implement appropriate recovery mechanisms.
-type StalledTask struct {
-	JobID            string
-	TaskID           string
-	StallReason      StallReason
-	StalledDuration  time.Duration
-	RecoveryAttempts int
-	LastUpdate       time.Time
-	ProgressDetails  json.RawMessage
-	LastCheckpoint   *Checkpoint
+// NewScanTask creates a new ScanTask instance for tracking an individual scan operation.
+// It establishes the task's relationship to its parent job and initializes monitoring state.
+func NewScanTask(jobID, taskID string) *ScanTask {
+	return &ScanTask{
+		taskID:    taskID,
+		jobID:     jobID,
+		status:    TaskStatusInitialized,
+		startTime: time.Now(),
+	}
 }
+
+// UpdateProgress applies a progress update to this task's state.
+// It updates all monitoring metrics and preserves any checkpoint data.
+func (t *ScanTask) UpdateProgress(progress ScanProgress) {
+	t.lastSequenceNum = progress.SequenceNum
+	t.status = progress.Status
+	t.lastUpdate = progress.Timestamp
+	t.itemsProcessed = progress.ItemsProcessed
+	t.progressDetails = progress.ProgressDetails
+	if progress.Checkpoint != nil {
+		t.lastCheckpoint = progress.Checkpoint
+	}
+}
+
+// GetJobID returns the identifier of the parent job containing this task.
+func (t *ScanTask) GetJobID() string { return t.jobID }
+
+// GetStatus returns the current execution status of the scan task.
+func (t *ScanTask) GetStatus() TaskStatus { return t.status }
+
+// GetLastSequenceNum returns the sequence number of the most recent progress update.
+func (t *ScanTask) GetLastSequenceNum() int64 { return t.lastSequenceNum }
+
+// GetLastUpdateTime returns when this task last reported progress.
+func (t *ScanTask) GetLastUpdateTime() time.Time { return t.lastUpdate }
+
+// GetItemsProcessed returns the total number of items scanned by this task.
+func (t *ScanTask) GetItemsProcessed() int64 { return t.itemsProcessed }
+
+// GetTaskID returns the unique identifier for this scan task.
+func (t *ScanTask) GetTaskID() string { return t.taskID }
 
 // ScanJob coordinates and tracks a collection of related scanning tasks.
 // It provides aggregated status and progress tracking across all child tasks.
@@ -129,17 +146,6 @@ func NewScanJob(jobID string) *ScanJob {
 	}
 }
 
-// NewScanTask creates a new ScanTask instance for tracking an individual scan operation.
-// It establishes the task's relationship to its parent job and initializes monitoring state.
-func NewScanTask(jobID, taskID string) *ScanTask {
-	return &ScanTask{
-		taskID:    taskID,
-		jobID:     jobID,
-		status:    TaskStatusInitialized,
-		startTime: time.Now(),
-	}
-}
-
 // GetJobID returns the unique identifier for this scan job.
 // Access is synchronized to ensure thread-safe reads.
 func (j *ScanJob) GetJobID() string { return j.jobID }
@@ -155,24 +161,6 @@ func (j *ScanJob) GetStartTime() time.Time { return j.startTime }
 // GetLastUpdateTime returns when this job's state was last modified.
 // Access is synchronized to ensure thread-safe reads.
 func (j *ScanJob) GetLastUpdateTime() time.Time { return j.lastUpdateTime }
-
-// GetTaskID returns the unique identifier for this scan task.
-func (t *ScanTask) GetTaskID() string { return t.taskID }
-
-// GetJobID returns the identifier of the parent job containing this task.
-func (t *ScanTask) GetJobID() string { return t.jobID }
-
-// GetStatus returns the current execution status of the scan task.
-func (t *ScanTask) GetStatus() TaskStatus { return t.status }
-
-// GetLastSequenceNum returns the sequence number of the most recent progress update.
-func (t *ScanTask) GetLastSequenceNum() int64 { return t.lastSequenceNum }
-
-// GetLastUpdateTime returns when this task last reported progress.
-func (t *ScanTask) GetLastUpdateTime() time.Time { return t.lastUpdate }
-
-// GetItemsProcessed returns the total number of items scanned by this task.
-func (t *ScanTask) GetItemsProcessed() int64 { return t.itemsProcessed }
 
 // AddTask registers a new scan task with this job and updates task counters.
 func (j *ScanJob) AddTask(task *ScanTask) {
@@ -231,39 +219,52 @@ func (j *ScanJob) updateStatusCounters() {
 	}
 }
 
-// UpdateProgress applies a progress update to this task's state.
-// It updates all monitoring metrics and preserves any checkpoint data.
-func (t *ScanTask) UpdateProgress(progress ScanProgress) {
-	t.lastSequenceNum = progress.SequenceNum
-	t.status = progress.Status
-	t.lastUpdate = progress.Timestamp
-	t.itemsProcessed = progress.ItemsProcessed
-	t.progressDetails = progress.ProgressDetails
-	if progress.Checkpoint != nil {
-		t.lastCheckpoint = progress.Checkpoint
+// GetAllTaskSummaries returns summaries for all tasks in this job.
+func (j *ScanJob) GetAllTaskSummaries() []TaskSummary {
+	duration := time.Since(j.startTime)
+	summaries := make([]TaskSummary, 0, len(j.tasks))
+	for _, task := range j.tasks {
+		summaries = append(summaries, task.GetSummary(duration))
 	}
+	return summaries
 }
 
 // GetSummary returns a TaskSummary containing the key metrics and status
 // for this task's execution progress.
-func (t *ScanTask) GetSummary() TaskSummary {
+func (t *ScanTask) GetSummary(duration time.Duration) TaskSummary {
 	return TaskSummary{
 		taskID:          t.taskID,
 		status:          t.status,
 		itemsProcessed:  t.itemsProcessed,
-		duration:        time.Since(t.startTime),
+		duration:        duration,
 		lastUpdate:      t.lastUpdate,
 		progressDetails: t.progressDetails,
 	}
 }
 
-// GetAllTaskSummaries returns summaries for all tasks in this job.
-func (j *ScanJob) GetAllTaskSummaries() []TaskSummary {
-	summaries := make([]TaskSummary, 0, len(j.tasks))
-	for _, task := range j.tasks {
-		summaries = append(summaries, task.GetSummary())
-	}
-	return summaries
+// StallReason identifies the specific cause of a task stall, enabling targeted recovery strategies.
+type StallReason string
+
+const (
+	// StallReasonNoProgress indicates the task has stopped sending progress updates.
+	StallReasonNoProgress StallReason = "NO_PROGRESS"
+	// StallReasonLowThroughput indicates the task's processing rate has fallen below acceptable thresholds.
+	StallReasonLowThroughput StallReason = "LOW_THROUGHPUT"
+	// StallReasonHighErrors indicates the task has exceeded error thresholds and requires intervention.
+	StallReasonHighErrors StallReason = "HIGH_ERRORS"
+)
+
+// StalledTask encapsulates a stalled scanning task and its recovery context. It provides
+// the necessary information to diagnose issues and implement appropriate recovery mechanisms.
+type StalledTask struct {
+	JobID            string
+	TaskID           string
+	StallReason      StallReason
+	StalledDuration  time.Duration
+	RecoveryAttempts int
+	LastUpdate       time.Time
+	ProgressDetails  json.RawMessage
+	LastCheckpoint   *Checkpoint
 }
 
 // ToStalledTask converts this task to a StalledTask representation.
