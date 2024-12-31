@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ahrav/gitleaks-armada/internal/controller/metrics"
-	"github.com/ahrav/gitleaks-armada/pkg/messaging"
+	"github.com/ahrav/gitleaks-armada/pkg/messaging/types"
 )
 
 func TestRulesStorage_SaveRule(t *testing.T) {
@@ -20,7 +20,7 @@ func TestRulesStorage_SaveRule(t *testing.T) {
 	// TODO: Replace this with a mock metrics implementation.
 	rulesStorage := NewRulesStorage(dbConn, noOpTracer(), metrics.New())
 
-	rule := messaging.GitleaksRule{
+	rule := types.GitleaksRule{
 		RuleID:      "rule-1",
 		Description: "test rule",
 		Entropy:     3.14,
@@ -29,7 +29,7 @@ func TestRulesStorage_SaveRule(t *testing.T) {
 		Path:        "some/path",
 		Tags:        []string{"tag1"},
 		Keywords:    []string{"keyword1", "keyword2"},
-		Allowlists: []messaging.GitleaksAllowlist{
+		Allowlists: []types.GitleaksAllowlist{
 			{
 				Description:    "Example allowlist",
 				MatchCondition: "ANY",

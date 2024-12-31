@@ -1,9 +1,7 @@
-package messaging
+package types
 
 import (
 	"fmt"
-
-	pb "github.com/ahrav/gitleaks-armada/proto/scanner"
 )
 
 // CredentialType represents the supported authentication mechanisms for scanning targets.
@@ -83,32 +81,5 @@ func NewS3Credentials(accessKey, secretKey, session string) *TaskCredentials {
 			"secret_key":    secretKey,
 			"session_token": session,
 		},
-	}
-}
-
-// ToProto converts credentials to their protobuf representation for transmission.
-// Returns nil for unsupported credential types.
-func (c *TaskCredentials) ToProto() *pb.TaskCredentials {
-	switch c.Type {
-	case CredentialTypeGitHub:
-		return &pb.TaskCredentials{
-			Auth: &pb.TaskCredentials_Github{
-				Github: &pb.GitHubCredentials{
-					AuthToken: c.Values["auth_token"].(string),
-				},
-			},
-		}
-	case CredentialTypeS3:
-		return &pb.TaskCredentials{
-			Auth: &pb.TaskCredentials_S3{
-				S3: &pb.S3Credentials{
-					AccessKey:    c.Values["access_key"].(string),
-					SecretKey:    c.Values["secret_key"].(string),
-					SessionToken: c.Values["session_token"].(string),
-				},
-			},
-		}
-	default:
-		return nil
 	}
 }

@@ -1,4 +1,4 @@
-package messaging
+package types
 
 // ScanProgress provides information about an ongoing scan operation.
 type ScanProgress struct {

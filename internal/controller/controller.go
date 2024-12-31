@@ -18,6 +18,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/config"
 	"github.com/ahrav/gitleaks-armada/pkg/enumeration"
 	"github.com/ahrav/gitleaks-armada/pkg/messaging"
+	"github.com/ahrav/gitleaks-armada/pkg/messaging/types"
 	"github.com/ahrav/gitleaks-armada/pkg/storage"
 )
 
@@ -288,7 +289,7 @@ func (c *Controller) doEnumeration(ctx context.Context, state *storage.Enumerati
 			}
 		}
 
-		taskCh := make(chan []messaging.Task)
+		taskCh := make(chan []types.Task)
 		var wg sync.WaitGroup
 		wg.Add(1)
 		go func() {
@@ -397,7 +398,7 @@ func (c *Controller) marshalConfig(ctx context.Context, target config.TargetSpec
 // This allows tracking individual tasks through the processing pipeline.
 func generateTaskID() string { return uuid.New().String() }
 
-func (c *Controller) handleRule(ctx context.Context, ruleMsg messaging.GitleaksRuleMessage) error {
+func (c *Controller) handleRule(ctx context.Context, ruleMsg types.GitleaksRuleMessage) error {
 	ctx, span := c.tracer.Start(ctx, "controller.handleRule")
 	defer span.End()
 

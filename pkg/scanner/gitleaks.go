@@ -18,6 +18,7 @@ import (
 
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/messaging"
+	"github.com/ahrav/gitleaks-armada/pkg/messaging/types"
 )
 
 type GitLeaksScanner struct {
@@ -169,8 +170,8 @@ func publishRulesOnStartup(
 	return nil
 }
 
-func convertDetectorRuleToMessage(rule config.Rule) messaging.GitleaksRuleMessage {
-	domainRule := messaging.GitleaksRule{
+func convertDetectorRuleToMessage(rule config.Rule) types.GitleaksRuleMessage {
+	domainRule := types.GitleaksRule{
 		RuleID:      rule.RuleID,
 		Description: rule.Description,
 		Entropy:     rule.Entropy,
@@ -182,7 +183,7 @@ func convertDetectorRuleToMessage(rule config.Rule) messaging.GitleaksRuleMessag
 		Allowlists:  convertAllowlists(rule.Allowlists),
 	}
 
-	return messaging.GitleaksRuleMessage{
+	return types.GitleaksRuleMessage{
 		Rule: domainRule,
 		Hash: domainRule.GenerateHash(),
 	}
@@ -199,10 +200,10 @@ func regexToString(re *regexp.Regexp) string {
 
 // convertAllowlists transforms Gitleaks allowlist configurations into a serializable format.
 // Allowlists define exceptions to the detection rules to reduce false positives.
-func convertAllowlists(aws []config.Allowlist) []messaging.GitleaksAllowlist {
-	dAll := make([]messaging.GitleaksAllowlist, 0, len(aws))
+func convertAllowlists(aws []config.Allowlist) []types.GitleaksAllowlist {
+	dAll := make([]types.GitleaksAllowlist, 0, len(aws))
 	for _, a := range aws {
-		dAll = append(dAll, messaging.GitleaksAllowlist{
+		dAll = append(dAll, types.GitleaksAllowlist{
 			Description:    a.Description,
 			MatchCondition: matchConditionToDomain(a.MatchCondition),
 			Commits:        a.Commits,
@@ -229,14 +230,14 @@ func regexSliceToStrings(res []*regexp.Regexp) []string {
 
 // matchConditionToDomain converts Gitleaks allowlist match conditions to our domain's
 // representation. Match conditions determine how multiple allowlist criteria are combined.
-func matchConditionToDomain(mc config.AllowlistMatchCondition) messaging.AllowlistMatchCondition {
+func matchConditionToDomain(mc config.AllowlistMatchCondition) types.AllowlistMatchCondition {
 	switch mc {
 	case config.AllowlistMatchOr:
-		return messaging.MatchConditionOR
+		return types.MatchConditionOR
 	case config.AllowlistMatchAnd:
-		return messaging.MatchConditionAND
+		return types.MatchConditionAND
 	default:
-		return messaging.MatchConditionUnspecified
+		return types.MatchConditionUnspecified
 	}
 }
 

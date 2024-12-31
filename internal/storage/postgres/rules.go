@@ -12,7 +12,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/ahrav/gitleaks-armada/internal/db"
-	"github.com/ahrav/gitleaks-armada/pkg/messaging"
+	"github.com/ahrav/gitleaks-armada/pkg/messaging/types"
 	"github.com/ahrav/gitleaks-armada/pkg/storage"
 )
 
@@ -102,7 +102,7 @@ func bulkInsert[T bulkInsertParams](
 // SaveRule persists a single rule and its allowlists to PostgreSQL.
 // It ensures atomic updates by executing all operations within a transaction,
 // preventing partial or inconsistent updates that could affect scanning accuracy.
-func (s *RulesStorage) SaveRule(ctx context.Context, rule messaging.GitleaksRule) error {
+func (s *RulesStorage) SaveRule(ctx context.Context, rule types.GitleaksRule) error {
 	// Set a context timeout to prevent transaction deadlocks and resource exhaustion.
 	// We use a serializable isolation level and a relatively short timeout since
 	// rule updates should be quick and we want to fail fast if there are issues.
@@ -184,7 +184,7 @@ func (s *RulesStorage) bulkInsertAllowlistComponents(
 	ctx context.Context,
 	qtx *db.Queries,
 	allowlistID int64,
-	al messaging.GitleaksAllowlist,
+	al types.GitleaksAllowlist,
 ) error {
 	return executeAndTrace(ctx, s.tracer, "postgres.bulk_insert_components", []attribute.KeyValue{
 		attribute.Int64("allowlist_id", allowlistID),

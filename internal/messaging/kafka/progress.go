@@ -10,7 +10,7 @@ import (
 
 	"github.com/ahrav/gitleaks-armada/internal/messaging/kafka/tracing"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
-	"github.com/ahrav/gitleaks-armada/pkg/messaging"
+	"github.com/ahrav/gitleaks-armada/pkg/messaging/types"
 	pb "github.com/ahrav/gitleaks-armada/proto/scanner"
 )
 
@@ -20,7 +20,7 @@ import (
 
 // PublishProgress publishes scan progress updates to Kafka.
 // Progress updates help track the status of long-running scan operations.
-func (k *Broker) PublishProgress(ctx context.Context, progress messaging.ScanProgress) error {
+func (k *Broker) PublishProgress(ctx context.Context, progress types.ScanProgress) error {
 	pbProgress := &pb.ScanProgress{
 		TaskId:          progress.TaskID,
 		PercentComplete: progress.PercentComplete,
@@ -45,7 +45,7 @@ func (k *Broker) PublishProgress(ctx context.Context, progress messaging.ScanPro
 
 // SubscribeProgress registers a handler function to process incoming progress updates.
 // The handler is called for each progress message received from the progress topic.
-func (k *Broker) SubscribeProgress(ctx context.Context, handler func(context.Context, messaging.ScanProgress) error) error {
+func (k *Broker) SubscribeProgress(ctx context.Context, handler func(context.Context, types.ScanProgress) error) error {
 	h := &progressHandler{
 		progressTopic: k.progressTopic,
 		handler:       handler,
@@ -63,7 +63,7 @@ type progressHandler struct {
 	clientID string
 
 	progressTopic string
-	handler       func(context.Context, messaging.ScanProgress) error
+	handler       func(context.Context, types.ScanProgress) error
 
 	logger *logger.Logger
 	tracer trace.Tracer
@@ -93,7 +93,7 @@ func (h *progressHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, claim s
 			continue
 		}
 
-		progress := messaging.ScanProgress{
+		progress := types.ScanProgress{
 			TaskID:          pbProgress.TaskId,
 			PercentComplete: pbProgress.PercentComplete,
 			ItemsProcessed:  pbProgress.ItemsProcessed,

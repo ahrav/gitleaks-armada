@@ -10,7 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/ahrav/gitleaks-armada/pkg/messaging"
+	"github.com/ahrav/gitleaks-armada/pkg/messaging/types"
 )
 
 func TestPublishAndSubscribeTasks(t *testing.T) {
@@ -21,12 +21,12 @@ func TestPublishAndSubscribeTasks(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(1)
 
-	expectedTask := messaging.Task{
+	expectedTask := types.Task{
 		TaskID:      "test-task",
 		ResourceURI: "test-uri",
 	}
 
-	err := broker.SubscribeTasks(ctx, func(task messaging.Task) error {
+	err := broker.SubscribeTasks(ctx, func(task types.Task) error {
 		defer wg.Done()
 		assert.Equal(t, expectedTask, task)
 		return nil
@@ -48,10 +48,10 @@ func TestMultipleSubscribers(t *testing.T) {
 	subscriberCount := 3
 	wg.Add(subscriberCount)
 
-	task := messaging.Task{TaskID: "test-multiple"}
+	task := types.Task{TaskID: "test-multiple"}
 
 	for i := 0; i < subscriberCount; i++ {
-		err := broker.SubscribeTasks(ctx, func(receivedTask messaging.Task) error {
+		err := broker.SubscribeTasks(ctx, func(receivedTask types.Task) error {
 			defer wg.Done()
 			assert.Equal(t, task, receivedTask)
 			return nil
@@ -73,12 +73,12 @@ func TestHandlerError(t *testing.T) {
 	expectedErr := errors.New("handler error")
 
 	// Subscribe with an error-returning handler.
-	err := broker.SubscribeTasks(ctx, func(task messaging.Task) error {
+	err := broker.SubscribeTasks(ctx, func(task types.Task) error {
 		return expectedErr
 	})
 	assert.NoError(t, err)
 
-	err = broker.PublishTask(ctx, messaging.Task{TaskID: "test-error"})
+	err = broker.PublishTask(ctx, types.Task{TaskID: "test-error"})
 	assert.ErrorIs(t, err, expectedErr)
 }
 
@@ -93,7 +93,7 @@ func TestConcurrentPublishSubscribe(t *testing.T) {
 	wg.Add(taskCount * subscriberCount)
 
 	for i := 0; i < subscriberCount; i++ {
-		err := broker.SubscribeTasks(ctx, func(task messaging.Task) error {
+		err := broker.SubscribeTasks(ctx, func(task types.Task) error {
 			defer wg.Done()
 			return nil
 		})
@@ -102,7 +102,7 @@ func TestConcurrentPublishSubscribe(t *testing.T) {
 
 	for i := 0; i < taskCount; i++ {
 		go func(id int) {
-			task := messaging.Task{TaskID: fmt.Sprintf("task-%d", id)}
+			task := types.Task{TaskID: fmt.Sprintf("task-%d", id)}
 			err := broker.PublishTask(ctx, task)
 			assert.NoError(t, err)
 		}(i)
@@ -128,7 +128,7 @@ func TestPublishBatchWithError(t *testing.T) {
 	expectedErr := errors.New("handler error")
 
 	// Subscribe with a handler that fails on specific task.
-	err := broker.SubscribeTasks(ctx, func(task messaging.Task) error {
+	err := broker.SubscribeTasks(ctx, func(task types.Task) error {
 		if task.TaskID == "fail-task" {
 			return expectedErr
 		}
@@ -136,7 +136,7 @@ func TestPublishBatchWithError(t *testing.T) {
 	})
 	assert.NoError(t, err)
 
-	tasks := []messaging.Task{
+	tasks := []types.Task{
 		{TaskID: "task-1"},
 		{TaskID: "fail-task"},
 		{TaskID: "task-3"}, // This should not be processed due to previous error
@@ -153,10 +153,10 @@ func TestContextCancellation(t *testing.T) {
 	// Cancel context before publishing.
 	cancel()
 
-	err := broker.PublishTask(ctx, messaging.Task{TaskID: "test-task"})
+	err := broker.PublishTask(ctx, types.Task{TaskID: "test-task"})
 	assert.ErrorIs(t, err, context.Canceled)
 
-	err = broker.SubscribeTasks(ctx, func(task messaging.Task) error {
+	err = broker.SubscribeTasks(ctx, func(task types.Task) error {
 		return nil
 	})
 	assert.ErrorIs(t, err, context.Canceled)

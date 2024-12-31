@@ -10,8 +10,8 @@ import (
 
 	"github.com/ahrav/gitleaks-armada/internal/messaging/kafka/tracing"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
-	"github.com/ahrav/gitleaks-armada/pkg/messaging"
 	"github.com/ahrav/gitleaks-armada/pkg/messaging/protobuf"
+	"github.com/ahrav/gitleaks-armada/pkg/messaging/types"
 	pb "github.com/ahrav/gitleaks-armada/proto/scanner"
 )
 
@@ -21,7 +21,7 @@ import (
 
 // PublishRule publishes a single scanning rule to Kafka.
 // These rules define patterns for detecting sensitive information in scanned content.
-func (k *Broker) PublishRule(ctx context.Context, rules messaging.GitleaksRuleMessage) error {
+func (k *Broker) PublishRule(ctx context.Context, rules types.GitleaksRuleMessage) error {
 	ctx, span := tracing.StartProducerSpan(ctx, k.rulesTopic, k.tracer)
 	defer span.End()
 
@@ -53,7 +53,7 @@ func (k *Broker) PublishRule(ctx context.Context, rules messaging.GitleaksRuleMe
 
 // SubscribeRules registers a handler function to process incoming scanning rules.
 // The handler is called for each rules message received from the rules topic.
-func (k *Broker) SubscribeRules(ctx context.Context, handler func(context.Context, messaging.GitleaksRuleMessage) error) error {
+func (k *Broker) SubscribeRules(ctx context.Context, handler func(context.Context, types.GitleaksRuleMessage) error) error {
 	h := &rulesHandler{
 		rulesTopic: k.rulesTopic,
 		handler:    handler,
@@ -72,7 +72,7 @@ type rulesHandler struct {
 	clientID string
 
 	rulesTopic string
-	handler    func(context.Context, messaging.GitleaksRuleMessage) error
+	handler    func(context.Context, types.GitleaksRuleMessage) error
 
 	tracer  trace.Tracer
 	logger  *logger.Logger

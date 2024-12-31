@@ -10,7 +10,8 @@ import (
 
 	"github.com/ahrav/gitleaks-armada/internal/messaging/kafka/tracing"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
-	"github.com/ahrav/gitleaks-armada/pkg/messaging"
+	"github.com/ahrav/gitleaks-armada/pkg/messaging/protobuf"
+	"github.com/ahrav/gitleaks-armada/pkg/messaging/types"
 	pb "github.com/ahrav/gitleaks-armada/proto/scanner"
 )
 
@@ -21,7 +22,7 @@ import (
 // PublishTask publishes a single scan task to Kafka.
 // It serializes the task to protobuf format and uses the task ID as the message key
 // for consistent partition routing.
-func (k *Broker) PublishTask(ctx context.Context, task messaging.Task) error {
+func (k *Broker) PublishTask(ctx context.Context, task types.Task) error {
 	ctx, span := tracing.StartProducerSpan(ctx, k.taskTopic, k.tracer)
 	defer span.End()
 
@@ -29,7 +30,7 @@ func (k *Broker) PublishTask(ctx context.Context, task messaging.Task) error {
 		TaskId:      task.TaskID,
 		ResourceUri: task.ResourceURI,
 		Metadata:    task.Metadata,
-		Credentials: task.Credentials.ToProto(),
+		Credentials: protobuf.ToProto(task.Credentials),
 	}
 	data, err := proto.Marshal(pbTask)
 	if err != nil {
@@ -57,7 +58,7 @@ func (k *Broker) PublishTask(ctx context.Context, task messaging.Task) error {
 
 // PublishTasks publishes multiple scan tasks to Kafka.
 // Tasks are published sequentially, with the first error encountered being returned.
-func (k *Broker) PublishTasks(ctx context.Context, tasks []messaging.Task) error {
+func (k *Broker) PublishTasks(ctx context.Context, tasks []types.Task) error {
 	for _, t := range tasks {
 		if err := k.PublishTask(ctx, t); err != nil {
 			return err
@@ -68,7 +69,7 @@ func (k *Broker) PublishTasks(ctx context.Context, tasks []messaging.Task) error
 
 // SubscribeTasks registers a handler function to process incoming scan tasks.
 // The handler is called for each task message received from the task topic.
-func (k *Broker) SubscribeTasks(ctx context.Context, handler func(context.Context, messaging.Task) error) error {
+func (k *Broker) SubscribeTasks(ctx context.Context, handler func(context.Context, types.Task) error) error {
 	h := &taskHandler{
 		taskTopic: k.taskTopic,
 		handler:   handler,
@@ -87,7 +88,7 @@ type taskHandler struct {
 	clientID string
 
 	taskTopic string
-	handler   func(context.Context, messaging.Task) error
+	handler   func(context.Context, types.Task) error
 
 	tracer  trace.Tracer
 	metrics BrokerMetrics
@@ -119,7 +120,7 @@ func (h *taskHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, claim saram
 			continue
 		}
 
-		task := messaging.Task{
+		task := types.Task{
 			TaskID:      pbTask.TaskId,
 			ResourceURI: pbTask.ResourceUri,
 			Metadata:    pbTask.Metadata,

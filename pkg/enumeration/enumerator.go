@@ -3,7 +3,7 @@ package enumeration
 import (
 	"context"
 
-	"github.com/ahrav/gitleaks-armada/pkg/messaging"
+	"github.com/ahrav/gitleaks-armada/pkg/messaging/types"
 	"github.com/ahrav/gitleaks-armada/pkg/storage"
 )
 
@@ -13,5 +13,5 @@ type TargetEnumerator interface {
 	// Enumerate walks through a data source to generate scan tasks.
 	// It uses the enumeration state for context and checkpoint data,
 	// and streams tasks through taskCh.
-	Enumerate(ctx context.Context, state *storage.EnumerationState, taskCh chan<- []messaging.Task) error
+	Enumerate(ctx context.Context, state *storage.EnumerationState, taskCh chan<- []types.Task) error
 }

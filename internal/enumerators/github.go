@@ -17,7 +17,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/common"
 	"github.com/ahrav/gitleaks-armada/pkg/config"
 	"github.com/ahrav/gitleaks-armada/pkg/enumeration"
-	"github.com/ahrav/gitleaks-armada/pkg/messaging"
+	"github.com/ahrav/gitleaks-armada/pkg/messaging/types"
 	"github.com/ahrav/gitleaks-armada/pkg/storage"
 )
 
@@ -35,7 +35,7 @@ type GitHubAPI interface {
 // efficiently and reliably.
 type GitHubEnumerator struct {
 	ghConfig *config.GitHubTarget
-	creds    *messaging.TaskCredentials
+	creds    *types.TaskCredentials
 
 	ghClient GitHubAPI
 	storage  storage.EnumerationStateStorage
@@ -46,7 +46,7 @@ type GitHubEnumerator struct {
 // credentials and state storage.
 func NewGitHubEnumerator(
 	client GitHubAPI,
-	creds *messaging.TaskCredentials,
+	creds *types.TaskCredentials,
 	storage storage.EnumerationStateStorage,
 	ghConfig *config.GitHubTarget,
 	tracer trace.Tracer,
@@ -62,8 +62,8 @@ func NewGitHubEnumerator(
 
 // extractGitHubToken retrieves and validates the authentication token from GitHub credentials.
 // It returns an error if the credentials are not GitHub type or if the token is missing.
-func extractGitHubToken(creds *messaging.TaskCredentials) (string, error) {
-	if creds.Type != messaging.CredentialTypeGitHub && creds.Type != messaging.CredentialTypeUnauthenticated {
+func extractGitHubToken(creds *types.TaskCredentials) (string, error) {
+	if creds.Type != types.CredentialTypeGitHub && creds.Type != types.CredentialTypeUnauthenticated {
 		return "", fmt.Errorf("expected github credentials, got %s", creds.Type)
 	}
 
@@ -78,7 +78,7 @@ func extractGitHubToken(creds *messaging.TaskCredentials) (string, error) {
 // It uses GraphQL for efficient pagination and maintains checkpoints for resumability.
 // The method streams batches of tasks through the provided channel and updates progress
 // in the enumeration state storage.
-func (e *GitHubEnumerator) Enumerate(ctx context.Context, state *storage.EnumerationState, taskCh chan<- []messaging.Task) error {
+func (e *GitHubEnumerator) Enumerate(ctx context.Context, state *storage.EnumerationState, taskCh chan<- []types.Task) error {
 	ctx, span := e.tracer.Start(ctx, "github.enumerate",
 		trace.WithAttributes(
 			attribute.String("org", e.ghConfig.Org),
@@ -92,9 +92,9 @@ func (e *GitHubEnumerator) Enumerate(ctx context.Context, state *storage.Enumera
 
 	// If we have a repo list, process it directly.
 	if len(e.ghConfig.RepoList) > 0 {
-		tasks := make([]messaging.Task, 0, len(e.ghConfig.RepoList))
+		tasks := make([]types.Task, 0, len(e.ghConfig.RepoList))
 		for _, repoURL := range e.ghConfig.RepoList {
-			tasks = append(tasks, messaging.Task{
+			tasks = append(tasks, types.Task{
 				TaskID:      generateTaskID(),
 				ResourceURI: repoURL,
 				Metadata:    e.ghConfig.Metadata,
@@ -126,9 +126,9 @@ func (e *GitHubEnumerator) Enumerate(ctx context.Context, state *storage.Enumera
 		apiSpan.End()
 
 		_, taskSpan := e.tracer.Start(ctx, "create_tasks")
-		tasks := make([]messaging.Task, 0, len(respData.Data.Organization.Repositories.Nodes))
+		tasks := make([]types.Task, 0, len(respData.Data.Organization.Repositories.Nodes))
 		for _, node := range respData.Data.Organization.Repositories.Nodes {
-			tasks = append(tasks, messaging.Task{
+			tasks = append(tasks, types.Task{
 				TaskID:      generateTaskID(),
 				ResourceURI: buildGithubResourceURI(e.ghConfig.Org, node.Name),
 				Metadata:    e.ghConfig.Metadata,
@@ -182,9 +182,9 @@ type GitHubClient struct {
 }
 
 // NewGitHubClient creates a new GitHub client with rate limiting.
-func NewGitHubClient(httpClient *http.Client, creds *messaging.TaskCredentials) (*GitHubClient, error) {
+func NewGitHubClient(httpClient *http.Client, creds *types.TaskCredentials) (*GitHubClient, error) {
 	var token string
-	if creds.Type == messaging.CredentialTypeGitHub {
+	if creds.Type == types.CredentialTypeGitHub {
 		var err error
 		token, err = extractGitHubToken(creds)
 		if err != nil {

@@ -10,8 +10,8 @@ import (
 
 	"github.com/ahrav/gitleaks-armada/internal/messaging/kafka/tracing"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
-	"github.com/ahrav/gitleaks-armada/pkg/messaging"
 	"github.com/ahrav/gitleaks-armada/pkg/messaging/protobuf"
+	"github.com/ahrav/gitleaks-armada/pkg/messaging/types"
 	pb "github.com/ahrav/gitleaks-armada/proto/scanner"
 )
 
@@ -21,7 +21,7 @@ import (
 
 // PublishResult publishes a scan result to Kafka.
 // It converts domain findings and status to protobuf format before publishing.
-func (k *Broker) PublishResult(ctx context.Context, result messaging.ScanResult) error {
+func (k *Broker) PublishResult(ctx context.Context, result types.ScanResult) error {
 	ctx, span := tracing.StartProducerSpan(ctx, k.resultsTopic, k.tracer)
 	defer span.End()
 
@@ -48,7 +48,7 @@ func (k *Broker) PublishResult(ctx context.Context, result messaging.ScanResult)
 
 // SubscribeResults registers a handler function to process incoming scan results.
 // The handler is called for each result message received from the results topic.
-func (k *Broker) SubscribeResults(ctx context.Context, handler func(context.Context, messaging.ScanResult) error) error {
+func (k *Broker) SubscribeResults(ctx context.Context, handler func(context.Context, types.ScanResult) error) error {
 	h := &resultsHandler{
 		resultsTopic: k.resultsTopic,
 		handler:      handler,
@@ -65,7 +65,7 @@ type resultsHandler struct {
 	clientID string
 
 	resultsTopic string
-	handler      func(context.Context, messaging.ScanResult) error
+	handler      func(context.Context, types.ScanResult) error
 
 	logger *logger.Logger
 	tracer trace.Tracer
