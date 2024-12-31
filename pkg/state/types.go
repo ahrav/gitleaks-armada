@@ -86,6 +86,7 @@ type ScanTask struct {
 // ScanJob coordinates and tracks a collection of related scanning tasks.
 // It provides aggregated status and progress tracking across all child tasks.
 type ScanJob struct {
+	mu             sync.RWMutex // Protects concurrent access to job state
 	JobID          string
 	Status         JobStatus
 	StartTime      time.Time
@@ -94,7 +95,6 @@ type ScanJob struct {
 	TotalTasks     int
 	CompletedTasks int
 	FailedTasks    int
-	mu             sync.RWMutex // Protects concurrent access to job state
 }
 
 // TaskSummary provides a concise view of task execution progress and status.
