@@ -1,3 +1,6 @@
+// Package protobuf provides conversion functions between domain types and protobuf messages.
+// It enables serialization of domain objects for network transport while maintaining
+// a clean separation between internal types and wire formats.
 package protobuf
 
 import (
@@ -7,8 +10,9 @@ import (
 	pb "github.com/ahrav/gitleaks-armada/proto/scanner"
 )
 
-// ToProto converts credentials to their protobuf representation for transmission.
-// Returns nil for unsupported credential types.
+// ToProto converts domain TaskCredentials to their protobuf representation for transmission.
+// It handles mapping of supported credential types (GitHub, S3) while gracefully
+// handling unsupported types by returning nil.
 func ToProto(c *types.TaskCredentials) *pb.TaskCredentials {
 	switch c.Type {
 	case types.CredentialTypeGitHub:
@@ -34,7 +38,8 @@ func ToProto(c *types.TaskCredentials) *pb.TaskCredentials {
 	}
 }
 
-// ScanResultToProto converts a ScanResult to its protobuf representation for wire transfer.
+// ScanResultToProto converts a domain ScanResult to its protobuf representation.
+// This enables serialization of scan findings and metadata for network transport.
 func ScanResultToProto(sr types.ScanResult) *pb.ScanResult {
 	pbFindings := make([]*pb.Finding, 0, len(sr.Findings))
 	for _, f := range sr.Findings {
@@ -49,7 +54,8 @@ func ScanResultToProto(sr types.ScanResult) *pb.ScanResult {
 	}
 }
 
-// findingToProto converts a Finding to its protobuf representation.
+// findingToProto converts a domain Finding to its protobuf representation.
+// It handles conversion of the raw finding data into a protobuf struct.
 func findingToProto(f types.Finding) *pb.Finding {
 	var pbStruct *structpb.Struct
 	if len(f.RawFinding) > 0 {
@@ -67,7 +73,7 @@ func findingToProto(f types.Finding) *pb.Finding {
 	}
 }
 
-// scanJobStatusToProto converts a domain ScanJobStatus to its protobuf enum equivalent.
+// scanJobStatusToProto maps domain scan status values to their protobuf enum equivalents.
 func scanJobStatusToProto(ds types.ScanJobStatus) pb.ScanJobStatus {
 	switch ds {
 	case types.ScanJobStatusQueued:
@@ -83,8 +89,8 @@ func scanJobStatusToProto(ds types.ScanJobStatus) pb.ScanJobStatus {
 	}
 }
 
-// structMapToProto converts a Go map to a protobuf Struct type.
-// This allows arbitrary metadata to be serialized in the protobuf message.
+// structMapToProto converts a Go map to a protobuf Struct.
+// This enables serialization of arbitrary metadata in protobuf messages.
 func structMapToProto(m map[string]any) *structpb.Struct {
 	pbStruct, err := structpb.NewStruct(m)
 	if err != nil {
@@ -93,8 +99,8 @@ func structMapToProto(m map[string]any) *structpb.Struct {
 	return pbStruct
 }
 
-// ProtoToScanResult constructs a domain ScanResult from its protobuf representation.
-// This enables receiving and processing scan results from the wire format.
+// ProtoToScanResult converts a protobuf ScanResult message to its domain representation.
+// This enables processing of scan results received over the network.
 func ProtoToScanResult(psr *pb.ScanResult) types.ScanResult {
 	dFindings := make([]types.Finding, 0, len(psr.Findings))
 	for _, pf := range psr.Findings {
@@ -127,7 +133,7 @@ func protoToFinding(pf *pb.Finding) types.Finding {
 	}
 }
 
-// protoToScanJobStatus converts a protobuf scan status enum to its domain equivalent.
+// protoToScanJobStatus maps protobuf scan status enums to their domain equivalents.
 func protoToScanJobStatus(ps pb.ScanJobStatus) types.ScanJobStatus {
 	switch ps {
 	case pb.ScanJobStatus_SCAN_JOB_STATUS_QUEUED:
@@ -144,7 +150,7 @@ func protoToScanJobStatus(ps pb.ScanJobStatus) types.ScanJobStatus {
 }
 
 // protoToStructMap converts a protobuf Struct to a Go map.
-// This allows accessing arbitrary metadata from the protobuf message.
+// This enables access to arbitrary metadata from received protobuf messages.
 func protoToStructMap(s *structpb.Struct) map[string]any {
 	if s == nil {
 		return nil
@@ -152,7 +158,8 @@ func protoToStructMap(s *structpb.Struct) map[string]any {
 	return s.AsMap()
 }
 
-// GitleaksRulesMessageToProto converts a single rule message to its protobuf representation.
+// GitleaksRulesMessageToProto converts a domain rule message to its protobuf representation.
+// This enables transmission of Gitleaks rules configuration over the network.
 func GitleaksRulesMessageToProto(rm types.GitleaksRuleMessage) *pb.RuleMessage {
 	return &pb.RuleMessage{
 		Rule: ruleToProto(rm.Rule),
@@ -160,6 +167,7 @@ func GitleaksRulesMessageToProto(rm types.GitleaksRuleMessage) *pb.RuleMessage {
 	}
 }
 
+// ruleToProto converts a domain Gitleaks rule to its protobuf representation.
 func ruleToProto(r types.GitleaksRule) *pb.Rule {
 	return &pb.Rule{
 		RuleId:      r.RuleID,
@@ -174,6 +182,7 @@ func ruleToProto(r types.GitleaksRule) *pb.Rule {
 	}
 }
 
+// allowlistsToProto converts domain allowlists to their protobuf representation.
 func allowlistsToProto(aws []types.GitleaksAllowlist) []*pb.Allowlist {
 	protoAws := make([]*pb.Allowlist, 0, len(aws))
 	for _, a := range aws {
@@ -190,6 +199,7 @@ func allowlistsToProto(aws []types.GitleaksAllowlist) []*pb.Allowlist {
 	return protoAws
 }
 
+// conditionToProto maps domain match conditions to their protobuf enum equivalents.
 func conditionToProto(mc types.AllowlistMatchCondition) pb.AllowlistMatchCondition {
 	switch mc {
 	case types.MatchConditionOR:
@@ -201,6 +211,8 @@ func conditionToProto(mc types.AllowlistMatchCondition) pb.AllowlistMatchConditi
 	}
 }
 
+// ProtoToGitleaksRuleMessage converts a protobuf rule message to its domain representation.
+// This enables processing of received Gitleaks rules configuration.
 func ProtoToGitleaksRuleMessage(pr *pb.RuleMessage) types.GitleaksRuleMessage {
 	return types.GitleaksRuleMessage{
 		Rule: protoToRule(pr.Rule),
@@ -208,6 +220,7 @@ func ProtoToGitleaksRuleMessage(pr *pb.RuleMessage) types.GitleaksRuleMessage {
 	}
 }
 
+// protoToRule converts a protobuf Gitleaks rule to its domain representation.
 func protoToRule(pr *pb.Rule) types.GitleaksRule {
 	return types.GitleaksRule{
 		RuleID:      pr.RuleId,
@@ -222,6 +235,7 @@ func protoToRule(pr *pb.Rule) types.GitleaksRule {
 	}
 }
 
+// protoToAllowlists converts protobuf allowlists to their domain representation.
 func protoToAllowlists(paws []*pb.Allowlist) []types.GitleaksAllowlist {
 	aws := make([]types.GitleaksAllowlist, 0, len(paws))
 	for _, pa := range paws {
@@ -238,6 +252,7 @@ func protoToAllowlists(paws []*pb.Allowlist) []types.GitleaksAllowlist {
 	return aws
 }
 
+// protoToCondition maps protobuf match condition enums to their domain equivalents.
 func protoToCondition(pc pb.AllowlistMatchCondition) types.AllowlistMatchCondition {
 	switch pc {
 	case pb.AllowlistMatchCondition_ALLOWLIST_MATCH_OR:
