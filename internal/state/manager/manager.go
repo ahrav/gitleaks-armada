@@ -31,17 +31,13 @@ type Option func(*StateManager)
 // WithPersistInterval configures how frequently state changes are persisted to storage.
 // This helps balance durability with performance.
 func WithPersistInterval(d time.Duration) Option {
-	return func(sm *StateManager) {
-		sm.persistInterval = d
-	}
+	return func(sm *StateManager) { sm.persistInterval = d }
 }
 
 // WithStaleTaskTimeout configures when to mark tasks as stale due to inactivity.
 // This enables detection of hung or failed tasks that don't properly report status.
 func WithStaleTaskTimeout(d time.Duration) Option {
-	return func(sm *StateManager) {
-		sm.staleTaskTimeout = d
-	}
+	return func(sm *StateManager) { sm.staleTaskTimeout = d }
 }
 
 // NewStateManager creates a StateManager with the given store and options.
@@ -54,7 +50,6 @@ func NewStateManager(store state.Store, opts ...Option) *StateManager {
 		staleTaskTimeout: 10 * time.Minute, // Default stale timeout
 	}
 
-	// Apply any custom options
 	for _, opt := range opts {
 		opt(sm)
 	}
@@ -62,29 +57,52 @@ func NewStateManager(store state.Store, opts ...Option) *StateManager {
 	return sm
 }
 
-// HandleProgressUpdate processes a progress update from a scanner, managing both
-// in-memory state and persistence. It ensures updates are applied in sequence
-// and handles checkpointing of scan progress.
+// HandleProgressUpdate processes a progress update from a scanner. It manages both
+// in-memory state and persistence to ensure scan progress is tracked reliably.
+// The method is thread-safe and handles concurrent updates by using locks
+// strategically to minimize contention.
+//
+// Progress updates are applied in sequence using sequence numbers to prevent
+// out-of-order updates. Checkpoints are persisted to enable task recovery.
+// State changes are batched and persisted based on configured intervals to
+// balance durability with performance.
 func (sm *StateManager) HandleProgressUpdate(ctx context.Context, progress state.ScanProgress) error {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
+	// Validate required fields before acquiring locks
+	if progress.JobID == "" {
+		return fmt.Errorf("job ID cannot be empty")
+	}
+	if progress.TaskID == "" {
+		return fmt.Errorf("task ID cannot be empty")
+	}
 
-	// Load or create job state
+	var job *state.ScanJob
+
+	// First critical section: Check if job exists in memory.
+	sm.mu.Lock()
 	job, ok := sm.jobs[progress.JobID]
 	if !ok {
-		// Try loading from persistent store before creating new
+		sm.mu.Unlock()
+
+		// Load from persistent store if not in memory.
 		loadedJob, err := sm.store.GetJob(ctx, progress.JobID)
 		if err != nil {
+			// Create new job if not found in store.
 			job = state.NewScanJob(progress.JobID)
 		} else {
 			job = loadedJob
 		}
-		sm.jobs[progress.JobID] = job
+
+		// Second critical section: Store job in memory if another goroutine hasn't already.
+		sm.mu.Lock()
+		if existing, ok := sm.jobs[progress.JobID]; ok {
+			job = existing
+		} else {
+			sm.jobs[progress.JobID] = job
+		}
 	}
 
-	// Update existing task or create new one
+	// Update task state, respecting sequence numbers to prevent out-of-order updates.
 	updated := job.UpdateTask(progress.TaskID, func(task *state.ScanTask) {
-		// Prevent out-of-order updates
 		if progress.SequenceNum <= task.GetLastSequenceNum() {
 			return
 		}
@@ -92,20 +110,23 @@ func (sm *StateManager) HandleProgressUpdate(ctx context.Context, progress state
 	})
 
 	if !updated {
+		// Create and add new task if it doesn't exist.
 		task := state.NewScanTask(progress.JobID, progress.TaskID)
 		task.UpdateProgress(progress)
 		job.AddTask(task)
 	}
 
-	// Persist checkpoint if provided
+	shouldPersist := sm.shouldPersistState(job)
+	sm.mu.Unlock()
+
+	// Persist checkpoint and progress outside lock to minimize lock contention.
 	if progress.Checkpoint != nil {
 		if err := sm.store.SaveCheckpoint(ctx, *progress.Checkpoint); err != nil {
 			return fmt.Errorf("failed to save checkpoint: %w", err)
 		}
 	}
 
-	// Persist state based on configured interval or completion status
-	if sm.shouldPersistState(job) {
+	if shouldPersist {
 		if err := sm.store.SaveProgress(ctx, progress); err != nil {
 			return fmt.Errorf("failed to persist progress: %w", err)
 		}
@@ -122,49 +143,6 @@ func (sm *StateManager) shouldPersistState(job *state.ScanJob) bool {
 		return true
 	}
 	return time.Since(job.GetLastUpdateTime()) >= sm.persistInterval
-}
-
-// isTaskStale determines if a task should be marked as stale based on its status
-// and last update time.
-func (sm *StateManager) isTaskStale(task *state.ScanTask) bool {
-	status := task.GetStatus()
-	if status == state.TaskStatusCompleted || status == state.TaskStatusFailed {
-		return false
-	}
-	return time.Since(task.GetLastUpdateTime()) >= sm.staleTaskTimeout
-}
-
-// validateJobState performs integrity checks on job state to ensure consistency.
-func (sm *StateManager) validateJobState(job *state.ScanJob) error {
-	if job == nil {
-		return fmt.Errorf("job cannot be nil")
-	}
-
-	jobID := job.GetJobID()
-	if jobID == "" {
-		return fmt.Errorf("job ID cannot be empty")
-	}
-
-	summaries := job.GetAllTaskSummaries()
-	taskCount := len(summaries)
-	completedTasks := 0
-	failedTasks := 0
-
-	for _, summary := range summaries {
-		switch summary.Status {
-		case state.TaskStatusCompleted:
-			completedTasks++
-		case state.TaskStatusFailed:
-			failedTasks++
-		}
-	}
-
-	if completedTasks+failedTasks > taskCount {
-		return fmt.Errorf("invalid task counts: completed(%d) + failed(%d) > total(%d)",
-			completedTasks, failedTasks, taskCount)
-	}
-
-	return nil
 }
 
 // GetJob retrieves the current state of a scan job, first checking memory
@@ -233,31 +211,35 @@ func (sm *StateManager) GetJobSummary(ctx context.Context, jobID string) (*state
 	}, nil
 }
 
-// DetectStaleTasks identifies and marks tasks that have stopped reporting progress.
-// It returns a list of stalled tasks and updates their status in the persistent store.
+// DetectStaleTasks identifies tasks that have stopped reporting progress updates within
+// the configured timeout period. It marks these tasks as stale in the persistent store
+// to enable automated recovery workflows and returns details about the affected tasks.
+// This is critical for maintaining system health by detecting hung or failed tasks
+// that require intervention.
 func (sm *StateManager) DetectStaleTasks(ctx context.Context) ([]*state.StalledTask, error) {
-	sm.mu.RLock()
-	defer sm.mu.RUnlock()
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
 
 	stalledTasks := make([]*state.StalledTask, 0)
 	now := time.Now()
 
 	for _, job := range sm.jobs {
-		status := job.GetStatus()
-		if status == state.JobStatusCompleted || status == state.JobStatusFailed {
+		// Skip jobs that have reached terminal states.
+		if job.GetStatus() == state.JobStatusCompleted ||
+			job.GetStatus() == state.JobStatusFailed {
 			continue
 		}
 
-		summaries := job.GetAllTaskSummaries()
-		for _, summary := range summaries {
-			if summary.Status == state.TaskStatusCompleted ||
-				summary.Status == state.TaskStatusFailed ||
-				summary.Status == state.TaskStatusStale {
+		for _, summary := range job.GetAllTaskSummaries() {
+			// Skip tasks that have already reached a terminal state.
+			if summary.GetStatus() == state.TaskStatusCompleted ||
+				summary.GetStatus() == state.TaskStatusFailed ||
+				summary.GetStatus() == state.TaskStatusStale {
 				continue
 			}
 
-			if now.Sub(summary.LastUpdate) >= sm.staleTaskTimeout {
-				job.UpdateTask(summary.TaskID, func(task *state.ScanTask) {
+			if now.Sub(summary.GetLastUpdateTime()) >= sm.staleTaskTimeout {
+				job.UpdateTask(summary.GetTaskID(), func(task *state.ScanTask) {
 					stalledTask := task.ToStalledTask(state.StallReasonNoProgress, task.GetLastUpdateTime())
 					stalledTasks = append(stalledTasks, stalledTask)
 
