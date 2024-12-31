@@ -29,5 +29,5 @@ type Manager interface {
 	// DetectStaleTasks identifies tasks that have stopped reporting progress updates.
 	// This enables automated detection of failed or hung tasks that require intervention.
 	// The detection window is based on the manager's configured timeout settings.
-	DetectStaleTasks(ctx context.Context) error
+	DetectStaleTasks(ctx context.Context) ([]*StalledTask, error)
 }
