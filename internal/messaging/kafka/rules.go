@@ -8,9 +8,10 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/ahrav/gitleaks-armada/internal/messaging/kafka/tracing"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/messaging"
-	"github.com/ahrav/gitleaks-armada/pkg/messaging/kafka/tracing"
+	"github.com/ahrav/gitleaks-armada/pkg/messaging/protobuf"
 	pb "github.com/ahrav/gitleaks-armada/proto/scanner"
 )
 
@@ -24,7 +25,7 @@ func (k *Broker) PublishRule(ctx context.Context, rules messaging.GitleaksRuleMe
 	ctx, span := tracing.StartProducerSpan(ctx, k.rulesTopic, k.tracer)
 	defer span.End()
 
-	pbRules := rules.ToProto()
+	pbRules := protobuf.GitleaksRulesMessageToProto(rules)
 	data, err := proto.Marshal(pbRules)
 	if err != nil {
 		span.RecordError(err)
@@ -108,7 +109,7 @@ func (h *rulesHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, claim sara
 			continue
 		}
 
-		rule := messaging.ProtoToGitleaksRuleMessage(&pbRules)
+		rule := protobuf.ProtoToGitleaksRuleMessage(&pbRules)
 		if err := h.handler(msgCtx, rule); err != nil {
 			span.RecordError(err)
 			h.metrics.IncConsumeError(h.rulesTopic)

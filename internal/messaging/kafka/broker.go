@@ -41,7 +41,7 @@ type Config struct {
 	ClientID string
 }
 
-var _ messaging.Broker = new(Broker)
+var _ messaging.Broker = (*Broker)(nil)
 
 // Broker implements the messaging.Broker interface using Apache Kafka.
 // It handles publishing and subscribing to messages across different topics

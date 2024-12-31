@@ -13,10 +13,10 @@ import (
 
 	"go.uber.org/automaxprocs/maxprocs"
 
+	"github.com/ahrav/gitleaks-armada/internal/messaging/kafka"
 	"github.com/ahrav/gitleaks-armada/pkg/common"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/common/otel"
-	"github.com/ahrav/gitleaks-armada/pkg/messaging/kafka"
 	"github.com/ahrav/gitleaks-armada/pkg/scanner"
 	"github.com/ahrav/gitleaks-armada/pkg/scanner/metrics"
 )
