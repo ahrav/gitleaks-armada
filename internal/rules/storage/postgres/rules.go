@@ -1,4 +1,4 @@
-package postgres
+package rules
 
 import (
 	"context"
@@ -12,8 +12,8 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/ahrav/gitleaks-armada/internal/db"
-	"github.com/ahrav/gitleaks-armada/pkg/events/types"
-	"github.com/ahrav/gitleaks-armada/pkg/storage"
+	"github.com/ahrav/gitleaks-armada/internal/storage"
+	"github.com/ahrav/gitleaks-armada/pkg/domain/rules"
 )
 
 // RulesMetrics defines the interface for tracking metrics related to rule operations.
@@ -25,24 +25,24 @@ type RulesMetrics interface {
 	IncRuleSaveErrors()
 }
 
-// Compile-time check that RulesStorage implements storage.RulesStorage.
-var _ storage.RulesStorage = (*RulesStorage)(nil)
+// Compile-time check that RulesStorage implements rules.RulesStorage.
+var _ rules.RulesStorage = (*store)(nil)
 
-// RulesStorage provides persistent storage for Gitleaks rules and allowlists in PostgreSQL.
+// store provides persistent storage for Gitleaks rules and allowlists in PostgreSQL.
 // It handles atomic updates of rule sets and their associated allowlist components to maintain
 // data consistency.
-type RulesStorage struct {
+type store struct {
 	q       *db.Queries
 	conn    *pgxpool.Pool
 	tracer  trace.Tracer
 	metrics RulesMetrics
 }
 
-// NewRulesStorage creates a new PostgreSQL-backed rules storage.
+// NewStore creates a new PostgreSQL-backed rules storage.
 // It initializes the underlying database queries and tracing components
 // needed for rule persistence and monitoring.
-func NewRulesStorage(conn *pgxpool.Pool, tracer trace.Tracer, metrics RulesMetrics) *RulesStorage {
-	return &RulesStorage{
+func NewStore(conn *pgxpool.Pool, tracer trace.Tracer, metrics RulesMetrics) *store {
+	return &store{
 		q:       db.New(conn),
 		conn:    conn,
 		tracer:  tracer,
@@ -79,7 +79,7 @@ func bulkInsert[T bulkInsertParams](
 		return nil
 	}
 
-	return executeAndTrace(ctx, tracer, spanName, []attribute.KeyValue{
+	return storage.ExecuteAndTrace(ctx, tracer, spanName, []attribute.KeyValue{
 		attribute.Int64("allowlist_id", allowlistID),
 		attribute.Int(fmt.Sprintf("%s_count", itemType), len(items)),
 	}, func(ctx context.Context) error {
@@ -102,7 +102,7 @@ func bulkInsert[T bulkInsertParams](
 // SaveRule persists a single rule and its allowlists to PostgreSQL.
 // It ensures atomic updates by executing all operations within a transaction,
 // preventing partial or inconsistent updates that could affect scanning accuracy.
-func (s *RulesStorage) SaveRule(ctx context.Context, rule types.GitleaksRule) error {
+func (s *store) SaveRule(ctx context.Context, rule rules.GitleaksRule) error {
 	// Set a context timeout to prevent transaction deadlocks and resource exhaustion.
 	// We use a serializable isolation level and a relatively short timeout since
 	// rule updates should be quick and we want to fail fast if there are issues.
@@ -111,13 +111,13 @@ func (s *RulesStorage) SaveRule(ctx context.Context, rule types.GitleaksRule) er
 	ctx, cancel := context.WithTimeout(ctx, txTimeout)
 	defer cancel()
 
-	return executeAndTrace(ctx, s.tracer, "postgres.save_ruleset", []attribute.KeyValue{
+	return storage.ExecuteAndTrace(ctx, s.tracer, "postgres.save_ruleset", []attribute.KeyValue{
 		attribute.Int("rule_count", 1),
 	}, func(ctx context.Context) error {
 		err := pgx.BeginTxFunc(ctx, s.conn, pgx.TxOptions{IsoLevel: pgx.Serializable}, func(tx pgx.Tx) error {
 			qtx := s.q.WithTx(tx)
 
-			err := executeAndTrace(ctx, s.tracer, "postgres.upsert_rule", []attribute.KeyValue{
+			err := storage.ExecuteAndTrace(ctx, s.tracer, "postgres.upsert_rule", []attribute.KeyValue{
 				attribute.String("rule_id", rule.RuleID),
 				attribute.Int("allowlist_count", len(rule.Allowlists)),
 			}, func(ctx context.Context) error {
@@ -136,7 +136,7 @@ func (s *RulesStorage) SaveRule(ctx context.Context, rule types.GitleaksRule) er
 				}
 
 				for _, al := range rule.Allowlists {
-					err := executeAndTrace(ctx, s.tracer, "postgres.create_allowlist", []attribute.KeyValue{
+					err := storage.ExecuteAndTrace(ctx, s.tracer, "postgres.create_allowlist", []attribute.KeyValue{
 						attribute.String("rule_id", rule.RuleID),
 						attribute.Int("commit_count", len(al.Commits)),
 						attribute.Int("path_count", len(al.PathRegexes)),
@@ -180,13 +180,13 @@ func (s *RulesStorage) SaveRule(ctx context.Context, rule types.GitleaksRule) er
 // bulkInsertAllowlistComponents handles the insertion of all allowlist components for a given allowlist.
 // It coordinates the insertion of commits, paths, regexes, and stopwords while maintaining proper error
 // handling and tracing.
-func (s *RulesStorage) bulkInsertAllowlistComponents(
+func (s *store) bulkInsertAllowlistComponents(
 	ctx context.Context,
 	qtx *db.Queries,
 	allowlistID int64,
-	al types.GitleaksAllowlist,
+	al rules.GitleaksAllowlist,
 ) error {
-	return executeAndTrace(ctx, s.tracer, "postgres.bulk_insert_components", []attribute.KeyValue{
+	return storage.ExecuteAndTrace(ctx, s.tracer, "postgres.bulk_insert_components", []attribute.KeyValue{
 		attribute.Int64("allowlist_id", allowlistID),
 	}, func(ctx context.Context) error {
 		if err := s.bulkInsertCommits(ctx, qtx, allowlistID, al.Commits); err != nil {
@@ -209,7 +209,7 @@ func (s *RulesStorage) bulkInsertAllowlistComponents(
 	})
 }
 
-func (s *RulesStorage) bulkInsertCommits(ctx context.Context, qtx *db.Queries, allowlistID int64, commits []string) error {
+func (s *store) bulkInsertCommits(ctx context.Context, qtx *db.Queries, allowlistID int64, commits []string) error {
 	if err := qtx.DeleteAllowlistCommits(ctx, allowlistID); err != nil {
 		return fmt.Errorf("failed to delete existing commits: %w", err)
 	}
@@ -231,7 +231,7 @@ func (s *RulesStorage) bulkInsertCommits(ctx context.Context, qtx *db.Queries, a
 	)
 }
 
-func (s *RulesStorage) bulkInsertPaths(ctx context.Context, qtx *db.Queries, allowlistID int64, paths []string) error {
+func (s *store) bulkInsertPaths(ctx context.Context, qtx *db.Queries, allowlistID int64, paths []string) error {
 	if err := qtx.DeleteAllowlistPaths(ctx, allowlistID); err != nil {
 		return fmt.Errorf("failed to delete existing paths: %w", err)
 	}
@@ -253,7 +253,7 @@ func (s *RulesStorage) bulkInsertPaths(ctx context.Context, qtx *db.Queries, all
 	)
 }
 
-func (s *RulesStorage) bulkInsertRegexes(ctx context.Context, qtx *db.Queries, allowlistID int64, regexes []string) error {
+func (s *store) bulkInsertRegexes(ctx context.Context, qtx *db.Queries, allowlistID int64, regexes []string) error {
 	if err := qtx.DeleteAllowlistRegexes(ctx, allowlistID); err != nil {
 		return fmt.Errorf("failed to delete existing regexes: %w", err)
 	}
@@ -275,7 +275,7 @@ func (s *RulesStorage) bulkInsertRegexes(ctx context.Context, qtx *db.Queries, a
 	)
 }
 
-func (s *RulesStorage) bulkInsertStopwords(ctx context.Context, qtx *db.Queries, allowlistID int64, stopwords []string) error {
+func (s *store) bulkInsertStopwords(ctx context.Context, qtx *db.Queries, allowlistID int64, stopwords []string) error {
 	if err := qtx.DeleteAllowlistStopwords(ctx, allowlistID); err != nil {
 		return fmt.Errorf("failed to delete existing stopwords: %w", err)
 	}

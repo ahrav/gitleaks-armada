@@ -12,7 +12,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/common/otel"
 	"github.com/ahrav/gitleaks-armada/pkg/config"
-	"github.com/ahrav/gitleaks-armada/pkg/events/types"
+	"github.com/ahrav/gitleaks-armada/pkg/domain"
 	"github.com/ahrav/gitleaks-armada/pkg/storage"
 )
 
@@ -262,8 +262,8 @@ func TestGitHubEnumerator_Enumerate(t *testing.T) {
 
 			enumerator := NewGitHubEnumerator(
 				mockAPI,
-				&types.TaskCredentials{
-					Type: types.CredentialTypeGitHub,
+				&domain.TaskCredentials{
+					Type: domain.CredentialTypeGitHub,
 					Values: map[string]interface{}{
 						"auth_token": "test-token",
 					},
@@ -273,7 +273,7 @@ func TestGitHubEnumerator_Enumerate(t *testing.T) {
 				tracer.Tracer("test"),
 			)
 
-			taskCh := make(chan []types.Task, 10)
+			taskCh := make(chan []domain.Task, 10)
 			err := enumerator.Enumerate(context.Background(), tt.state, taskCh)
 
 			assert.NoError(t, err)

@@ -1,4 +1,4 @@
-package types
+package domain
 
 // ScanJobStatus represents the current state of a scan job in the system.
 // It is used to track the lifecycle of a scan from queuing through completion.

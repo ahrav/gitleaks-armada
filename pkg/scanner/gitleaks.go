@@ -16,10 +16,9 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/ahrav/gitleaks-armada/pkg/events/types"
-
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
-	"github.com/ahrav/gitleaks-armada/pkg/events"
+	"github.com/ahrav/gitleaks-armada/pkg/domain"
+	"github.com/ahrav/gitleaks-armada/pkg/domain/rules"
 )
 
 type GitLeaksScanner struct {
@@ -31,7 +30,7 @@ type GitLeaksScanner struct {
 // NewGitLeaksScanner constructs and returns a GitLeaksScanner instance with the detector set up.
 func NewGitLeaksScanner(
 	ctx context.Context,
-	broker events.Broker,
+	broker domain.DomainEventPublisher,
 	logger *logger.Logger,
 	tracer trace.Tracer,
 ) *GitLeaksScanner {
@@ -147,7 +146,7 @@ func setupGitleaksDetector() *detect.Detector {
 // rule definitions for consistent secret detection.
 func publishRulesOnStartup(
 	ctx context.Context,
-	broker events.Broker,
+	broker domain.DomainEventPublisher,
 	detector *detect.Detector,
 	logger *logger.Logger,
 	tracer trace.Tracer,
@@ -161,7 +160,8 @@ func publishRulesOnStartup(
 	// Convert and publish rules individually
 	for _, rule := range detector.Config.Rules {
 		domainRule := convertDetectorRuleToMessage(rule)
-		if err := broker.PublishRule(ctx, domainRule); err != nil {
+		err := broker.PublishDomainEvent(ctx, domain.EventTypeRuleUpdated, domainRule, domain.WithKey(domainRule.Hash))
+		if err != nil {
 			span.RecordError(err)
 			return fmt.Errorf("failed to publish rule %s: %w", rule.RuleID, err)
 		}
@@ -171,8 +171,8 @@ func publishRulesOnStartup(
 	return nil
 }
 
-func convertDetectorRuleToMessage(rule config.Rule) types.GitleaksRuleMessage {
-	domainRule := types.GitleaksRule{
+func convertDetectorRuleToMessage(rule config.Rule) rules.GitleaksRuleMessage {
+	domainRule := rules.GitleaksRule{
 		RuleID:      rule.RuleID,
 		Description: rule.Description,
 		Entropy:     rule.Entropy,
@@ -184,7 +184,7 @@ func convertDetectorRuleToMessage(rule config.Rule) types.GitleaksRuleMessage {
 		Allowlists:  convertAllowlists(rule.Allowlists),
 	}
 
-	return types.GitleaksRuleMessage{
+	return rules.GitleaksRuleMessage{
 		Rule: domainRule,
 		Hash: domainRule.GenerateHash(),
 	}
@@ -201,10 +201,10 @@ func regexToString(re *regexp.Regexp) string {
 
 // convertAllowlists transforms Gitleaks allowlist configurations into a serializable format.
 // Allowlists define exceptions to the detection rules to reduce false positives.
-func convertAllowlists(aws []config.Allowlist) []types.GitleaksAllowlist {
-	dAll := make([]types.GitleaksAllowlist, 0, len(aws))
+func convertAllowlists(aws []config.Allowlist) []rules.GitleaksAllowlist {
+	dAll := make([]rules.GitleaksAllowlist, 0, len(aws))
 	for _, a := range aws {
-		dAll = append(dAll, types.GitleaksAllowlist{
+		dAll = append(dAll, rules.GitleaksAllowlist{
 			Description:    a.Description,
 			MatchCondition: matchConditionToDomain(a.MatchCondition),
 			Commits:        a.Commits,
@@ -231,14 +231,14 @@ func regexSliceToStrings(res []*regexp.Regexp) []string {
 
 // matchConditionToDomain converts Gitleaks allowlist match conditions to our domain's
 // representation. Match conditions determine how multiple allowlist criteria are combined.
-func matchConditionToDomain(mc config.AllowlistMatchCondition) types.AllowlistMatchCondition {
+func matchConditionToDomain(mc config.AllowlistMatchCondition) rules.AllowlistMatchCondition {
 	switch mc {
 	case config.AllowlistMatchOr:
-		return types.MatchConditionOR
+		return rules.MatchConditionOR
 	case config.AllowlistMatchAnd:
-		return types.MatchConditionAND
+		return rules.MatchConditionAND
 	default:
-		return types.MatchConditionUnspecified
+		return rules.MatchConditionUnspecified
 	}
 }
 

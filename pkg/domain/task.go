@@ -1,4 +1,4 @@
-package types
+package domain
 
 import (
 	"fmt"
@@ -30,6 +30,11 @@ type Task struct {
 	ResourceURI string            // Location of the resource to scan
 	Metadata    map[string]string // Additional context for task processing
 	Credentials *TaskCredentials  // Authentication credentials for the resource
+}
+
+// TaskBatch is a collection of tasks to be scanned in a single batch.
+type TaskBatch struct {
+	Tasks []Task
 }
 
 // CreateCredentials constructs the appropriate credential type based on the provided config.

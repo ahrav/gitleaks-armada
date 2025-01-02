@@ -14,8 +14,8 @@ import (
 // ConnectWithRetry attempts to establish a connection to Kafka with exponential backoff.
 // It will retry failed connection attempts for up to 5 minutes, starting with 5 second intervals.
 // This helps handle temporary network issues or Kafka cluster unavailability during startup.
-func ConnectWithRetry(cfg *Config, logger *logger.Logger, metrics BrokerMetrics, tracer trace.Tracer) (events.Broker, error) {
-	var broker events.Broker
+func ConnectWithRetry(cfg *Config, logger *logger.Logger, metrics BrokerMetrics, tracer trace.Tracer) (events.EventBus, error) {
+	var broker events.EventBus
 
 	expBackoff := backoff.NewExponentialBackOff()
 	expBackoff.MaxElapsedTime = 5 * time.Minute
@@ -23,7 +23,7 @@ func ConnectWithRetry(cfg *Config, logger *logger.Logger, metrics BrokerMetrics,
 
 	operation := func() error {
 		var err error
-		broker, err = NewBroker(cfg, logger, metrics, tracer)
+		broker, err = NewKafkaEventBusFromConfig(cfg, logger, metrics, tracer)
 		if err != nil {
 			return err
 		}

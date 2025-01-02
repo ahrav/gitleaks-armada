@@ -22,11 +22,13 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/controller"
 	"github.com/ahrav/gitleaks-armada/internal/controller/metrics"
 	"github.com/ahrav/gitleaks-armada/internal/events/kafka"
+	rulesstorage "github.com/ahrav/gitleaks-armada/internal/rules/storage/postgres"
 	pg "github.com/ahrav/gitleaks-armada/internal/storage/postgres"
 	"github.com/ahrav/gitleaks-armada/pkg/common"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/common/otel"
 	"github.com/ahrav/gitleaks-armada/pkg/config"
+	"github.com/ahrav/gitleaks-armada/pkg/domain/rules"
 )
 
 func main() {
@@ -183,16 +185,18 @@ func main() {
 
 	checkpointStorage := pg.NewCheckpointStorage(pool, tracer)
 	enumStateStorage := pg.NewEnumerationStateStorage(pool, checkpointStorage, tracer)
-	rulesStorage := pg.NewRulesStorage(pool, tracer, metricCollector)
+	rulesService := rules.NewRuleService(rulesstorage.NewStore(pool, tracer, metricCollector))
 	configLoader := config.NewFileLoader("/etc/scanner/config/config.yaml")
+	eventPublisher := kafka.NewKafkaDomainEventPublisher(broker)
 
 	ctrl := controller.NewController(
 		hostname,
 		coord,
 		broker,
+		eventPublisher,
 		enumStateStorage,
 		checkpointStorage,
-		rulesStorage,
+		rulesService,
 		configLoader,
 		log,
 		metricCollector,

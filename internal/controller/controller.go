@@ -16,9 +16,10 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/cluster"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/config"
+	"github.com/ahrav/gitleaks-armada/pkg/domain"
+	"github.com/ahrav/gitleaks-armada/pkg/domain/rules"
 	"github.com/ahrav/gitleaks-armada/pkg/enumeration"
 	"github.com/ahrav/gitleaks-armada/pkg/events"
-	"github.com/ahrav/gitleaks-armada/pkg/events/types"
 	"github.com/ahrav/gitleaks-armada/pkg/storage"
 )
 
@@ -26,15 +27,16 @@ import (
 type Controller struct {
 	id string
 
-	coordinator  cluster.Coordinator
-	workQueue    events.Broker
-	configLoader config.Loader
-	credStore    *CredentialStore
+	coordinator    cluster.Coordinator
+	workQueue      events.EventBus
+	eventPublisher domain.DomainEventPublisher
+	configLoader   config.Loader
+	credStore      *CredentialStore
 
 	// Storage for enumeration state, checkpoints, and rules.
 	enumerationStateStorage storage.EnumerationStateStorage
 	checkpointStorage       storage.CheckpointStorage
-	rulesStorage            storage.RulesStorage
+	rulesService            *rules.RuleService
 
 	// State and control for the controller.
 	mu       sync.Mutex
@@ -58,10 +60,11 @@ type Controller struct {
 func NewController(
 	id string,
 	coord cluster.Coordinator,
-	queue events.Broker,
+	queue events.EventBus,
+	eventPublisher domain.DomainEventPublisher,
 	enumerationStateStorage storage.EnumerationStateStorage,
 	checkpointStorage storage.CheckpointStorage,
-	rulesStorage storage.RulesStorage,
+	rulesService *rules.RuleService,
 	configLoader config.Loader,
 	logger *logger.Logger,
 	metrics metrics.ControllerMetrics,
@@ -76,10 +79,11 @@ func NewController(
 		id:                      id,
 		coordinator:             coord,
 		workQueue:               queue,
+		eventPublisher:          eventPublisher,
 		credStore:               credStore,
 		enumerationStateStorage: enumerationStateStorage,
 		checkpointStorage:       checkpointStorage,
-		rulesStorage:            rulesStorage,
+		rulesService:            rulesService,
 		configLoader:            configLoader,
 		httpClient:              new(http.Client),
 		metrics:                 metrics,
@@ -101,7 +105,7 @@ func (c *Controller) Run(ctx context.Context) (<-chan struct{}, error) {
 	ready := make(chan struct{})
 	leaderCh := make(chan bool, 1)
 
-	if err := c.workQueue.SubscribeRules(ctx, c.handleRule); err != nil {
+	if err := c.workQueue.Subscribe(ctx, []domain.EventType{domain.EventTypeRuleUpdated}, c.handleRule); err != nil {
 		return nil, fmt.Errorf("controller[%s]: failed to subscribe to rules: %v", c.id, err)
 	}
 
@@ -289,15 +293,17 @@ func (c *Controller) doEnumeration(ctx context.Context, state *storage.Enumerati
 			}
 		}
 
-		taskCh := make(chan []types.Task)
+		taskCh := make(chan []domain.Task)
 		var wg sync.WaitGroup
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			for tasks := range taskCh {
-				if err := c.workQueue.PublishTasks(ctx, tasks); err != nil {
-					c.logger.Error(ctx, "Failed to publish tasks", "controller_id", c.id, "error", err)
-					return
+				for _, task := range tasks {
+					if err := c.eventPublisher.PublishDomainEvent(ctx, domain.EventTypeTaskCreated, task, domain.WithKey(state.SessionID)); err != nil {
+						c.logger.Error(ctx, "Failed to publish tasks", "controller_id", c.id, "error", err)
+						return
+					}
 				}
 				c.logger.Info(ctx, "Published batch of tasks", "controller_id", c.id, "num_tasks", len(tasks))
 			}
@@ -398,46 +404,78 @@ func (c *Controller) marshalConfig(ctx context.Context, target config.TargetSpec
 // This allows tracking individual tasks through the processing pipeline.
 func generateTaskID() string { return uuid.New().String() }
 
-func (c *Controller) handleRule(ctx context.Context, ruleMsg types.GitleaksRuleMessage) error {
-	ctx, span := c.tracer.Start(ctx, "controller.handleRule")
-	defer span.End()
+func (c *Controller) handleRule(ctx context.Context, event events.DomainEvent) error {
+	ruleMsg, ok := event.Payload.(rules.GitleaksRuleMessage)
+	if !ok {
+		return fmt.Errorf("handleRule: payload is not GitleaksRuleMessage")
+	}
 
-	// Check if we've recently processed this rule.
+	// Check ephemeral duplicate skip (controller-level).
 	c.rulesMutex.RLock()
 	lastProcessed, exists := c.processedRules[ruleMsg.Hash]
 	c.rulesMutex.RUnlock()
 
-	const (
-		ttlDuration = 5 * time.Minute
-		purgeAfter  = 10 * time.Minute
-	)
-
-	if exists && time.Since(lastProcessed) < ttlDuration {
+	if exists && time.Since(lastProcessed) < time.Minute*5 {
 		c.logger.Info(ctx, "Skipping duplicate rule",
-			"controller_id", c.id,
 			"rule_id", ruleMsg.Rule.RuleID,
 			"hash", ruleMsg.Hash)
 		return nil
 	}
 
-	if err := c.rulesStorage.SaveRule(ctx, ruleMsg.Rule); err != nil {
-		span.RecordError(err)
-		return fmt.Errorf("controller[%s]: failed to save rule: %w", c.id, err)
+	// Delegate to domain-level service for real domain logic (persisting rule).
+	if err := c.rulesService.SaveRule(ctx, ruleMsg.Rule); err != nil {
+		return fmt.Errorf("failed to persist rule: %w", err)
 	}
 
+	// Mark processed, do some ephemeral cleanup.
 	c.rulesMutex.Lock()
 	c.processedRules[ruleMsg.Hash] = time.Now()
-	// Clean up old entries.
-	for hash, t := range c.processedRules {
-		if time.Since(t) > purgeAfter {
-			delete(c.processedRules, hash)
-		}
-	}
 	c.rulesMutex.Unlock()
 
-	c.logger.Info(ctx, "Received and stored new rule",
-		"controller_id", c.id,
-		"rule_id", ruleMsg.Rule.RuleID,
-		"hash", ruleMsg.Hash)
+	c.logger.Info(ctx, "Stored new rule", "rule_id", ruleMsg.Rule.RuleID, "hash", ruleMsg.Hash)
 	return nil
 }
+
+// func (c *Controller) handleRule(ctx context.Context, event events.DomainEvent) error {
+// 	ctx, span := c.tracer.Start(ctx, "controller.handleRule")
+// 	defer span.End()
+
+// 	// Check if we've recently processed this rule.
+// 	c.rulesMutex.RLock()
+// 	lastProcessed, exists := c.processedRules[event.Payload.Hash]
+// 	c.rulesMutex.RUnlock()
+
+// 	const (
+// 		ttlDuration = 5 * time.Minute
+// 		purgeAfter  = 10 * time.Minute
+// 	)
+
+// 	if exists && time.Since(lastProcessed) < ttlDuration {
+// 		c.logger.Info(ctx, "Skipping duplicate rule",
+// 			"controller_id", c.id,
+// 			"rule_id", ruleMsg.Rule.RuleID,
+// 			"hash", ruleMsg.Hash)
+// 		return nil
+// 	}
+
+// 	if err := c.rulesStorage.SaveRule(ctx, ruleMsg.Rule); err != nil {
+// 		span.RecordError(err)
+// 		return fmt.Errorf("controller[%s]: failed to save rule: %w", c.id, err)
+// 	}
+
+// 	c.rulesMutex.Lock()
+// 	c.processedRules[ruleMsg.Hash] = time.Now()
+// 	// Clean up old entries.
+// 	for hash, t := range c.processedRules {
+// 		if time.Since(t) > purgeAfter {
+// 			delete(c.processedRules, hash)
+// 		}
+// 	}
+// 	c.rulesMutex.Unlock()
+
+// 	c.logger.Info(ctx, "Received and stored new rule",
+// 		"controller_id", c.id,
+// 		"rule_id", ruleMsg.Rule.RuleID,
+// 		"hash", ruleMsg.Hash)
+// 	return nil
+// }

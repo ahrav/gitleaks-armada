@@ -1,4 +1,4 @@
-package types
+package domain
 
 // ScanProgress provides information about an ongoing scan operation.
 type ScanProgress struct {

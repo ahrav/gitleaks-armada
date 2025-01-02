@@ -105,10 +105,11 @@ func main() {
 		log.Error(ctx, "failed to create kafka broker", "error", err)
 		os.Exit(1)
 	}
+	eventPublisher := kafka.NewKafkaDomainEventPublisher(broker)
 
 	log.Info(ctx, "Scanner connected to Kafka")
 
-	scanner := scanner.NewScanner(ctx, hostname, broker, metricsCollector, log, tracer)
+	scanner := scanner.NewScanner(ctx, hostname, broker, eventPublisher, metricsCollector, log, tracer)
 
 	ready.Store(true)
 

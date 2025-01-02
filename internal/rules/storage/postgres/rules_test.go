@@ -1,4 +1,4 @@
-package postgres
+package rules
 
 import (
 	"context"
@@ -8,19 +8,20 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ahrav/gitleaks-armada/internal/controller/metrics"
-	"github.com/ahrav/gitleaks-armada/pkg/events/types"
+	"github.com/ahrav/gitleaks-armada/internal/storage"
+	"github.com/ahrav/gitleaks-armada/pkg/domain/rules"
 )
 
 func TestRulesStorage_SaveRule(t *testing.T) {
 	t.Parallel()
 
-	dbConn, cleanup := setupTestContainer(t)
+	dbConn, cleanup := storage.SetupTestContainer(t)
 	defer cleanup()
 
 	// TODO: Replace this with a mock metrics implementation.
-	rulesStorage := NewRulesStorage(dbConn, noOpTracer(), metrics.New())
+	rulesStorage := NewStore(dbConn, storage.NoOpTracer(), metrics.New())
 
-	rule := types.GitleaksRule{
+	rule := rules.GitleaksRule{
 		RuleID:      "rule-1",
 		Description: "test rule",
 		Entropy:     3.14,
@@ -29,7 +30,7 @@ func TestRulesStorage_SaveRule(t *testing.T) {
 		Path:        "some/path",
 		Tags:        []string{"tag1"},
 		Keywords:    []string{"keyword1", "keyword2"},
-		Allowlists: []types.GitleaksAllowlist{
+		Allowlists: []rules.GitleaksAllowlist{
 			{
 				Description:    "Example allowlist",
 				MatchCondition: "ANY",
