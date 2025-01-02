@@ -6,7 +6,7 @@ package protobuf
 import (
 	"google.golang.org/protobuf/types/known/structpb"
 
-	"github.com/ahrav/gitleaks-armada/pkg/messaging/types"
+	"github.com/ahrav/gitleaks-armada/pkg/events/types"
 	pb "github.com/ahrav/gitleaks-armada/proto/scanner"
 )
 

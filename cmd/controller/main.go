@@ -21,7 +21,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/cluster/kubernetes"
 	"github.com/ahrav/gitleaks-armada/internal/controller"
 	"github.com/ahrav/gitleaks-armada/internal/controller/metrics"
-	"github.com/ahrav/gitleaks-armada/internal/messaging/kafka"
+	"github.com/ahrav/gitleaks-armada/internal/events/kafka"
 	pg "github.com/ahrav/gitleaks-armada/internal/storage/postgres"
 	"github.com/ahrav/gitleaks-armada/pkg/common"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"

@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ahrav/gitleaks-armada/internal/controller/metrics"
-	"github.com/ahrav/gitleaks-armada/pkg/messaging/types"
+	"github.com/ahrav/gitleaks-armada/pkg/events/types"
 )
 
 func TestRulesStorage_SaveRule(t *testing.T) {

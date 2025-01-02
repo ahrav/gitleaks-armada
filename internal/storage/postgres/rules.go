@@ -12,7 +12,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/ahrav/gitleaks-armada/internal/db"
-	"github.com/ahrav/gitleaks-armada/pkg/messaging/types"
+	"github.com/ahrav/gitleaks-armada/pkg/events/types"
 	"github.com/ahrav/gitleaks-armada/pkg/storage"
 )
 

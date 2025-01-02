@@ -17,8 +17,8 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/config"
 	"github.com/ahrav/gitleaks-armada/pkg/enumeration"
-	"github.com/ahrav/gitleaks-armada/pkg/messaging"
-	"github.com/ahrav/gitleaks-armada/pkg/messaging/types"
+	"github.com/ahrav/gitleaks-armada/pkg/events"
+	"github.com/ahrav/gitleaks-armada/pkg/events/types"
 	"github.com/ahrav/gitleaks-armada/pkg/storage"
 )
 
@@ -27,7 +27,7 @@ type Controller struct {
 	id string
 
 	coordinator  cluster.Coordinator
-	workQueue    messaging.Broker
+	workQueue    events.Broker
 	configLoader config.Loader
 	credStore    *CredentialStore
 
@@ -58,7 +58,7 @@ type Controller struct {
 func NewController(
 	id string,
 	coord cluster.Coordinator,
-	queue messaging.Broker,
+	queue events.Broker,
 	enumerationStateStorage storage.EnumerationStateStorage,
 	checkpointStorage storage.CheckpointStorage,
 	rulesStorage storage.RulesStorage,

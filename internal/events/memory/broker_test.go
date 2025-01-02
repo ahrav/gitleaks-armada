@@ -10,7 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/ahrav/gitleaks-armada/pkg/messaging/types"
+	"github.com/ahrav/gitleaks-armada/pkg/events/types"
 )
 
 func TestPublishAndSubscribeTasks(t *testing.T) {

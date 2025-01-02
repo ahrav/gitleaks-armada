@@ -8,7 +8,7 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/ahrav/gitleaks-armada/pkg/messaging/types"
+	"github.com/ahrav/gitleaks-armada/pkg/events/types"
 )
 
 type handlerList[T any] []func(T) error

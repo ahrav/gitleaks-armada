@@ -11,9 +11,10 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/ahrav/gitleaks-armada/pkg/events/types"
+
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
-	"github.com/ahrav/gitleaks-armada/pkg/messaging"
-	"github.com/ahrav/gitleaks-armada/pkg/messaging/types"
+	"github.com/ahrav/gitleaks-armada/pkg/events"
 	"github.com/ahrav/gitleaks-armada/pkg/scanner/metrics"
 )
 
@@ -23,7 +24,7 @@ import (
 type Scanner struct {
 	id string
 
-	broker  messaging.Broker
+	broker  events.Broker
 	metrics metrics.ScannerMetrics
 	scanner *GitLeaksScanner
 	workers int
@@ -41,7 +42,7 @@ type Scanner struct {
 func NewScanner(
 	ctx context.Context,
 	id string,
-	broker messaging.Broker,
+	broker events.Broker,
 	metrics metrics.ScannerMetrics,
 	logger *logger.Logger,
 	tracer trace.Tracer,

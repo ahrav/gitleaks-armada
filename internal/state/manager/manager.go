@@ -43,11 +43,16 @@ func WithStaleTaskTimeout(d time.Duration) Option {
 // NewStateManager creates a StateManager with the given store and options.
 // It initializes with default intervals that can be overridden via options.
 func NewStateManager(store state.Store, opts ...Option) *StateManager {
+	const (
+		persistInterval  = 1 * time.Minute
+		staleTaskTimeout = 30 * time.Second
+	)
+
 	sm := &StateManager{
 		jobs:             make(map[string]*state.ScanJob),
 		store:            store,
-		persistInterval:  5 * time.Minute,  // Default persistence interval
-		staleTaskTimeout: 10 * time.Minute, // Default stale timeout
+		persistInterval:  persistInterval,
+		staleTaskTimeout: staleTaskTimeout,
 	}
 
 	for _, opt := range opts {

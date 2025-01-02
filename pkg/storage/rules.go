@@ -3,7 +3,7 @@ package storage
 import (
 	"context"
 
-	"github.com/ahrav/gitleaks-armada/pkg/messaging/types"
+	"github.com/ahrav/gitleaks-armada/pkg/events/types"
 )
 
 // RulesStorage provides persistent storage for Gitleaks rules.

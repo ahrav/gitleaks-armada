@@ -16,9 +16,10 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/ahrav/gitleaks-armada/pkg/events/types"
+
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
-	"github.com/ahrav/gitleaks-armada/pkg/messaging"
-	"github.com/ahrav/gitleaks-armada/pkg/messaging/types"
+	"github.com/ahrav/gitleaks-armada/pkg/events"
 )
 
 type GitLeaksScanner struct {
@@ -30,7 +31,7 @@ type GitLeaksScanner struct {
 // NewGitLeaksScanner constructs and returns a GitLeaksScanner instance with the detector set up.
 func NewGitLeaksScanner(
 	ctx context.Context,
-	broker messaging.Broker,
+	broker events.Broker,
 	logger *logger.Logger,
 	tracer trace.Tracer,
 ) *GitLeaksScanner {
@@ -146,7 +147,7 @@ func setupGitleaksDetector() *detect.Detector {
 // rule definitions for consistent secret detection.
 func publishRulesOnStartup(
 	ctx context.Context,
-	broker messaging.Broker,
+	broker events.Broker,
 	detector *detect.Detector,
 	logger *logger.Logger,
 	tracer trace.Tracer,

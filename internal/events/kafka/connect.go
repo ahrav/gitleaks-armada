@@ -8,14 +8,14 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
-	"github.com/ahrav/gitleaks-armada/pkg/messaging"
+	"github.com/ahrav/gitleaks-armada/pkg/events"
 )
 
 // ConnectWithRetry attempts to establish a connection to Kafka with exponential backoff.
 // It will retry failed connection attempts for up to 5 minutes, starting with 5 second intervals.
 // This helps handle temporary network issues or Kafka cluster unavailability during startup.
-func ConnectWithRetry(cfg *Config, logger *logger.Logger, metrics BrokerMetrics, tracer trace.Tracer) (messaging.Broker, error) {
-	var broker messaging.Broker
+func ConnectWithRetry(cfg *Config, logger *logger.Logger, metrics BrokerMetrics, tracer trace.Tracer) (events.Broker, error) {
+	var broker events.Broker
 
 	expBackoff := backoff.NewExponentialBackOff()
 	expBackoff.MaxElapsedTime = 5 * time.Minute

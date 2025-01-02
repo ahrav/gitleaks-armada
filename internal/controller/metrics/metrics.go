@@ -6,7 +6,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 
-	"github.com/ahrav/gitleaks-armada/internal/messaging/kafka"
+	"github.com/ahrav/gitleaks-armada/internal/events/kafka"
 )
 
 // ControllerMetrics defines metrics operations needed by the controller.

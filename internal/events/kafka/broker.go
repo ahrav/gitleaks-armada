@@ -9,7 +9,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
-	"github.com/ahrav/gitleaks-armada/pkg/messaging"
+	"github.com/ahrav/gitleaks-armada/pkg/events"
 )
 
 // BrokerMetrics defines the subset of metrics operations needed by the broker.
@@ -41,7 +41,7 @@ type Config struct {
 	ClientID string
 }
 
-var _ messaging.Broker = (*Broker)(nil)
+var _ events.Broker = (*Broker)(nil)
 
 // Broker implements the messaging.Broker interface using Apache Kafka.
 // It handles publishing and subscribing to messages across different topics

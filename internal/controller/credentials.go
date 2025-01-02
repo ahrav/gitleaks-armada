@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/ahrav/gitleaks-armada/pkg/config"
-	"github.com/ahrav/gitleaks-armada/pkg/messaging/types"
+	"github.com/ahrav/gitleaks-armada/pkg/events/types"
 )
 
 // CredentialStore provides centralized access to authentication configurations.

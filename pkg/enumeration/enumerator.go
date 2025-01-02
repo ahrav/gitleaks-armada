@@ -3,7 +3,8 @@ package enumeration
 import (
 	"context"
 
-	"github.com/ahrav/gitleaks-armada/pkg/messaging/types"
+	"github.com/ahrav/gitleaks-armada/pkg/events/types"
+
 	"github.com/ahrav/gitleaks-armada/pkg/storage"
 )
 
