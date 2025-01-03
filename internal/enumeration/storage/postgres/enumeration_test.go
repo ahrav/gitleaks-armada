@@ -9,12 +9,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ahrav/gitleaks-armada/pkg/storage"
+	"github.com/ahrav/gitleaks-armada/internal/storage"
+	"github.com/ahrav/gitleaks-armada/pkg/domain/enumeration"
 )
 
-func createTestCheckpoint(t *testing.T, ctx context.Context, store *CheckpointStorage, targetID string, data map[string]any) *storage.Checkpoint {
+func createTestCheckpoint(t *testing.T, ctx context.Context, store *CheckpointStorage, targetID string, data map[string]any) *enumeration.Checkpoint {
 	t.Helper()
-	checkpoint := &storage.Checkpoint{
+	checkpoint := &enumeration.Checkpoint{
 		TargetID: targetID,
 		Data:     data,
 	}
@@ -29,9 +30,9 @@ func createTestCheckpoint(t *testing.T, ctx context.Context, store *CheckpointSt
 func setupEnumerationTest(t *testing.T) (context.Context, *EnumerationStateStorage, *CheckpointStorage, func()) {
 	t.Helper()
 
-	db, cleanup := setupTestContainer(t)
-	checkpointStore := NewCheckpointStorage(db, noOpTracer())
-	store := NewEnumerationStateStorage(db, checkpointStore, noOpTracer())
+	db, cleanup := storage.SetupTestContainer(t)
+	checkpointStore := NewCheckpointStorage(db, storage.NoOpTracer())
+	store := NewEnumerationStateStorage(db, checkpointStore, storage.NoOpTracer())
 	ctx := context.Background()
 
 	return ctx, store, checkpointStore, cleanup
@@ -47,12 +48,12 @@ func TestPGEnumerationStateStorage_SaveAndLoad(t *testing.T) {
 		"cursor": "abc123",
 	})
 
-	state := &storage.EnumerationState{
+	state := &enumeration.EnumerationState{
 		SessionID:      "test-session",
 		SourceType:     "github",
 		Config:         json.RawMessage(`{"org": "test-org"}`),
 		LastCheckpoint: checkpoint,
-		Status:         storage.StatusInitialized,
+		Status:         enumeration.StatusInitialized,
 	}
 
 	err := store.Save(ctx, state)
@@ -95,12 +96,12 @@ func TestPGEnumerationStateStorage_Update(t *testing.T) {
 		"cursor": "abc123",
 	})
 
-	initialState := &storage.EnumerationState{
+	initialState := &enumeration.EnumerationState{
 		SessionID:      "test-session",
 		SourceType:     "github",
 		Config:         json.RawMessage(`{}`),
 		LastCheckpoint: checkpoint,
-		Status:         storage.StatusInitialized,
+		Status:         enumeration.StatusInitialized,
 	}
 
 	err := store.Save(ctx, initialState)
@@ -110,7 +111,7 @@ func TestPGEnumerationStateStorage_Update(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, loaded)
 
-	assert.Equal(t, storage.StatusInitialized, loaded.Status)
+	assert.Equal(t, enumeration.StatusInitialized, loaded.Status)
 	assert.True(t, loaded.LastUpdated.After(initialState.LastUpdated),
 		"LastUpdated should be later than initial save")
 }
@@ -128,12 +129,12 @@ func TestPGEnumerationStateStorage_Mutability(t *testing.T) {
 		},
 	})
 
-	original := &storage.EnumerationState{
+	original := &enumeration.EnumerationState{
 		SessionID:      "test-session",
 		SourceType:     "github",
 		Config:         json.RawMessage(`{}`),
 		LastCheckpoint: checkpoint,
-		Status:         storage.StatusInitialized,
+		Status:         enumeration.StatusInitialized,
 	}
 
 	err := store.Save(ctx, original)
@@ -143,7 +144,7 @@ func TestPGEnumerationStateStorage_Mutability(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, loaded)
 
-	loaded.Status = storage.StatusCompleted
+	loaded.Status = enumeration.StatusCompleted
 	loaded.LastCheckpoint.Data["cursor"] = "modified"
 	if nestedMap, ok := loaded.LastCheckpoint.Data["nested"].(map[string]any); ok {
 		nestedMap["key"] = "modified"
@@ -153,7 +154,7 @@ func TestPGEnumerationStateStorage_Mutability(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, reloaded)
 
-	assert.Equal(t, storage.StatusInitialized, reloaded.Status, "Status should not be modified")
+	assert.Equal(t, enumeration.StatusInitialized, reloaded.Status, "Status should not be modified")
 	assert.Equal(t, "abc123", reloaded.LastCheckpoint.Data["cursor"], "Checkpoint cursor should not be modified")
 	if nestedMap, ok := reloaded.LastCheckpoint.Data["nested"].(map[string]any); ok {
 		assert.Equal(t, "value", nestedMap["key"], "Nested checkpoint value should not be modified")
@@ -175,12 +176,12 @@ func TestPGEnumerationStateStorage_ConcurrentOperations(t *testing.T) {
 				"value": id,
 			})
 
-			state := &storage.EnumerationState{
+			state := &enumeration.EnumerationState{
 				SessionID:      "concurrent-session",
 				SourceType:     "github",
 				Config:         json.RawMessage(`{}`),
 				LastCheckpoint: checkpoint,
-				Status:         storage.StatusInProgress,
+				Status:         enumeration.StatusInProgress,
 			}
 
 			err := store.Save(ctx, state)
@@ -201,7 +202,7 @@ func TestPGEnumerationStateStorage_ConcurrentOperations(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, loaded)
 	assert.Equal(t, "concurrent-session", loaded.SessionID)
-	assert.Equal(t, storage.StatusInProgress, loaded.Status)
+	assert.Equal(t, enumeration.StatusInProgress, loaded.Status)
 }
 
 func TestPGEnumerationStateStorage_GetActiveStates(t *testing.T) {
@@ -211,23 +212,23 @@ func TestPGEnumerationStateStorage_GetActiveStates(t *testing.T) {
 	defer cleanup()
 
 	// Create states with different statuses.
-	states := []*storage.EnumerationState{
+	states := []*enumeration.EnumerationState{
 		{
 			SessionID:  "session-1",
 			SourceType: "github",
-			Status:     storage.StatusInitialized,
+			Status:     enumeration.StatusInitialized,
 			Config:     json.RawMessage(`{}`),
 		},
 		{
 			SessionID:  "session-2",
 			SourceType: "github",
-			Status:     storage.StatusInProgress,
+			Status:     enumeration.StatusInProgress,
 			Config:     json.RawMessage(`{}`),
 		},
 		{
 			SessionID:  "session-3",
 			SourceType: "github",
-			Status:     storage.StatusCompleted,
+			Status:     enumeration.StatusCompleted,
 			Config:     json.RawMessage(`{}`),
 		},
 	}
@@ -242,9 +243,9 @@ func TestPGEnumerationStateStorage_GetActiveStates(t *testing.T) {
 	require.Len(t, active, 2, "Should have 2 active states")
 
 	for _, s := range active {
-		assert.Contains(t, []storage.EnumerationStatus{
-			storage.StatusInitialized,
-			storage.StatusInProgress,
+		assert.Contains(t, []enumeration.EnumerationStatus{
+			enumeration.StatusInitialized,
+			enumeration.StatusInProgress,
 		}, s.Status)
 	}
 }
@@ -255,23 +256,23 @@ func TestPGEnumerationStateStorage_List(t *testing.T) {
 	ctx, store, _, cleanup := setupEnumerationTest(t)
 	defer cleanup()
 
-	states := []*storage.EnumerationState{
+	states := []*enumeration.EnumerationState{
 		{
 			SessionID:  "session-1",
 			SourceType: "github",
-			Status:     storage.StatusCompleted,
+			Status:     enumeration.StatusCompleted,
 			Config:     json.RawMessage(`{}`),
 		},
 		{
 			SessionID:  "session-2",
 			SourceType: "github",
-			Status:     storage.StatusInProgress,
+			Status:     enumeration.StatusInProgress,
 			Config:     json.RawMessage(`{}`),
 		},
 		{
 			SessionID:  "session-3",
 			SourceType: "github",
-			Status:     storage.StatusInitialized,
+			Status:     enumeration.StatusInitialized,
 			Config:     json.RawMessage(`{}`),
 		},
 	}

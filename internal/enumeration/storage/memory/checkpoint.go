@@ -5,22 +5,22 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ahrav/gitleaks-armada/pkg/storage"
+	"github.com/ahrav/gitleaks-armada/pkg/domain/enumeration"
 )
 
 // CheckpointStorage provides a thread-safe in-memory implementation
 // of CheckpointStorage for testing and development.
 type CheckpointStorage struct {
 	mu          sync.Mutex
-	checkpoints map[string]*storage.Checkpoint
+	checkpoints map[string]*enumeration.Checkpoint
 }
 
 // NewCheckpointStorage creates an empty in-memory checkpoint store.
 func NewCheckpointStorage() *CheckpointStorage {
-	return &CheckpointStorage{checkpoints: make(map[string]*storage.Checkpoint)}
+	return &CheckpointStorage{checkpoints: make(map[string]*enumeration.Checkpoint)}
 }
 
-func (cs *CheckpointStorage) Save(ctx context.Context, checkpoint *storage.Checkpoint) error {
+func (cs *CheckpointStorage) Save(ctx context.Context, checkpoint *enumeration.Checkpoint) error {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 
@@ -29,7 +29,7 @@ func (cs *CheckpointStorage) Save(ctx context.Context, checkpoint *storage.Check
 	return nil
 }
 
-func (cs *CheckpointStorage) Load(ctx context.Context, targetID string) (*storage.Checkpoint, error) {
+func (cs *CheckpointStorage) Load(ctx context.Context, targetID string) (*enumeration.Checkpoint, error) {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 
@@ -39,7 +39,7 @@ func (cs *CheckpointStorage) Load(ctx context.Context, targetID string) (*storag
 	}
 
 	// This needs to be a deep copy to prevent mutation of stored checkpoint.
-	copy := &storage.Checkpoint{
+	copy := &enumeration.Checkpoint{
 		ID:        cp.ID,
 		TargetID:  cp.TargetID,
 		UpdatedAt: cp.UpdatedAt,
@@ -80,13 +80,13 @@ func (cs *CheckpointStorage) Delete(ctx context.Context, targetID string) error 
 	return nil
 }
 
-func (cs *CheckpointStorage) LoadByID(ctx context.Context, id int64) (*storage.Checkpoint, error) {
+func (cs *CheckpointStorage) LoadByID(ctx context.Context, id int64) (*enumeration.Checkpoint, error) {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 
 	for _, cp := range cs.checkpoints {
 		if cp.ID == id {
-			return &storage.Checkpoint{
+			return &enumeration.Checkpoint{
 				ID:        cp.ID,
 				TargetID:  cp.TargetID,
 				Data:      deepCopyMap(cp.Data),

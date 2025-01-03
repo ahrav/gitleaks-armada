@@ -7,27 +7,27 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/ahrav/gitleaks-armada/pkg/storage"
+	"github.com/ahrav/gitleaks-armada/pkg/domain/enumeration"
 )
 
 // EnumerationStateStorage provides an in-memory implementation of EnumerationStateStorage
 // for testing and development.
 type EnumerationStateStorage struct {
 	mu              sync.Mutex
-	states          map[string]*storage.EnumerationState // Keyed by session ID
-	checkpointStore storage.CheckpointStorage
+	states          map[string]*enumeration.EnumerationState // Keyed by session ID
+	checkpointStore enumeration.CheckpointStorage
 }
 
 // NewEnumerationStateStorage creates a new in-memory enumeration state storage.
-func NewEnumerationStateStorage(checkpointStore storage.CheckpointStorage) *EnumerationStateStorage {
+func NewEnumerationStateStorage(checkpointStore enumeration.CheckpointStorage) *EnumerationStateStorage {
 	return &EnumerationStateStorage{
-		states:          make(map[string]*storage.EnumerationState),
+		states:          make(map[string]*enumeration.EnumerationState),
 		checkpointStore: checkpointStore,
 	}
 }
 
 // Save persists the enumeration state and its associated checkpoint.
-func (s *EnumerationStateStorage) Save(ctx context.Context, state *storage.EnumerationState) error {
+func (s *EnumerationStateStorage) Save(ctx context.Context, state *enumeration.EnumerationState) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -38,7 +38,7 @@ func (s *EnumerationStateStorage) Save(ctx context.Context, state *storage.Enume
 	}
 
 	// Store a deep copy to prevent mutations
-	s.states[state.SessionID] = &storage.EnumerationState{
+	s.states[state.SessionID] = &enumeration.EnumerationState{
 		SessionID:      state.SessionID,
 		SourceType:     state.SourceType,
 		Config:         append(json.RawMessage(nil), state.Config...),
@@ -51,7 +51,7 @@ func (s *EnumerationStateStorage) Save(ctx context.Context, state *storage.Enume
 }
 
 // Load retrieves an enumeration session state by session ID.
-func (s *EnumerationStateStorage) Load(ctx context.Context, sessionID string) (*storage.EnumerationState, error) {
+func (s *EnumerationStateStorage) Load(ctx context.Context, sessionID string) (*enumeration.EnumerationState, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -61,7 +61,7 @@ func (s *EnumerationStateStorage) Load(ctx context.Context, sessionID string) (*
 	}
 
 	// Return a deep copy to prevent mutations
-	return &storage.EnumerationState{
+	return &enumeration.EnumerationState{
 		SessionID:      state.SessionID,
 		SourceType:     state.SourceType,
 		Config:         append(json.RawMessage(nil), state.Config...),
@@ -72,14 +72,14 @@ func (s *EnumerationStateStorage) Load(ctx context.Context, sessionID string) (*
 }
 
 // GetActiveStates returns all enumeration states that are initialized or in progress
-func (s *EnumerationStateStorage) GetActiveStates(ctx context.Context) ([]*storage.EnumerationState, error) {
+func (s *EnumerationStateStorage) GetActiveStates(ctx context.Context) ([]*enumeration.EnumerationState, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	var active []*storage.EnumerationState
+	var active []*enumeration.EnumerationState
 	for _, state := range s.states {
-		if state.Status == storage.StatusInitialized || state.Status == storage.StatusInProgress {
-			active = append(active, &storage.EnumerationState{
+		if state.Status == enumeration.StatusInitialized || state.Status == enumeration.StatusInProgress {
+			active = append(active, &enumeration.EnumerationState{
 				SessionID:      state.SessionID,
 				SourceType:     state.SourceType,
 				Config:         append(json.RawMessage(nil), state.Config...),
@@ -93,14 +93,14 @@ func (s *EnumerationStateStorage) GetActiveStates(ctx context.Context) ([]*stora
 }
 
 // List returns the most recent enumeration states, limited by count
-func (s *EnumerationStateStorage) List(ctx context.Context, limit int) ([]*storage.EnumerationState, error) {
+func (s *EnumerationStateStorage) List(ctx context.Context, limit int) ([]*enumeration.EnumerationState, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	// Convert map to slice for sorting
-	states := make([]*storage.EnumerationState, 0, len(s.states))
+	states := make([]*enumeration.EnumerationState, 0, len(s.states))
 	for _, state := range s.states {
-		states = append(states, &storage.EnumerationState{
+		states = append(states, &enumeration.EnumerationState{
 			SessionID:      state.SessionID,
 			SourceType:     state.SourceType,
 			Config:         append(json.RawMessage(nil), state.Config...),
@@ -122,11 +122,11 @@ func (s *EnumerationStateStorage) List(ctx context.Context, limit int) ([]*stora
 }
 
 // Helper function to deep copy a checkpoint
-func deepCopyCheckpoint(cp *storage.Checkpoint) *storage.Checkpoint {
+func deepCopyCheckpoint(cp *enumeration.Checkpoint) *enumeration.Checkpoint {
 	if cp == nil {
 		return nil
 	}
-	return &storage.Checkpoint{
+	return &enumeration.Checkpoint{
 		ID:        cp.ID,
 		TargetID:  cp.TargetID,
 		Data:      deepCopyMap(cp.Data),

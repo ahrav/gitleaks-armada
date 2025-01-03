@@ -1,9 +1,10 @@
-package rules
+package postgres
 
 import (
 	"context"
 	"testing"
 
+	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 

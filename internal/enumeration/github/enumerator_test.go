@@ -1,4 +1,4 @@
-package enumerators
+package github
 
 import (
 	"context"
@@ -13,7 +13,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/common/otel"
 	"github.com/ahrav/gitleaks-armada/pkg/config"
 	"github.com/ahrav/gitleaks-armada/pkg/domain"
-	"github.com/ahrav/gitleaks-armada/pkg/storage"
+	"github.com/ahrav/gitleaks-armada/pkg/domain/enumeration"
 )
 
 type MockGitHubAPI struct{ mock.Mock }
@@ -28,31 +28,31 @@ func (m *MockGitHubAPI) ListRepositories(ctx context.Context, org string, cursor
 
 type MockStorage struct{ mock.Mock }
 
-func (m *MockStorage) Save(ctx context.Context, state *storage.EnumerationState) error {
+func (m *MockStorage) Save(ctx context.Context, state *enumeration.EnumerationState) error {
 	args := m.Called(ctx, state)
 	return args.Error(0)
 }
 
-func (m *MockStorage) Load(ctx context.Context, sessionID string) (*storage.EnumerationState, error) {
+func (m *MockStorage) Load(ctx context.Context, sessionID string) (*enumeration.EnumerationState, error) {
 	args := m.Called(ctx, sessionID)
 	if state := args.Get(0); state != nil {
-		return state.(*storage.EnumerationState), args.Error(1)
+		return state.(*enumeration.EnumerationState), args.Error(1)
 	}
 	return nil, args.Error(1)
 }
 
-func (m *MockStorage) GetActiveStates(ctx context.Context) ([]*storage.EnumerationState, error) {
+func (m *MockStorage) GetActiveStates(ctx context.Context) ([]*enumeration.EnumerationState, error) {
 	args := m.Called(ctx)
 	if states := args.Get(0); states != nil {
-		return states.([]*storage.EnumerationState), args.Error(1)
+		return states.([]*enumeration.EnumerationState), args.Error(1)
 	}
 	return nil, args.Error(1)
 }
 
-func (m *MockStorage) List(ctx context.Context, limit int) ([]*storage.EnumerationState, error) {
+func (m *MockStorage) List(ctx context.Context, limit int) ([]*enumeration.EnumerationState, error) {
 	args := m.Called(ctx, limit)
 	if states := args.Get(0); states != nil {
-		return states.([]*storage.EnumerationState), args.Error(1)
+		return states.([]*enumeration.EnumerationState), args.Error(1)
 	}
 	return nil, args.Error(1)
 }
@@ -61,7 +61,7 @@ func TestGitHubEnumerator_Enumerate(t *testing.T) {
 	tests := []struct {
 		name          string
 		setupMocks    func(*MockGitHubAPI, *MockStorage)
-		state         *storage.EnumerationState
+		state         *enumeration.EnumerationState
 		expectedTasks int
 	}{
 		{
@@ -119,10 +119,10 @@ func TestGitHubEnumerator_Enumerate(t *testing.T) {
 					},
 				}, nil)
 			},
-			state: &storage.EnumerationState{
+			state: &enumeration.EnumerationState{
 				SessionID:  "test-session",
 				SourceType: "github",
-				Status:     storage.StatusInProgress,
+				Status:     enumeration.StatusInProgress,
 			},
 			expectedTasks: 2,
 		},
@@ -183,7 +183,7 @@ func TestGitHubEnumerator_Enumerate(t *testing.T) {
 				}, nil)
 
 				// Expect state save after first page.
-				store.On("Save", mock.Anything, mock.MatchedBy(func(state *storage.EnumerationState) bool {
+				store.On("Save", mock.Anything, mock.MatchedBy(func(state *enumeration.EnumerationState) bool {
 					return state.LastCheckpoint != nil &&
 						state.LastCheckpoint.Data["endCursor"] == "cursor1"
 				})).Return(nil)
@@ -243,10 +243,10 @@ func TestGitHubEnumerator_Enumerate(t *testing.T) {
 					},
 				}, nil)
 			},
-			state: &storage.EnumerationState{
+			state: &enumeration.EnumerationState{
 				SessionID:  "test-session",
 				SourceType: "github",
-				Status:     storage.StatusInProgress,
+				Status:     enumeration.StatusInProgress,
 			},
 			expectedTasks: 4,
 		},

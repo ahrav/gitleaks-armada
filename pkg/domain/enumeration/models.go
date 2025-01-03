@@ -1,10 +1,19 @@
-package storage
+package enumeration
 
 import (
-	"context"
 	"encoding/json"
 	"time"
 )
+
+// Checkpoint stores progress information for resumable target enumeration.
+// It enables reliable scanning of large data sources by tracking the last
+// successfully processed position.
+type Checkpoint struct {
+	ID        int64          `json:"id"`
+	TargetID  string         `json:"target_id"`
+	Data      map[string]any `json:"data"`
+	UpdatedAt time.Time      `json:"updated_at"`
+}
 
 // EnumerationStatus represents the lifecycle states of an enumeration session.
 type EnumerationStatus string
@@ -42,17 +51,4 @@ func (s *EnumerationState) UpdateCheckpoint(checkpoint *Checkpoint) {
 func (s *EnumerationState) UpdateStatus(status EnumerationStatus) {
 	s.Status = status
 	s.LastUpdated = time.Now()
-}
-
-// EnumerationStateStorage provides persistent storage for enumeration session state.
-// This enables resumable scanning across process restarts.
-type EnumerationStateStorage interface {
-	Save(ctx context.Context, state *EnumerationState) error
-	// Load retrieves an enumeration session state by session ID.
-	// Returns nil if no matching session exists.
-	Load(ctx context.Context, sessionID string) (*EnumerationState, error)
-	// GetActiveStates returns all enumeration states that are initialized or in progress
-	GetActiveStates(ctx context.Context) ([]*EnumerationState, error)
-	// List returns the most recent enumeration states, limited by count
-	List(ctx context.Context, limit int) ([]*EnumerationState, error)
 }

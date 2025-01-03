@@ -1,4 +1,7 @@
-package enumerators
+// Package github provides functionality for enumerating GitHub repositories
+// within organizations. It handles authentication, pagination, and state
+// management to reliably scan large organizations.
+package github
 
 import (
 	"bytes"
@@ -17,8 +20,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/common"
 	"github.com/ahrav/gitleaks-armada/pkg/config"
 	"github.com/ahrav/gitleaks-armada/pkg/domain"
-	"github.com/ahrav/gitleaks-armada/pkg/enumeration"
-	"github.com/ahrav/gitleaks-armada/pkg/storage"
+	"github.com/ahrav/gitleaks-armada/pkg/domain/enumeration"
 )
 
 var _ enumeration.TargetEnumerator = new(GitHubEnumerator)
@@ -38,7 +40,7 @@ type GitHubEnumerator struct {
 	creds    *domain.TaskCredentials
 
 	ghClient GitHubAPI
-	storage  storage.EnumerationStateStorage
+	storage  enumeration.EnumerationStateStorage
 	tracer   trace.Tracer
 }
 
@@ -47,7 +49,7 @@ type GitHubEnumerator struct {
 func NewGitHubEnumerator(
 	client GitHubAPI,
 	creds *domain.TaskCredentials,
-	storage storage.EnumerationStateStorage,
+	storage enumeration.EnumerationStateStorage,
 	ghConfig *config.GitHubTarget,
 	tracer trace.Tracer,
 ) *GitHubEnumerator {
@@ -78,7 +80,7 @@ func extractGitHubToken(creds *domain.TaskCredentials) (string, error) {
 // It uses GraphQL for efficient pagination and maintains checkpoints for resumability.
 // The method streams batches of tasks through the provided channel and updates progress
 // in the enumeration state storage.
-func (e *GitHubEnumerator) Enumerate(ctx context.Context, state *storage.EnumerationState, taskCh chan<- []domain.Task) error {
+func (e *GitHubEnumerator) Enumerate(ctx context.Context, state *enumeration.EnumerationState, taskCh chan<- []domain.Task) error {
 	ctx, span := e.tracer.Start(ctx, "github.enumerate",
 		trace.WithAttributes(
 			attribute.String("org", e.ghConfig.Org),
@@ -150,7 +152,7 @@ func (e *GitHubEnumerator) Enumerate(ctx context.Context, state *storage.Enumera
 
 		// Save progress after each successful batch.
 		endCursor = &pageInfo.EndCursor
-		checkpoint := &storage.Checkpoint{
+		checkpoint := &enumeration.Checkpoint{
 			TargetID:  e.ghConfig.Org,
 			Data:      map[string]any{"endCursor": *endCursor},
 			UpdatedAt: time.Now(),

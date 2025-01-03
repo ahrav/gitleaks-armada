@@ -12,10 +12,11 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/ahrav/gitleaks-armada/internal/db"
-	"github.com/ahrav/gitleaks-armada/pkg/storage"
+	"github.com/ahrav/gitleaks-armada/internal/storage"
+	"github.com/ahrav/gitleaks-armada/pkg/domain/enumeration"
 )
 
-var _ storage.CheckpointStorage = (*CheckpointStorage)(nil)
+var _ enumeration.CheckpointStorage = (*CheckpointStorage)(nil)
 
 // CheckpointStorage provides a PostgreSQL implementation of CheckpointStorage.
 // It uses sqlc-generated queries to manage checkpoint persistence, enabling
@@ -37,8 +38,8 @@ func NewCheckpointStorage(dbConn *pgxpool.Pool, tracer trace.Tracer) *Checkpoint
 
 // Save persists a checkpoint to PostgreSQL. The checkpoint's Data field is
 // serialized to JSON before storage to allow for flexible schema evolution.
-func (p *CheckpointStorage) Save(ctx context.Context, cp *storage.Checkpoint) error {
-	return executeAndTrace(ctx, p.tracer, "postgres.save_checkpoint", []attribute.KeyValue{
+func (p *CheckpointStorage) Save(ctx context.Context, cp *enumeration.Checkpoint) error {
+	return storage.ExecuteAndTrace(ctx, p.tracer, "postgres.save_checkpoint", []attribute.KeyValue{
 		attribute.String("target_id", cp.TargetID),
 		attribute.Int("data_size", len(fmt.Sprint(cp.Data))),
 	}, func(ctx context.Context) error {
@@ -62,9 +63,9 @@ func (p *CheckpointStorage) Save(ctx context.Context, cp *storage.Checkpoint) er
 // Load retrieves a checkpoint by target ID. Returns nil if no checkpoint exists
 // for the given target. The stored JSON data is deserialized into the checkpoint's
 // Data field.
-func (p *CheckpointStorage) Load(ctx context.Context, targetID string) (*storage.Checkpoint, error) {
-	var checkpoint *storage.Checkpoint
-	err := executeAndTrace(ctx, p.tracer, "postgres.load_checkpoint", []attribute.KeyValue{
+func (p *CheckpointStorage) Load(ctx context.Context, targetID string) (*enumeration.Checkpoint, error) {
+	var checkpoint *enumeration.Checkpoint
+	err := storage.ExecuteAndTrace(ctx, p.tracer, "postgres.load_checkpoint", []attribute.KeyValue{
 		attribute.String("target_id", targetID),
 	}, func(ctx context.Context) error {
 		dbCp, err := p.q.GetCheckpoint(ctx, targetID)
@@ -80,7 +81,7 @@ func (p *CheckpointStorage) Load(ctx context.Context, targetID string) (*storage
 			return fmt.Errorf("failed to unmarshal checkpoint data: %w", err)
 		}
 
-		checkpoint = &storage.Checkpoint{
+		checkpoint = &enumeration.Checkpoint{
 			ID:        dbCp.ID,
 			TargetID:  dbCp.TargetID,
 			Data:      data,
@@ -92,9 +93,9 @@ func (p *CheckpointStorage) Load(ctx context.Context, targetID string) (*storage
 }
 
 // LoadByID retrieves a checkpoint by its unique database ID.
-func (p *CheckpointStorage) LoadByID(ctx context.Context, id int64) (*storage.Checkpoint, error) {
-	var checkpoint *storage.Checkpoint
-	err := executeAndTrace(ctx, p.tracer, "postgres.load_checkpoint_by_id", []attribute.KeyValue{
+func (p *CheckpointStorage) LoadByID(ctx context.Context, id int64) (*enumeration.Checkpoint, error) {
+	var checkpoint *enumeration.Checkpoint
+	err := storage.ExecuteAndTrace(ctx, p.tracer, "postgres.load_checkpoint_by_id", []attribute.KeyValue{
 		attribute.Int64("checkpoint_id", id),
 	}, func(ctx context.Context) error {
 		dbCp, err := p.q.GetCheckpointByID(ctx, id)
@@ -110,7 +111,7 @@ func (p *CheckpointStorage) LoadByID(ctx context.Context, id int64) (*storage.Ch
 			return fmt.Errorf("failed to unmarshal checkpoint data: %w", err)
 		}
 
-		checkpoint = &storage.Checkpoint{
+		checkpoint = &enumeration.Checkpoint{
 			ID:        dbCp.ID,
 			TargetID:  dbCp.TargetID,
 			Data:      data,
@@ -124,7 +125,7 @@ func (p *CheckpointStorage) LoadByID(ctx context.Context, id int64) (*storage.Ch
 // Delete removes a checkpoint for the given target ID. It is not an error if
 // the checkpoint does not exist.
 func (p *CheckpointStorage) Delete(ctx context.Context, targetID string) error {
-	return executeAndTrace(ctx, p.tracer, "postgres.delete_checkpoint", []attribute.KeyValue{
+	return storage.ExecuteAndTrace(ctx, p.tracer, "postgres.delete_checkpoint", []attribute.KeyValue{
 		attribute.String("target_id", targetID),
 	}, func(ctx context.Context) error {
 		if err := p.q.DeleteCheckpoint(ctx, targetID); err != nil {

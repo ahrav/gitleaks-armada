@@ -9,25 +9,25 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ahrav/gitleaks-armada/pkg/storage"
+	"github.com/ahrav/gitleaks-armada/pkg/domain/enumeration"
 )
 
 func TestInMemoryEnumerationStateStorage_SaveAndLoad(t *testing.T) {
 	store := NewEnumerationStateStorage(NewCheckpointStorage())
 	ctx := context.Background()
 
-	state := &storage.EnumerationState{
+	state := &enumeration.EnumerationState{
 		SessionID:  "test-session",
 		SourceType: "github",
 		Config:     json.RawMessage(`{"org": "test-org"}`),
-		LastCheckpoint: &storage.Checkpoint{
+		LastCheckpoint: &enumeration.Checkpoint{
 			ID:       1,
 			TargetID: "test-target",
 			Data: map[string]any{
 				"cursor": "abc123",
 			},
 		},
-		Status: storage.StatusInitialized,
+		Status: enumeration.StatusInitialized,
 	}
 	state.LastUpdated = time.Now()
 
@@ -52,10 +52,10 @@ func TestInMemoryEnumerationStateStorage_GetActiveStates(t *testing.T) {
 	store := NewEnumerationStateStorage(NewCheckpointStorage())
 	ctx := context.Background()
 
-	state := &storage.EnumerationState{
+	state := &enumeration.EnumerationState{
 		SessionID:  "test-session",
 		SourceType: "github",
-		Status:     storage.StatusInProgress,
+		Status:     enumeration.StatusInProgress,
 	}
 
 	err := store.Save(ctx, state)
@@ -69,7 +69,7 @@ func TestInMemoryEnumerationStateStorage_GetActiveStates(t *testing.T) {
 	assert.Equal(t, state.Status, states[0].Status)
 
 	// Test with completed state
-	state.Status = storage.StatusCompleted
+	state.Status = enumeration.StatusCompleted
 	err = store.Save(ctx, state)
 	require.NoError(t, err)
 
@@ -82,10 +82,10 @@ func TestInMemoryEnumerationStateStorage_List(t *testing.T) {
 	store := NewEnumerationStateStorage(NewCheckpointStorage())
 	ctx := context.Background()
 
-	state := &storage.EnumerationState{
+	state := &enumeration.EnumerationState{
 		SessionID:  "test-session",
 		SourceType: "github",
-		Status:     storage.StatusCompleted,
+		Status:     enumeration.StatusCompleted,
 	}
 
 	err := store.Save(ctx, state)
@@ -112,11 +112,11 @@ func TestInMemoryEnumerationStateStorage_Update(t *testing.T) {
 	store := NewEnumerationStateStorage(NewCheckpointStorage())
 	ctx := context.Background()
 
-	initialState := &storage.EnumerationState{
+	initialState := &enumeration.EnumerationState{
 		SessionID:  "test-session",
 		SourceType: "github",
 	}
-	initialState.UpdateStatus(storage.StatusInitialized)
+	initialState.UpdateStatus(enumeration.StatusInitialized)
 
 	err := store.Save(ctx, initialState)
 	require.NoError(t, err)
@@ -126,11 +126,11 @@ func TestInMemoryEnumerationStateStorage_Update(t *testing.T) {
 	require.NotNil(t, loaded)
 
 	// Verify initial state
-	assert.Equal(t, storage.StatusInitialized, loaded.Status)
+	assert.Equal(t, enumeration.StatusInitialized, loaded.Status)
 	assert.False(t, loaded.LastUpdated.IsZero())
 
 	// Update state
-	initialState.UpdateStatus(storage.StatusInProgress)
+	initialState.UpdateStatus(enumeration.StatusInProgress)
 	err = store.Save(ctx, initialState)
 	require.NoError(t, err)
 
@@ -139,7 +139,7 @@ func TestInMemoryEnumerationStateStorage_Update(t *testing.T) {
 	require.NotNil(t, loaded2)
 
 	// Verify updated state
-	assert.Equal(t, storage.StatusInProgress, loaded2.Status)
+	assert.Equal(t, enumeration.StatusInProgress, loaded2.Status)
 	assert.NotEqual(t, loaded.LastUpdated, loaded2.LastUpdated,
 		"LastUpdated should be different after update")
 }
@@ -148,10 +148,10 @@ func TestInMemoryEnumerationStateStorage_Mutability(t *testing.T) {
 	store := NewEnumerationStateStorage(NewCheckpointStorage())
 	ctx := context.Background()
 
-	original := &storage.EnumerationState{
+	original := &enumeration.EnumerationState{
 		SessionID:  "test-session",
 		SourceType: "github",
-		LastCheckpoint: &storage.Checkpoint{
+		LastCheckpoint: &enumeration.Checkpoint{
 			TargetID: "test-target",
 			Data: map[string]any{
 				"cursor": "abc123",
@@ -160,7 +160,7 @@ func TestInMemoryEnumerationStateStorage_Mutability(t *testing.T) {
 				},
 			},
 		},
-		Status: storage.StatusInitialized,
+		Status: enumeration.StatusInitialized,
 	}
 
 	err := store.Save(ctx, original)
@@ -170,7 +170,7 @@ func TestInMemoryEnumerationStateStorage_Mutability(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, loaded)
 
-	loaded.Status = storage.StatusCompleted
+	loaded.Status = enumeration.StatusCompleted
 	loaded.LastCheckpoint.Data["cursor"] = "modified"
 	if nestedMap, ok := loaded.LastCheckpoint.Data["nested"].(map[string]any); ok {
 		nestedMap["key"] = "modified"
@@ -181,7 +181,7 @@ func TestInMemoryEnumerationStateStorage_Mutability(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, reloaded)
 
-	assert.Equal(t, storage.StatusInitialized, reloaded.Status, "Status should not be modified")
+	assert.Equal(t, enumeration.StatusInitialized, reloaded.Status, "Status should not be modified")
 	assert.Equal(t, "abc123", reloaded.LastCheckpoint.Data["cursor"], "Checkpoint cursor should not be modified")
 	if nestedMap, ok := reloaded.LastCheckpoint.Data["nested"].(map[string]any); ok {
 		assert.Equal(t, "value", nestedMap["key"], "Nested checkpoint value should not be modified")
@@ -196,16 +196,16 @@ func TestInMemoryEnumerationStateStorage_ConcurrentOperations(t *testing.T) {
 
 	for i := 0; i < goroutines; i++ {
 		go func(id int) {
-			state := &storage.EnumerationState{
+			state := &enumeration.EnumerationState{
 				SessionID:  "concurrent-session",
 				SourceType: "github",
-				LastCheckpoint: &storage.Checkpoint{
+				LastCheckpoint: &enumeration.Checkpoint{
 					TargetID: "test-target",
 					Data: map[string]any{
 						"value": id,
 					},
 				},
-				Status: storage.StatusInProgress,
+				Status: enumeration.StatusInProgress,
 			}
 
 			err := store.Save(ctx, state)
@@ -226,5 +226,5 @@ func TestInMemoryEnumerationStateStorage_ConcurrentOperations(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, loaded)
 	assert.Equal(t, "concurrent-session", loaded.SessionID)
-	assert.Equal(t, storage.StatusInProgress, loaded.Status)
+	assert.Equal(t, enumeration.StatusInProgress, loaded.Status)
 }

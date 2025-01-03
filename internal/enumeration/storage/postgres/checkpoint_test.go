@@ -1,20 +1,35 @@
-package memory
+package postgres
 
 import (
 	"context"
 	"testing"
+	"time"
 
+	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ahrav/gitleaks-armada/pkg/storage"
+	"github.com/ahrav/gitleaks-armada/internal/storage"
+	"github.com/ahrav/gitleaks-armada/pkg/domain/enumeration"
 )
 
-func TestInMemoryCheckpointStorage_SaveAndLoad(t *testing.T) {
-	store := NewCheckpointStorage()
+func setupCheckpointTest(t *testing.T) (context.Context, *CheckpointStorage, func()) {
+	t.Helper()
+
+	db, cleanup := storage.SetupTestContainer(t)
+	store := NewCheckpointStorage(db, storage.NoOpTracer())
 	ctx := context.Background()
 
-	checkpoint := &storage.Checkpoint{
+	return ctx, store, cleanup
+}
+
+func TestPGCheckpointStorage_SaveAndLoad(t *testing.T) {
+	t.Parallel()
+
+	ctx, store, cleanup := setupCheckpointTest(t)
+	defer cleanup()
+
+	checkpoint := &enumeration.Checkpoint{
 		TargetID: "test-target",
 		Data: map[string]any{
 			"cursor": "abc123",
@@ -31,24 +46,28 @@ func TestInMemoryCheckpointStorage_SaveAndLoad(t *testing.T) {
 
 	assert.Equal(t, checkpoint.TargetID, loaded.TargetID)
 	assert.Equal(t, checkpoint.Data["cursor"], loaded.Data["cursor"])
-	assert.Equal(t, checkpoint.Data["page"], loaded.Data["page"])
+	assert.Equal(t, float64(42), loaded.Data["page"])
 	assert.False(t, loaded.UpdatedAt.IsZero(), "UpdatedAt should be set")
 }
 
-func TestInMemoryCheckpointStorage_LoadNonExistent(t *testing.T) {
-	storage := NewCheckpointStorage()
-	ctx := context.Background()
+func TestPGCheckpointStorage_LoadNonExistent(t *testing.T) {
+	t.Parallel()
 
-	loaded, err := storage.Load(ctx, "non-existent")
+	ctx, store, cleanup := setupCheckpointTest(t)
+	defer cleanup()
+
+	loaded, err := store.Load(ctx, "non-existent")
 	require.NoError(t, err)
 	assert.Nil(t, loaded)
 }
 
-func TestInMemoryCheckpointStorage_Delete(t *testing.T) {
-	store := NewCheckpointStorage()
-	ctx := context.Background()
+func TestPGCheckpointStorage_Delete(t *testing.T) {
+	t.Parallel()
 
-	checkpoint := &storage.Checkpoint{
+	ctx, store, cleanup := setupCheckpointTest(t)
+	defer cleanup()
+
+	checkpoint := &enumeration.Checkpoint{
 		TargetID: "test-target",
 		Data: map[string]any{
 			"cursor": "abc123",
@@ -66,20 +85,23 @@ func TestInMemoryCheckpointStorage_Delete(t *testing.T) {
 	assert.Nil(t, loaded)
 }
 
-func TestInMemoryCheckpointStorage_DeleteNonExistent(t *testing.T) {
-	store := NewCheckpointStorage()
-	ctx := context.Background()
+func TestPGCheckpointStorage_DeleteNonExistent(t *testing.T) {
+	t.Parallel()
+
+	ctx, store, cleanup := setupCheckpointTest(t)
+	defer cleanup()
 
 	err := store.Delete(ctx, "non-existent")
 	require.NoError(t, err)
 }
 
-func TestInMemoryCheckpointStorage_Update(t *testing.T) {
-	store := NewCheckpointStorage()
-	ctx := context.Background()
+func TestPGCheckpointStorage_Update(t *testing.T) {
+	t.Parallel()
 
-	// Initial checkpoint.
-	checkpoint := &storage.Checkpoint{
+	ctx, store, cleanup := setupCheckpointTest(t)
+	defer cleanup()
+
+	checkpoint := &enumeration.Checkpoint{
 		TargetID: "test-target",
 		Data: map[string]any{
 			"cursor": "abc123",
@@ -88,10 +110,13 @@ func TestInMemoryCheckpointStorage_Update(t *testing.T) {
 
 	err := store.Save(ctx, checkpoint)
 	require.NoError(t, err)
+
 	loaded, err := store.Load(ctx, checkpoint.TargetID)
 	require.NoError(t, err)
 	require.NotNil(t, loaded)
 	firstSaveTime := loaded.UpdatedAt
+
+	time.Sleep(10 * time.Millisecond)
 
 	checkpoint.Data["cursor"] = "def456"
 	err = store.Save(ctx, checkpoint)
@@ -106,15 +131,18 @@ func TestInMemoryCheckpointStorage_Update(t *testing.T) {
 		"UpdatedAt should be later than first save")
 }
 
-func TestInMemoryCheckpointStorage_ConcurrentOperations(t *testing.T) {
-	store := NewCheckpointStorage()
-	ctx := context.Background()
+func TestPGCheckpointStorage_ConcurrentOperations(t *testing.T) {
+	t.Parallel()
+
+	ctx, store, cleanup := setupCheckpointTest(t)
+	defer cleanup()
+
 	const goroutines = 10
 	done := make(chan bool)
 
 	for i := 0; i < goroutines; i++ {
 		go func(id int) {
-			checkpoint := &storage.Checkpoint{
+			checkpoint := &enumeration.Checkpoint{
 				TargetID: "concurrent-target",
 				Data: map[string]any{
 					"value": id,
@@ -141,11 +169,13 @@ func TestInMemoryCheckpointStorage_ConcurrentOperations(t *testing.T) {
 	assert.NotNil(t, loaded.Data["value"])
 }
 
-func TestInMemoryCheckpointStorage_Mutability(t *testing.T) {
-	store := NewCheckpointStorage()
-	ctx := context.Background()
+func TestPGCheckpointStorage_Mutability(t *testing.T) {
+	t.Parallel()
 
-	original := &storage.Checkpoint{
+	ctx, store, cleanup := setupCheckpointTest(t)
+	defer cleanup()
+
+	original := &enumeration.Checkpoint{
 		TargetID: "test-target",
 		Data: map[string]any{
 			"cursor": "abc123",
@@ -158,7 +188,6 @@ func TestInMemoryCheckpointStorage_Mutability(t *testing.T) {
 	err := store.Save(ctx, original)
 	require.NoError(t, err)
 
-	// Load checkpoint
 	loaded, err := store.Load(ctx, original.TargetID)
 	require.NoError(t, err)
 	require.NotNil(t, loaded)
@@ -168,7 +197,6 @@ func TestInMemoryCheckpointStorage_Mutability(t *testing.T) {
 		nestedMap["key"] = "modified"
 	}
 
-	// Load again and verify original wasn't modified.
 	reloaded, err := store.Load(ctx, original.TargetID)
 	require.NoError(t, err)
 	require.NotNil(t, reloaded)
@@ -179,17 +207,16 @@ func TestInMemoryCheckpointStorage_Mutability(t *testing.T) {
 	}
 }
 
-func TestInMemoryCheckpointStorage_LoadByID(t *testing.T) {
-	store := NewCheckpointStorage()
-	ctx := context.Background()
+func TestPGCheckpointStorage_LoadByID(t *testing.T) {
+	t.Parallel()
 
-	// Create and save a checkpoint.
-	checkpoint := &storage.Checkpoint{
-		ID:       123,
+	ctx, store, cleanup := setupCheckpointTest(t)
+	defer cleanup()
+
+	checkpoint := &enumeration.Checkpoint{
 		TargetID: "test-target",
 		Data: map[string]any{
 			"cursor": "abc123",
-			"page":   int(42),
 			"nested": map[string]any{
 				"key": "value",
 			},
@@ -199,18 +226,23 @@ func TestInMemoryCheckpointStorage_LoadByID(t *testing.T) {
 	err := store.Save(ctx, checkpoint)
 	require.NoError(t, err)
 
-	loaded, err := store.LoadByID(ctx, 123)
+	// Get the checkpoint by target ID first to get its database ID.
+	saved, err := store.Load(ctx, checkpoint.TargetID)
+	require.NoError(t, err)
+	require.NotNil(t, saved)
+
+	loaded, err := store.LoadByID(ctx, saved.ID)
 	require.NoError(t, err)
 	require.NotNil(t, loaded)
 
-	assert.Equal(t, checkpoint.ID, loaded.ID)
+	assert.Equal(t, saved.ID, loaded.ID)
 	assert.Equal(t, checkpoint.TargetID, loaded.TargetID)
 	assert.Equal(t, checkpoint.Data["cursor"], loaded.Data["cursor"])
-	assert.Equal(t, checkpoint.Data["page"], loaded.Data["page"])
 	if nestedMap, ok := loaded.Data["nested"].(map[string]any); ok {
 		assert.Equal(t, "value", nestedMap["key"])
 	}
 
+	// Test non-existent ID.
 	nonExistent, err := store.LoadByID(ctx, 999)
 	require.NoError(t, err)
 	assert.Nil(t, nonExistent)
@@ -220,7 +252,7 @@ func TestInMemoryCheckpointStorage_LoadByID(t *testing.T) {
 		nestedMap["key"] = "modified"
 	}
 
-	reloaded, err := store.LoadByID(ctx, 123)
+	reloaded, err := store.LoadByID(ctx, saved.ID)
 	require.NoError(t, err)
 	require.NotNil(t, reloaded)
 
