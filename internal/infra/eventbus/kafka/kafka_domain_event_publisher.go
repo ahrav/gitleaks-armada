@@ -2,7 +2,6 @@ package kafka
 
 import (
 	"context"
-	"time"
 
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 )
@@ -25,14 +24,13 @@ func NewKafkaDomainEventPublisher(eventBus events.EventBus) *KafkaDomainEventPub
 	return &KafkaDomainEventPublisher{eventBus: eventBus}
 }
 
-// PublishDomainEvent sends a domain event with the specified type and payload through
-// the Kafka event bus. It automatically adds a timestamp and converts domain-level
-// publishing options to event bus options.
-func (pub *KafkaDomainEventPublisher) PublishDomainEvent(ctx context.Context, eventType events.EventType, payload any, domainOpts ...events.PublishOption) error {
-	evt := events.DomainEvent{
-		Type:      eventType,
-		Timestamp: time.Now(),
-		Payload:   payload,
+// PublishDomainEvent sends a domain event through the Kafka event bus. It automatically
+// adds a timestamp and converts domain-level publishing options to event bus options.
+func (pub *KafkaDomainEventPublisher) PublishDomainEvent(ctx context.Context, event events.DomainEvent, domainOpts ...events.PublishOption) error {
+	evt := events.EventEnvelope{
+		Type:      event.EventType(),
+		Timestamp: event.OccurredAt(),
+		Payload:   event,
 	}
 
 	opts := convertDomainOptionsToEventOptions(domainOpts)

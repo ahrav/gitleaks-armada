@@ -181,7 +181,7 @@ func (c *Controller) Stop(ctx context.Context) error {
 
 // handleRule processes incoming rule update events. It deduplicates rules based on their hash
 // to prevent unnecessary processing of duplicate rules within a short time window.
-func (c *Controller) handleRule(ctx context.Context, event events.DomainEvent) error {
+func (c *Controller) handleRule(ctx context.Context, event events.EventEnvelope) error {
 	ruleMsg, ok := event.Payload.(rules.GitleaksRuleMessage)
 	if !ok {
 		return fmt.Errorf("handleRule: payload is not GitleaksRuleMessage")

@@ -11,7 +11,7 @@ type DomainEventPublisher interface {
 	// PublishDomainEvent sends a domain event with the specified type and payload.
 	// It accepts optional PublishOptions to configure event routing behavior.
 	// The context allows for cancellation and deadline control.
-	PublishDomainEvent(ctx context.Context, eventType EventType, payload any, opts ...PublishOption) error
+	PublishDomainEvent(ctx context.Context, event DomainEvent, opts ...PublishOption) error
 }
 
 // EventBus defines the contract for publishing and subscribing to domain events.
@@ -21,12 +21,12 @@ type EventBus interface {
 	// Publish sends a domain event to all interested subscribers.
 	// It accepts optional configuration via PublishOptions.
 	// Returns an error if publishing fails.
-	Publish(ctx context.Context, event DomainEvent, opts ...PublishOption) error
+	Publish(ctx context.Context, event EventEnvelope, opts ...PublishOption) error
 
 	// Subscribe registers a handler for processing events of specified types.
 	// The handler is called for each matching event received.
 	// Returns an error if subscription setup fails.
-	Subscribe(ctx context.Context, eventTypes []EventType, handler func(context.Context, DomainEvent) error) error
+	Subscribe(ctx context.Context, eventTypes []EventType, handler func(context.Context, EventEnvelope) error) error
 
 	// Close cleanly shuts down the event bus, releasing all associated resources.
 	// This should be called when the event bus is no longer needed.

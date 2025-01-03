@@ -11,7 +11,6 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/task"
 	"github.com/ahrav/gitleaks-armada/internal/scanner/metrics"
@@ -76,7 +75,7 @@ func (s *Scanner) Run(ctx context.Context) error {
 	}
 
 	// Set up the subscription to feed tasks to workers.
-	if err := s.broker.Subscribe(ctx, []events.EventType{enumeration.EventTypeTaskCreated}, func(ctx context.Context, evt events.DomainEvent) error {
+	if err := s.broker.Subscribe(ctx, []events.EventType{task.EventTypeTaskCreated}, func(ctx context.Context, evt events.EventEnvelope) error {
 		select {
 		case taskCh <- evt.Payload.(task.Task):
 			return nil

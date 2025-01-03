@@ -9,9 +9,9 @@ import (
 	"github.com/IBM/sarama"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/rules"
+	"github.com/ahrav/gitleaks-armada/internal/domain/task"
 	"github.com/ahrav/gitleaks-armada/internal/infra/eventbus/kafka/tracing"
 	"github.com/ahrav/gitleaks-armada/internal/infra/eventbus/serialization"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
@@ -111,11 +111,11 @@ func NewKafkaEventBusFromConfig(
 	// Map domain events to their corresponding Kafka topics to enable
 	// type-safe event routing.
 	topicsMap := map[events.EventType]string{
-		enumeration.EventTypeTaskCreated:      cfg.TaskTopic,
-		enumeration.EventTypeTaskBatchCreated: cfg.TaskTopic,
-		events.EventTypeScanResultReceived:    cfg.ResultsTopic,
-		events.EventTypeScanProgressUpdated:   cfg.ProgressTopic,
-		rules.EventTypeRuleUpdated:            cfg.RulesTopic,
+		task.EventTypeTaskCreated:           cfg.TaskTopic,
+		task.EventTypeTaskBatchCreated:      cfg.TaskTopic,
+		events.EventTypeScanResultReceived:  cfg.ResultsTopic,
+		events.EventTypeScanProgressUpdated: cfg.ProgressTopic,
+		rules.EventTypeRuleUpdated:          cfg.RulesTopic,
 	}
 
 	bus := &KafkaEventBus{
@@ -140,7 +140,7 @@ func NewKafkaEventBusFromConfig(
 // Publish sends a domain event to the appropriate Kafka topic.
 // It handles serialization, routing based on event type, and includes
 // observability instrumentation for tracing and metrics.
-func (k *KafkaEventBus) Publish(ctx context.Context, event events.DomainEvent, opts ...events.PublishOption) error {
+func (k *KafkaEventBus) Publish(ctx context.Context, event events.EventEnvelope, opts ...events.PublishOption) error {
 	topic, ok := k.topics[event.Type]
 	if !ok {
 		return fmt.Errorf("unknown event type '%s', no topic mapped", event.Type)
@@ -196,7 +196,7 @@ func (k *KafkaEventBus) Publish(ctx context.Context, event events.DomainEvent, o
 func (k *KafkaEventBus) Subscribe(
 	ctx context.Context,
 	eventTypes []events.EventType,
-	handler func(context.Context, events.DomainEvent) error,
+	handler func(context.Context, events.EventEnvelope) error,
 ) error {
 	// Collect unique topics for the requested event types.
 	topicSet := make(map[string]struct{})
@@ -223,7 +223,7 @@ func (k *KafkaEventBus) consumeLoop(
 	ctx context.Context,
 	topics []string,
 	eventTypes []events.EventType,
-	handler func(context.Context, events.DomainEvent) error,
+	handler func(context.Context, events.EventEnvelope) error,
 ) {
 	cgHandler := &domainEventHandler{
 		eventBus:    k,
@@ -249,7 +249,7 @@ func (k *KafkaEventBus) consumeLoop(
 type domainEventHandler struct {
 	eventBus    *KafkaEventBus
 	eventTypes  []events.EventType
-	userHandler func(context.Context, events.DomainEvent) error
+	userHandler func(context.Context, events.EventEnvelope) error
 
 	logger  *logger.Logger
 	tracer  trace.Tracer
@@ -302,7 +302,7 @@ func (h *domainEventHandler) ConsumeClaim(
 			continue
 		}
 
-		dEvent := events.DomainEvent{
+		dEvent := events.EventEnvelope{
 			Type:      eType,
 			Key:       string(msg.Key),
 			Timestamp: time.Now(),

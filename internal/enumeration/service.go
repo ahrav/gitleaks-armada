@@ -256,13 +256,13 @@ func (s *service) runEnumerator(ctx context.Context, st *domain.EnumerationState
 			var totalTasks int
 			for tasks := range taskCh {
 				totalTasks += len(tasks)
-				for _, task := range tasks {
-					if err := s.eventPublisher.PublishDomainEvent(
+				for _, t := range tasks {
+					err := s.eventPublisher.PublishDomainEvent(
 						targetCtx,
-						domain.EventTypeTaskCreated,
-						task,
+						task.NewTaskCreatedEvent(t),
 						events.WithKey(st.SessionID),
-					); err != nil {
+					)
+					if err != nil {
 						span.RecordError(err)
 						s.logger.Error(targetCtx, "Failed to publish tasks", "session_id", st.SessionID, "error", err)
 						return

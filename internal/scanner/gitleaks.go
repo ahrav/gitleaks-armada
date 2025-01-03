@@ -160,7 +160,7 @@ func publishRulesOnStartup(
 	// Convert and publish rules individually
 	for _, rule := range detector.Config.Rules {
 		domainRule := convertDetectorRuleToMessage(rule)
-		err := broker.PublishDomainEvent(ctx, rules.EventTypeRuleUpdated, domainRule, events.WithKey(domainRule.Hash))
+		err := broker.PublishDomainEvent(ctx, rules.NewRuleUpdatedEvent(domainRule), events.WithKey(domainRule.Hash))
 		if err != nil {
 			span.RecordError(err)
 			return fmt.Errorf("failed to publish rule %s: %w", rule.RuleID, err)

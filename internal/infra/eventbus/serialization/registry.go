@@ -5,7 +5,6 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/rules"
 	"github.com/ahrav/gitleaks-armada/internal/domain/task"
@@ -61,11 +60,11 @@ func DeserializePayload(eventType events.EventType, data []byte) (any, error) {
 // RegisterEventSerializers initializes the serialization system by registering handlers for all supported event types.
 // This must be called during system startup before any event processing can occur.
 func RegisterEventSerializers() {
-	RegisterSerializeFunc(enumeration.EventTypeTaskCreated, serializeTaskCreated)
-	RegisterDeserializeFunc(enumeration.EventTypeTaskCreated, deserializeTaskCreated)
+	RegisterSerializeFunc(task.EventTypeTaskCreated, serializeTaskCreated)
+	RegisterDeserializeFunc(task.EventTypeTaskCreated, deserializeTaskCreated)
 
-	RegisterSerializeFunc(enumeration.EventTypeTaskBatchCreated, serializeTaskBatchCreated)
-	RegisterDeserializeFunc(enumeration.EventTypeTaskBatchCreated, deserializeTaskBatchCreated)
+	RegisterSerializeFunc(task.EventTypeTaskBatchCreated, serializeTaskBatchCreated)
+	RegisterDeserializeFunc(task.EventTypeTaskBatchCreated, deserializeTaskBatchCreated)
 
 	RegisterSerializeFunc(rules.EventTypeRuleUpdated, serializeRuleUpdated)
 	RegisterDeserializeFunc(rules.EventTypeRuleUpdated, deserializeRuleUpdated)
