@@ -8,9 +8,9 @@ import (
 	"errors"
 	"sync"
 
+	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/rules"
 	"github.com/ahrav/gitleaks-armada/internal/domain/task"
-	"github.com/ahrav/gitleaks-armada/pkg/domain"
 )
 
 type handlerList[T any] []func(T) error
@@ -23,8 +23,8 @@ type Broker struct {
 	mu sync.RWMutex
 
 	taskHandlers     handlerList[task.Task]
-	resultHandlers   handlerList[domain.ScanResult]
-	progressHandlers handlerList[domain.ScanProgress]
+	resultHandlers   handlerList[events.ScanResult]
+	progressHandlers handlerList[events.ScanProgress]
 	ruleHandlers     handlerList[rules.GitleaksRuleMessage]
 }
 
@@ -33,8 +33,8 @@ type Broker struct {
 func NewBroker() *Broker {
 	return &Broker{
 		taskHandlers:     make(handlerList[task.Task], 0),
-		resultHandlers:   make(handlerList[domain.ScanResult], 0),
-		progressHandlers: make(handlerList[domain.ScanProgress], 0),
+		resultHandlers:   make(handlerList[events.ScanResult], 0),
+		progressHandlers: make(handlerList[events.ScanProgress], 0),
 		ruleHandlers:     make(handlerList[rules.GitleaksRuleMessage], 0),
 	}
 }
@@ -115,25 +115,25 @@ func (b *Broker) SubscribeTasks(ctx context.Context, handler func(task.Task) err
 
 // PublishResult broadcasts a scan result to all subscribed handlers.
 // The handlers are copied before iteration to prevent deadlocks and ensure consistency.
-func (b *Broker) PublishResult(ctx context.Context, result domain.ScanResult) error {
+func (b *Broker) PublishResult(ctx context.Context, result events.ScanResult) error {
 	return publish(ctx, &b.mu, b.resultHandlers, result)
 }
 
 // SubscribeResults registers a new handler function for processing scan results.
 // Multiple handlers can be registered and will all receive published results.
-func (b *Broker) SubscribeResults(ctx context.Context, handler func(domain.ScanResult) error) error {
+func (b *Broker) SubscribeResults(ctx context.Context, handler func(events.ScanResult) error) error {
 	return subscribe(ctx, &b.mu, &b.resultHandlers, handler)
 }
 
 // PublishProgress broadcasts scan progress updates to all subscribed handlers.
 // The handlers are copied before iteration to prevent deadlocks and ensure consistency.
-func (b *Broker) PublishProgress(ctx context.Context, progress domain.ScanProgress) error {
+func (b *Broker) PublishProgress(ctx context.Context, progress events.ScanProgress) error {
 	return publish(ctx, &b.mu, b.progressHandlers, progress)
 }
 
 // SubscribeProgress registers a new handler function for processing scan progress updates.
 // Multiple handlers can be registered and will all receive published progress updates.
-func (b *Broker) SubscribeProgress(ctx context.Context, handler func(domain.ScanProgress) error) error {
+func (b *Broker) SubscribeProgress(ctx context.Context, handler func(events.ScanProgress) error) error {
 	return subscribe(ctx, &b.mu, &b.progressHandlers, handler)
 }
 

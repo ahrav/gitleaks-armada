@@ -1,12 +1,12 @@
 package protobuf
 
 import (
-	"github.com/ahrav/gitleaks-armada/pkg/domain"
+	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	pb "github.com/ahrav/gitleaks-armada/proto/scanner"
 )
 
 // ScanProgressToProto converts domain.ScanProgress -> pb.ScanProgress.
-func ScanProgressToProto(sp domain.ScanProgress) *pb.ScanProgress {
+func ScanProgressToProto(sp events.ScanProgress) *pb.ScanProgress {
 	return &pb.ScanProgress{
 		TaskId:          sp.TaskID,
 		PercentComplete: sp.PercentComplete,
@@ -19,8 +19,8 @@ func ScanProgressToProto(sp domain.ScanProgress) *pb.ScanProgress {
 }
 
 // ProtoToScanProgress converts pb.ScanProgress -> domain.ScanProgress.
-func ProtoToScanProgress(psp *pb.ScanProgress) domain.ScanProgress {
-	return domain.ScanProgress{
+func ProtoToScanProgress(psp *pb.ScanProgress) events.ScanProgress {
+	return events.ScanProgress{
 		TaskID:          psp.TaskId,
 		PercentComplete: psp.PercentComplete,
 		ItemsProcessed:  psp.ItemsProcessed,

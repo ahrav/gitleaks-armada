@@ -3,12 +3,12 @@ package protobuf
 import (
 	"google.golang.org/protobuf/types/known/structpb"
 
-	"github.com/ahrav/gitleaks-armada/pkg/domain"
+	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	pb "github.com/ahrav/gitleaks-armada/proto/scanner"
 )
 
 // ScanResultToProto converts domain.ScanResult -> pb.ScanResult.
-func ScanResultToProto(sr domain.ScanResult) *pb.ScanResult {
+func ScanResultToProto(sr events.ScanResult) *pb.ScanResult {
 	pbFindings := make([]*pb.Finding, 0, len(sr.Findings))
 	for _, f := range sr.Findings {
 		pbFindings = append(pbFindings, findingToProto(f))
@@ -23,7 +23,7 @@ func ScanResultToProto(sr domain.ScanResult) *pb.ScanResult {
 }
 
 // findingToProto converts domain.Finding -> pb.Finding.
-func findingToProto(f domain.Finding) *pb.Finding {
+func findingToProto(f events.Finding) *pb.Finding {
 	var pbStruct *structpb.Struct
 	if len(f.RawFinding) > 0 {
 		pbStruct = structMapToProto(f.RawFinding)
@@ -51,15 +51,15 @@ func structMapToProto(m map[string]any) *structpb.Struct {
 }
 
 // scanJobStatusToProto maps domain scan status -> proto enum.
-func scanJobStatusToProto(ds domain.ScanJobStatus) pb.ScanJobStatus {
+func scanJobStatusToProto(ds events.ScanJobStatus) pb.ScanJobStatus {
 	switch ds {
-	case domain.ScanJobStatusQueued:
+	case events.ScanJobStatusQueued:
 		return pb.ScanJobStatus_SCAN_JOB_STATUS_QUEUED
-	case domain.ScanJobStatusRunning:
+	case events.ScanJobStatusRunning:
 		return pb.ScanJobStatus_SCAN_JOB_STATUS_RUNNING
-	case domain.ScanJobStatusCompleted:
+	case events.ScanJobStatusCompleted:
 		return pb.ScanJobStatus_SCAN_JOB_STATUS_COMPLETED
-	case domain.ScanJobStatusFailed:
+	case events.ScanJobStatusFailed:
 		return pb.ScanJobStatus_SCAN_JOB_STATUS_FAILED
 	default:
 		return pb.ScanJobStatus_SCAN_JOB_STATUS_UNSPECIFIED
@@ -67,13 +67,13 @@ func scanJobStatusToProto(ds domain.ScanJobStatus) pb.ScanJobStatus {
 }
 
 // ProtoToScanResult converts pb.ScanResult -> domain.ScanResult.
-func ProtoToScanResult(psr *pb.ScanResult) domain.ScanResult {
-	dFindings := make([]domain.Finding, 0, len(psr.Findings))
+func ProtoToScanResult(psr *pb.ScanResult) events.ScanResult {
+	dFindings := make([]events.Finding, 0, len(psr.Findings))
 	for _, pf := range psr.Findings {
 		dFindings = append(dFindings, protoToFinding(pf))
 	}
 
-	return domain.ScanResult{
+	return events.ScanResult{
 		TaskID:   psr.TaskId,
 		Findings: dFindings,
 		Status:   protoToScanJobStatus(psr.Status),
@@ -82,9 +82,9 @@ func ProtoToScanResult(psr *pb.ScanResult) domain.ScanResult {
 }
 
 // protoToFinding converts pb.Finding -> domain.Finding.
-func protoToFinding(pf *pb.Finding) domain.Finding {
+func protoToFinding(pf *pb.Finding) events.Finding {
 	raw := protoToStructMap(pf.RawFinding)
-	return domain.Finding{
+	return events.Finding{
 		Fingerprint: pf.Fingerprint,
 		FilePath:    pf.FilePath,
 		LineNumber:  pf.LineNumber,
@@ -104,17 +104,17 @@ func protoToStructMap(s *structpb.Struct) map[string]any {
 }
 
 // protoToScanJobStatus maps proto enum -> domain.ScanJobStatus.
-func protoToScanJobStatus(ps pb.ScanJobStatus) domain.ScanJobStatus {
+func protoToScanJobStatus(ps pb.ScanJobStatus) events.ScanJobStatus {
 	switch ps {
 	case pb.ScanJobStatus_SCAN_JOB_STATUS_QUEUED:
-		return domain.ScanJobStatusQueued
+		return events.ScanJobStatusQueued
 	case pb.ScanJobStatus_SCAN_JOB_STATUS_RUNNING:
-		return domain.ScanJobStatusRunning
+		return events.ScanJobStatusRunning
 	case pb.ScanJobStatus_SCAN_JOB_STATUS_COMPLETED:
-		return domain.ScanJobStatusCompleted
+		return events.ScanJobStatusCompleted
 	case pb.ScanJobStatus_SCAN_JOB_STATUS_FAILED:
-		return domain.ScanJobStatusFailed
+		return events.ScanJobStatusFailed
 	default:
-		return domain.ScanJobStatusUnspecified
+		return events.ScanJobStatusUnspecified
 	}
 }

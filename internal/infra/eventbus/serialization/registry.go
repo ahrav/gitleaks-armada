@@ -10,7 +10,6 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/rules"
 	"github.com/ahrav/gitleaks-armada/internal/domain/task"
 	"github.com/ahrav/gitleaks-armada/internal/infra/eventbus/serialization/protobuf"
-	"github.com/ahrav/gitleaks-armada/pkg/domain"
 	pb "github.com/ahrav/gitleaks-armada/proto/scanner"
 )
 
@@ -144,7 +143,7 @@ func deserializeRuleUpdated(data []byte) (any, error) {
 
 // serializeScanProgressUpdated converts a domain.ScanProgress to protobuf bytes.
 func serializeScanProgressUpdated(payload any) ([]byte, error) {
-	sp, ok := payload.(domain.ScanProgress)
+	sp, ok := payload.(events.ScanProgress)
 	if !ok {
 		return nil, fmt.Errorf("serializeScanProgress: not ScanProgress")
 	}
@@ -163,7 +162,7 @@ func deserializeScanProgressUpdated(data []byte) (any, error) {
 
 // serializeScanResultReceived converts a domain.ScanResult to protobuf bytes.
 func serializeScanResultReceived(payload any) ([]byte, error) {
-	sr, ok := payload.(domain.ScanResult)
+	sr, ok := payload.(events.ScanResult)
 	if !ok {
 		return nil, fmt.Errorf("serializeScanResult: not ScanResult")
 	}
