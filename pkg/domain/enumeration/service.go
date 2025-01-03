@@ -49,10 +49,10 @@ type service struct {
 	tracer         trace.Tracer
 }
 
-// NewEnumerationService creates a new Service instance with the provided dependencies.
+// NewService creates a new Service instance with the provided dependencies.
 // It requires storage for enumeration state, configuration loading, factory for creating
 // enumerators, event publishing, logging, metrics collection and tracing capabilities.
-func NewEnumerationService(
+func NewService(
 	store EnumerationStateStorage,
 	configLoader config.Loader,
 	enumFactory EnumeratorFactory,
