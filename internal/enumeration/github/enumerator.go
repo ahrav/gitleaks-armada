@@ -85,10 +85,12 @@ func (e *GitHubEnumerator) Enumerate(ctx context.Context, state *enumeration.Enu
 		trace.WithAttributes(
 			attribute.String("org", e.ghConfig.Org),
 			attribute.String("session_id", state.SessionID),
+			attribute.Int("repo_list_count", len(e.ghConfig.RepoList)),
 		))
 	defer span.End()
 
 	if e.ghConfig.Org == "" && len(e.ghConfig.RepoList) < 1 {
+		span.RecordError(fmt.Errorf("must provide either an org or a repo_list"))
 		return fmt.Errorf("must provide either an org or a repo_list")
 	}
 
@@ -151,6 +153,7 @@ func (e *GitHubEnumerator) Enumerate(ctx context.Context, state *enumeration.Enu
 		}
 
 		// Save progress after each successful batch.
+		// Note: Checkpoints are only saved if the target has multiple pages in the response.
 		endCursor = &pageInfo.EndCursor
 		checkpoint := &enumeration.Checkpoint{
 			TargetID:  e.ghConfig.Org,
@@ -181,10 +184,11 @@ type GitHubClient struct {
 	httpClient  *http.Client
 	rateLimiter *common.RateLimiter
 	token       string
+	tracer      trace.Tracer
 }
 
 // NewGitHubClient creates a new GitHub client with rate limiting.
-func NewGitHubClient(httpClient *http.Client, creds *domain.TaskCredentials) (*GitHubClient, error) {
+func NewGitHubClient(httpClient *http.Client, creds *domain.TaskCredentials, tracer trace.Tracer) (*GitHubClient, error) {
 	var token string
 	if creds.Type == domain.CredentialTypeGitHub {
 		var err error
@@ -200,6 +204,7 @@ func NewGitHubClient(httpClient *http.Client, creds *domain.TaskCredentials) (*G
 		httpClient:  httpClient,
 		rateLimiter: common.NewRateLimiter(1.25, 5),
 		token:       token,
+		tracer:      tracer,
 	}, nil
 }
 
@@ -229,43 +234,63 @@ type githubGraphQLResponse struct {
 // using the GraphQL API. It fetches repositories in batches of 100 and accepts an optional
 // cursor for continuation.
 func (c *GitHubClient) ListRepositories(ctx context.Context, org string, cursor *string) (*githubGraphQLResponse, error) {
-	// GraphQL query to fetch repository names and pagination info
+	ctx, span := c.tracer.Start(ctx, "github.ListRepositories",
+		trace.WithAttributes(
+			attribute.String("org", org),
+			attribute.String("cursor", stringOrNone(cursor)),
+		))
+	defer span.End()
+
+	// GraphQL query to fetch repository names and pagination info.
 	query := `
 	query($org: String!, $after: String) {
-		organization(login: $org) {
-			repositories(first: 100, after: $after) {
-				nodes {
-					name
-				}
-				pageInfo {
-					hasNextPage
-					endCursor
+			organization(login: $org) {
+				repositories(first: 100, after: $after) {
+					nodes {
+						name
+					}
+					pageInfo {
+						hasNextPage
+						endCursor
+					}
 				}
 			}
-		}
 	}`
 
-	variables := map[string]any{
-		"org": org,
-	}
+	variables := map[string]any{"org": org}
 	if cursor != nil {
 		variables["after"] = *cursor
 	}
 
-	return c.doGitHubGraphQLRequest(ctx, query, variables)
+	resp, err := c.doGitHubGraphQLRequest(ctx, query, variables)
+	if err != nil {
+		span.RecordError(err)
+		return nil, err
+	}
+
+	if resp != nil && resp.Data.Organization.Repositories.PageInfo.HasNextPage {
+		span.SetAttributes(
+			attribute.String("next_cursor", resp.Data.Organization.Repositories.PageInfo.EndCursor),
+			attribute.Int("repos_count", len(resp.Data.Organization.Repositories.Nodes)),
+		)
+	}
+
+	return resp, nil
 }
 
 // doGitHubGraphQLRequest executes a GraphQL query against GitHub's API.
-// It handles request formatting, authentication, and automatically adjusts rate limiting
-// based on GitHub's response headers.
 func (c *GitHubClient) doGitHubGraphQLRequest(
 	ctx context.Context,
 	query string,
 	variables map[string]any,
 ) (*githubGraphQLResponse, error) {
+	ctx, span := c.tracer.Start(ctx, "github.doGraphQLRequest")
+	defer span.End()
+
 	const apiUrl = "https://api.github.com/graphql"
 
 	if err := c.rateLimiter.Wait(ctx); err != nil {
+		span.RecordError(err)
 		return nil, fmt.Errorf("rate limiter wait failed: %w", err)
 	}
 
@@ -275,36 +300,52 @@ func (c *GitHubClient) doGitHubGraphQLRequest(
 	}
 	bodyData, err := json.Marshal(bodyMap)
 	if err != nil {
+		span.RecordError(err)
 		return nil, fmt.Errorf("failed to marshal graphql query: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiUrl, bytes.NewReader(bodyData))
 	if err != nil {
+		span.RecordError(err)
 		return nil, fmt.Errorf("failed to create graphql request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+c.token)
 	req.Header.Set("Content-Type", "application/json")
 
+	span.SetAttributes(
+		attribute.String("api_url", apiUrl),
+		attribute.Int("request_size", len(bodyData)),
+	)
+
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
+		span.RecordError(err)
 		return nil, fmt.Errorf("graphql request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
-	// Dynamically adjust rate limits based on GitHub's response
+	span.SetAttributes(
+		attribute.Int("status_code", resp.StatusCode),
+		attribute.String("status", resp.Status),
+	)
+
+	// Dynamically adjust rate limits based on GitHub's response.
 	c.updateRateLimits(resp.Header)
 
 	if resp.StatusCode != http.StatusOK {
 		data, _ := io.ReadAll(resp.Body)
+		span.RecordError(fmt.Errorf("non-200 response: %s", string(data)))
 		return nil, fmt.Errorf("non-200 response from GitHub GraphQL API: %d %s", resp.StatusCode, string(data))
 	}
 
 	var result githubGraphQLResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		span.RecordError(err)
 		return nil, fmt.Errorf("failed to decode graphql response: %w", err)
 	}
 
 	if len(result.Errors) > 0 {
+		span.RecordError(fmt.Errorf("graphql errors: %v", result.Errors))
 		return nil, fmt.Errorf("graphql errors: %v", result.Errors)
 	}
 
@@ -337,4 +378,12 @@ func (c *GitHubClient) updateRateLimits(headers http.Header) {
 			c.rateLimiter.UpdateLimits(rps*0.9, int(remainingVal/10))
 		}
 	}
+}
+
+// Helper function to handle nil string pointers in attributes.
+func stringOrNone(s *string) string {
+	if s == nil {
+		return "none"
+	}
+	return *s
 }

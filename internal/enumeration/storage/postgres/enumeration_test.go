@@ -13,7 +13,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/domain/enumeration"
 )
 
-func createTestCheckpoint(t *testing.T, ctx context.Context, store *CheckpointStorage, targetID string, data map[string]any) *enumeration.Checkpoint {
+func createTestCheckpoint(t *testing.T, ctx context.Context, store *checkpointStore, targetID string, data map[string]any) *enumeration.Checkpoint {
 	t.Helper()
 	checkpoint := &enumeration.Checkpoint{
 		TargetID: targetID,
@@ -27,12 +27,12 @@ func createTestCheckpoint(t *testing.T, ctx context.Context, store *CheckpointSt
 	return saved
 }
 
-func setupEnumerationTest(t *testing.T) (context.Context, *EnumerationStateStorage, *CheckpointStorage, func()) {
+func setupEnumerationTest(t *testing.T) (context.Context, *enumerationStateStore, *checkpointStore, func()) {
 	t.Helper()
 
 	db, cleanup := storage.SetupTestContainer(t)
-	checkpointStore := NewCheckpointStorage(db, storage.NoOpTracer())
-	store := NewEnumerationStateStorage(db, checkpointStore, storage.NoOpTracer())
+	checkpointStore := NewCheckpointStore(db, storage.NoOpTracer())
+	store := NewEnumerationStateStore(db, checkpointStore, storage.NoOpTracer())
 	ctx := context.Background()
 
 	return ctx, store, checkpointStore, cleanup

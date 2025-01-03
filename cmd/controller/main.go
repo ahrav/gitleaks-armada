@@ -23,9 +23,9 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/controller"
 	"github.com/ahrav/gitleaks-armada/internal/controller/metrics"
 	"github.com/ahrav/gitleaks-armada/internal/enumeration/factory"
-	pg "github.com/ahrav/gitleaks-armada/internal/enumeration/storage/postgres"
+	enumStore "github.com/ahrav/gitleaks-armada/internal/enumeration/storage/postgres"
 	"github.com/ahrav/gitleaks-armada/internal/events/kafka"
-	rulesstorage "github.com/ahrav/gitleaks-armada/internal/rules/storage/postgres"
+	rulesStore "github.com/ahrav/gitleaks-armada/internal/rules/storage/postgres"
 	"github.com/ahrav/gitleaks-armada/pkg/common"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/common/otel"
@@ -187,8 +187,8 @@ func main() {
 	log.Info(ctx, "Controller connected to Kafka")
 
 	configLoader := config.NewFileLoader("/etc/scanner/config/config.yaml")
-	checkpointStorage := pg.NewCheckpointStorage(pool, tracer)
-	enumStateStorage := pg.NewEnumerationStateStorage(pool, checkpointStorage, tracer)
+	checkpointStorage := enumStore.NewCheckpointStore(pool, tracer)
+	enumStateStorage := enumStore.NewEnumerationStateStore(pool, checkpointStorage, tracer)
 	eventPublisher := kafka.NewKafkaDomainEventPublisher(broker)
 
 	enumFactory := factory.NewEnumerationFactory(http.DefaultClient, nil, enumStateStorage, tracer)
@@ -201,7 +201,7 @@ func main() {
 		metricCollector,
 		tracer,
 	)
-	rulesService := rules.NewRuleService(rulesstorage.NewStore(pool, tracer, metricCollector))
+	rulesService := rules.NewRuleService(rulesStore.NewStore(pool, tracer, metricCollector))
 	ctrl := controller.NewController(
 		hostname,
 		coord,

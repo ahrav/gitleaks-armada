@@ -26,12 +26,12 @@ type RulesMetrics interface {
 }
 
 // Compile-time check that RulesStorage implements rules.RulesStorage.
-var _ rules.RulesStorage = (*store)(nil)
+var _ rules.RulesStorage = (*ruleStore)(nil)
 
-// store provides persistent storage for Gitleaks rules and allowlists in PostgreSQL.
+// ruleStore provides persistent storage for Gitleaks rules and allowlists in PostgreSQL.
 // It handles atomic updates of rule sets and their associated allowlist components to maintain
 // data consistency.
-type store struct {
+type ruleStore struct {
 	q       *db.Queries
 	conn    *pgxpool.Pool
 	tracer  trace.Tracer
@@ -41,8 +41,8 @@ type store struct {
 // NewStore creates a new PostgreSQL-backed rules storage.
 // It initializes the underlying database queries and tracing components
 // needed for rule persistence and monitoring.
-func NewStore(conn *pgxpool.Pool, tracer trace.Tracer, metrics RulesMetrics) *store {
-	return &store{
+func NewStore(conn *pgxpool.Pool, tracer trace.Tracer, metrics RulesMetrics) *ruleStore {
+	return &ruleStore{
 		q:       db.New(conn),
 		conn:    conn,
 		tracer:  tracer,
@@ -102,7 +102,7 @@ func bulkInsert[T bulkInsertParams](
 // SaveRule persists a single rule and its allowlists to PostgreSQL.
 // It ensures atomic updates by executing all operations within a transaction,
 // preventing partial or inconsistent updates that could affect scanning accuracy.
-func (s *store) SaveRule(ctx context.Context, rule rules.GitleaksRule) error {
+func (s *ruleStore) SaveRule(ctx context.Context, rule rules.GitleaksRule) error {
 	// Set a context timeout to prevent transaction deadlocks and resource exhaustion.
 	// We use a serializable isolation level and a relatively short timeout since
 	// rule updates should be quick and we want to fail fast if there are issues.
@@ -180,7 +180,7 @@ func (s *store) SaveRule(ctx context.Context, rule rules.GitleaksRule) error {
 // bulkInsertAllowlistComponents handles the insertion of all allowlist components for a given allowlist.
 // It coordinates the insertion of commits, paths, regexes, and stopwords while maintaining proper error
 // handling and tracing.
-func (s *store) bulkInsertAllowlistComponents(
+func (s *ruleStore) bulkInsertAllowlistComponents(
 	ctx context.Context,
 	qtx *db.Queries,
 	allowlistID int64,
@@ -209,7 +209,7 @@ func (s *store) bulkInsertAllowlistComponents(
 	})
 }
 
-func (s *store) bulkInsertCommits(ctx context.Context, qtx *db.Queries, allowlistID int64, commits []string) error {
+func (s *ruleStore) bulkInsertCommits(ctx context.Context, qtx *db.Queries, allowlistID int64, commits []string) error {
 	if err := qtx.DeleteAllowlistCommits(ctx, allowlistID); err != nil {
 		return fmt.Errorf("failed to delete existing commits: %w", err)
 	}
@@ -231,7 +231,7 @@ func (s *store) bulkInsertCommits(ctx context.Context, qtx *db.Queries, allowlis
 	)
 }
 
-func (s *store) bulkInsertPaths(ctx context.Context, qtx *db.Queries, allowlistID int64, paths []string) error {
+func (s *ruleStore) bulkInsertPaths(ctx context.Context, qtx *db.Queries, allowlistID int64, paths []string) error {
 	if err := qtx.DeleteAllowlistPaths(ctx, allowlistID); err != nil {
 		return fmt.Errorf("failed to delete existing paths: %w", err)
 	}
@@ -253,7 +253,7 @@ func (s *store) bulkInsertPaths(ctx context.Context, qtx *db.Queries, allowlistI
 	)
 }
 
-func (s *store) bulkInsertRegexes(ctx context.Context, qtx *db.Queries, allowlistID int64, regexes []string) error {
+func (s *ruleStore) bulkInsertRegexes(ctx context.Context, qtx *db.Queries, allowlistID int64, regexes []string) error {
 	if err := qtx.DeleteAllowlistRegexes(ctx, allowlistID); err != nil {
 		return fmt.Errorf("failed to delete existing regexes: %w", err)
 	}
@@ -275,7 +275,7 @@ func (s *store) bulkInsertRegexes(ctx context.Context, qtx *db.Queries, allowlis
 	)
 }
 
-func (s *store) bulkInsertStopwords(ctx context.Context, qtx *db.Queries, allowlistID int64, stopwords []string) error {
+func (s *ruleStore) bulkInsertStopwords(ctx context.Context, qtx *db.Queries, allowlistID int64, stopwords []string) error {
 	if err := qtx.DeleteAllowlistStopwords(ctx, allowlistID); err != nil {
 		return fmt.Errorf("failed to delete existing stopwords: %w", err)
 	}

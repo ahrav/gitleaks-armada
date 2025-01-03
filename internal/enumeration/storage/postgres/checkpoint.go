@@ -16,21 +16,21 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/domain/enumeration"
 )
 
-var _ enumeration.CheckpointStorage = (*CheckpointStorage)(nil)
+var _ enumeration.CheckpointStorage = (*checkpointStore)(nil)
 
-// CheckpointStorage provides a PostgreSQL implementation of CheckpointStorage.
+// checkpointStore provides a PostgreSQL implementation of checkpointStore.
 // It uses sqlc-generated queries to manage checkpoint persistence, enabling
 // resumable scanning across process restarts.
-type CheckpointStorage struct {
+type checkpointStore struct {
 	q      *db.Queries
 	tracer trace.Tracer
 }
 
-// NewCheckpointStorage creates a new PostgreSQL-backed checkpoint storage using
+// NewCheckpointStore creates a new PostgreSQL-backed checkpoint storage using
 // the provided database connection. It initializes the underlying sqlc queries
 // used for checkpoint operations.
-func NewCheckpointStorage(dbConn *pgxpool.Pool, tracer trace.Tracer) *CheckpointStorage {
-	return &CheckpointStorage{
+func NewCheckpointStore(dbConn *pgxpool.Pool, tracer trace.Tracer) *checkpointStore {
+	return &checkpointStore{
 		q:      db.New(dbConn),
 		tracer: tracer,
 	}
@@ -38,7 +38,7 @@ func NewCheckpointStorage(dbConn *pgxpool.Pool, tracer trace.Tracer) *Checkpoint
 
 // Save persists a checkpoint to PostgreSQL. The checkpoint's Data field is
 // serialized to JSON before storage to allow for flexible schema evolution.
-func (p *CheckpointStorage) Save(ctx context.Context, cp *enumeration.Checkpoint) error {
+func (p *checkpointStore) Save(ctx context.Context, cp *enumeration.Checkpoint) error {
 	return storage.ExecuteAndTrace(ctx, p.tracer, "postgres.save_checkpoint", []attribute.KeyValue{
 		attribute.String("target_id", cp.TargetID),
 		attribute.Int("data_size", len(fmt.Sprint(cp.Data))),
@@ -63,7 +63,7 @@ func (p *CheckpointStorage) Save(ctx context.Context, cp *enumeration.Checkpoint
 // Load retrieves a checkpoint by target ID. Returns nil if no checkpoint exists
 // for the given target. The stored JSON data is deserialized into the checkpoint's
 // Data field.
-func (p *CheckpointStorage) Load(ctx context.Context, targetID string) (*enumeration.Checkpoint, error) {
+func (p *checkpointStore) Load(ctx context.Context, targetID string) (*enumeration.Checkpoint, error) {
 	var checkpoint *enumeration.Checkpoint
 	err := storage.ExecuteAndTrace(ctx, p.tracer, "postgres.load_checkpoint", []attribute.KeyValue{
 		attribute.String("target_id", targetID),
@@ -93,7 +93,7 @@ func (p *CheckpointStorage) Load(ctx context.Context, targetID string) (*enumera
 }
 
 // LoadByID retrieves a checkpoint by its unique database ID.
-func (p *CheckpointStorage) LoadByID(ctx context.Context, id int64) (*enumeration.Checkpoint, error) {
+func (p *checkpointStore) LoadByID(ctx context.Context, id int64) (*enumeration.Checkpoint, error) {
 	var checkpoint *enumeration.Checkpoint
 	err := storage.ExecuteAndTrace(ctx, p.tracer, "postgres.load_checkpoint_by_id", []attribute.KeyValue{
 		attribute.Int64("checkpoint_id", id),
@@ -124,7 +124,7 @@ func (p *CheckpointStorage) LoadByID(ctx context.Context, id int64) (*enumeratio
 
 // Delete removes a checkpoint for the given target ID. It is not an error if
 // the checkpoint does not exist.
-func (p *CheckpointStorage) Delete(ctx context.Context, targetID string) error {
+func (p *checkpointStore) Delete(ctx context.Context, targetID string) error {
 	return storage.ExecuteAndTrace(ctx, p.tracer, "postgres.delete_checkpoint", []attribute.KeyValue{
 		attribute.String("target_id", targetID),
 	}, func(ctx context.Context) error {

@@ -16,21 +16,21 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/domain/enumeration"
 )
 
-var _ enumeration.EnumerationStateStorage = (*EnumerationStateStorage)(nil)
+var _ enumeration.EnumerationStateStorage = (*enumerationStateStore)(nil)
 
-// EnumerationStateStorage provides persistent storage for enumeration session state
+// enumerationStateStore provides persistent storage for enumeration session state
 // using PostgreSQL. It enables resumable scanning across process restarts by maintaining
 // both enumeration state and associated checkpoints.
-type EnumerationStateStorage struct {
+type enumerationStateStore struct {
 	q               *db.Queries
 	checkpointStore enumeration.CheckpointStorage
 	tracer          trace.Tracer
 }
 
-// NewEnumerationStateStorage creates a new PostgreSQL-backed enumeration state storage
+// NewEnumerationStateStore creates a new PostgreSQL-backed enumeration state storage
 // using the provided database connection and checkpoint store.
-func NewEnumerationStateStorage(dbConn *pgxpool.Pool, checkpointStore enumeration.CheckpointStorage, tracer trace.Tracer) *EnumerationStateStorage {
-	return &EnumerationStateStorage{
+func NewEnumerationStateStore(dbConn *pgxpool.Pool, checkpointStore enumeration.CheckpointStorage, tracer trace.Tracer) *enumerationStateStore {
+	return &enumerationStateStore{
 		q:               db.New(dbConn),
 		checkpointStore: checkpointStore,
 		tracer:          tracer,
@@ -40,7 +40,7 @@ func NewEnumerationStateStorage(dbConn *pgxpool.Pool, checkpointStore enumeratio
 // Save persists an enumeration state and its associated checkpoint (if any) to PostgreSQL.
 // It ensures atomic updates by saving the checkpoint first, then updating the enumeration state
 // with a reference to the checkpoint.
-func (s *EnumerationStateStorage) Save(ctx context.Context, state *enumeration.EnumerationState) error {
+func (s *enumerationStateStore) Save(ctx context.Context, state *enumeration.EnumerationState) error {
 	return storage.ExecuteAndTrace(ctx, s.tracer, "postgres.save_enumeration_state", []attribute.KeyValue{
 		attribute.String("session_id", state.SessionID),
 		attribute.String("source_type", state.SourceType),
@@ -73,7 +73,7 @@ func (s *EnumerationStateStorage) Save(ctx context.Context, state *enumeration.E
 
 // Load retrieves the current enumeration state and its associated checkpoint.
 // Returns nil if no state exists.
-func (s *EnumerationStateStorage) Load(ctx context.Context, sessionID string) (*enumeration.EnumerationState, error) {
+func (s *enumerationStateStore) Load(ctx context.Context, sessionID string) (*enumeration.EnumerationState, error) {
 	var state *enumeration.EnumerationState
 	err := storage.ExecuteAndTrace(ctx, s.tracer, "postgres.load_enumeration_state", []attribute.KeyValue{
 		attribute.String("session_id", sessionID),
@@ -96,7 +96,7 @@ func (s *EnumerationStateStorage) Load(ctx context.Context, sessionID string) (*
 	return state, err
 }
 
-func (s *EnumerationStateStorage) GetActiveStates(ctx context.Context) ([]*enumeration.EnumerationState, error) {
+func (s *enumerationStateStore) GetActiveStates(ctx context.Context) ([]*enumeration.EnumerationState, error) {
 	var states []*enumeration.EnumerationState
 	err := storage.ExecuteAndTrace(ctx, s.tracer, "postgres.get_active_enumeration_states", nil, func(ctx context.Context) error {
 		dbStates, err := s.q.GetActiveEnumerationStates(ctx)
@@ -114,7 +114,7 @@ func (s *EnumerationStateStorage) GetActiveStates(ctx context.Context) ([]*enume
 	return states, err
 }
 
-func (s *EnumerationStateStorage) List(ctx context.Context, limit int) ([]*enumeration.EnumerationState, error) {
+func (s *enumerationStateStore) List(ctx context.Context, limit int) ([]*enumeration.EnumerationState, error) {
 	var states []*enumeration.EnumerationState
 	err := storage.ExecuteAndTrace(ctx, s.tracer, "postgres.list_enumeration_states", []attribute.KeyValue{
 		attribute.Int("limit", limit),
@@ -135,7 +135,7 @@ func (s *EnumerationStateStorage) List(ctx context.Context, limit int) ([]*enume
 }
 
 // Helper function to convert DB state to domain model.
-func (s *EnumerationStateStorage) convertDBStateToEnumState(ctx context.Context, dbState db.EnumerationState) (*enumeration.EnumerationState, error) {
+func (s *enumerationStateStore) convertDBStateToEnumState(ctx context.Context, dbState db.EnumerationState) (*enumeration.EnumerationState, error) {
 	var state *enumeration.EnumerationState
 	err := storage.ExecuteAndTrace(ctx, s.tracer, "postgres.convert_db_state", []attribute.KeyValue{
 		attribute.String("session_id", dbState.SessionID),
@@ -162,7 +162,7 @@ func (s *EnumerationStateStorage) convertDBStateToEnumState(ctx context.Context,
 }
 
 // Helper function to convert multiple DB states to domain model.
-func (s *EnumerationStateStorage) convertDBStatesToEnumStates(ctx context.Context, dbStates []db.EnumerationState) ([]*enumeration.EnumerationState, error) {
+func (s *enumerationStateStore) convertDBStatesToEnumStates(ctx context.Context, dbStates []db.EnumerationState) ([]*enumeration.EnumerationState, error) {
 	var states []*enumeration.EnumerationState
 	err := storage.ExecuteAndTrace(ctx, s.tracer, "postgres.convert_db_states", []attribute.KeyValue{
 		attribute.Int("state_count", len(dbStates)),

@@ -13,11 +13,11 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/domain/enumeration"
 )
 
-func setupCheckpointTest(t *testing.T) (context.Context, *CheckpointStorage, func()) {
+func setupCheckpointTest(t *testing.T) (context.Context, *checkpointStore, func()) {
 	t.Helper()
 
 	db, cleanup := storage.SetupTestContainer(t)
-	store := NewCheckpointStorage(db, storage.NoOpTracer())
+	store := NewCheckpointStore(db, storage.NoOpTracer())
 	ctx := context.Background()
 
 	return ctx, store, cleanup
