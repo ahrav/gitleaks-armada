@@ -14,8 +14,8 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/task"
+	"github.com/ahrav/gitleaks-armada/internal/scanner/metrics"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
-	"github.com/ahrav/gitleaks-armada/pkg/scanner/metrics"
 )
 
 // Scanner processes repository scanning tasks received from a message broker.
