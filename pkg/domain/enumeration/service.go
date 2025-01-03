@@ -73,13 +73,13 @@ func NewService(
 }
 
 func (s *service) ExecuteEnumeration(ctx context.Context) error {
-	// First check for any existing active states before starting fresh
+	// First check for any existing active states before starting fresh.
 	activeStates, err := s.store.GetActiveStates(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to load active states: %w", err)
 	}
 	if len(activeStates) == 0 {
-		// No active enumerations => start fresh from config
+		// No active enumerations => start fresh from config.
 		cfg, err := s.configLoader.Load(ctx)
 		if err != nil {
 			s.metrics.IncConfigReloadErrors()
@@ -89,7 +89,7 @@ func (s *service) ExecuteEnumeration(ctx context.Context) error {
 		return s.startFreshEnumerations(ctx, cfg)
 	}
 
-	// If we have active states => resume them
+	// If we have active states => resume them.
 	return s.resumeEnumerations(ctx, activeStates)
 }
 
@@ -99,7 +99,7 @@ func (s *service) startFreshEnumerations(ctx context.Context, cfg *config.Config
 	for _, target := range cfg.Targets {
 		start := time.Now()
 
-		// Create initial state for tracking this enumeration
+		// Create initial state for tracking this enumeration.
 		state := &EnumerationState{
 			SessionID:   generateSessionID(),
 			SourceType:  string(target.SourceType),
@@ -110,11 +110,11 @@ func (s *service) startFreshEnumerations(ctx context.Context, cfg *config.Config
 		if err := s.store.Save(ctx, state); err != nil {
 			return fmt.Errorf("failed to save new enumeration state: %w", err)
 		}
-		// Mark in-progress
+		// Mark in-progress.
 		state.UpdateStatus(StatusInProgress)
 		_ = s.store.Save(ctx, state)
 
-		// Build enumerator
+		// Build enumerator.
 		enumerator, err := s.enumFactory.CreateEnumerator(target, cfg.Auth)
 		if err != nil {
 			state.UpdateStatus(StatusFailed)
@@ -137,7 +137,7 @@ func (s *service) startFreshEnumerations(ctx context.Context, cfg *config.Config
 // marshalConfig serializes the target configuration into a JSON raw message.
 // This allows storing the complete target configuration with the enumeration state.
 func (s *service) marshalConfig(ctx context.Context, target config.TargetSpec, auth map[string]config.AuthConfig) json.RawMessage {
-	// Create a complete config that includes both target and its auth
+	// Create a complete config that includes both target and its auth.
 	completeConfig := struct {
 		config.TargetSpec
 		Auth config.AuthConfig `json:"auth,omitempty"`
@@ -145,7 +145,7 @@ func (s *service) marshalConfig(ctx context.Context, target config.TargetSpec, a
 		TargetSpec: target,
 	}
 
-	// Include auth config if there's an auth reference
+	// Include auth config if there's an auth reference.
 	if auth, ok := auth[target.AuthRef]; ok {
 		completeConfig.Auth = auth
 	}
@@ -163,7 +163,7 @@ func (s *service) marshalConfig(ctx context.Context, target config.TargetSpec, a
 func (s *service) resumeEnumerations(ctx context.Context, states []*EnumerationState) error {
 	var overallErr error
 	for _, st := range states {
-		// Unmarshal the combined target and auth configuration
+		// Unmarshal the combined target and auth configuration.
 		var combined struct {
 			config.TargetSpec
 			Auth config.AuthConfig `json:"auth,omitempty"`
