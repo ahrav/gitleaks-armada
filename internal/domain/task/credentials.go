@@ -1,8 +1,6 @@
-package domain
+package task
 
-import (
-	"fmt"
-)
+import "fmt"
 
 // CredentialType represents the supported authentication mechanisms for scanning targets.
 type CredentialType string
@@ -18,27 +16,17 @@ const (
 	CredentialTypeS3 CredentialType = "s3"
 )
 
-// TaskCredentials encapsulates authentication details for a specific target.
+// TaskCredentials is a value object that encapsulates authentication details for a specific target.
+// As a value object, it is immutable and equality is based on its property values rather than identity.
 // Values stores credential data in a type-safe way.
 type TaskCredentials struct {
 	Type   CredentialType
 	Values map[string]any
 }
 
-type Task struct {
-	TaskID      string            // Unique identifier for the task
-	ResourceURI string            // Location of the resource to scan
-	Metadata    map[string]string // Additional context for task processing
-	Credentials *TaskCredentials  // Authentication credentials for the resource
-}
-
-// TaskBatch is a collection of tasks to be scanned in a single batch.
-type TaskBatch struct {
-	Tasks []Task
-}
-
 // CreateCredentials constructs the appropriate credential type based on the provided config.
 // Returns an error if required fields are missing or the type is unsupported.
+// The returned TaskCredentials is a value object that should be treated as immutable.
 func CreateCredentials(credType CredentialType, config map[string]any) (*TaskCredentials, error) {
 	switch credType {
 	case CredentialTypeUnauthenticated:
@@ -62,12 +50,12 @@ func CreateCredentials(credType CredentialType, config map[string]any) (*TaskCre
 	}
 }
 
-// NewUnauthenticatedCredentials creates credentials for accessing public resources.
+// NewUnauthenticatedCredentials creates an immutable credentials value object for accessing public resources.
 func NewUnauthenticatedCredentials() *TaskCredentials {
 	return &TaskCredentials{Type: CredentialTypeUnauthenticated}
 }
 
-// NewGitHubCredentials creates credentials for GitHub authentication.
+// NewGitHubCredentials creates an immutable credentials value object for GitHub authentication.
 func NewGitHubCredentials(token string) *TaskCredentials {
 	return &TaskCredentials{
 		Type: CredentialTypeGitHub,
@@ -77,7 +65,7 @@ func NewGitHubCredentials(token string) *TaskCredentials {
 	}
 }
 
-// NewS3Credentials creates credentials for AWS S3 authentication.
+// NewS3Credentials creates an immutable credentials value object for AWS S3 authentication.
 func NewS3Credentials(accessKey, secretKey, session string) *TaskCredentials {
 	return &TaskCredentials{
 		Type: CredentialTypeS3,

@@ -9,13 +9,12 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/ahrav/gitleaks-armada/internal/controller/metrics"
+	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
+	"github.com/ahrav/gitleaks-armada/internal/domain/events"
+	"github.com/ahrav/gitleaks-armada/internal/domain/rules"
 	"github.com/ahrav/gitleaks-armada/pkg/cluster"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/config"
-	"github.com/ahrav/gitleaks-armada/pkg/domain"
-	"github.com/ahrav/gitleaks-armada/pkg/domain/enumeration"
-	"github.com/ahrav/gitleaks-armada/pkg/domain/rules"
-	"github.com/ahrav/gitleaks-armada/pkg/events"
 )
 
 // Controller coordinates work distribution across a cluster of workers. It manages
@@ -27,7 +26,7 @@ type Controller struct {
 
 	coordinator    cluster.Coordinator
 	workQueue      events.EventBus
-	eventPublisher domain.DomainEventPublisher
+	eventPublisher events.DomainEventPublisher
 
 	enumerationService enumeration.Service
 	rulesService       rules.RuleService
@@ -63,7 +62,7 @@ func NewController(
 	id string,
 	coord cluster.Coordinator,
 	queue events.EventBus,
-	eventPublisher domain.DomainEventPublisher,
+	eventPublisher events.DomainEventPublisher,
 	enumerationService enumeration.Service,
 	rulesService rules.RuleService,
 	configLoader config.Loader,
@@ -97,7 +96,7 @@ func (c *Controller) Run(ctx context.Context) (<-chan struct{}, error) {
 	ready := make(chan struct{})
 	leaderCh := make(chan bool, 1)
 
-	if err := c.workQueue.Subscribe(ctx, []domain.EventType{domain.EventTypeRuleUpdated}, c.handleRule); err != nil {
+	if err := c.workQueue.Subscribe(ctx, []events.EventType{rules.EventTypeRuleUpdated}, c.handleRule); err != nil {
 		return nil, fmt.Errorf("controller[%s]: failed to subscribe to rules: %v", c.id, err)
 	}
 

@@ -16,9 +16,9 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/ahrav/gitleaks-armada/internal/domain/events"
+	"github.com/ahrav/gitleaks-armada/internal/domain/rules"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
-	"github.com/ahrav/gitleaks-armada/pkg/domain"
-	"github.com/ahrav/gitleaks-armada/pkg/domain/rules"
 )
 
 type GitLeaksScanner struct {
@@ -30,7 +30,7 @@ type GitLeaksScanner struct {
 // NewGitLeaksScanner constructs and returns a GitLeaksScanner instance with the detector set up.
 func NewGitLeaksScanner(
 	ctx context.Context,
-	broker domain.DomainEventPublisher,
+	broker events.DomainEventPublisher,
 	logger *logger.Logger,
 	tracer trace.Tracer,
 ) *GitLeaksScanner {
@@ -146,7 +146,7 @@ func setupGitleaksDetector() *detect.Detector {
 // rule definitions for consistent secret detection.
 func publishRulesOnStartup(
 	ctx context.Context,
-	broker domain.DomainEventPublisher,
+	broker events.DomainEventPublisher,
 	detector *detect.Detector,
 	logger *logger.Logger,
 	tracer trace.Tracer,
@@ -160,7 +160,7 @@ func publishRulesOnStartup(
 	// Convert and publish rules individually
 	for _, rule := range detector.Config.Rules {
 		domainRule := convertDetectorRuleToMessage(rule)
-		err := broker.PublishDomainEvent(ctx, domain.EventTypeRuleUpdated, domainRule, domain.WithKey(domainRule.Hash))
+		err := broker.PublishDomainEvent(ctx, rules.EventTypeRuleUpdated, domainRule, events.WithKey(domainRule.Hash))
 		if err != nil {
 			span.RecordError(err)
 			return fmt.Errorf("failed to publish rule %s: %w", rule.RuleID, err)

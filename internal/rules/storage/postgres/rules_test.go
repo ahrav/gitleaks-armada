@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ahrav/gitleaks-armada/internal/controller/metrics"
+	"github.com/ahrav/gitleaks-armada/internal/domain/rules"
 	"github.com/ahrav/gitleaks-armada/internal/storage"
-	"github.com/ahrav/gitleaks-armada/pkg/domain/rules"
 )
 
 func TestRulesStorage_SaveRule(t *testing.T) {

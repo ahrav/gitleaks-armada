@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ahrav/gitleaks-armada/pkg/domain/rules"
+	"github.com/ahrav/gitleaks-armada/internal/domain/rules"
 )
 
 func TestInMemoryRulesStorage_SaveRule(t *testing.T) {

@@ -7,7 +7,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/ahrav/gitleaks-armada/pkg/domain/enumeration"
+	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 )
 
 // EnumerationStateStorage provides an in-memory implementation of EnumerationStateStorage

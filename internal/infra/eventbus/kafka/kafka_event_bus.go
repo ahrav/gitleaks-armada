@@ -9,10 +9,12 @@ import (
 	"github.com/IBM/sarama"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/ahrav/gitleaks-armada/internal/events/kafka/tracing"
+	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
+	"github.com/ahrav/gitleaks-armada/internal/domain/events"
+	"github.com/ahrav/gitleaks-armada/internal/domain/rules"
+	"github.com/ahrav/gitleaks-armada/internal/infra/eventbus/kafka/tracing"
+	"github.com/ahrav/gitleaks-armada/internal/infra/eventbus/serialization"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
-	"github.com/ahrav/gitleaks-armada/pkg/domain"
-	"github.com/ahrav/gitleaks-armada/pkg/events"
 )
 
 // BrokerMetrics defines metrics operations needed to monitor Kafka message handling.
@@ -59,7 +61,7 @@ type KafkaEventBus struct {
 	rulesTopic    string
 
 	// Maps domain event types to Kafka topic names.
-	topics map[domain.EventType]string
+	topics map[events.EventType]string
 
 	logger  *logger.Logger
 	tracer  trace.Tracer
@@ -108,12 +110,12 @@ func NewKafkaEventBusFromConfig(
 
 	// Map domain events to their corresponding Kafka topics to enable
 	// type-safe event routing.
-	topicsMap := map[domain.EventType]string{
-		domain.EventTypeTaskCreated:         cfg.TaskTopic,
-		domain.EventTypeTaskBatchCreated:    cfg.TaskTopic,
-		domain.EventTypeScanResultReceived:  cfg.ResultsTopic,
-		domain.EventTypeScanProgressUpdated: cfg.ProgressTopic,
-		domain.EventTypeRuleUpdated:         cfg.RulesTopic,
+	topicsMap := map[events.EventType]string{
+		enumeration.EventTypeTaskCreated:      cfg.TaskTopic,
+		enumeration.EventTypeTaskBatchCreated: cfg.TaskTopic,
+		events.EventTypeScanResultReceived:    cfg.ResultsTopic,
+		events.EventTypeScanProgressUpdated:   cfg.ProgressTopic,
+		rules.EventTypeRuleUpdated:            cfg.RulesTopic,
 	}
 
 	bus := &KafkaEventBus{
@@ -147,7 +149,7 @@ func (k *KafkaEventBus) Publish(ctx context.Context, event events.DomainEvent, o
 	ctx, span := tracing.StartProducerSpan(ctx, topic, k.tracer)
 	defer span.End()
 
-	msgBytes, err := events.SerializePayload(event.Type, event.Payload)
+	msgBytes, err := serialization.SerializePayload(event.Type, event.Payload)
 	if err != nil {
 		span.RecordError(err)
 
@@ -193,7 +195,7 @@ func (k *KafkaEventBus) Publish(ctx context.Context, event events.DomainEvent, o
 // It manages consumer group membership and message processing in a separate goroutine.
 func (k *KafkaEventBus) Subscribe(
 	ctx context.Context,
-	eventTypes []domain.EventType,
+	eventTypes []events.EventType,
 	handler func(context.Context, events.DomainEvent) error,
 ) error {
 	// Collect unique topics for the requested event types.
@@ -220,7 +222,7 @@ func (k *KafkaEventBus) Subscribe(
 func (k *KafkaEventBus) consumeLoop(
 	ctx context.Context,
 	topics []string,
-	eventTypes []domain.EventType,
+	eventTypes []events.EventType,
 	handler func(context.Context, events.DomainEvent) error,
 ) {
 	cgHandler := &domainEventHandler{
@@ -246,7 +248,7 @@ func (k *KafkaEventBus) consumeLoop(
 // and convert them into domain events for the application.
 type domainEventHandler struct {
 	eventBus    *KafkaEventBus
-	eventTypes  []domain.EventType
+	eventTypes  []events.EventType
 	userHandler func(context.Context, events.DomainEvent) error
 
 	logger  *logger.Logger
@@ -290,7 +292,7 @@ func (h *domainEventHandler) ConsumeClaim(
 			continue
 		}
 
-		payload, err := events.DeserializePayload(eType, msg.Value)
+		payload, err := serialization.DeserializePayload(eType, msg.Value)
 		if err != nil {
 			if h.metrics != nil {
 				h.metrics.IncConsumeError(msg.Topic)
@@ -341,7 +343,7 @@ func (h *domainEventHandler) logPartitionStart(ctx context.Context, partition in
 	)
 }
 
-func (h *domainEventHandler) getEventTypeForTopic(topic string) domain.EventType {
+func (h *domainEventHandler) getEventTypeForTopic(topic string) events.EventType {
 	for et, t := range h.eventBus.topics {
 		if t == topic {
 			return et

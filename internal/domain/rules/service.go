@@ -4,14 +4,6 @@ import (
 	"context"
 )
 
-// RuleService provides domain operations for managing Gitleaks scanning rules.
-// It encapsulates business logic for rule validation and persistence.
-type RuleService interface {
-	// SaveRule validates and persists a Gitleaks rule to storage.
-	// It ensures the rule meets domain requirements before saving.
-	SaveRule(ctx context.Context, r GitleaksRule) error
-}
-
 // ruleService implements the RuleService interface to provide rule management capabilities.
 type ruleService struct {
 	rulesStorage RulesStorage

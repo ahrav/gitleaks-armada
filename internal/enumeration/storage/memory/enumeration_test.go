@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ahrav/gitleaks-armada/pkg/domain/enumeration"
+	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 )
 
 func TestInMemoryEnumerationStateStorage_SaveAndLoad(t *testing.T) {

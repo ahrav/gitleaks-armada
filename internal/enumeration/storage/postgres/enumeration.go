@@ -12,8 +12,8 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/ahrav/gitleaks-armada/internal/db"
+	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/storage"
-	"github.com/ahrav/gitleaks-armada/pkg/domain/enumeration"
 )
 
 var _ enumeration.EnumerationStateStorage = (*enumerationStateStore)(nil)

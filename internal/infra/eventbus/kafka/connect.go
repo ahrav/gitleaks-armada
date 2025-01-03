@@ -7,8 +7,8 @@ import (
 	"github.com/cenkalti/backoff"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
-	"github.com/ahrav/gitleaks-armada/pkg/events"
 )
 
 // ConnectWithRetry attempts to establish a connection to Kafka with exponential backoff.

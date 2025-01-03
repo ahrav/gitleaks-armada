@@ -1,6 +1,25 @@
 package enumeration
 
-import "context"
+import (
+	"context"
+
+	"github.com/ahrav/gitleaks-armada/internal/domain/task"
+	"github.com/ahrav/gitleaks-armada/pkg/config"
+)
+
+// TargetEnumerator generates scan tasks by enumerating a data source.
+// Implementations handle source-specific pagination and checkpointing.
+type TargetEnumerator interface {
+	// Enumerate walks through a data source to generate scan tasks.
+	// It uses the enumeration state for context and checkpoint data,
+	// and streams tasks through taskCh.
+	Enumerate(ctx context.Context, state *EnumerationState, taskCh chan<- []task.Task) error
+}
+
+// EnumeratorFactory is a factory for creating TargetEnumerators.
+type EnumeratorFactory interface {
+	CreateEnumerator(target config.TargetSpec, auth map[string]config.AuthConfig) (TargetEnumerator, error)
+}
 
 // EnumerationStateStorage provides persistent storage for enumeration session state.
 // This enables resumable scanning across process restarts.
@@ -31,4 +50,15 @@ type CheckpointStorage interface {
 	// Delete removes a checkpoint for the given target.
 	// It is not an error if the checkpoint does not exist.
 	Delete(ctx context.Context, targetID string) error
+}
+
+// Service provides the core domain logic for target enumeration. It handles
+// scanning targets, managing enumeration state, and coordinating the overall
+// enumeration process. The service supports resuming partial scans and
+// re-scanning targets when needed.
+type Service interface {
+	// ExecuteEnumeration performs target enumeration by either resuming from
+	// existing states or starting fresh enumerations from configuration.
+	// It returns an error if the enumeration process fails.
+	ExecuteEnumeration(ctx context.Context) error
 }

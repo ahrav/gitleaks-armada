@@ -11,9 +11,10 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
+	"github.com/ahrav/gitleaks-armada/internal/domain/events"
+	"github.com/ahrav/gitleaks-armada/internal/domain/task"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
-	"github.com/ahrav/gitleaks-armada/pkg/domain"
-	"github.com/ahrav/gitleaks-armada/pkg/events"
 	"github.com/ahrav/gitleaks-armada/pkg/scanner/metrics"
 )
 
@@ -24,7 +25,7 @@ type Scanner struct {
 	id string
 
 	broker         events.EventBus
-	eventPublisher domain.DomainEventPublisher
+	eventPublisher events.DomainEventPublisher
 	metrics        metrics.ScannerMetrics
 	scanner        *GitLeaksScanner
 	workers        int
@@ -43,7 +44,7 @@ func NewScanner(
 	ctx context.Context,
 	id string,
 	broker events.EventBus,
-	eventPublisher domain.DomainEventPublisher,
+	eventPublisher events.DomainEventPublisher,
 	metrics metrics.ScannerMetrics,
 	logger *logger.Logger,
 	tracer trace.Tracer,
@@ -64,7 +65,7 @@ func (s *Scanner) Run(ctx context.Context) error {
 	s.stopCh = make(chan struct{})
 	s.logger.Info(ctx, "Starting scanner", "scanner_id", s.id, "num_workers", s.workers)
 
-	taskCh := make(chan domain.Task, 1)
+	taskCh := make(chan task.Task, 1)
 
 	s.workerWg.Add(s.workers)
 	for i := 0; i < s.workers; i++ {
@@ -75,9 +76,9 @@ func (s *Scanner) Run(ctx context.Context) error {
 	}
 
 	// Set up the subscription to feed tasks to workers.
-	if err := s.broker.Subscribe(ctx, []domain.EventType{domain.EventTypeTaskCreated}, func(ctx context.Context, task events.DomainEvent) error {
+	if err := s.broker.Subscribe(ctx, []events.EventType{enumeration.EventTypeTaskCreated}, func(ctx context.Context, evt events.DomainEvent) error {
 		select {
-		case taskCh <- task.Payload.(domain.Task):
+		case taskCh <- evt.Payload.(task.Task):
 			return nil
 		case <-ctx.Done():
 			return ctx.Err()
@@ -100,7 +101,7 @@ func (s *Scanner) Run(ctx context.Context) error {
 }
 
 // worker processes tasks from the task channel until it's closed or context is cancelled.
-func (s *Scanner) worker(ctx context.Context, id int, taskCh <-chan domain.Task) {
+func (s *Scanner) worker(ctx context.Context, id int, taskCh <-chan task.Task) {
 	s.logger.Info(ctx, "Worker started", "scanner_id", s.id, "worker_id", id)
 	for {
 		select {
@@ -125,7 +126,7 @@ func (s *Scanner) worker(ctx context.Context, id int, taskCh <-chan domain.Task)
 // handleScanTask processes a single repository scan task.
 // It updates metrics for task processing and delegates the actual scanning
 // to the configured scanner implementation.
-func (s *Scanner) handleScanTask(ctx context.Context, task domain.Task) error {
+func (s *Scanner) handleScanTask(ctx context.Context, task task.Task) error {
 	s.logger.Info(ctx, "Scanning repository", "scanner_id", s.id, "resource_uri", task.ResourceURI)
 
 	// Start a new span for the entire task processing

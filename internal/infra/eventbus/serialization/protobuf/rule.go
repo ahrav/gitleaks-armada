@@ -1,7 +1,7 @@
 package protobuf
 
 import (
-	"github.com/ahrav/gitleaks-armada/pkg/domain/rules"
+	"github.com/ahrav/gitleaks-armada/internal/domain/rules"
 	pb "github.com/ahrav/gitleaks-armada/proto/scanner"
 )
 

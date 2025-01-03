@@ -13,7 +13,7 @@ import (
 
 	"github.com/ahrav/gitleaks-armada/internal/db"
 	"github.com/ahrav/gitleaks-armada/internal/storage"
-	"github.com/ahrav/gitleaks-armada/pkg/domain/rules"
+	"github.com/ahrav/gitleaks-armada/internal/domain/rules"
 )
 
 // RulesMetrics defines the interface for tracking metrics related to rule operations.

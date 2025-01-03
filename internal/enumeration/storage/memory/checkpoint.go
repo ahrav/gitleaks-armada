@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ahrav/gitleaks-armada/pkg/domain/enumeration"
+	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 )
 
 // CheckpointStorage provides a thread-safe in-memory implementation

@@ -1,13 +1,16 @@
-package events
+package serialization
 
 import (
 	"fmt"
 
 	"google.golang.org/protobuf/proto"
 
+	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
+	"github.com/ahrav/gitleaks-armada/internal/domain/events"
+	"github.com/ahrav/gitleaks-armada/internal/domain/rules"
+	"github.com/ahrav/gitleaks-armada/internal/domain/task"
+	"github.com/ahrav/gitleaks-armada/internal/infra/eventbus/serialization/protobuf"
 	"github.com/ahrav/gitleaks-armada/pkg/domain"
-	"github.com/ahrav/gitleaks-armada/pkg/domain/rules"
-	"github.com/ahrav/gitleaks-armada/pkg/events/protobuf"
 	pb "github.com/ahrav/gitleaks-armada/proto/scanner"
 )
 
@@ -20,25 +23,25 @@ type DeserializeFunc func(data []byte) (any, error)
 // Global registries map event types to their serialization functions.
 // This allows for dynamic dispatch based on event type at runtime.
 var (
-	serializerRegistry   = map[domain.EventType]SerializeFunc{}
-	deserializerRegistry = map[domain.EventType]DeserializeFunc{}
+	serializerRegistry   = map[events.EventType]SerializeFunc{}
+	deserializerRegistry = map[events.EventType]DeserializeFunc{}
 )
 
 // RegisterSerializeFunc registers a serialization function for a given event type.
 // This enables the system to properly encode domain objects when publishing events.
-func RegisterSerializeFunc(eventType domain.EventType, fn SerializeFunc) {
+func RegisterSerializeFunc(eventType events.EventType, fn SerializeFunc) {
 	serializerRegistry[eventType] = fn
 }
 
 // RegisterDeserializeFunc registers a deserialization function for a given event type.
 // This enables the system to properly decode events back into domain objects when consuming them.
-func RegisterDeserializeFunc(eventType domain.EventType, fn DeserializeFunc) {
+func RegisterDeserializeFunc(eventType events.EventType, fn DeserializeFunc) {
 	deserializerRegistry[eventType] = fn
 }
 
 // SerializePayload converts a domain object into bytes using the registered serializer for its event type.
 // Returns an error if no serializer is registered for the given event type.
-func SerializePayload(eventType domain.EventType, payload any) ([]byte, error) {
+func SerializePayload(eventType events.EventType, payload any) ([]byte, error) {
 	fn, ok := serializerRegistry[eventType]
 	if !ok {
 		return nil, fmt.Errorf("no serializer registered for eventType=%s", eventType)
@@ -48,7 +51,7 @@ func SerializePayload(eventType domain.EventType, payload any) ([]byte, error) {
 
 // DeserializePayload converts bytes back into a domain object using the registered deserializer for its event type.
 // Returns an error if no deserializer is registered for the given event type.
-func DeserializePayload(eventType domain.EventType, data []byte) (any, error) {
+func DeserializePayload(eventType events.EventType, data []byte) (any, error) {
 	fn, ok := deserializerRegistry[eventType]
 	if !ok {
 		return nil, fmt.Errorf("no deserializer registered for eventType=%s", eventType)
@@ -59,25 +62,25 @@ func DeserializePayload(eventType domain.EventType, data []byte) (any, error) {
 // RegisterEventSerializers initializes the serialization system by registering handlers for all supported event types.
 // This must be called during system startup before any event processing can occur.
 func RegisterEventSerializers() {
-	RegisterSerializeFunc(domain.EventTypeTaskCreated, serializeTaskCreated)
-	RegisterDeserializeFunc(domain.EventTypeTaskCreated, deserializeTaskCreated)
+	RegisterSerializeFunc(enumeration.EventTypeTaskCreated, serializeTaskCreated)
+	RegisterDeserializeFunc(enumeration.EventTypeTaskCreated, deserializeTaskCreated)
 
-	RegisterSerializeFunc(domain.EventTypeTaskBatchCreated, serializeTaskBatchCreated)
-	RegisterDeserializeFunc(domain.EventTypeTaskBatchCreated, deserializeTaskBatchCreated)
+	RegisterSerializeFunc(enumeration.EventTypeTaskBatchCreated, serializeTaskBatchCreated)
+	RegisterDeserializeFunc(enumeration.EventTypeTaskBatchCreated, deserializeTaskBatchCreated)
 
-	RegisterSerializeFunc(domain.EventTypeRuleUpdated, serializeRuleUpdated)
-	RegisterDeserializeFunc(domain.EventTypeRuleUpdated, deserializeRuleUpdated)
+	RegisterSerializeFunc(rules.EventTypeRuleUpdated, serializeRuleUpdated)
+	RegisterDeserializeFunc(rules.EventTypeRuleUpdated, deserializeRuleUpdated)
 
-	RegisterSerializeFunc(domain.EventTypeScanProgressUpdated, serializeScanProgressUpdated)
-	RegisterDeserializeFunc(domain.EventTypeScanProgressUpdated, deserializeScanProgressUpdated)
+	RegisterSerializeFunc(events.EventTypeScanProgressUpdated, serializeScanProgressUpdated)
+	RegisterDeserializeFunc(events.EventTypeScanProgressUpdated, deserializeScanProgressUpdated)
 
-	RegisterSerializeFunc(domain.EventTypeScanResultReceived, serializeScanResultReceived)
-	RegisterDeserializeFunc(domain.EventTypeScanResultReceived, deserializeScanResultReceived)
+	RegisterSerializeFunc(events.EventTypeScanResultReceived, serializeScanResultReceived)
+	RegisterDeserializeFunc(events.EventTypeScanResultReceived, deserializeScanResultReceived)
 }
 
 // serializeTaskCreated converts a domain.Task to protobuf bytes.
 func serializeTaskCreated(payload any) ([]byte, error) {
-	dTask, ok := payload.(domain.Task)
+	dTask, ok := payload.(task.Task)
 	if !ok {
 		return nil, fmt.Errorf("serializeTask: payload is not domain.Task")
 	}
@@ -95,7 +98,7 @@ func deserializeTaskCreated(data []byte) (any, error) {
 }
 
 func serializeTaskBatchCreated(payload any) ([]byte, error) {
-	batch, ok := payload.(domain.TaskBatch)
+	batch, ok := payload.(task.TaskBatch)
 	if !ok {
 		return nil, fmt.Errorf("serializeTaskBatch: payload is not domain.TaskBatch")
 	}
@@ -113,11 +116,11 @@ func deserializeTaskBatchCreated(data []byte) (any, error) {
 		return nil, fmt.Errorf("unmarshal TaskBatch: %w", err)
 	}
 	// convert pbBatch.Tasks -> []domain.Task
-	var tasks []domain.Task
+	var tasks []task.Task
 	for _, pt := range pbBatch.Tasks {
 		tasks = append(tasks, protobuf.ProtoToTask(pt))
 	}
-	return domain.TaskBatch{Tasks: tasks}, nil
+	return task.TaskBatch{Tasks: tasks}, nil
 }
 
 // serializeRuleUpdated converts a domain.GitleaksRuleMessage to protobuf bytes.

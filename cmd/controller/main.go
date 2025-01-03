@@ -22,16 +22,16 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/cluster/kubernetes"
 	"github.com/ahrav/gitleaks-armada/internal/controller"
 	"github.com/ahrav/gitleaks-armada/internal/controller/metrics"
+	"github.com/ahrav/gitleaks-armada/internal/domain/rules"
+	"github.com/ahrav/gitleaks-armada/internal/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/enumeration/factory"
 	enumStore "github.com/ahrav/gitleaks-armada/internal/enumeration/storage/postgres"
-	"github.com/ahrav/gitleaks-armada/internal/events/kafka"
+	"github.com/ahrav/gitleaks-armada/internal/infra/eventbus/kafka"
 	rulesStore "github.com/ahrav/gitleaks-armada/internal/rules/storage/postgres"
 	"github.com/ahrav/gitleaks-armada/pkg/common"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/common/otel"
 	"github.com/ahrav/gitleaks-armada/pkg/config"
-	"github.com/ahrav/gitleaks-armada/pkg/domain/enumeration"
-	"github.com/ahrav/gitleaks-armada/pkg/domain/rules"
 )
 
 func main() {

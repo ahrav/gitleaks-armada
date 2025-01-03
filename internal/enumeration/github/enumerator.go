@@ -17,10 +17,10 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
+	"github.com/ahrav/gitleaks-armada/internal/domain/task"
 	"github.com/ahrav/gitleaks-armada/pkg/common"
 	"github.com/ahrav/gitleaks-armada/pkg/config"
-	"github.com/ahrav/gitleaks-armada/pkg/domain"
-	"github.com/ahrav/gitleaks-armada/pkg/domain/enumeration"
 )
 
 var _ enumeration.TargetEnumerator = new(GitHubEnumerator)
@@ -37,7 +37,7 @@ type GitHubAPI interface {
 // efficiently and reliably.
 type GitHubEnumerator struct {
 	ghConfig *config.GitHubTarget
-	creds    *domain.TaskCredentials
+	creds    *task.TaskCredentials
 
 	ghClient GitHubAPI
 	storage  enumeration.EnumerationStateStorage
@@ -48,7 +48,7 @@ type GitHubEnumerator struct {
 // credentials and state storage.
 func NewGitHubEnumerator(
 	client GitHubAPI,
-	creds *domain.TaskCredentials,
+	creds *task.TaskCredentials,
 	storage enumeration.EnumerationStateStorage,
 	ghConfig *config.GitHubTarget,
 	tracer trace.Tracer,
@@ -64,8 +64,8 @@ func NewGitHubEnumerator(
 
 // extractGitHubToken retrieves and validates the authentication token from GitHub credentials.
 // It returns an error if the credentials are not GitHub type or if the token is missing.
-func extractGitHubToken(creds *domain.TaskCredentials) (string, error) {
-	if creds.Type != domain.CredentialTypeGitHub && creds.Type != domain.CredentialTypeUnauthenticated {
+func extractGitHubToken(creds *task.TaskCredentials) (string, error) {
+	if creds.Type != task.CredentialTypeGitHub && creds.Type != task.CredentialTypeUnauthenticated {
 		return "", fmt.Errorf("expected github credentials, got %s", creds.Type)
 	}
 
@@ -80,7 +80,7 @@ func extractGitHubToken(creds *domain.TaskCredentials) (string, error) {
 // It uses GraphQL for efficient pagination and maintains checkpoints for resumability.
 // The method streams batches of tasks through the provided channel and updates progress
 // in the enumeration state storage.
-func (e *GitHubEnumerator) Enumerate(ctx context.Context, state *enumeration.EnumerationState, taskCh chan<- []domain.Task) error {
+func (e *GitHubEnumerator) Enumerate(ctx context.Context, state *enumeration.EnumerationState, taskCh chan<- []task.Task) error {
 	ctx, span := e.tracer.Start(ctx, "github.enumerate",
 		trace.WithAttributes(
 			attribute.String("org", e.ghConfig.Org),
@@ -96,9 +96,9 @@ func (e *GitHubEnumerator) Enumerate(ctx context.Context, state *enumeration.Enu
 
 	// If we have a repo list, process it directly.
 	if len(e.ghConfig.RepoList) > 0 {
-		tasks := make([]domain.Task, 0, len(e.ghConfig.RepoList))
+		tasks := make([]task.Task, 0, len(e.ghConfig.RepoList))
 		for _, repoURL := range e.ghConfig.RepoList {
-			tasks = append(tasks, domain.Task{
+			tasks = append(tasks, task.Task{
 				TaskID:      generateTaskID(),
 				ResourceURI: repoURL,
 				Metadata:    e.ghConfig.Metadata,
@@ -130,9 +130,9 @@ func (e *GitHubEnumerator) Enumerate(ctx context.Context, state *enumeration.Enu
 		apiSpan.End()
 
 		_, taskSpan := e.tracer.Start(ctx, "create_tasks")
-		tasks := make([]domain.Task, 0, len(respData.Data.Organization.Repositories.Nodes))
+		tasks := make([]task.Task, 0, len(respData.Data.Organization.Repositories.Nodes))
 		for _, node := range respData.Data.Organization.Repositories.Nodes {
-			tasks = append(tasks, domain.Task{
+			tasks = append(tasks, task.Task{
 				TaskID:      generateTaskID(),
 				ResourceURI: buildGithubResourceURI(e.ghConfig.Org, node.Name),
 				Metadata:    e.ghConfig.Metadata,
@@ -188,9 +188,9 @@ type GitHubClient struct {
 }
 
 // NewGitHubClient creates a new GitHub client with rate limiting.
-func NewGitHubClient(httpClient *http.Client, creds *domain.TaskCredentials, tracer trace.Tracer) (*GitHubClient, error) {
+func NewGitHubClient(httpClient *http.Client, creds *task.TaskCredentials, tracer trace.Tracer) (*GitHubClient, error) {
 	var token string
-	if creds.Type == domain.CredentialTypeGitHub {
+	if creds.Type == task.CredentialTypeGitHub {
 		var err error
 		token, err = extractGitHubToken(creds)
 		if err != nil {

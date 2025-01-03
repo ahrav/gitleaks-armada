@@ -4,12 +4,11 @@ import (
 	"context"
 	"time"
 
-	"github.com/ahrav/gitleaks-armada/pkg/domain"
-	"github.com/ahrav/gitleaks-armada/pkg/events"
+	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 )
 
 // Verify KafkaDomainEventPublisher implements domain.DomainEventPublisher interface.
-var _ domain.DomainEventPublisher = (*KafkaDomainEventPublisher)(nil)
+var _ events.DomainEventPublisher = (*KafkaDomainEventPublisher)(nil)
 
 // KafkaDomainEventPublisher implements the domain.DomainEventPublisher interface using
 // Kafka as the underlying message transport. It adapts domain-level events to the
@@ -29,7 +28,7 @@ func NewKafkaDomainEventPublisher(eventBus events.EventBus) *KafkaDomainEventPub
 // PublishDomainEvent sends a domain event with the specified type and payload through
 // the Kafka event bus. It automatically adds a timestamp and converts domain-level
 // publishing options to event bus options.
-func (pub *KafkaDomainEventPublisher) PublishDomainEvent(ctx context.Context, eventType domain.EventType, payload any, domainOpts ...domain.PublishOption) error {
+func (pub *KafkaDomainEventPublisher) PublishDomainEvent(ctx context.Context, eventType events.EventType, payload any, domainOpts ...events.PublishOption) error {
 	evt := events.DomainEvent{
 		Type:      eventType,
 		Timestamp: time.Now(),
@@ -44,8 +43,8 @@ func (pub *KafkaDomainEventPublisher) PublishDomainEvent(ctx context.Context, ev
 // convertDomainOptionsToEventOptions transforms domain-level publishing options into
 // event bus options. This allows the domain layer to remain decoupled from the
 // event bus implementation while preserving configuration like routing keys and headers.
-func convertDomainOptionsToEventOptions(domainOpts []domain.PublishOption) []events.PublishOption {
-	dp := domain.PublishParams{}
+func convertDomainOptionsToEventOptions(domainOpts []events.PublishOption) []events.PublishOption {
+	dp := events.PublishParams{}
 	for _, dOpt := range domainOpts {
 		dOpt(&dp)
 	}

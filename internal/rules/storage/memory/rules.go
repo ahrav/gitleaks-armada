@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"sync"
 
-	"github.com/ahrav/gitleaks-armada/pkg/domain/rules"
+	"github.com/ahrav/gitleaks-armada/internal/domain/rules"
 )
 
 // Compile-time check that store implements rules.RulesStorage.
