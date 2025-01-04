@@ -16,7 +16,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/storage"
 )
 
-var _ enumeration.EnumerationStateRepository = (*enumerationStateStore)(nil)
+var _ enumeration.StateRepository = (*enumerationStateStore)(nil)
 
 // enumerationStateStore provides persistent storage for enumeration session state
 // using PostgreSQL. It enables resumable scanning across process restarts by maintaining
@@ -42,27 +42,27 @@ func NewEnumerationStateStore(dbConn *pgxpool.Pool, checkpointStore enumeration.
 // with a reference to the checkpoint.
 func (s *enumerationStateStore) Save(ctx context.Context, state *enumeration.State) error {
 	return storage.ExecuteAndTrace(ctx, s.tracer, "postgres.save_enumeration_state", []attribute.KeyValue{
-		attribute.String("session_id", state.SessionID),
-		attribute.String("source_type", state.SourceType),
-		attribute.String("status", string(state.Status)),
+		attribute.String("session_id", state.SessionID()),
+		attribute.String("source_type", state.SourceType()),
+		attribute.String("status", string(state.Status())),
 		attribute.Bool("has_checkpoint", state.LastCheckpoint != nil),
 	}, func(ctx context.Context) error {
 		var lastCheckpointID pgtype.Int8
-		if state.LastCheckpoint != nil {
+		if state.LastCheckpoint() != nil {
 			if err := storage.ExecuteAndTrace(ctx, s.tracer, "postgres.save_checkpoint", nil, func(ctx context.Context) error {
-				return s.checkpointStore.Save(ctx, state.LastCheckpoint)
+				return s.checkpointStore.Save(ctx, state.LastCheckpoint())
 			}); err != nil {
 				return fmt.Errorf("failed to save checkpoint: %w", err)
 			}
-			lastCheckpointID = pgtype.Int8{Int64: state.LastCheckpoint.ID, Valid: true}
+			lastCheckpointID = pgtype.Int8{Int64: state.LastCheckpoint().ID(), Valid: true}
 		}
 
 		err := s.q.CreateOrUpdateEnumerationState(ctx, db.CreateOrUpdateEnumerationStateParams{
-			SessionID:        state.SessionID,
-			SourceType:       state.SourceType,
-			Config:           state.Config,
+			SessionID:        state.SessionID(),
+			SourceType:       state.SourceType(),
+			Config:           state.Config(),
 			LastCheckpointID: lastCheckpointID,
-			Status:           db.EnumerationStatus(state.Status),
+			Status:           db.EnumerationStatus(state.Status()),
 		})
 		if err != nil {
 			return fmt.Errorf("failed to save enumeration state: %w", err)
@@ -141,21 +141,26 @@ func (s *enumerationStateStore) convertDBStateToEnumState(ctx context.Context, d
 		attribute.String("session_id", dbState.SessionID),
 		attribute.Bool("has_checkpoint", dbState.LastCheckpointID.Valid),
 	}, func(ctx context.Context) error {
-		state = &enumeration.State{
-			SessionID:   dbState.SessionID,
-			SourceType:  dbState.SourceType,
-			Config:      dbState.Config,
-			LastUpdated: dbState.UpdatedAt.Time,
-			Status:      enumeration.Status(dbState.Status),
-		}
-
+		var checkpoint *enumeration.Checkpoint
 		if dbState.LastCheckpointID.Valid {
-			checkpoint, err := s.checkpointStore.LoadByID(ctx, dbState.LastCheckpointID.Int64)
+			var err error
+			checkpoint, err = s.checkpointStore.LoadByID(ctx, dbState.LastCheckpointID.Int64)
 			if err != nil {
 				return fmt.Errorf("failed to load checkpoint: %w", err)
 			}
-			state.LastCheckpoint = checkpoint
 		}
+
+		state = enumeration.ReconstructState(
+			dbState.SessionID,
+			dbState.SourceType,
+			dbState.Config,
+			enumeration.Status(dbState.Status),
+			dbState.UpdatedAt.Time,
+			"", // TODO: Add failure reason
+			// dbState.FailureReason,
+			checkpoint,
+			nil, // Progress would be reconstructed similarly if needed
+		)
 		return nil
 	})
 	return state, err

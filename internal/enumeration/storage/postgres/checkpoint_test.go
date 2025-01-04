@@ -29,25 +29,22 @@ func TestPGCheckpointStorage_SaveAndLoad(t *testing.T) {
 	ctx, store, cleanup := setupCheckpointTest(t)
 	defer cleanup()
 
-	checkpoint := &enumeration.Checkpoint{
-		TargetID: "test-target",
-		Data: map[string]any{
-			"cursor": "abc123",
-			"page":   42,
-		},
-	}
+	checkpoint := enumeration.NewTemporaryCheckpoint("test-target", map[string]any{
+		"cursor": "abc123",
+		"page":   42,
+	})
 
 	err := store.Save(ctx, checkpoint)
 	require.NoError(t, err)
 
-	loaded, err := store.Load(ctx, checkpoint.TargetID)
+	loaded, err := store.Load(ctx, checkpoint.TargetID())
 	require.NoError(t, err)
 	require.NotNil(t, loaded)
 
-	assert.Equal(t, checkpoint.TargetID, loaded.TargetID)
-	assert.Equal(t, checkpoint.Data["cursor"], loaded.Data["cursor"])
-	assert.Equal(t, float64(42), loaded.Data["page"])
-	assert.False(t, loaded.UpdatedAt.IsZero(), "UpdatedAt should be set")
+	assert.Equal(t, checkpoint.TargetID(), loaded.TargetID())
+	assert.Equal(t, checkpoint.Data()["cursor"], loaded.Data()["cursor"])
+	assert.Equal(t, float64(42), loaded.Data()["page"])
+	assert.False(t, loaded.UpdatedAt().IsZero(), "UpdatedAt should be set")
 }
 
 func TestPGCheckpointStorage_LoadNonExistent(t *testing.T) {
@@ -67,20 +64,17 @@ func TestPGCheckpointStorage_Delete(t *testing.T) {
 	ctx, store, cleanup := setupCheckpointTest(t)
 	defer cleanup()
 
-	checkpoint := &enumeration.Checkpoint{
-		TargetID: "test-target",
-		Data: map[string]any{
-			"cursor": "abc123",
-		},
-	}
+	checkpoint := enumeration.NewTemporaryCheckpoint("test-target", map[string]any{
+		"cursor": "abc123",
+	})
 
 	err := store.Save(ctx, checkpoint)
 	require.NoError(t, err)
 
-	err = store.Delete(ctx, checkpoint.TargetID)
+	err = store.Delete(ctx, checkpoint.TargetID())
 	require.NoError(t, err)
 
-	loaded, err := store.Load(ctx, checkpoint.TargetID)
+	loaded, err := store.Load(ctx, checkpoint.TargetID())
 	require.NoError(t, err)
 	assert.Nil(t, loaded)
 }
@@ -101,33 +95,30 @@ func TestPGCheckpointStorage_Update(t *testing.T) {
 	ctx, store, cleanup := setupCheckpointTest(t)
 	defer cleanup()
 
-	checkpoint := &enumeration.Checkpoint{
-		TargetID: "test-target",
-		Data: map[string]any{
-			"cursor": "abc123",
-		},
-	}
+	checkpoint := enumeration.NewTemporaryCheckpoint("test-target", map[string]any{
+		"cursor": "abc123",
+	})
 
 	err := store.Save(ctx, checkpoint)
 	require.NoError(t, err)
 
-	loaded, err := store.Load(ctx, checkpoint.TargetID)
+	loaded, err := store.Load(ctx, checkpoint.TargetID())
 	require.NoError(t, err)
 	require.NotNil(t, loaded)
-	firstSaveTime := loaded.UpdatedAt
+	firstSaveTime := loaded.UpdatedAt()
 
 	time.Sleep(10 * time.Millisecond)
 
-	checkpoint.Data["cursor"] = "def456"
+	checkpoint.Data()["cursor"] = "def456"
 	err = store.Save(ctx, checkpoint)
 	require.NoError(t, err)
 
-	loaded2, err := store.Load(ctx, checkpoint.TargetID)
+	loaded2, err := store.Load(ctx, checkpoint.TargetID())
 	require.NoError(t, err)
 	require.NotNil(t, loaded2)
 
-	assert.Equal(t, "def456", loaded2.Data["cursor"])
-	assert.True(t, loaded2.UpdatedAt.After(firstSaveTime),
+	assert.Equal(t, "def456", loaded2.Data()["cursor"])
+	assert.True(t, loaded2.UpdatedAt().After(firstSaveTime),
 		"UpdatedAt should be later than first save")
 }
 
@@ -142,17 +133,14 @@ func TestPGCheckpointStorage_ConcurrentOperations(t *testing.T) {
 
 	for i := 0; i < goroutines; i++ {
 		go func(id int) {
-			checkpoint := &enumeration.Checkpoint{
-				TargetID: "concurrent-target",
-				Data: map[string]any{
-					"value": id,
-				},
-			}
+			checkpoint := enumeration.NewTemporaryCheckpoint("concurrent-target", map[string]any{
+				"value": id,
+			})
 
 			err := store.Save(ctx, checkpoint)
 			require.NoError(t, err)
 
-			_, err = store.Load(ctx, checkpoint.TargetID)
+			_, err = store.Load(ctx, checkpoint.TargetID())
 			require.NoError(t, err)
 
 			done <- true
@@ -166,7 +154,7 @@ func TestPGCheckpointStorage_ConcurrentOperations(t *testing.T) {
 	loaded, err := store.Load(ctx, "concurrent-target")
 	require.NoError(t, err)
 	require.NotNil(t, loaded)
-	assert.NotNil(t, loaded.Data["value"])
+	assert.NotNil(t, loaded.Data()["value"])
 }
 
 func TestPGCheckpointStorage_Mutability(t *testing.T) {
@@ -175,34 +163,31 @@ func TestPGCheckpointStorage_Mutability(t *testing.T) {
 	ctx, store, cleanup := setupCheckpointTest(t)
 	defer cleanup()
 
-	original := &enumeration.Checkpoint{
-		TargetID: "test-target",
-		Data: map[string]any{
-			"cursor": "abc123",
-			"nested": map[string]any{
-				"key": "value",
-			},
+	original := enumeration.NewTemporaryCheckpoint("test-target", map[string]any{
+		"cursor": "abc123",
+		"nested": map[string]any{
+			"key": "value",
 		},
-	}
+	})
 
 	err := store.Save(ctx, original)
 	require.NoError(t, err)
 
-	loaded, err := store.Load(ctx, original.TargetID)
+	loaded, err := store.Load(ctx, original.TargetID())
 	require.NoError(t, err)
 	require.NotNil(t, loaded)
 
-	loaded.Data["cursor"] = "modified"
-	if nestedMap, ok := loaded.Data["nested"].(map[string]any); ok {
+	loaded.Data()["cursor"] = "modified"
+	if nestedMap, ok := loaded.Data()["nested"].(map[string]any); ok {
 		nestedMap["key"] = "modified"
 	}
 
-	reloaded, err := store.Load(ctx, original.TargetID)
+	reloaded, err := store.Load(ctx, original.TargetID())
 	require.NoError(t, err)
 	require.NotNil(t, reloaded)
 
-	assert.Equal(t, "abc123", reloaded.Data["cursor"], "Top-level value should not be modified")
-	if nestedMap, ok := reloaded.Data["nested"].(map[string]any); ok {
+	assert.Equal(t, "abc123", reloaded.Data()["cursor"], "Top-level value should not be modified")
+	if nestedMap, ok := reloaded.Data()["nested"].(map[string]any); ok {
 		assert.Equal(t, "value", nestedMap["key"], "Nested value should not be modified")
 	}
 }
@@ -213,32 +198,29 @@ func TestPGCheckpointStorage_LoadByID(t *testing.T) {
 	ctx, store, cleanup := setupCheckpointTest(t)
 	defer cleanup()
 
-	checkpoint := &enumeration.Checkpoint{
-		TargetID: "test-target",
-		Data: map[string]any{
-			"cursor": "abc123",
-			"nested": map[string]any{
-				"key": "value",
-			},
+	checkpoint := enumeration.NewTemporaryCheckpoint("test-target", map[string]any{
+		"cursor": "abc123",
+		"nested": map[string]any{
+			"key": "value",
 		},
-	}
+	})
 
 	err := store.Save(ctx, checkpoint)
 	require.NoError(t, err)
 
 	// Get the checkpoint by target ID first to get its database ID.
-	saved, err := store.Load(ctx, checkpoint.TargetID)
+	saved, err := store.Load(ctx, checkpoint.TargetID())
 	require.NoError(t, err)
 	require.NotNil(t, saved)
 
-	loaded, err := store.LoadByID(ctx, saved.ID)
+	loaded, err := store.LoadByID(ctx, saved.ID())
 	require.NoError(t, err)
 	require.NotNil(t, loaded)
 
-	assert.Equal(t, saved.ID, loaded.ID)
-	assert.Equal(t, checkpoint.TargetID, loaded.TargetID)
-	assert.Equal(t, checkpoint.Data["cursor"], loaded.Data["cursor"])
-	if nestedMap, ok := loaded.Data["nested"].(map[string]any); ok {
+	assert.Equal(t, saved.ID(), loaded.ID())
+	assert.Equal(t, checkpoint.TargetID(), loaded.TargetID())
+	assert.Equal(t, checkpoint.Data()["cursor"], loaded.Data()["cursor"])
+	if nestedMap, ok := loaded.Data()["nested"].(map[string]any); ok {
 		assert.Equal(t, "value", nestedMap["key"])
 	}
 
@@ -247,17 +229,17 @@ func TestPGCheckpointStorage_LoadByID(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, nonExistent)
 
-	loaded.Data["cursor"] = "modified"
-	if nestedMap, ok := loaded.Data["nested"].(map[string]any); ok {
+	loaded.Data()["cursor"] = "modified"
+	if nestedMap, ok := loaded.Data()["nested"].(map[string]any); ok {
 		nestedMap["key"] = "modified"
 	}
 
-	reloaded, err := store.LoadByID(ctx, saved.ID)
+	reloaded, err := store.LoadByID(ctx, saved.ID())
 	require.NoError(t, err)
 	require.NotNil(t, reloaded)
 
-	assert.Equal(t, "abc123", reloaded.Data["cursor"], "Top-level value should not be modified")
-	if nestedMap, ok := reloaded.Data["nested"].(map[string]any); ok {
+	assert.Equal(t, "abc123", reloaded.Data()["cursor"], "Top-level value should not be modified")
+	if nestedMap, ok := reloaded.Data()["nested"].(map[string]any); ok {
 		assert.Equal(t, "value", nestedMap["key"], "Nested value should not be modified")
 	}
 }

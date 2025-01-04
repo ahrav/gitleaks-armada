@@ -5,29 +5,31 @@ import (
 	"time"
 )
 
-// EnumerationDomainService manages the lifecycle and state transitions of enumeration sessions.
+// Service manages the lifecycle and state transitions of enumeration sessions.
 // It encapsulates the core domain logic for tracking progress, validating state changes,
 // and detecting stalled operations without dependencies on external services.
-type EnumerationDomainService interface {
+type Service interface {
+	// State management.
+
 	// MarkInProgress transitions an enumeration to the in-progress state.
 	// Returns an error if the transition is invalid from the current state.
 	MarkInProgress(state *State) error
-
 	// MarkCompleted transitions an enumeration to the completed state.
 	// Returns an error if the transition is invalid from the current state.
 	MarkCompleted(state *State) error
-
 	// MarkFailed transitions an enumeration to the failed state with a reason.
 	// Returns an error if the transition is invalid from the current state.
 	MarkFailed(state *State, reason string) error
 
-	// UpdateProgress records enumeration progress and the latest checkpoint.
-	// Returns an error if the update is invalid or missing required data.
-	UpdateProgress(state *State, itemsProcessed int, checkpoint *Checkpoint) error
+	// Progress tracking.
+
+	// RecordBatchProgress records the progress of a batch and updates overall progress.
+	RecordBatchProgress(state *State, batch BatchProgress) error
+
+	// Querying.
 
 	// IsStalled determines if an enumeration has exceeded the staleness threshold.
 	IsStalled(state *State, threshold time.Duration) bool
-
 	// CanTransitionTo validates if a state transition is allowed by the domain rules.
 	CanTransitionTo(state *State, targetStatus Status) bool
 }
@@ -44,120 +46,119 @@ var (
 	ErrMissingCheckpoint = fmt.Errorf("checkpoint required for progress update")
 )
 
-type enumerationDomainServiceImpl struct {
-	// TODO: More configuration options here?
-	stallThreshold time.Duration
-}
+type service struct{ stallThreshold time.Duration }
 
-// NewEnumerationDomainService creates a new domain service with default configuration.
-func NewEnumerationDomainService() EnumerationDomainService {
+// NewService creates a new domain service with default configuration.
+func NewService() Service {
 	const defaultStallThreshold = 30 * time.Minute
-	return &enumerationDomainServiceImpl{
-		stallThreshold: defaultStallThreshold, // TODO: Make configurable
+	return &service{
+		stallThreshold: defaultStallThreshold, // TODO: Make this configurable.
 	}
 }
 
-func (ds *enumerationDomainServiceImpl) MarkInProgress(state *State) error {
+// MarkInProgress transitions an enumeration to the in-progress state. It initializes
+// progress tracking if not already present. This transition is only allowed from
+// specific states per domain rules.
+func (ds *service) MarkInProgress(state *State) error {
 	if !ds.CanTransitionTo(state, StatusInProgress) {
 		return fmt.Errorf("%w: cannot transition from %s to %s",
-			ErrInvalidStateTransition, state.Status, StatusInProgress)
+			ErrInvalidStateTransition, state.Status(), StatusInProgress)
 	}
 
-	state.Status = StatusInProgress
-	state.LastUpdated = time.Now()
+	state.setStatus(StatusInProgress)
+	state.updateLastUpdated()
 
-	// Initialize progress tracking if this is the first transition to in-progress.
-	if state.Progress == nil {
-		state.Progress = &Progress{
-			StartedAt:  time.Now(),
-			LastUpdate: time.Now(),
-		}
+	if state.Progress() == nil {
+		state.initializeProgress()
 	}
 	return nil
 }
 
-func (ds *enumerationDomainServiceImpl) MarkCompleted(state *State) error {
+// MarkCompleted transitions an enumeration to the completed state, indicating all
+// targets were successfully processed. This is a terminal state that can only be
+// reached from in-progress or stalled states.
+func (ds *service) MarkCompleted(state *State) error {
 	if !ds.CanTransitionTo(state, StatusCompleted) {
 		return fmt.Errorf("%w: cannot transition from %s to %s",
-			ErrInvalidStateTransition, state.Status, StatusCompleted)
+			ErrInvalidStateTransition, state.Status(), StatusCompleted)
 	}
 
-	state.Status = StatusCompleted
-	state.LastUpdated = time.Now()
+	state.setStatus(StatusCompleted)
+	state.updateLastUpdated()
 	return nil
 }
 
-func (ds *enumerationDomainServiceImpl) MarkFailed(state *State, reason string) error {
+// MarkFailed transitions an enumeration to the failed state with a reason for the
+// failure. This is a terminal state that captures unrecoverable errors during
+// enumeration.
+func (ds *service) MarkFailed(state *State, reason string) error {
 	if !ds.CanTransitionTo(state, StatusFailed) {
 		return fmt.Errorf("%w: cannot transition from %s to %s",
-			ErrInvalidStateTransition, state.Status, StatusFailed)
+			ErrInvalidStateTransition, state.Status(), StatusFailed)
 	}
 
-	state.Status = StatusFailed
-	state.LastUpdated = time.Now()
-	state.FailureReason = reason
+	state.setStatus(StatusFailed)
+	state.setFailureReason(reason)
+	state.updateLastUpdated()
 	return nil
 }
 
-func (ds *enumerationDomainServiceImpl) UpdateProgress(
-	state *State,
-	itemsProcessed int,
-	checkpoint *Checkpoint,
-) error {
-	if state.Status != StatusInProgress {
+// RecordBatchProgress updates the enumeration state with progress from a batch of
+// processed items. It enforces monotonically increasing progress and automatically
+// transitions to stalled or partially completed states based on progress conditions.
+func (ds *service) RecordBatchProgress(state *State, batch BatchProgress) error {
+	if state.Status() != StatusInProgress {
 		return fmt.Errorf("%w: can only update progress when in progress", ErrInvalidProgress)
 	}
 
-	if checkpoint == nil {
+	if batch.Checkpoint() == nil {
 		return fmt.Errorf("%w: checkpoint required for progress update", ErrMissingCheckpoint)
 	}
 
-	// Ensure monotonically increasing progress.
-	if itemsProcessed < 0 || (state.Progress != nil && itemsProcessed < state.Progress.ItemsProcessed) {
+	// Ensure progress metrics remain monotonically increasing
+	if batch.ItemsProcessed() < 0 ||
+		(state.Progress() != nil &&
+			batch.ItemsProcessed()+state.Progress().ItemsProcessed() < state.Progress().ItemsProcessed()) {
 		return fmt.Errorf("%w: invalid items processed count", ErrInvalidProgress)
 	}
 
-	now := time.Now()
+	state.addBatchProgress(batch)
 
-	// Initialize progress tracking if needed.
-	if state.Progress == nil {
-		state.Progress = &Progress{
-			StartedAt: now,
-		}
-	}
-
-	state.Progress.ItemsProcessed = itemsProcessed
-	state.Progress.LastUpdate = now
-	state.LastCheckpoint = checkpoint
-	state.LastUpdated = now
-
-	// Auto-transition to stalled if threshold exceeded.
+	// Auto-transition based on progress conditions
 	if ds.IsStalled(state, ds.stallThreshold) {
-		state.Status = StatusStalled
+		state.setStatus(StatusStalled)
+	} else if state.HasFailedBatches() && state.Progress().ItemsProcessed() > 0 {
+		state.setStatus(StatusPartiallyCompleted)
 	}
 
 	return nil
 }
 
-func (ds *enumerationDomainServiceImpl) IsStalled(state *State, threshold time.Duration) bool {
-	if state.Progress == nil || state.Status != StatusInProgress {
+// IsStalled determines if an enumeration has exceeded the staleness threshold by
+// checking the time since the last progress update.
+func (ds *service) IsStalled(state *State, threshold time.Duration) bool {
+	if state.Progress() == nil || state.Status() != StatusInProgress {
 		return false
 	}
 
-	return time.Since(state.Progress.LastUpdate) > threshold
+	return time.Since(state.Progress().LastUpdate()) > threshold
 }
 
-func (ds *enumerationDomainServiceImpl) CanTransitionTo(state *State, targetStatus Status) bool {
-	// Define allowed state transitions based on domain rules.
-	validTransitions := map[Status][]Status{
-		StatusInitialized: {StatusInProgress, StatusFailed},
-		StatusInProgress:  {StatusCompleted, StatusFailed, StatusStalled},
-		StatusStalled:     {StatusInProgress, StatusFailed, StatusCompleted},
-		StatusFailed:      {}, // Terminal state
-		StatusCompleted:   {}, // Terminal state
-	}
+// validTransitions defines the allowed state transitions for enumerations.
+// Empty slices indicate terminal states with no allowed transitions.
+// TODO: revist this.
+var validTransitions = map[Status][]Status{
+	StatusInitialized: {StatusInProgress, StatusFailed},
+	StatusInProgress:  {StatusCompleted, StatusFailed, StatusStalled},
+	StatusStalled:     {StatusInProgress, StatusFailed, StatusCompleted},
+	StatusFailed:      {}, // Terminal state
+	StatusCompleted:   {}, // Terminal state
+}
 
-	allowedTransitions, exists := validTransitions[state.Status]
+// CanTransitionTo validates if a state transition is allowed by checking the
+// transition rules defined in validTransitions.
+func (ds *service) CanTransitionTo(state *State, targetStatus Status) bool {
+	allowedTransitions, exists := validTransitions[state.Status()]
 	if !exists {
 		return false
 	}

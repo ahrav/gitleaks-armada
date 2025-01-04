@@ -27,7 +27,29 @@ type GitHubAPI interface {
 	ListRepositories(ctx context.Context, org string, cursor *string) (*githubGraphQLResponse, error)
 }
 
-var _ domain.TargetEnumerator = new(GitHubEnumerator)
+// TargetEnumerator provides application-level target enumeration capabilities.
+// It differs from the domain interface by operating on batches and managing cursors
+// directly to support efficient streaming of large datasets.
+type TargetEnumerator interface {
+	// Enumerate walks through a data source and streams batches of scan tasks.
+	// It accepts a cursor to support resumable operations and sends batches through
+	// the provided channel. Each batch includes both tasks and checkpoint data.
+	Enumerate(
+		ctx context.Context,
+		startCursor *string,
+		batchCh chan<- EnumerateBatch,
+	) error
+}
+
+// EnumerateBatch groups related scan tasks with their checkpoint data.
+// This enables atomic processing of task batches while maintaining
+// resumability through checkpoint tracking.
+type EnumerateBatch struct {
+	Tasks      []task.Task
+	Checkpoint *domain.Checkpoint
+}
+
+var _ TargetEnumerator = new(GitHubEnumerator)
 
 // GitHubEnumerator handles enumerating repositories from a GitHub organization.
 // It supports pagination and checkpoint-based resumption to handle large organizations
@@ -37,7 +59,7 @@ type GitHubEnumerator struct {
 	creds    *task.TaskCredentials
 
 	ghClient GitHubAPI
-	storage  domain.EnumerationStateRepository
+	storage  domain.StateRepository
 	tracer   trace.Tracer
 }
 
@@ -46,14 +68,12 @@ type GitHubEnumerator struct {
 func NewGitHubEnumerator(
 	client GitHubAPI,
 	creds *task.TaskCredentials,
-	storage domain.EnumerationStateRepository,
 	ghConfig *config.GitHubTarget,
 	tracer trace.Tracer,
 ) *GitHubEnumerator {
 	return &GitHubEnumerator{
 		ghClient: client,
 		creds:    creds,
-		storage:  storage,
 		ghConfig: ghConfig,
 		tracer:   tracer,
 	}
@@ -77,11 +97,10 @@ func extractGitHubToken(creds *task.TaskCredentials) (string, error) {
 // It uses GraphQL for efficient pagination and maintains checkpoints for resumability.
 // The method streams batches of tasks through the provided channel and updates progress
 // in the enumeration state storage.
-func (e *GitHubEnumerator) Enumerate(ctx context.Context, state *domain.State, taskCh chan<- []task.Task) error {
+func (e *GitHubEnumerator) Enumerate(ctx context.Context, startCursor *string, batchCh chan<- EnumerateBatch) error {
 	ctx, span := e.tracer.Start(ctx, "github.enumerate",
 		trace.WithAttributes(
 			attribute.String("org", e.ghConfig.Org),
-			attribute.String("session_id", state.SessionID),
 			attribute.Int("repo_list_count", len(e.ghConfig.RepoList)),
 		))
 	defer span.End()
@@ -92,6 +111,7 @@ func (e *GitHubEnumerator) Enumerate(ctx context.Context, state *domain.State, t
 	}
 
 	// If we have a repo list, process it directly.
+	// TODO: Batch this too.
 	if len(e.ghConfig.RepoList) > 0 {
 		tasks := make([]task.Task, 0, len(e.ghConfig.RepoList))
 		for _, repoURL := range e.ghConfig.RepoList {
@@ -102,17 +122,12 @@ func (e *GitHubEnumerator) Enumerate(ctx context.Context, state *domain.State, t
 				Credentials: e.creds,
 			})
 		}
-		taskCh <- tasks
+		batchCh <- EnumerateBatch{Tasks: tasks, Checkpoint: nil}
 		return nil
 	}
 
 	// Resume from last known position if checkpoint exists.
-	var endCursor *string
-	if state.LastCheckpoint != nil {
-		if cursor, ok := state.LastCheckpoint.Data["endCursor"].(string); ok {
-			endCursor = &cursor
-		}
-	}
+	var endCursor = startCursor
 
 	const batchSize = 100 // GitHub GraphQL API limit per query
 	for {
@@ -138,30 +153,25 @@ func (e *GitHubEnumerator) Enumerate(ctx context.Context, state *domain.State, t
 		}
 		taskSpan.End()
 
-		if len(tasks) > 0 {
-			_, publishSpan := e.tracer.Start(ctx, "publish_tasks")
-			taskCh <- tasks
-			publishSpan.End()
+		pageInfo := respData.Data.Organization.Repositories.PageInfo
+		newCursor := pageInfo.EndCursor
+
+		batchCh <- EnumerateBatch{
+			Tasks: tasks,
+			Checkpoint: domain.NewTemporaryCheckpoint(
+				e.ghConfig.Org,
+				map[string]any{"endCursor": newCursor},
+			),
 		}
 
-		pageInfo := respData.Data.Organization.Repositories.PageInfo
 		if !pageInfo.HasNextPage {
 			break
 		}
+		endCursor = &newCursor
 
-		// Save progress after each successful batch.
-		// Note: Checkpoints are only saved if the target has multiple pages in the response.
-		endCursor = &pageInfo.EndCursor
-		checkpoint := &domain.Checkpoint{
-			TargetID:  e.ghConfig.Org,
-			Data:      map[string]any{"endCursor": *endCursor},
-			UpdatedAt: time.Now(),
-		}
-
-		state.UpdateCheckpoint(checkpoint)
-		if err := e.storage.Save(ctx, state); err != nil {
-			return fmt.Errorf("failed to save enumeration state with new checkpoint: %w", err)
-		}
+		// if err := e.storage.Save(ctx, state); err != nil {
+		// 	return fmt.Errorf("failed to save enumeration state with new checkpoint: %w", err)
+		// }
 	}
 
 	return nil

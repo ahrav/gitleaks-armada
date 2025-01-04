@@ -8,8 +8,8 @@ import (
 
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/ahrav/gitleaks-armada/internal/app/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/controller/metrics"
-	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/rules"
 	"github.com/ahrav/gitleaks-armada/pkg/cluster"

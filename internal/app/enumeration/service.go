@@ -7,11 +7,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
-	domain "github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
+	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/task"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
@@ -37,41 +36,44 @@ type metrics interface {
 	TrackEnumeration(fn func() error) error
 }
 
-// enumerationApplicationServiceImpl implements EnumerationApplicationService
-// by orchestrating domain logic, repository calls, event publishing, etc.
-type enumerationApplicationServiceImpl struct {
-	// outbound ports from the domain
-	repo           domain.EnumerationStateRepository
-	checkpointRepo domain.CheckpointRepository
+// Service implements target enumeration by orchestrating domain logic, repository calls,
+// and event publishing. It manages the lifecycle of enumeration sessions and coordinates
+// the overall scanning process.
+type service struct {
+	// Domain repositories.
+	repo           enumeration.StateRepository
+	checkpointRepo enumeration.CheckpointRepository
 
-	// enumerator factory is also a domain-level concept,
-	// but we instantiate it here since it interacts with external code
+	// Creates enumerators for different target types.
 	enumFactory EnumeratorFactory
 
-	// Possibly references a domain service
-	domainService domain.EnumerationDomainService
+	// Core domain service for enumeration logic.
+	domainService enumeration.Service
 
-	// External stuff: eventPublisher, config loader, logger, metrics, etc.
+	// External dependencies.
 	eventPublisher events.DomainEventPublisher
 	configLoader   config.Loader
-	logger         *logger.Logger
-	metrics        metrics // your custom interface
-	tracer         trace.Tracer
+
+	logger  *logger.Logger
+	metrics metrics
+	tracer  trace.Tracer
 }
 
-// NewEnumerationApplicationService constructs the application service
-func NewEnumerationApplicationService(
-	repo domain.EnumerationStateRepository,
-	checkpointRepo domain.CheckpointRepository,
+// NewService creates a new Service that coordinates target enumeration.
+// It wires together all required dependencies including repositories, domain services,
+// and external integrations needed for the enumeration workflow.
+func NewService(
+	repo enumeration.StateRepository,
+	checkpointRepo enumeration.CheckpointRepository,
 	enumFactory EnumeratorFactory,
-	domainSvc domain.EnumerationDomainService,
+	domainSvc enumeration.Service,
 	eventPublisher events.DomainEventPublisher,
 	cfgLoader config.Loader,
 	logger *logger.Logger,
 	metrics metrics,
 	tracer trace.Tracer,
 ) Service {
-	return &enumerationApplicationServiceImpl{
+	return &service{
 		repo:           repo,
 		checkpointRepo: checkpointRepo,
 		enumFactory:    enumFactory,
@@ -84,7 +86,11 @@ func NewEnumerationApplicationService(
 	}
 }
 
-func (s *enumerationApplicationServiceImpl) ExecuteEnumeration(ctx context.Context) error {
+// ExecuteEnumeration performs target enumeration by either resuming from existing state
+// or starting fresh. It first checks for any active enumeration states - if none exist,
+// it loads the current configuration and starts new enumerations. Otherwise, it resumes
+// the existing enumeration sessions.
+func (s *service) ExecuteEnumeration(ctx context.Context) error {
 	ctx, span := s.tracer.Start(ctx, "enumeration.ExecuteEnumeration")
 	defer span.End()
 
@@ -95,7 +101,7 @@ func (s *enumerationApplicationServiceImpl) ExecuteEnumeration(ctx context.Conte
 	}
 
 	if len(activeStates) == 0 {
-		// No active enumerations => start fresh from config.
+		// Start fresh since no active enumerations exist
 		cfg, err := s.configLoader.Load(ctx)
 		if err != nil {
 			span.RecordError(err)
@@ -111,7 +117,7 @@ func (s *enumerationApplicationServiceImpl) ExecuteEnumeration(ctx context.Conte
 
 // startFreshEnumerations processes each target from the configuration, creating new
 // enumeration states and running the appropriate enumerator for each target type.
-func (s *enumerationApplicationServiceImpl) startFreshEnumerations(ctx context.Context, cfg *config.Config) error {
+func (s *service) startFreshEnumerations(ctx context.Context, cfg *config.Config) error {
 	ctx, span := s.tracer.Start(ctx, "enumeration.startFreshEnumerations")
 	defer span.End()
 
@@ -119,48 +125,15 @@ func (s *enumerationApplicationServiceImpl) startFreshEnumerations(ctx context.C
 
 	for _, target := range cfg.Targets {
 		start := time.Now()
-		sessionID := generateSessionID()
-		targetCtx, targetSpan := s.tracer.Start(ctx, "enumeration.processTarget")
-		targetSpan.SetAttributes(
-			attribute.String("source_type", string(target.SourceType)),
-			attribute.String("session_id", sessionID),
-		)
+		state := enumeration.NewState(string(target.SourceType), s.marshalConfig(ctx, target, cfg.Auth))
 
-		// Create initial state for tracking this enumeration.
-		state := &domain.State{
-			SessionID: sessionID,
-
-			SourceType:  string(target.SourceType),
-			Status:      domain.StatusInitialized,
-			LastUpdated: time.Now(),
-			Config:      s.marshalConfig(ctx, target, cfg.Auth),
-		}
-		if err := s.repo.Save(targetCtx, state); err != nil {
-			targetSpan.RecordError(err)
-			return fmt.Errorf("failed to save new enumeration state: %w", err)
-		}
-		// Mark in-progress.
-		s.domainService.MarkInProgress(state)
-		_ = s.repo.Save(targetCtx, state)
-
-		// Build enumerator.
-		enumerator, err := s.enumFactory.CreateEnumerator(target, cfg.Auth)
-		if err != nil {
-			s.domainService.MarkFailed(state, err.Error())
-			targetSpan.RecordError(err)
-			if err := s.repo.Save(targetCtx, state); err != nil {
-				targetSpan.RecordError(err)
-				s.logger.Error(targetCtx, "Failed to save enumeration state", "error", err)
-			}
-			continue
+		if err := s.processTargetEnumeration(ctx, state, target, cfg.Auth); err != nil {
+			s.logger.Error(ctx, "Target enumeration failed",
+				"target_type", target.SourceType,
+				"error", err)
+			continue // Continue with other targets
 		}
 
-		if err := s.runEnumerator(targetCtx, state, enumerator); err != nil {
-			targetSpan.RecordError(err)
-			s.logger.Error(targetCtx, "Enumeration failed", "session_id", state.SessionID, "error", err)
-		}
-
-		targetSpan.End()
 		s.metrics.ObserveTargetProcessingTime(time.Since(start))
 		s.metrics.IncTargetsProcessed()
 	}
@@ -169,8 +142,7 @@ func (s *enumerationApplicationServiceImpl) startFreshEnumerations(ctx context.C
 
 // marshalConfig serializes the target configuration into a JSON raw message.
 // This allows storing the complete target configuration with the enumeration state.
-func (s *enumerationApplicationServiceImpl) marshalConfig(ctx context.Context, target config.TargetSpec, auth map[string]config.AuthConfig) json.RawMessage {
-	// Add tracing for config marshaling
+func (s *service) marshalConfig(ctx context.Context, target config.TargetSpec, auth map[string]config.AuthConfig) json.RawMessage {
 	ctx, span := s.tracer.Start(ctx, "enumeration.marshalConfig")
 	defer span.End()
 
@@ -179,7 +151,11 @@ func (s *enumerationApplicationServiceImpl) marshalConfig(ctx context.Context, t
 		attribute.String("auth_ref", target.AuthRef),
 	)
 
-	// Create a complete config that includes both target and its auth.
+	// Combine target configuration with its authentication details into a single config.
+	// This combined config is necessary for two reasons:
+	// 1. The target type is needed when creating an enumerator
+	// 2. The auth config must be preserved for session resumption since the original
+	//    auth configuration map is not available during resume operations
 	completeConfig := struct {
 		config.TargetSpec
 		Auth config.AuthConfig `json:"auth,omitempty"`
@@ -203,119 +179,205 @@ func (s *enumerationApplicationServiceImpl) marshalConfig(ctx context.Context, t
 
 // resumeEnumerations attempts to continue enumeration from previously saved states.
 // This allows recovery from interruptions and supports incremental scanning.
-func (s *enumerationApplicationServiceImpl) resumeEnumerations(ctx context.Context, states []*domain.State) error {
+func (s *service) resumeEnumerations(ctx context.Context, states []*enumeration.State) error {
 	ctx, span := s.tracer.Start(ctx, "enumeration.resumeEnumerations")
 	defer span.End()
 
 	span.SetAttributes(attribute.Int("state_count", len(states)))
 
-	var overallErr error
 	for _, st := range states {
-		targetCtx, targetSpan := s.tracer.Start(ctx, "enumeration.processTarget")
-		targetSpan.SetAttributes(
-			attribute.String("session_id", st.SessionID),
-			attribute.String("source_type", st.SourceType),
-		)
-
-		// Unmarshal the combined target and auth configuration.
 		var combined struct {
 			config.TargetSpec
-			Auth config.AuthConfig `json:"auth,omitempty"`
 		}
 
-		if err := json.Unmarshal(st.Config, &combined); err != nil {
-			targetSpan.RecordError(err)
-			return fmt.Errorf("failed to unmarshal target config: %w", err)
-		}
-
-		s.domainService.MarkInProgress(st)
-		if err := s.repo.Save(targetCtx, st); err != nil {
-			targetSpan.RecordError(err)
-			s.logger.Error(targetCtx, "Failed to save enumeration state", "error", err)
-		}
-
-		enumerator, err := s.enumFactory.CreateEnumerator(combined.TargetSpec, nil)
-		if err != nil {
-			s.domainService.MarkFailed(st, err.Error())
-			if err := s.repo.Save(targetCtx, st); err != nil {
-				targetSpan.RecordError(err)
-				s.logger.Error(targetCtx, "Failed to save enumeration state", "error", err)
-			}
+		if err := json.Unmarshal(st.Config(), &combined); err != nil {
+			s.logger.Error(ctx, "Failed to unmarshal target config",
+				"session_id", st.SessionID(),
+				"error", err)
 			continue
 		}
 
-		if err := s.runEnumerator(ctx, st, enumerator); err != nil {
-			overallErr = err
-			s.logger.Error(targetCtx, "Resume enumeration failed", "session_id", st.SessionID, "error", err)
+		if err := s.processTargetEnumeration(ctx, st, combined.TargetSpec, nil); err != nil {
+			s.logger.Error(ctx, "Resume enumeration failed",
+				"session_id", st.SessionID,
+				"error", err)
+			continue
 		}
 	}
-	return overallErr
+	return nil
 }
 
-// runEnumerator executes the enumeration process for a single target, publishing
-// discovered tasks to the event bus for processing.
-func (s *enumerationApplicationServiceImpl) runEnumerator(ctx context.Context, st *domain.State, enumerator domain.TargetEnumerator) error {
-	ctx, span := s.tracer.Start(ctx, "enumeration.runEnumerator")
+// processTargetEnumeration handles the lifecycle of a single target's enumeration,
+// including state transitions, enumerator creation, and streaming of results.
+func (s *service) processTargetEnumeration(
+	ctx context.Context,
+	state *enumeration.State,
+	target config.TargetSpec,
+	auth map[string]config.AuthConfig,
+) error {
+	ctx, span := s.tracer.Start(ctx, "enumeration.processTarget")
 	defer span.End()
 
 	span.SetAttributes(
-		attribute.String("session_id", st.SessionID),
-		attribute.String("source_type", st.SourceType),
+		attribute.String("source_type", string(target.SourceType)),
+		attribute.String("session_id", state.SessionID()),
 	)
 
-	return s.metrics.TrackEnumeration(func() error {
-		taskCh := make(chan []task.Task)
-		var wg sync.WaitGroup
-		wg.Add(1)
+	if err := s.repo.Save(ctx, state); err != nil {
+		span.RecordError(err)
+		return fmt.Errorf("failed to save initial state: %w", err)
+	}
 
-		go func() {
-			targetCtx, span := s.tracer.Start(ctx, "enumeration.publishTasks")
-			defer span.End()
-			defer wg.Done()
+	if err := s.domainService.MarkInProgress(state); err != nil {
+		span.RecordError(err)
+		s.logger.Error(ctx, "Failed to mark enumeration as in-progress", "error", err)
+		return err
+	}
 
-			var totalTasks int
-			for tasks := range taskCh {
-				totalTasks += len(tasks)
-				for _, t := range tasks {
-					err := s.eventPublisher.PublishDomainEvent(
-						targetCtx,
-						task.NewTaskCreatedEvent(t),
-						events.WithKey(st.SessionID),
-					)
-					if err != nil {
-						span.RecordError(err)
-						s.logger.Error(targetCtx, "Failed to publish tasks", "session_id", st.SessionID, "error", err)
-						return
-					}
-				}
-				span.SetAttributes(attribute.Int("num_tasks", len(tasks)))
-				s.logger.Info(targetCtx, "Published batch of tasks", "session_id", st.SessionID, "num_tasks", len(tasks))
+	if err := s.repo.Save(ctx, state); err != nil {
+		span.RecordError(err)
+		s.logger.Error(ctx, "Failed to save state transition", "error", err)
+		return err
+	}
+
+	enumerator, err := s.enumFactory.CreateEnumerator(target, auth)
+	if err != nil {
+		if markErr := s.domainService.MarkFailed(state, err.Error()); markErr != nil {
+			span.RecordError(markErr)
+			s.logger.Error(ctx, "Failed to mark enumeration as failed", "error", markErr)
+		}
+
+		if saveErr := s.repo.Save(ctx, state); saveErr != nil {
+			span.RecordError(saveErr)
+			s.logger.Error(ctx, "Failed to save failed state", "error", saveErr)
+		}
+		return fmt.Errorf("failed to create enumerator: %w", err)
+	}
+
+	// Get resume cursor if this is a resumed enumeration.
+	var resumeCursor *string
+	if state.LastCheckpoint() != nil {
+		if c, ok := state.LastCheckpoint().Data()["endCursor"].(string); ok {
+			resumeCursor = &c
+		}
+	}
+
+	if err := s.streamEnumerate(ctx, enumerator, state, resumeCursor); err != nil {
+		span.RecordError(err)
+		s.logger.Error(ctx, "Enumeration failed",
+			"session_id", state.SessionID(),
+			"error", err)
+		return err
+	}
+
+	return nil
+}
+
+// streamEnumerate processes a target enumeration by streaming batches of tasks from the enumerator.
+// It handles checkpointing progress and publishing tasks while managing the enumeration lifecycle.
+// This enables efficient processing of large datasets by avoiding loading everything into memory.
+func (s *service) streamEnumerate(
+	ctx context.Context,
+	enumerator TargetEnumerator,
+	state *enumeration.State,
+	startCursor *string,
+) error {
+	ctx, span := s.tracer.Start(ctx, "enumeration.streamEnumerate")
+	defer span.End()
+
+	span.SetAttributes(
+		attribute.String("session_id", state.SessionID()),
+		attribute.String("source_type", state.SourceType()),
+	)
+
+	batchCh := make(chan EnumerateBatch)
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	// Process batches asynchronously to avoid blocking the enumerator.
+	go func() {
+		defer wg.Done()
+		for batch := range batchCh {
+			var batchProgress enumeration.BatchProgress
+
+			// TODO: Handle partial failures once |publishTasks| can handle them.
+			if err := s.publishTasks(ctx, batch.Tasks, state.SessionID()); err != nil {
+				span.RecordError(err)
+				batchProgress = enumeration.NewFailedBatchProgress(err, batch.Checkpoint)
+				s.logger.Error(ctx, "Failed to publish tasks", "error", err)
+			} else {
+				batchProgress = enumeration.NewSuccessfulBatchProgress(len(batch.Tasks), batch.Checkpoint)
 			}
-			span.SetAttributes(attribute.Int("total_tasks_published", totalTasks))
-		}()
 
-		err := enumerator.Enumerate(ctx, st, taskCh)
-		if err != nil {
-			s.domainService.MarkFailed(st, err.Error())
-			if err := s.repo.Save(ctx, st); err != nil {
+			if err := s.domainService.RecordBatchProgress(state, batchProgress); err != nil {
+				span.RecordError(err)
+				s.logger.Error(ctx, "Failed to update progress", "error", err)
+				return
+			}
+
+			if err := s.repo.Save(ctx, state); err != nil {
 				span.RecordError(err)
 				s.logger.Error(ctx, "Failed to save enumeration state", "error", err)
 			}
-			close(taskCh)
-			wg.Wait()
-			return err
 		}
-		s.domainService.MarkCompleted(st)
-		if err := s.repo.Save(ctx, st); err != nil {
+	}()
+
+	err := enumerator.Enumerate(ctx, startCursor, batchCh)
+	close(batchCh)
+	wg.Wait()
+
+	if err != nil {
+		span.RecordError(err)
+		if err := s.domainService.MarkFailed(state, err.Error()); err != nil {
+			span.RecordError(err)
+			s.logger.Error(ctx, "Failed to mark enumeration as failed", "error", err)
+		}
+		if err := s.repo.Save(ctx, state); err != nil {
 			span.RecordError(err)
 			s.logger.Error(ctx, "Failed to save enumeration state", "error", err)
 		}
+		return err
+	}
 
-		close(taskCh)
-		wg.Wait()
-		return nil
-	})
+	if err := s.domainService.MarkCompleted(state); err != nil {
+		span.RecordError(err)
+		s.logger.Error(ctx, "Failed to mark enumeration as completed", "error", err)
+	}
+
+	if err := s.repo.Save(ctx, state); err != nil {
+		span.RecordError(err)
+		s.logger.Error(ctx, "Failed to save enumeration state", "error", err)
+	}
+	return nil
 }
 
-// generateSessionID creates a unique identifier for tracking enumeration sessions.
-func generateSessionID() string { return uuid.New().String() }
+// publishTasks publishes task creation events for a batch of enumerated tasks.
+// It ensures tasks are durably recorded and can be processed by downstream consumers.
+// The session ID is used for correlation and tracking task lineage.
+// TODO: Handle partial failures.
+func (s *service) publishTasks(ctx context.Context, tasks []task.Task, sessionID string) error {
+	ctx, span := s.tracer.Start(ctx, "enumeration.publishTasks")
+	defer span.End()
+
+	span.SetAttributes(
+		attribute.String("session_id", sessionID),
+		attribute.Int("num_tasks", len(tasks)),
+	)
+
+	var totalTasks int
+	for _, t := range tasks {
+		err := s.eventPublisher.PublishDomainEvent(
+			ctx,
+			task.NewTaskCreatedEvent(t),
+			events.WithKey(sessionID),
+		)
+		if err != nil {
+			span.RecordError(err)
+			return err
+		}
+		totalTasks++
+	}
+	span.SetAttributes(attribute.Int("total_tasks_published", totalTasks))
+
+	return nil
+}

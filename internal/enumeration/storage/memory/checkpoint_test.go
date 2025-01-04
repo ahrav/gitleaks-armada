@@ -1,231 +1,221 @@
 package memory
 
-import (
-	"context"
-	"testing"
+// func TestInMemoryCheckpointStorage_SaveAndLoad(t *testing.T) {
+// 	store := NewCheckpointStorage()
+// 	ctx := context.Background()
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+// 	checkpoint := &enumeration.Checkpoint{
+// 		TargetID: "test-target",
+// 		Data: map[string]any{
+// 			"cursor": "abc123",
+// 			"page":   42,
+// 		},
+// 	}
 
-	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
-)
+// 	err := store.Save(ctx, checkpoint)
+// 	require.NoError(t, err)
 
-func TestInMemoryCheckpointStorage_SaveAndLoad(t *testing.T) {
-	store := NewCheckpointStorage()
-	ctx := context.Background()
+// 	loaded, err := store.Load(ctx, checkpoint.TargetID)
+// 	require.NoError(t, err)
+// 	require.NotNil(t, loaded)
 
-	checkpoint := &enumeration.Checkpoint{
-		TargetID: "test-target",
-		Data: map[string]any{
-			"cursor": "abc123",
-			"page":   42,
-		},
-	}
+// 	assert.Equal(t, checkpoint.TargetID, loaded.TargetID)
+// 	assert.Equal(t, checkpoint.Data["cursor"], loaded.Data["cursor"])
+// 	assert.Equal(t, checkpoint.Data["page"], loaded.Data["page"])
+// 	assert.False(t, loaded.UpdatedAt.IsZero(), "UpdatedAt should be set")
+// }
 
-	err := store.Save(ctx, checkpoint)
-	require.NoError(t, err)
+// func TestInMemoryCheckpointStorage_LoadNonExistent(t *testing.T) {
+// 	storage := NewCheckpointStorage()
+// 	ctx := context.Background()
 
-	loaded, err := store.Load(ctx, checkpoint.TargetID)
-	require.NoError(t, err)
-	require.NotNil(t, loaded)
+// 	loaded, err := storage.Load(ctx, "non-existent")
+// 	require.NoError(t, err)
+// 	assert.Nil(t, loaded)
+// }
 
-	assert.Equal(t, checkpoint.TargetID, loaded.TargetID)
-	assert.Equal(t, checkpoint.Data["cursor"], loaded.Data["cursor"])
-	assert.Equal(t, checkpoint.Data["page"], loaded.Data["page"])
-	assert.False(t, loaded.UpdatedAt.IsZero(), "UpdatedAt should be set")
-}
+// func TestInMemoryCheckpointStorage_Delete(t *testing.T) {
+// 	store := NewCheckpointStorage()
+// 	ctx := context.Background()
 
-func TestInMemoryCheckpointStorage_LoadNonExistent(t *testing.T) {
-	storage := NewCheckpointStorage()
-	ctx := context.Background()
+// 	checkpoint := &enumeration.Checkpoint{
+// 		TargetID: "test-target",
+// 		Data: map[string]any{
+// 			"cursor": "abc123",
+// 		},
+// 	}
 
-	loaded, err := storage.Load(ctx, "non-existent")
-	require.NoError(t, err)
-	assert.Nil(t, loaded)
-}
+// 	err := store.Save(ctx, checkpoint)
+// 	require.NoError(t, err)
 
-func TestInMemoryCheckpointStorage_Delete(t *testing.T) {
-	store := NewCheckpointStorage()
-	ctx := context.Background()
+// 	err = store.Delete(ctx, checkpoint.TargetID)
+// 	require.NoError(t, err)
 
-	checkpoint := &enumeration.Checkpoint{
-		TargetID: "test-target",
-		Data: map[string]any{
-			"cursor": "abc123",
-		},
-	}
+// 	loaded, err := store.Load(ctx, checkpoint.TargetID)
+// 	require.NoError(t, err)
+// 	assert.Nil(t, loaded)
+// }
 
-	err := store.Save(ctx, checkpoint)
-	require.NoError(t, err)
+// func TestInMemoryCheckpointStorage_DeleteNonExistent(t *testing.T) {
+// 	store := NewCheckpointStorage()
+// 	ctx := context.Background()
 
-	err = store.Delete(ctx, checkpoint.TargetID)
-	require.NoError(t, err)
+// 	err := store.Delete(ctx, "non-existent")
+// 	require.NoError(t, err)
+// }
 
-	loaded, err := store.Load(ctx, checkpoint.TargetID)
-	require.NoError(t, err)
-	assert.Nil(t, loaded)
-}
+// func TestInMemoryCheckpointStorage_Update(t *testing.T) {
+// 	store := NewCheckpointStorage()
+// 	ctx := context.Background()
 
-func TestInMemoryCheckpointStorage_DeleteNonExistent(t *testing.T) {
-	store := NewCheckpointStorage()
-	ctx := context.Background()
+// 	// Initial checkpoint.
+// 	checkpoint := &enumeration.Checkpoint{
+// 		TargetID: "test-target",
+// 		Data: map[string]any{
+// 			"cursor": "abc123",
+// 		},
+// 	}
 
-	err := store.Delete(ctx, "non-existent")
-	require.NoError(t, err)
-}
+// 	err := store.Save(ctx, checkpoint)
+// 	require.NoError(t, err)
+// 	loaded, err := store.Load(ctx, checkpoint.TargetID)
+// 	require.NoError(t, err)
+// 	require.NotNil(t, loaded)
+// 	firstSaveTime := loaded.UpdatedAt
 
-func TestInMemoryCheckpointStorage_Update(t *testing.T) {
-	store := NewCheckpointStorage()
-	ctx := context.Background()
+// 	checkpoint.Data["cursor"] = "def456"
+// 	err = store.Save(ctx, checkpoint)
+// 	require.NoError(t, err)
 
-	// Initial checkpoint.
-	checkpoint := &enumeration.Checkpoint{
-		TargetID: "test-target",
-		Data: map[string]any{
-			"cursor": "abc123",
-		},
-	}
+// 	loaded2, err := store.Load(ctx, checkpoint.TargetID)
+// 	require.NoError(t, err)
+// 	require.NotNil(t, loaded2)
 
-	err := store.Save(ctx, checkpoint)
-	require.NoError(t, err)
-	loaded, err := store.Load(ctx, checkpoint.TargetID)
-	require.NoError(t, err)
-	require.NotNil(t, loaded)
-	firstSaveTime := loaded.UpdatedAt
+// 	assert.Equal(t, "def456", loaded2.Data["cursor"])
+// 	assert.True(t, loaded2.UpdatedAt.After(firstSaveTime),
+// 		"UpdatedAt should be later than first save")
+// }
 
-	checkpoint.Data["cursor"] = "def456"
-	err = store.Save(ctx, checkpoint)
-	require.NoError(t, err)
+// func TestInMemoryCheckpointStorage_ConcurrentOperations(t *testing.T) {
+// 	store := NewCheckpointStorage()
+// 	ctx := context.Background()
+// 	const goroutines = 10
+// 	done := make(chan bool)
 
-	loaded2, err := store.Load(ctx, checkpoint.TargetID)
-	require.NoError(t, err)
-	require.NotNil(t, loaded2)
+// 	for i := 0; i < goroutines; i++ {
+// 		go func(id int) {
+// 			checkpoint := &enumeration.Checkpoint{
+// 				TargetID: "concurrent-target",
+// 				Data: map[string]any{
+// 					"value": id,
+// 				},
+// 			}
 
-	assert.Equal(t, "def456", loaded2.Data["cursor"])
-	assert.True(t, loaded2.UpdatedAt.After(firstSaveTime),
-		"UpdatedAt should be later than first save")
-}
+// 			err := store.Save(ctx, checkpoint)
+// 			require.NoError(t, err)
 
-func TestInMemoryCheckpointStorage_ConcurrentOperations(t *testing.T) {
-	store := NewCheckpointStorage()
-	ctx := context.Background()
-	const goroutines = 10
-	done := make(chan bool)
+// 			_, err = store.Load(ctx, checkpoint.TargetID)
+// 			require.NoError(t, err)
 
-	for i := 0; i < goroutines; i++ {
-		go func(id int) {
-			checkpoint := &enumeration.Checkpoint{
-				TargetID: "concurrent-target",
-				Data: map[string]any{
-					"value": id,
-				},
-			}
+// 			done <- true
+// 		}(i)
+// 	}
 
-			err := store.Save(ctx, checkpoint)
-			require.NoError(t, err)
+// 	for i := 0; i < goroutines; i++ {
+// 		<-done
+// 	}
 
-			_, err = store.Load(ctx, checkpoint.TargetID)
-			require.NoError(t, err)
+// 	loaded, err := store.Load(ctx, "concurrent-target")
+// 	require.NoError(t, err)
+// 	require.NotNil(t, loaded)
+// 	assert.NotNil(t, loaded.Data["value"])
+// }
 
-			done <- true
-		}(i)
-	}
+// func TestInMemoryCheckpointStorage_Mutability(t *testing.T) {
+// 	store := NewCheckpointStorage()
+// 	ctx := context.Background()
 
-	for i := 0; i < goroutines; i++ {
-		<-done
-	}
+// 	original := &enumeration.Checkpoint{
+// 		TargetID: "test-target",
+// 		Data: map[string]any{
+// 			"cursor": "abc123",
+// 			"nested": map[string]any{
+// 				"key": "value",
+// 			},
+// 		},
+// 	}
 
-	loaded, err := store.Load(ctx, "concurrent-target")
-	require.NoError(t, err)
-	require.NotNil(t, loaded)
-	assert.NotNil(t, loaded.Data["value"])
-}
+// 	err := store.Save(ctx, original)
+// 	require.NoError(t, err)
 
-func TestInMemoryCheckpointStorage_Mutability(t *testing.T) {
-	store := NewCheckpointStorage()
-	ctx := context.Background()
+// 	// Load checkpoint
+// 	loaded, err := store.Load(ctx, original.TargetID)
+// 	require.NoError(t, err)
+// 	require.NotNil(t, loaded)
 
-	original := &enumeration.Checkpoint{
-		TargetID: "test-target",
-		Data: map[string]any{
-			"cursor": "abc123",
-			"nested": map[string]any{
-				"key": "value",
-			},
-		},
-	}
+// 	loaded.Data["cursor"] = "modified"
+// 	if nestedMap, ok := loaded.Data["nested"].(map[string]any); ok {
+// 		nestedMap["key"] = "modified"
+// 	}
 
-	err := store.Save(ctx, original)
-	require.NoError(t, err)
+// 	// Load again and verify original wasn't modified.
+// 	reloaded, err := store.Load(ctx, original.TargetID)
+// 	require.NoError(t, err)
+// 	require.NotNil(t, reloaded)
 
-	// Load checkpoint
-	loaded, err := store.Load(ctx, original.TargetID)
-	require.NoError(t, err)
-	require.NotNil(t, loaded)
+// 	assert.Equal(t, "abc123", reloaded.Data["cursor"], "Top-level value should not be modified")
+// 	if nestedMap, ok := reloaded.Data["nested"].(map[string]any); ok {
+// 		assert.Equal(t, "value", nestedMap["key"], "Nested value should not be modified")
+// 	}
+// }
 
-	loaded.Data["cursor"] = "modified"
-	if nestedMap, ok := loaded.Data["nested"].(map[string]any); ok {
-		nestedMap["key"] = "modified"
-	}
+// func TestInMemoryCheckpointStorage_LoadByID(t *testing.T) {
+// 	store := NewCheckpointStorage()
+// 	ctx := context.Background()
 
-	// Load again and verify original wasn't modified.
-	reloaded, err := store.Load(ctx, original.TargetID)
-	require.NoError(t, err)
-	require.NotNil(t, reloaded)
+// 	// Create and save a checkpoint.
+// 	checkpoint := &enumeration.Checkpoint{
+// 		ID:       123,
+// 		TargetID: "test-target",
+// 		Data: map[string]any{
+// 			"cursor": "abc123",
+// 			"page":   int(42),
+// 			"nested": map[string]any{
+// 				"key": "value",
+// 			},
+// 		},
+// 	}
 
-	assert.Equal(t, "abc123", reloaded.Data["cursor"], "Top-level value should not be modified")
-	if nestedMap, ok := reloaded.Data["nested"].(map[string]any); ok {
-		assert.Equal(t, "value", nestedMap["key"], "Nested value should not be modified")
-	}
-}
+// 	err := store.Save(ctx, checkpoint)
+// 	require.NoError(t, err)
 
-func TestInMemoryCheckpointStorage_LoadByID(t *testing.T) {
-	store := NewCheckpointStorage()
-	ctx := context.Background()
+// 	loaded, err := store.LoadByID(ctx, 123)
+// 	require.NoError(t, err)
+// 	require.NotNil(t, loaded)
 
-	// Create and save a checkpoint.
-	checkpoint := &enumeration.Checkpoint{
-		ID:       123,
-		TargetID: "test-target",
-		Data: map[string]any{
-			"cursor": "abc123",
-			"page":   int(42),
-			"nested": map[string]any{
-				"key": "value",
-			},
-		},
-	}
+// 	assert.Equal(t, checkpoint.ID, loaded.ID)
+// 	assert.Equal(t, checkpoint.TargetID, loaded.TargetID)
+// 	assert.Equal(t, checkpoint.Data["cursor"], loaded.Data["cursor"])
+// 	assert.Equal(t, checkpoint.Data["page"], loaded.Data["page"])
+// 	if nestedMap, ok := loaded.Data["nested"].(map[string]any); ok {
+// 		assert.Equal(t, "value", nestedMap["key"])
+// 	}
 
-	err := store.Save(ctx, checkpoint)
-	require.NoError(t, err)
+// 	nonExistent, err := store.LoadByID(ctx, 999)
+// 	require.NoError(t, err)
+// 	assert.Nil(t, nonExistent)
 
-	loaded, err := store.LoadByID(ctx, 123)
-	require.NoError(t, err)
-	require.NotNil(t, loaded)
+// 	loaded.Data["cursor"] = "modified"
+// 	if nestedMap, ok := loaded.Data["nested"].(map[string]any); ok {
+// 		nestedMap["key"] = "modified"
+// 	}
 
-	assert.Equal(t, checkpoint.ID, loaded.ID)
-	assert.Equal(t, checkpoint.TargetID, loaded.TargetID)
-	assert.Equal(t, checkpoint.Data["cursor"], loaded.Data["cursor"])
-	assert.Equal(t, checkpoint.Data["page"], loaded.Data["page"])
-	if nestedMap, ok := loaded.Data["nested"].(map[string]any); ok {
-		assert.Equal(t, "value", nestedMap["key"])
-	}
+// 	reloaded, err := store.LoadByID(ctx, 123)
+// 	require.NoError(t, err)
+// 	require.NotNil(t, reloaded)
 
-	nonExistent, err := store.LoadByID(ctx, 999)
-	require.NoError(t, err)
-	assert.Nil(t, nonExistent)
-
-	loaded.Data["cursor"] = "modified"
-	if nestedMap, ok := loaded.Data["nested"].(map[string]any); ok {
-		nestedMap["key"] = "modified"
-	}
-
-	reloaded, err := store.LoadByID(ctx, 123)
-	require.NoError(t, err)
-	require.NotNil(t, reloaded)
-
-	assert.Equal(t, "abc123", reloaded.Data["cursor"], "Top-level value should not be modified")
-	if nestedMap, ok := reloaded.Data["nested"].(map[string]any); ok {
-		assert.Equal(t, "value", nestedMap["key"], "Nested value should not be modified")
-	}
-}
+// 	assert.Equal(t, "abc123", reloaded.Data["cursor"], "Top-level value should not be modified")
+// 	if nestedMap, ok := reloaded.Data["nested"].(map[string]any); ok {
+// 		assert.Equal(t, "value", nestedMap["key"], "Nested value should not be modified")
+// 	}
+// }

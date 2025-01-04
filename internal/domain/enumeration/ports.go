@@ -9,24 +9,12 @@ package enumeration
 
 import (
 	"context"
-
-	"github.com/ahrav/gitleaks-armada/internal/domain/task"
 )
 
-// TargetEnumerator generates scan tasks by walking through a data source.
-// Implementations handle source-specific details like pagination and state tracking
-// to enable reliable scanning of different target types.
-type TargetEnumerator interface {
-	// Enumerate walks through a data source to generate scan tasks.
-	// It uses enumeration state for context and checkpoint data,
-	// streaming generated tasks through the provided channel.
-	Enumerate(ctx context.Context, state *State, taskCh chan<- []task.Task) error
-}
-
-// EnumerationStateRepository provides persistent storage for enumeration session state.
+// StateRepository provides persistent storage for enumeration session state.
 // This enables resumable scanning across process restarts by maintaining the lifecycle
 // state and progress of enumeration sessions.
-type EnumerationStateRepository interface {
+type StateRepository interface {
 	// Save persists the current state of an enumeration session.
 	Save(ctx context.Context, state *State) error
 

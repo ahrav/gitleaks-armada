@@ -40,7 +40,7 @@ func NewCheckpointStore(dbConn *pgxpool.Pool, tracer trace.Tracer) *checkpointSt
 // serialized to JSON before storage to allow for flexible schema evolution.
 func (p *checkpointStore) Save(ctx context.Context, cp *enumeration.Checkpoint) error {
 	return storage.ExecuteAndTrace(ctx, p.tracer, "postgres.save_checkpoint", []attribute.KeyValue{
-		attribute.String("target_id", cp.TargetID),
+		attribute.String("target_id", cp.TargetID()),
 		attribute.Int("data_size", len(fmt.Sprint(cp.Data))),
 	}, func(ctx context.Context) error {
 		dataBytes, err := json.Marshal(cp.Data)
@@ -49,13 +49,13 @@ func (p *checkpointStore) Save(ctx context.Context, cp *enumeration.Checkpoint) 
 		}
 
 		id, err := p.q.CreateOrUpdateCheckpoint(ctx, db.CreateOrUpdateCheckpointParams{
-			TargetID: cp.TargetID,
+			TargetID: cp.TargetID(),
 			Data:     dataBytes,
 		})
 		if err != nil {
 			return fmt.Errorf("failed to save checkpoint: %w", err)
 		}
-		cp.ID = id
+		cp.SetID(id)
 		return nil
 	})
 }
@@ -80,13 +80,8 @@ func (p *checkpointStore) Load(ctx context.Context, targetID string) (*enumerati
 		if err := json.Unmarshal(dbCp.Data, &data); err != nil {
 			return fmt.Errorf("failed to unmarshal checkpoint data: %w", err)
 		}
+		checkpoint = enumeration.NewCheckpoint(dbCp.ID, dbCp.TargetID, data)
 
-		checkpoint = &enumeration.Checkpoint{
-			ID:        dbCp.ID,
-			TargetID:  dbCp.TargetID,
-			Data:      data,
-			UpdatedAt: dbCp.UpdatedAt.Time,
-		}
 		return nil
 	})
 	return checkpoint, err
@@ -110,13 +105,8 @@ func (p *checkpointStore) LoadByID(ctx context.Context, id int64) (*enumeration.
 		if err := json.Unmarshal(dbCp.Data, &data); err != nil {
 			return fmt.Errorf("failed to unmarshal checkpoint data: %w", err)
 		}
+		checkpoint = enumeration.NewCheckpoint(dbCp.ID, dbCp.TargetID, data)
 
-		checkpoint = &enumeration.Checkpoint{
-			ID:        dbCp.ID,
-			TargetID:  dbCp.TargetID,
-			Data:      data,
-			UpdatedAt: dbCp.UpdatedAt.Time,
-		}
 		return nil
 	})
 	return checkpoint, err

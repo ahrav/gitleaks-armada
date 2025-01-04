@@ -3,7 +3,6 @@ package memory
 import (
 	"context"
 	"sync"
-	"time"
 
 	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 )
@@ -24,8 +23,7 @@ func (cs *CheckpointStorage) Save(ctx context.Context, checkpoint *enumeration.C
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 
-	checkpoint.UpdatedAt = time.Now()
-	cs.checkpoints[checkpoint.TargetID] = checkpoint
+	cs.checkpoints[checkpoint.TargetID()] = checkpoint
 	return nil
 }
 
@@ -39,12 +37,7 @@ func (cs *CheckpointStorage) Load(ctx context.Context, targetID string) (*enumer
 	}
 
 	// This needs to be a deep copy to prevent mutation of stored checkpoint.
-	copy := &enumeration.Checkpoint{
-		ID:        cp.ID,
-		TargetID:  cp.TargetID,
-		UpdatedAt: cp.UpdatedAt,
-		Data:      deepCopyMap(cp.Data),
-	}
+	copy := enumeration.NewCheckpoint(cp.ID(), cp.TargetID(), deepCopyMap(cp.Data()))
 
 	return copy, nil
 }
@@ -85,13 +78,8 @@ func (cs *CheckpointStorage) LoadByID(ctx context.Context, id int64) (*enumerati
 	defer cs.mu.Unlock()
 
 	for _, cp := range cs.checkpoints {
-		if cp.ID == id {
-			return &enumeration.Checkpoint{
-				ID:        cp.ID,
-				TargetID:  cp.TargetID,
-				Data:      deepCopyMap(cp.Data),
-				UpdatedAt: cp.UpdatedAt,
-			}, nil
+		if cp.ID() == id {
+			return enumeration.NewCheckpoint(cp.ID(), cp.TargetID(), deepCopyMap(cp.Data())), nil
 		}
 	}
 	return nil, nil

@@ -19,11 +19,11 @@ import (
 	"github.com/jackc/pgx/v5/stdlib"
 	"go.uber.org/automaxprocs/maxprocs"
 
+	"github.com/ahrav/gitleaks-armada/internal/app/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/cluster/kubernetes"
 	"github.com/ahrav/gitleaks-armada/internal/controller"
 	"github.com/ahrav/gitleaks-armada/internal/controller/metrics"
-	"github.com/ahrav/gitleaks-armada/internal/enumeration"
-	"github.com/ahrav/gitleaks-armada/internal/enumeration/factory"
+	enumDomain "github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 	enumStore "github.com/ahrav/gitleaks-armada/internal/enumeration/storage/postgres"
 	"github.com/ahrav/gitleaks-armada/internal/infra/eventbus/kafka"
 	"github.com/ahrav/gitleaks-armada/internal/rules"
@@ -190,17 +190,20 @@ func main() {
 	checkpointStorage := enumStore.NewCheckpointStore(pool, tracer)
 	enumStateStorage := enumStore.NewEnumerationStateStore(pool, checkpointStorage, tracer)
 	eventPublisher := kafka.NewKafkaDomainEventPublisher(broker)
+	enumFactory := enumeration.NewEnumerationFactory(http.DefaultClient, nil, tracer)
 
-	enumFactory := factory.NewEnumerationFactory(http.DefaultClient, nil, enumStateStorage, tracer)
 	enumService := enumeration.NewService(
 		enumStateStorage,
-		configLoader,
+		checkpointStorage,
 		enumFactory,
+		enumDomain.NewService(),
 		eventPublisher,
+		configLoader,
 		log,
 		metricCollector,
 		tracer,
 	)
+
 	rulesService := rules.NewRuleService(rulesStore.NewStore(pool, tracer, metricCollector))
 	ctrl := controller.NewController(
 		hostname,

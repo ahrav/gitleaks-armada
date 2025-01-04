@@ -8,7 +8,6 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
-	domain "github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/domain/task"
 	"github.com/ahrav/gitleaks-armada/pkg/config"
 )
@@ -19,15 +18,14 @@ import (
 type EnumeratorFactory interface {
 	// CreateEnumerator constructs a new TargetEnumerator for the given target
 	// specification and authentication configuration.
-	CreateEnumerator(target config.TargetSpec, auth map[string]config.AuthConfig) (domain.TargetEnumerator, error)
+	CreateEnumerator(target config.TargetSpec, auth map[string]config.AuthConfig) (TargetEnumerator, error)
 }
 
 // enumerationFactory creates target enumerators with required dependencies.
 type enumerationFactory struct {
-	httpClient       *http.Client
-	credStore        *task.CredentialStore
-	enumerationStore domain.EnumerationStateRepository
-	tracer           trace.Tracer
+	httpClient *http.Client
+	credStore  *task.CredentialStore
+	tracer     trace.Tracer
 }
 
 // NewEnumerationFactory creates a new factory for instantiating target enumerators.
@@ -35,13 +33,11 @@ type enumerationFactory struct {
 func NewEnumerationFactory(
 	httpClient *http.Client,
 	credStore *task.CredentialStore,
-	enumStore domain.EnumerationStateRepository,
 	tracer trace.Tracer,
 ) EnumeratorFactory {
 	return &enumerationFactory{
-		httpClient:       httpClient,
-		enumerationStore: enumStore,
-		tracer:           tracer,
+		httpClient: httpClient,
+		tracer:     tracer,
 	}
 }
 
@@ -49,7 +45,7 @@ func NewEnumerationFactory(
 // It handles authentication and creates source-specific enumerators (e.g., GitHub, S3).
 // Returns an error if the target configuration is invalid or required credentials are missing.
 // TODO: Revist the use of this factory it's still a bit wonky with the credential store.
-func (f *enumerationFactory) CreateEnumerator(target config.TargetSpec, auth map[string]config.AuthConfig) (domain.TargetEnumerator, error) {
+func (f *enumerationFactory) CreateEnumerator(target config.TargetSpec, auth map[string]config.AuthConfig) (TargetEnumerator, error) {
 	ctx := context.Background()
 	ctx, span := f.tracer.Start(ctx, "factory.CreateEnumerator",
 		trace.WithAttributes(
@@ -96,7 +92,6 @@ func (f *enumerationFactory) CreateEnumerator(target config.TargetSpec, auth map
 		return NewGitHubEnumerator(
 			ghClient,
 			creds,
-			f.enumerationStore,
 			target.GitHub,
 			f.tracer,
 		), nil
