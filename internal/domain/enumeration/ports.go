@@ -16,19 +16,19 @@ import (
 // state and progress of enumeration sessions.
 type StateRepository interface {
 	// Save persists the current state of an enumeration session.
-	Save(ctx context.Context, state *State) error
+	Save(ctx context.Context, state *SessionState) error
 
 	// Load retrieves an enumeration session state by session ID.
 	// Returns nil if no matching session exists.
-	Load(ctx context.Context, sessionID string) (*State, error)
+	Load(ctx context.Context, sessionID string) (*SessionState, error)
 
 	// GetActiveStates returns all enumeration states that are initialized or in progress.
 	// This enables monitoring and management of ongoing enumeration sessions.
-	GetActiveStates(ctx context.Context) ([]*State, error)
+	GetActiveStates(ctx context.Context) ([]*SessionState, error)
 
 	// List returns the most recent enumeration states, limited by count.
 	// This supports historical tracking and analysis of enumeration sessions.
-	List(ctx context.Context, limit int) ([]*State, error)
+	List(ctx context.Context, limit int) ([]*SessionState, error)
 }
 
 // CheckpointRepository provides persistent storage for enumeration checkpoints.

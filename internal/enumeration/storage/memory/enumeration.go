@@ -13,20 +13,20 @@ import (
 // for testing and development.
 type EnumerationStateStorage struct {
 	mu              sync.Mutex
-	states          map[string]*enumeration.State // Keyed by session ID
+	states          map[string]*enumeration.SessionState // Keyed by session ID
 	checkpointStore enumeration.CheckpointRepository
 }
 
 // NewEnumerationStateStorage creates a new in-memory enumeration state storage.
 func NewEnumerationStateStorage(checkpointStore enumeration.CheckpointRepository) *EnumerationStateStorage {
 	return &EnumerationStateStorage{
-		states:          make(map[string]*enumeration.State),
+		states:          make(map[string]*enumeration.SessionState),
 		checkpointStore: checkpointStore,
 	}
 }
 
 // Save persists the enumeration state and its associated checkpoint.
-func (s *EnumerationStateStorage) Save(ctx context.Context, state *enumeration.State) error {
+func (s *EnumerationStateStorage) Save(ctx context.Context, state *enumeration.SessionState) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -43,7 +43,7 @@ func (s *EnumerationStateStorage) Save(ctx context.Context, state *enumeration.S
 }
 
 // Load retrieves an enumeration session state by session ID.
-func (s *EnumerationStateStorage) Load(ctx context.Context, sessionID string) (*enumeration.State, error) {
+func (s *EnumerationStateStorage) Load(ctx context.Context, sessionID string) (*enumeration.SessionState, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -57,11 +57,11 @@ func (s *EnumerationStateStorage) Load(ctx context.Context, sessionID string) (*
 }
 
 // GetActiveStates returns all enumeration states that are initialized or in progress
-func (s *EnumerationStateStorage) GetActiveStates(ctx context.Context) ([]*enumeration.State, error) {
+func (s *EnumerationStateStorage) GetActiveStates(ctx context.Context) ([]*enumeration.SessionState, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	var active []*enumeration.State
+	var active []*enumeration.SessionState
 	for _, state := range s.states {
 		if state.Status() == enumeration.StatusInitialized || state.Status() == enumeration.StatusInProgress {
 			active = append(active, enumeration.NewState(state.SourceType(), state.Config()))
@@ -71,12 +71,12 @@ func (s *EnumerationStateStorage) GetActiveStates(ctx context.Context) ([]*enume
 }
 
 // List returns the most recent enumeration states, limited by count
-func (s *EnumerationStateStorage) List(ctx context.Context, limit int) ([]*enumeration.State, error) {
+func (s *EnumerationStateStorage) List(ctx context.Context, limit int) ([]*enumeration.SessionState, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	// Convert map to slice for sorting
-	states := make([]*enumeration.State, 0, len(s.states))
+	states := make([]*enumeration.SessionState, 0, len(s.states))
 	for _, state := range s.states {
 		states = append(states, enumeration.NewState(state.SourceType(), state.Config()))
 	}

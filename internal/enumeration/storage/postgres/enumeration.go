@@ -40,7 +40,7 @@ func NewEnumerationStateStore(dbConn *pgxpool.Pool, checkpointStore enumeration.
 // Save persists an enumeration state and its associated checkpoint (if any) to PostgreSQL.
 // It ensures atomic updates by saving the checkpoint first, then updating the enumeration state
 // with a reference to the checkpoint.
-func (s *enumerationStateStore) Save(ctx context.Context, state *enumeration.State) error {
+func (s *enumerationStateStore) Save(ctx context.Context, state *enumeration.SessionState) error {
 	return storage.ExecuteAndTrace(ctx, s.tracer, "postgres.save_enumeration_state", []attribute.KeyValue{
 		attribute.String("session_id", state.SessionID()),
 		attribute.String("source_type", state.SourceType()),
@@ -73,8 +73,8 @@ func (s *enumerationStateStore) Save(ctx context.Context, state *enumeration.Sta
 
 // Load retrieves the current enumeration state and its associated checkpoint.
 // Returns nil if no state exists.
-func (s *enumerationStateStore) Load(ctx context.Context, sessionID string) (*enumeration.State, error) {
-	var state *enumeration.State
+func (s *enumerationStateStore) Load(ctx context.Context, sessionID string) (*enumeration.SessionState, error) {
+	var state *enumeration.SessionState
 	err := storage.ExecuteAndTrace(ctx, s.tracer, "postgres.load_enumeration_state", []attribute.KeyValue{
 		attribute.String("session_id", sessionID),
 	}, func(ctx context.Context) error {
@@ -96,8 +96,8 @@ func (s *enumerationStateStore) Load(ctx context.Context, sessionID string) (*en
 	return state, err
 }
 
-func (s *enumerationStateStore) GetActiveStates(ctx context.Context) ([]*enumeration.State, error) {
-	var states []*enumeration.State
+func (s *enumerationStateStore) GetActiveStates(ctx context.Context) ([]*enumeration.SessionState, error) {
+	var states []*enumeration.SessionState
 	err := storage.ExecuteAndTrace(ctx, s.tracer, "postgres.get_active_enumeration_states", nil, func(ctx context.Context) error {
 		dbStates, err := s.q.GetActiveEnumerationStates(ctx)
 		if err != nil {
@@ -114,8 +114,8 @@ func (s *enumerationStateStore) GetActiveStates(ctx context.Context) ([]*enumera
 	return states, err
 }
 
-func (s *enumerationStateStore) List(ctx context.Context, limit int) ([]*enumeration.State, error) {
-	var states []*enumeration.State
+func (s *enumerationStateStore) List(ctx context.Context, limit int) ([]*enumeration.SessionState, error) {
+	var states []*enumeration.SessionState
 	err := storage.ExecuteAndTrace(ctx, s.tracer, "postgres.list_enumeration_states", []attribute.KeyValue{
 		attribute.Int("limit", limit),
 	}, func(ctx context.Context) error {
@@ -135,8 +135,8 @@ func (s *enumerationStateStore) List(ctx context.Context, limit int) ([]*enumera
 }
 
 // Helper function to convert DB state to domain model.
-func (s *enumerationStateStore) convertDBStateToEnumState(ctx context.Context, dbState db.EnumerationState) (*enumeration.State, error) {
-	var state *enumeration.State
+func (s *enumerationStateStore) convertDBStateToEnumState(ctx context.Context, dbState db.EnumerationState) (*enumeration.SessionState, error) {
+	var state *enumeration.SessionState
 	err := storage.ExecuteAndTrace(ctx, s.tracer, "postgres.convert_db_state", []attribute.KeyValue{
 		attribute.String("session_id", dbState.SessionID),
 		attribute.Bool("has_checkpoint", dbState.LastCheckpointID.Valid),
@@ -167,12 +167,12 @@ func (s *enumerationStateStore) convertDBStateToEnumState(ctx context.Context, d
 }
 
 // Helper function to convert multiple DB states to domain model.
-func (s *enumerationStateStore) convertDBStatesToEnumStates(ctx context.Context, dbStates []db.EnumerationState) ([]*enumeration.State, error) {
-	var states []*enumeration.State
+func (s *enumerationStateStore) convertDBStatesToEnumStates(ctx context.Context, dbStates []db.EnumerationState) ([]*enumeration.SessionState, error) {
+	var states []*enumeration.SessionState
 	err := storage.ExecuteAndTrace(ctx, s.tracer, "postgres.convert_db_states", []attribute.KeyValue{
 		attribute.Int("state_count", len(dbStates)),
 	}, func(ctx context.Context) error {
-		states = make([]*enumeration.State, len(dbStates))
+		states = make([]*enumeration.SessionState, len(dbStates))
 		for i, dbState := range dbStates {
 			state, err := s.convertDBStateToEnumState(ctx, dbState)
 			if err != nil {

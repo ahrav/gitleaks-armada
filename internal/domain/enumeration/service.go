@@ -13,25 +13,25 @@ type Service interface {
 
 	// MarkInProgress transitions an enumeration to the in-progress state.
 	// Returns an error if the transition is invalid from the current state.
-	MarkInProgress(state *State) error
+	MarkInProgress(state *SessionState) error
 	// MarkCompleted transitions an enumeration to the completed state.
 	// Returns an error if the transition is invalid from the current state.
-	MarkCompleted(state *State) error
+	MarkCompleted(state *SessionState) error
 	// MarkFailed transitions an enumeration to the failed state with a reason.
 	// Returns an error if the transition is invalid from the current state.
-	MarkFailed(state *State, reason string) error
+	MarkFailed(state *SessionState, reason string) error
 
 	// Progress tracking.
 
 	// RecordBatchProgress records the progress of a batch and updates overall progress.
-	RecordBatchProgress(state *State, batch BatchProgress) error
+	RecordBatchProgress(state *SessionState, batch BatchProgress) error
 
 	// Querying.
 
 	// IsStalled determines if an enumeration has exceeded the staleness threshold.
-	IsStalled(state *State, threshold time.Duration) bool
+	IsStalled(state *SessionState, threshold time.Duration) bool
 	// CanTransitionTo validates if a state transition is allowed by the domain rules.
-	CanTransitionTo(state *State, targetStatus Status) bool
+	CanTransitionTo(state *SessionState, targetStatus Status) bool
 }
 
 // Domain errors define the core failure modes of enumeration state management.
@@ -59,7 +59,7 @@ func NewService() Service {
 // MarkInProgress transitions an enumeration to the in-progress state. It initializes
 // progress tracking if not already present. This transition is only allowed from
 // specific states per domain rules.
-func (ds *service) MarkInProgress(state *State) error {
+func (ds *service) MarkInProgress(state *SessionState) error {
 	if !ds.CanTransitionTo(state, StatusInProgress) {
 		return fmt.Errorf("%w: cannot transition from %s to %s",
 			ErrInvalidStateTransition, state.Status(), StatusInProgress)
@@ -77,7 +77,7 @@ func (ds *service) MarkInProgress(state *State) error {
 // MarkCompleted transitions an enumeration to the completed state, indicating all
 // targets were successfully processed. This is a terminal state that can only be
 // reached from in-progress or stalled states.
-func (ds *service) MarkCompleted(state *State) error {
+func (ds *service) MarkCompleted(state *SessionState) error {
 	if !ds.CanTransitionTo(state, StatusCompleted) {
 		return fmt.Errorf("%w: cannot transition from %s to %s",
 			ErrInvalidStateTransition, state.Status(), StatusCompleted)
@@ -91,7 +91,7 @@ func (ds *service) MarkCompleted(state *State) error {
 // MarkFailed transitions an enumeration to the failed state with a reason for the
 // failure. This is a terminal state that captures unrecoverable errors during
 // enumeration.
-func (ds *service) MarkFailed(state *State, reason string) error {
+func (ds *service) MarkFailed(state *SessionState, reason string) error {
 	if !ds.CanTransitionTo(state, StatusFailed) {
 		return fmt.Errorf("%w: cannot transition from %s to %s",
 			ErrInvalidStateTransition, state.Status(), StatusFailed)
@@ -106,7 +106,7 @@ func (ds *service) MarkFailed(state *State, reason string) error {
 // RecordBatchProgress updates the enumeration state with progress from a batch of
 // processed items. It enforces monotonically increasing progress and automatically
 // transitions to stalled or partially completed states based on progress conditions.
-func (ds *service) RecordBatchProgress(state *State, batch BatchProgress) error {
+func (ds *service) RecordBatchProgress(state *SessionState, batch BatchProgress) error {
 	if state.Status() != StatusInProgress {
 		return fmt.Errorf("%w: can only update progress when in progress", ErrInvalidProgress)
 	}
@@ -136,7 +136,7 @@ func (ds *service) RecordBatchProgress(state *State, batch BatchProgress) error 
 
 // IsStalled determines if an enumeration has exceeded the staleness threshold by
 // checking the time since the last progress update.
-func (ds *service) IsStalled(state *State, threshold time.Duration) bool {
+func (ds *service) IsStalled(state *SessionState, threshold time.Duration) bool {
 	if state.Progress() == nil || state.Status() != StatusInProgress {
 		return false
 	}
@@ -157,7 +157,7 @@ var validTransitions = map[Status][]Status{
 
 // CanTransitionTo validates if a state transition is allowed by checking the
 // transition rules defined in validTransitions.
-func (ds *service) CanTransitionTo(state *State, targetStatus Status) bool {
+func (ds *service) CanTransitionTo(state *SessionState, targetStatus Status) bool {
 	allowedTransitions, exists := validTransitions[state.Status()]
 	if !exists {
 		return false

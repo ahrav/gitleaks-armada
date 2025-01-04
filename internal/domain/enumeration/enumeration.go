@@ -306,12 +306,12 @@ const (
 	StatusPartiallyCompleted Status = "partially_completed"
 )
 
-// State is an aggregate root that tracks the progress and status of a target enumeration session.
+// SessionState is an aggregate root that tracks the progress and status of a target enumeration session.
 // As an aggregate, it encapsulates the lifecycle and consistency boundaries of the enumeration process,
 // coordinating changes to its child entities (Checkpoint) and value objects (EnumerationStatus).
 // It maintains configuration, checkpoints, and status to enable resumable scanning of large data sources
 // while ensuring business rules and invariants are preserved.
-type State struct {
+type SessionState struct {
 	// Identity.
 	sessionID  string
 	sourceType string
@@ -332,8 +332,8 @@ type State struct {
 // NewState creates a new enumeration State aggregate root with the provided source type and configuration.
 // It enforces domain invariants by generating a unique session ID and setting the initial status.
 // The domain owns identity generation to maintain aggregate consistency.
-func NewState(sourceType string, config json.RawMessage) *State {
-	return &State{
+func NewState(sourceType string, config json.RawMessage) *SessionState {
+	return &SessionState{
 		sessionID:   uuid.New().String(),
 		sourceType:  sourceType,
 		config:      config,
@@ -354,8 +354,8 @@ func ReconstructState(
 	failureReason string,
 	lastCheckpoint *Checkpoint,
 	progress *Progress,
-) *State {
-	return &State{
+) *SessionState {
+	return &SessionState{
 		sessionID:      sessionID,
 		sourceType:     sourceType,
 		config:         config,
@@ -368,26 +368,26 @@ func ReconstructState(
 }
 
 // Getters for State
-func (s *State) SessionID() string           { return s.sessionID }
-func (s *State) SourceType() string          { return s.sourceType }
-func (s *State) Status() Status              { return s.status }
-func (s *State) Progress() *Progress         { return s.progress }
-func (s *State) LastCheckpoint() *Checkpoint { return s.lastCheckpoint }
-func (s *State) FailureReason() string       { return s.failureReason }
-func (s *State) Config() json.RawMessage     { return s.config }
-func (s *State) LastUpdated() time.Time      { return s.lastUpdated }
+func (s *SessionState) SessionID() string           { return s.sessionID }
+func (s *SessionState) SourceType() string          { return s.sourceType }
+func (s *SessionState) Status() Status              { return s.status }
+func (s *SessionState) Progress() *Progress         { return s.progress }
+func (s *SessionState) LastCheckpoint() *Checkpoint { return s.lastCheckpoint }
+func (s *SessionState) FailureReason() string       { return s.failureReason }
+func (s *SessionState) Config() json.RawMessage     { return s.config }
+func (s *SessionState) LastUpdated() time.Time      { return s.lastUpdated }
 
 // State methods for internal modifications
-func (s *State) setStatus(status Status) {
+func (s *SessionState) setStatus(status Status) {
 	s.status = status
 	s.lastUpdated = time.Now()
 }
 
-func (s *State) setFailureReason(reason string) { s.failureReason = reason }
+func (s *SessionState) setFailureReason(reason string) { s.failureReason = reason }
 
-func (s *State) updateLastUpdated() { s.lastUpdated = time.Now() }
+func (s *SessionState) updateLastUpdated() { s.lastUpdated = time.Now() }
 
-func (s *State) initializeProgress() {
+func (s *SessionState) initializeProgress() {
 	s.progress = &Progress{
 		startedAt:  time.Now(),
 		lastUpdate: time.Now(),
@@ -395,7 +395,7 @@ func (s *State) initializeProgress() {
 }
 
 // MarshalJSON serializes the State object into a JSON byte array.
-func (s *State) MarshalJSON() ([]byte, error) {
+func (s *SessionState) MarshalJSON() ([]byte, error) {
 	return json.Marshal(&struct {
 		SessionID      string          `json:"session_id"`
 		SourceType     string          `json:"source_type"`
@@ -418,7 +418,7 @@ func (s *State) MarshalJSON() ([]byte, error) {
 }
 
 // UnmarshalJSON deserializes JSON data into a State object.
-func (s *State) UnmarshalJSON(data []byte) error {
+func (s *SessionState) UnmarshalJSON(data []byte) error {
 	aux := &struct {
 		SessionID      string          `json:"session_id"`
 		SourceType     string          `json:"source_type"`
@@ -486,7 +486,7 @@ func NewFailedBatchProgress(err error, checkpoint *Checkpoint) BatchProgress {
 // addBatchProgress updates the enumeration state with results from a completed batch.
 // It maintains aggregate progress metrics and ensures the state reflects the latest
 // batch outcomes for monitoring and resumption.
-func (s *State) addBatchProgress(batch BatchProgress) {
+func (s *SessionState) addBatchProgress(batch BatchProgress) {
 	// Initialize progress tracking if this is the first batch.
 	if s.progress == nil {
 		s.initializeProgress()
@@ -504,6 +504,6 @@ func (s *State) addBatchProgress(batch BatchProgress) {
 }
 
 // HasFailedBatches returns true if any batches failed during enumeration.
-func (s *State) HasFailedBatches() bool {
+func (s *SessionState) HasFailedBatches() bool {
 	return s.progress != nil && s.progress.failedBatches > 0
 }

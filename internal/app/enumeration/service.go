@@ -179,7 +179,7 @@ func (s *service) marshalConfig(ctx context.Context, target config.TargetSpec, a
 
 // resumeEnumerations attempts to continue enumeration from previously saved states.
 // This allows recovery from interruptions and supports incremental scanning.
-func (s *service) resumeEnumerations(ctx context.Context, states []*enumeration.State) error {
+func (s *service) resumeEnumerations(ctx context.Context, states []*enumeration.SessionState) error {
 	ctx, span := s.tracer.Start(ctx, "enumeration.resumeEnumerations")
 	defer span.End()
 
@@ -211,7 +211,7 @@ func (s *service) resumeEnumerations(ctx context.Context, states []*enumeration.
 // including state transitions, enumerator creation, and streaming of results.
 func (s *service) processTargetEnumeration(
 	ctx context.Context,
-	state *enumeration.State,
+	state *enumeration.SessionState,
 	target config.TargetSpec,
 	auth map[string]config.AuthConfig,
 ) error {
@@ -279,7 +279,7 @@ func (s *service) processTargetEnumeration(
 func (s *service) streamEnumerate(
 	ctx context.Context,
 	enumerator TargetEnumerator,
-	state *enumeration.State,
+	state *enumeration.SessionState,
 	startCursor *string,
 ) error {
 	ctx, span := s.tracer.Start(ctx, "enumeration.streamEnumerate")
