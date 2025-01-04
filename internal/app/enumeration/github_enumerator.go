@@ -1,7 +1,4 @@
-// Package github provides functionality for enumerating GitHub repositories
-// within organizations. It handles authentication, pagination, and state
-// management to reliably scan large organizations.
-package github
+package enumeration
 
 import (
 	"bytes"
@@ -17,13 +14,11 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
+	domain "github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/domain/task"
 	"github.com/ahrav/gitleaks-armada/pkg/common"
 	"github.com/ahrav/gitleaks-armada/pkg/config"
 )
-
-var _ enumeration.TargetEnumerator = new(GitHubEnumerator)
 
 // GitHubAPI defines the interface for interacting with GitHub's API.
 type GitHubAPI interface {
@@ -31,6 +26,8 @@ type GitHubAPI interface {
 	// along with pagination information.
 	ListRepositories(ctx context.Context, org string, cursor *string) (*githubGraphQLResponse, error)
 }
+
+var _ domain.TargetEnumerator = new(GitHubEnumerator)
 
 // GitHubEnumerator handles enumerating repositories from a GitHub organization.
 // It supports pagination and checkpoint-based resumption to handle large organizations
@@ -40,7 +37,7 @@ type GitHubEnumerator struct {
 	creds    *task.TaskCredentials
 
 	ghClient GitHubAPI
-	storage  enumeration.EnumerationStateRepository
+	storage  domain.EnumerationStateRepository
 	tracer   trace.Tracer
 }
 
@@ -49,7 +46,7 @@ type GitHubEnumerator struct {
 func NewGitHubEnumerator(
 	client GitHubAPI,
 	creds *task.TaskCredentials,
-	storage enumeration.EnumerationStateRepository,
+	storage domain.EnumerationStateRepository,
 	ghConfig *config.GitHubTarget,
 	tracer trace.Tracer,
 ) *GitHubEnumerator {
@@ -80,7 +77,7 @@ func extractGitHubToken(creds *task.TaskCredentials) (string, error) {
 // It uses GraphQL for efficient pagination and maintains checkpoints for resumability.
 // The method streams batches of tasks through the provided channel and updates progress
 // in the enumeration state storage.
-func (e *GitHubEnumerator) Enumerate(ctx context.Context, state *enumeration.EnumerationState, taskCh chan<- []task.Task) error {
+func (e *GitHubEnumerator) Enumerate(ctx context.Context, state *domain.State, taskCh chan<- []task.Task) error {
 	ctx, span := e.tracer.Start(ctx, "github.enumerate",
 		trace.WithAttributes(
 			attribute.String("org", e.ghConfig.Org),
@@ -155,7 +152,7 @@ func (e *GitHubEnumerator) Enumerate(ctx context.Context, state *enumeration.Enu
 		// Save progress after each successful batch.
 		// Note: Checkpoints are only saved if the target has multiple pages in the response.
 		endCursor = &pageInfo.EndCursor
-		checkpoint := &enumeration.Checkpoint{
+		checkpoint := &domain.Checkpoint{
 			TargetID:  e.ghConfig.Org,
 			Data:      map[string]any{"endCursor": *endCursor},
 			UpdatedAt: time.Now(),

@@ -1,24 +1,17 @@
-// Package enumeration provides domain types and interfaces for scanning target enumeration.
-// It enables reliable, resumable scanning of large data sources by managing enumeration
-// state, checkpoints, and task generation.
+// Package enumeration provides domain types and interfaces for target enumeration.
+// It defines core abstractions for discovering and enumerating scan targets from
+// different data sources (e.g. GitHub, S3). The package enables reliable, resumable
+// scanning by managing enumeration state, checkpoints, and task generation.
+// The enumeration process coordinates the overall scanning lifecycle by managing
+// state transitions, supporting resumable operations, and generating scan tasks
+// that get published to the event bus for processing.
 package enumeration
 
 import (
 	"context"
 
 	"github.com/ahrav/gitleaks-armada/internal/domain/task"
-	"github.com/ahrav/gitleaks-armada/pkg/config"
 )
-
-// Service defines the core domain operations for target enumeration.
-// It coordinates the overall scanning process by managing enumeration state
-// and supporting resumable scans.
-type Service interface {
-	// ExecuteEnumeration performs target enumeration by either resuming from
-	// existing state or starting fresh. It handles the full enumeration lifecycle
-	// including state management and task generation.
-	ExecuteEnumeration(ctx context.Context) error
-}
 
 // TargetEnumerator generates scan tasks by walking through a data source.
 // Implementations handle source-specific details like pagination and state tracking
@@ -27,16 +20,7 @@ type TargetEnumerator interface {
 	// Enumerate walks through a data source to generate scan tasks.
 	// It uses enumeration state for context and checkpoint data,
 	// streaming generated tasks through the provided channel.
-	Enumerate(ctx context.Context, state *EnumerationState, taskCh chan<- []task.Task) error
-}
-
-// EnumeratorFactory creates TargetEnumerators for different data sources.
-// It encapsulates the logic for instantiating appropriate enumerators based on
-// target configuration and authentication details.
-type EnumeratorFactory interface {
-	// CreateEnumerator constructs a new TargetEnumerator for the given target
-	// specification and authentication configuration.
-	CreateEnumerator(target config.TargetSpec, auth map[string]config.AuthConfig) (TargetEnumerator, error)
+	Enumerate(ctx context.Context, state *State, taskCh chan<- []task.Task) error
 }
 
 // EnumerationStateRepository provides persistent storage for enumeration session state.
@@ -44,19 +28,19 @@ type EnumeratorFactory interface {
 // state and progress of enumeration sessions.
 type EnumerationStateRepository interface {
 	// Save persists the current state of an enumeration session.
-	Save(ctx context.Context, state *EnumerationState) error
+	Save(ctx context.Context, state *State) error
 
 	// Load retrieves an enumeration session state by session ID.
 	// Returns nil if no matching session exists.
-	Load(ctx context.Context, sessionID string) (*EnumerationState, error)
+	Load(ctx context.Context, sessionID string) (*State, error)
 
 	// GetActiveStates returns all enumeration states that are initialized or in progress.
 	// This enables monitoring and management of ongoing enumeration sessions.
-	GetActiveStates(ctx context.Context) ([]*EnumerationState, error)
+	GetActiveStates(ctx context.Context) ([]*State, error)
 
 	// List returns the most recent enumeration states, limited by count.
 	// This supports historical tracking and analysis of enumeration sessions.
-	List(ctx context.Context, limit int) ([]*EnumerationState, error)
+	List(ctx context.Context, limit int) ([]*State, error)
 }
 
 // CheckpointRepository provides persistent storage for enumeration checkpoints.

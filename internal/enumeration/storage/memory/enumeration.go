@@ -14,20 +14,20 @@ import (
 // for testing and development.
 type EnumerationStateStorage struct {
 	mu              sync.Mutex
-	states          map[string]*enumeration.EnumerationState // Keyed by session ID
+	states          map[string]*enumeration.State // Keyed by session ID
 	checkpointStore enumeration.CheckpointRepository
 }
 
 // NewEnumerationStateStorage creates a new in-memory enumeration state storage.
 func NewEnumerationStateStorage(checkpointStore enumeration.CheckpointRepository) *EnumerationStateStorage {
 	return &EnumerationStateStorage{
-		states:          make(map[string]*enumeration.EnumerationState),
+		states:          make(map[string]*enumeration.State),
 		checkpointStore: checkpointStore,
 	}
 }
 
 // Save persists the enumeration state and its associated checkpoint.
-func (s *EnumerationStateStorage) Save(ctx context.Context, state *enumeration.EnumerationState) error {
+func (s *EnumerationStateStorage) Save(ctx context.Context, state *enumeration.State) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -38,7 +38,7 @@ func (s *EnumerationStateStorage) Save(ctx context.Context, state *enumeration.E
 	}
 
 	// Store a deep copy to prevent mutations
-	s.states[state.SessionID] = &enumeration.EnumerationState{
+	s.states[state.SessionID] = &enumeration.State{
 		SessionID:      state.SessionID,
 		SourceType:     state.SourceType,
 		Config:         append(json.RawMessage(nil), state.Config...),
@@ -51,7 +51,7 @@ func (s *EnumerationStateStorage) Save(ctx context.Context, state *enumeration.E
 }
 
 // Load retrieves an enumeration session state by session ID.
-func (s *EnumerationStateStorage) Load(ctx context.Context, sessionID string) (*enumeration.EnumerationState, error) {
+func (s *EnumerationStateStorage) Load(ctx context.Context, sessionID string) (*enumeration.State, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -61,7 +61,7 @@ func (s *EnumerationStateStorage) Load(ctx context.Context, sessionID string) (*
 	}
 
 	// Return a deep copy to prevent mutations
-	return &enumeration.EnumerationState{
+	return &enumeration.State{
 		SessionID:      state.SessionID,
 		SourceType:     state.SourceType,
 		Config:         append(json.RawMessage(nil), state.Config...),
@@ -72,14 +72,14 @@ func (s *EnumerationStateStorage) Load(ctx context.Context, sessionID string) (*
 }
 
 // GetActiveStates returns all enumeration states that are initialized or in progress
-func (s *EnumerationStateStorage) GetActiveStates(ctx context.Context) ([]*enumeration.EnumerationState, error) {
+func (s *EnumerationStateStorage) GetActiveStates(ctx context.Context) ([]*enumeration.State, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	var active []*enumeration.EnumerationState
+	var active []*enumeration.State
 	for _, state := range s.states {
 		if state.Status == enumeration.StatusInitialized || state.Status == enumeration.StatusInProgress {
-			active = append(active, &enumeration.EnumerationState{
+			active = append(active, &enumeration.State{
 				SessionID:      state.SessionID,
 				SourceType:     state.SourceType,
 				Config:         append(json.RawMessage(nil), state.Config...),
@@ -93,14 +93,14 @@ func (s *EnumerationStateStorage) GetActiveStates(ctx context.Context) ([]*enume
 }
 
 // List returns the most recent enumeration states, limited by count
-func (s *EnumerationStateStorage) List(ctx context.Context, limit int) ([]*enumeration.EnumerationState, error) {
+func (s *EnumerationStateStorage) List(ctx context.Context, limit int) ([]*enumeration.State, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	// Convert map to slice for sorting
-	states := make([]*enumeration.EnumerationState, 0, len(s.states))
+	states := make([]*enumeration.State, 0, len(s.states))
 	for _, state := range s.states {
-		states = append(states, &enumeration.EnumerationState{
+		states = append(states, &enumeration.State{
 			SessionID:      state.SessionID,
 			SourceType:     state.SourceType,
 			Config:         append(json.RawMessage(nil), state.Config...),

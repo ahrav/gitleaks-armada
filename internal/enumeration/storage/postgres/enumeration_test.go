@@ -48,7 +48,7 @@ func TestPGEnumerationStateStorage_SaveAndLoad(t *testing.T) {
 		"cursor": "abc123",
 	})
 
-	state := &enumeration.EnumerationState{
+	state := &enumeration.State{
 		SessionID:      "test-session",
 		SourceType:     "github",
 		Config:         json.RawMessage(`{"org": "test-org"}`),
@@ -96,7 +96,7 @@ func TestPGEnumerationStateStorage_Update(t *testing.T) {
 		"cursor": "abc123",
 	})
 
-	initialState := &enumeration.EnumerationState{
+	initialState := &enumeration.State{
 		SessionID:      "test-session",
 		SourceType:     "github",
 		Config:         json.RawMessage(`{}`),
@@ -129,7 +129,7 @@ func TestPGEnumerationStateStorage_Mutability(t *testing.T) {
 		},
 	})
 
-	original := &enumeration.EnumerationState{
+	original := &enumeration.State{
 		SessionID:      "test-session",
 		SourceType:     "github",
 		Config:         json.RawMessage(`{}`),
@@ -176,7 +176,7 @@ func TestPGEnumerationStateStorage_ConcurrentOperations(t *testing.T) {
 				"value": id,
 			})
 
-			state := &enumeration.EnumerationState{
+			state := &enumeration.State{
 				SessionID:      "concurrent-session",
 				SourceType:     "github",
 				Config:         json.RawMessage(`{}`),
@@ -212,7 +212,7 @@ func TestPGEnumerationStateStorage_GetActiveStates(t *testing.T) {
 	defer cleanup()
 
 	// Create states with different statuses.
-	states := []*enumeration.EnumerationState{
+	states := []*enumeration.State{
 		{
 			SessionID:  "session-1",
 			SourceType: "github",
@@ -243,7 +243,7 @@ func TestPGEnumerationStateStorage_GetActiveStates(t *testing.T) {
 	require.Len(t, active, 2, "Should have 2 active states")
 
 	for _, s := range active {
-		assert.Contains(t, []enumeration.EnumerationStatus{
+		assert.Contains(t, []enumeration.Status{
 			enumeration.StatusInitialized,
 			enumeration.StatusInProgress,
 		}, s.Status)
@@ -256,7 +256,7 @@ func TestPGEnumerationStateStorage_List(t *testing.T) {
 	ctx, store, _, cleanup := setupEnumerationTest(t)
 	defer cleanup()
 
-	states := []*enumeration.EnumerationState{
+	states := []*enumeration.State{
 		{
 			SessionID:  "session-1",
 			SourceType: "github",

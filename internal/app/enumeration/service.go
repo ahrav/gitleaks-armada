@@ -1,5 +1,3 @@
-// Package enumeration provides functionality for scanning and enumerating targets
-// across different source types like GitHub repositories and S3 buckets.
 package enumeration
 
 import (
@@ -20,6 +18,16 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/config"
 )
 
+// Service defines the core domain operations for target enumeration.
+// It coordinates the overall scanning process by managing enumeration state
+// and supporting resumable scans.
+type Service interface {
+	// ExecuteEnumeration performs target enumeration by either resuming from
+	// existing state or starting fresh. It handles the full enumeration lifecycle
+	// including state management and task generation.
+	ExecuteEnumeration(ctx context.Context) error
+}
+
 // metrics defines the interface for tracking enumeration-related metrics.
 type metrics interface {
 	IncConfigReloadErrors()
@@ -29,46 +37,58 @@ type metrics interface {
 	TrackEnumeration(fn func() error) error
 }
 
-// service implements the Service interface with dependencies for storage,
-// configuration, metrics, and event publishing.
-type service struct {
-	store          domain.EnumerationStateRepository
-	configLoader   config.Loader // used if we need to load new config
-	enumFactory    domain.EnumeratorFactory
+// enumerationApplicationServiceImpl implements EnumerationApplicationService
+// by orchestrating domain logic, repository calls, event publishing, etc.
+type enumerationApplicationServiceImpl struct {
+	// outbound ports from the domain
+	repo           domain.EnumerationStateRepository
+	checkpointRepo domain.CheckpointRepository
+
+	// enumerator factory is also a domain-level concept,
+	// but we instantiate it here since it interacts with external code
+	enumFactory EnumeratorFactory
+
+	// Possibly references a domain service
+	domainService domain.EnumerationDomainService
+
+	// External stuff: eventPublisher, config loader, logger, metrics, etc.
 	eventPublisher events.DomainEventPublisher
+	configLoader   config.Loader
 	logger         *logger.Logger
-	metrics        metrics
+	metrics        metrics // your custom interface
 	tracer         trace.Tracer
 }
 
-// NewService creates a new Service instance with the provided dependencies.
-// It requires storage for enumeration state, configuration loading, factory for creating
-// enumerators, event publishing, logging, metrics collection and tracing capabilities.
-func NewService(
-	store domain.EnumerationStateRepository,
-	configLoader config.Loader,
-	enumFactory domain.EnumeratorFactory,
+// NewEnumerationApplicationService constructs the application service
+func NewEnumerationApplicationService(
+	repo domain.EnumerationStateRepository,
+	checkpointRepo domain.CheckpointRepository,
+	enumFactory EnumeratorFactory,
+	domainSvc domain.EnumerationDomainService,
 	eventPublisher events.DomainEventPublisher,
+	cfgLoader config.Loader,
 	logger *logger.Logger,
 	metrics metrics,
 	tracer trace.Tracer,
-) domain.Service {
-	return &service{
-		store:          store,
-		configLoader:   configLoader,
+) Service {
+	return &enumerationApplicationServiceImpl{
+		repo:           repo,
+		checkpointRepo: checkpointRepo,
 		enumFactory:    enumFactory,
+		domainService:  domainSvc,
 		eventPublisher: eventPublisher,
+		configLoader:   cfgLoader,
 		logger:         logger,
 		metrics:        metrics,
 		tracer:         tracer,
 	}
 }
 
-func (s *service) ExecuteEnumeration(ctx context.Context) error {
+func (s *enumerationApplicationServiceImpl) ExecuteEnumeration(ctx context.Context) error {
 	ctx, span := s.tracer.Start(ctx, "enumeration.ExecuteEnumeration")
 	defer span.End()
 
-	activeStates, err := s.store.GetActiveStates(ctx)
+	activeStates, err := s.repo.GetActiveStates(ctx)
 	if err != nil {
 		span.RecordError(err)
 		return fmt.Errorf("failed to load active states: %w", err)
@@ -91,7 +111,7 @@ func (s *service) ExecuteEnumeration(ctx context.Context) error {
 
 // startFreshEnumerations processes each target from the configuration, creating new
 // enumeration states and running the appropriate enumerator for each target type.
-func (s *service) startFreshEnumerations(ctx context.Context, cfg *config.Config) error {
+func (s *enumerationApplicationServiceImpl) startFreshEnumerations(ctx context.Context, cfg *config.Config) error {
 	ctx, span := s.tracer.Start(ctx, "enumeration.startFreshEnumerations")
 	defer span.End()
 
@@ -115,20 +135,20 @@ func (s *service) startFreshEnumerations(ctx context.Context, cfg *config.Config
 			LastUpdated: time.Now(),
 			Config:      s.marshalConfig(ctx, target, cfg.Auth),
 		}
-		if err := s.store.Save(targetCtx, state); err != nil {
+		if err := s.repo.Save(targetCtx, state); err != nil {
 			targetSpan.RecordError(err)
 			return fmt.Errorf("failed to save new enumeration state: %w", err)
 		}
 		// Mark in-progress.
-		state.UpdateStatus(domain.StatusInProgress)
-		_ = s.store.Save(targetCtx, state)
+		s.domainService.MarkInProgress(state)
+		_ = s.repo.Save(targetCtx, state)
 
 		// Build enumerator.
 		enumerator, err := s.enumFactory.CreateEnumerator(target, cfg.Auth)
 		if err != nil {
-			state.UpdateStatus(domain.StatusFailed)
+			s.domainService.MarkFailed(state, err.Error())
 			targetSpan.RecordError(err)
-			if err := s.store.Save(targetCtx, state); err != nil {
+			if err := s.repo.Save(targetCtx, state); err != nil {
 				targetSpan.RecordError(err)
 				s.logger.Error(targetCtx, "Failed to save enumeration state", "error", err)
 			}
@@ -149,7 +169,7 @@ func (s *service) startFreshEnumerations(ctx context.Context, cfg *config.Config
 
 // marshalConfig serializes the target configuration into a JSON raw message.
 // This allows storing the complete target configuration with the enumeration state.
-func (s *service) marshalConfig(ctx context.Context, target config.TargetSpec, auth map[string]config.AuthConfig) json.RawMessage {
+func (s *enumerationApplicationServiceImpl) marshalConfig(ctx context.Context, target config.TargetSpec, auth map[string]config.AuthConfig) json.RawMessage {
 	// Add tracing for config marshaling
 	ctx, span := s.tracer.Start(ctx, "enumeration.marshalConfig")
 	defer span.End()
@@ -183,7 +203,7 @@ func (s *service) marshalConfig(ctx context.Context, target config.TargetSpec, a
 
 // resumeEnumerations attempts to continue enumeration from previously saved states.
 // This allows recovery from interruptions and supports incremental scanning.
-func (s *service) resumeEnumerations(ctx context.Context, states []*domain.State) error {
+func (s *enumerationApplicationServiceImpl) resumeEnumerations(ctx context.Context, states []*domain.State) error {
 	ctx, span := s.tracer.Start(ctx, "enumeration.resumeEnumerations")
 	defer span.End()
 
@@ -208,16 +228,16 @@ func (s *service) resumeEnumerations(ctx context.Context, states []*domain.State
 			return fmt.Errorf("failed to unmarshal target config: %w", err)
 		}
 
-		st.UpdateStatus(domain.StatusInProgress)
-		if err := s.store.Save(targetCtx, st); err != nil {
+		s.domainService.MarkInProgress(st)
+		if err := s.repo.Save(targetCtx, st); err != nil {
 			targetSpan.RecordError(err)
 			s.logger.Error(targetCtx, "Failed to save enumeration state", "error", err)
 		}
 
 		enumerator, err := s.enumFactory.CreateEnumerator(combined.TargetSpec, nil)
 		if err != nil {
-			st.UpdateStatus(domain.StatusFailed)
-			if err := s.store.Save(targetCtx, st); err != nil {
+			s.domainService.MarkFailed(st, err.Error())
+			if err := s.repo.Save(targetCtx, st); err != nil {
 				targetSpan.RecordError(err)
 				s.logger.Error(targetCtx, "Failed to save enumeration state", "error", err)
 			}
@@ -234,7 +254,7 @@ func (s *service) resumeEnumerations(ctx context.Context, states []*domain.State
 
 // runEnumerator executes the enumeration process for a single target, publishing
 // discovered tasks to the event bus for processing.
-func (s *service) runEnumerator(ctx context.Context, st *domain.State, enumerator domain.TargetEnumerator) error {
+func (s *enumerationApplicationServiceImpl) runEnumerator(ctx context.Context, st *domain.State, enumerator domain.TargetEnumerator) error {
 	ctx, span := s.tracer.Start(ctx, "enumeration.runEnumerator")
 	defer span.End()
 
@@ -276,8 +296,8 @@ func (s *service) runEnumerator(ctx context.Context, st *domain.State, enumerato
 
 		err := enumerator.Enumerate(ctx, st, taskCh)
 		if err != nil {
-			st.UpdateStatus(domain.StatusFailed)
-			if err := s.store.Save(ctx, st); err != nil {
+			s.domainService.MarkFailed(st, err.Error())
+			if err := s.repo.Save(ctx, st); err != nil {
 				span.RecordError(err)
 				s.logger.Error(ctx, "Failed to save enumeration state", "error", err)
 			}
@@ -285,8 +305,8 @@ func (s *service) runEnumerator(ctx context.Context, st *domain.State, enumerato
 			wg.Wait()
 			return err
 		}
-		st.UpdateStatus(domain.StatusCompleted)
-		if err := s.store.Save(ctx, st); err != nil {
+		s.domainService.MarkCompleted(st)
+		if err := s.repo.Save(ctx, st); err != nil {
 			span.RecordError(err)
 			s.logger.Error(ctx, "Failed to save enumeration state", "error", err)
 		}

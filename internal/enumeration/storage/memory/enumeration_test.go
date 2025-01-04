@@ -16,7 +16,7 @@ func TestInMemoryEnumerationStateStorage_SaveAndLoad(t *testing.T) {
 	store := NewEnumerationStateStorage(NewCheckpointStorage())
 	ctx := context.Background()
 
-	state := &enumeration.EnumerationState{
+	state := &enumeration.State{
 		SessionID:  "test-session",
 		SourceType: "github",
 		Config:     json.RawMessage(`{"org": "test-org"}`),
@@ -52,7 +52,7 @@ func TestInMemoryEnumerationStateStorage_GetActiveStates(t *testing.T) {
 	store := NewEnumerationStateStorage(NewCheckpointStorage())
 	ctx := context.Background()
 
-	state := &enumeration.EnumerationState{
+	state := &enumeration.State{
 		SessionID:  "test-session",
 		SourceType: "github",
 		Status:     enumeration.StatusInProgress,
@@ -82,7 +82,7 @@ func TestInMemoryEnumerationStateStorage_List(t *testing.T) {
 	store := NewEnumerationStateStorage(NewCheckpointStorage())
 	ctx := context.Background()
 
-	state := &enumeration.EnumerationState{
+	state := &enumeration.State{
 		SessionID:  "test-session",
 		SourceType: "github",
 		Status:     enumeration.StatusCompleted,
@@ -112,7 +112,7 @@ func TestInMemoryEnumerationStateStorage_Update(t *testing.T) {
 	store := NewEnumerationStateStorage(NewCheckpointStorage())
 	ctx := context.Background()
 
-	initialState := &enumeration.EnumerationState{
+	initialState := &enumeration.State{
 		SessionID:  "test-session",
 		SourceType: "github",
 	}
@@ -148,7 +148,7 @@ func TestInMemoryEnumerationStateStorage_Mutability(t *testing.T) {
 	store := NewEnumerationStateStorage(NewCheckpointStorage())
 	ctx := context.Background()
 
-	original := &enumeration.EnumerationState{
+	original := &enumeration.State{
 		SessionID:  "test-session",
 		SourceType: "github",
 		LastCheckpoint: &enumeration.Checkpoint{
@@ -196,7 +196,7 @@ func TestInMemoryEnumerationStateStorage_ConcurrentOperations(t *testing.T) {
 
 	for i := 0; i < goroutines; i++ {
 		go func(id int) {
-			state := &enumeration.EnumerationState{
+			state := &enumeration.State{
 				SessionID:  "concurrent-session",
 				SourceType: "github",
 				LastCheckpoint: &enumeration.Checkpoint{
