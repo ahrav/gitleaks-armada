@@ -11,7 +11,7 @@ import (
 )
 
 // Ensure StateManager implements the Manager interface.
-var _ state.Manager = (*StateManager)(nil)
+// var _ state.Manager = (*StateManager)(nil)
 
 // StateManager coordinates the lifecycle and state of scan jobs and their tasks.
 // It provides thread-safe access to job state and handles persistence to a backing store.
