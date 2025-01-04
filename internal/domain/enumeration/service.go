@@ -111,8 +111,8 @@ func (ds *service) RecordBatchProgress(state *SessionState, batch BatchProgress)
 		return fmt.Errorf("%w: can only update progress when in progress", ErrInvalidProgress)
 	}
 
-	if batch.Checkpoint() == nil {
-		return fmt.Errorf("%w: checkpoint required for progress update", ErrMissingCheckpoint)
+	if batch.State() == nil {
+		return fmt.Errorf("%w: state required for progress update", ErrMissingCheckpoint)
 	}
 
 	// Ensure progress metrics remain monotonically increasing

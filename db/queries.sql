@@ -28,42 +28,80 @@ WHERE id = $1;
 -- ============================================
 -- Enumeration States
 -- ============================================
--- name: CreateOrUpdateEnumerationState :exec
-INSERT INTO enumeration_states (
-    session_id, source_type, config, last_checkpoint_id, status
+-- name: CreateOrUpdateEnumerationSessionState :exec
+INSERT INTO enumeration_session_states (
+    session_id, source_type, config, last_checkpoint_id, status, failure_reason
 ) VALUES (
-    $1, $2, $3, $4, $5
+    $1, $2, $3, $4, $5, $6
 )
 ON CONFLICT (session_id) DO UPDATE
-SET source_type        = EXCLUDED.source_type,
-    config             = EXCLUDED.config,
+SET source_type = EXCLUDED.source_type,
+    config = EXCLUDED.config,
     last_checkpoint_id = EXCLUDED.last_checkpoint_id,
-    status             = EXCLUDED.status,
-    updated_at         = NOW();
+    status = EXCLUDED.status,
+    failure_reason = EXCLUDED.failure_reason,
+    last_updated = NOW(),
+    updated_at = NOW();
 
--- name: GetEnumerationState :one
-SELECT id, session_id, source_type, config, last_checkpoint_id,
-       status, created_at, updated_at
-FROM enumeration_states
+-- name: GetEnumerationSessionState :one
+SELECT * FROM enumeration_session_states
 WHERE session_id = $1;
 
--- name: DeleteEnumerationState :exec
-DELETE FROM enumeration_states
+-- name: DeleteEnumerationSessionState :exec
+DELETE FROM enumeration_session_states
 WHERE session_id = $1;
 
--- name: GetActiveEnumerationStates :many
-SELECT id, session_id, source_type, config, last_checkpoint_id,
+-- name: GetActiveEnumerationSessionStates :many
+SELECT id, session_id, source_type, config, last_checkpoint_id, failure_reason,
        status, created_at, updated_at
-FROM enumeration_states
+FROM enumeration_session_states
 WHERE status IN ('initialized', 'in_progress')
 ORDER BY created_at DESC;
 
--- name: ListEnumerationStates :many
-SELECT id, session_id, source_type, config, last_checkpoint_id,
+-- name: ListEnumerationSessionStates :many
+SELECT id, session_id, source_type, config, last_checkpoint_id, failure_reason,
        status, created_at, updated_at
-FROM enumeration_states
+FROM enumeration_session_states
 ORDER BY created_at DESC
 LIMIT $1;
+
+-- ============================================
+-- Progress Tracking
+-- ============================================
+-- name: CreateEnumerationProgress :exec
+INSERT INTO enumeration_progress (
+    session_id, started_at, last_update
+) VALUES (
+    $1, $2, $3
+);
+
+-- name: UpdateEnumerationProgress :exec
+UPDATE enumeration_progress
+SET items_found = $2,
+    items_processed = $3,
+    failed_batches = $4,
+    total_batches = $5,
+    last_update = NOW(),
+    updated_at = NOW()
+WHERE session_id = $1;
+
+-- name: GetEnumerationProgressForSession :one
+SELECT * FROM enumeration_progress
+WHERE session_id = $1;
+
+-- name: GetEnumerationBatchProgressForSession :many
+SELECT * FROM enumeration_batch_progress
+WHERE session_id = $1
+ORDER BY started_at ASC;
+
+-- name: CreateEnumerationBatchProgress :one
+INSERT INTO enumeration_batch_progress (
+    batch_id, session_id, status, started_at, completed_at,
+    items_processed, error_details, state
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7, $8
+)
+RETURNING id;
 
 -- ============================================
 -- Rules

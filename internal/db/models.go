@@ -11,13 +11,58 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type BatchStatus string
+
+const (
+	BatchStatusSucceeded BatchStatus = "succeeded"
+	BatchStatusFailed    BatchStatus = "failed"
+	BatchStatusPartial   BatchStatus = "partial"
+)
+
+func (e *BatchStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = BatchStatus(s)
+	case string:
+		*e = BatchStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for BatchStatus: %T", src)
+	}
+	return nil
+}
+
+type NullBatchStatus struct {
+	BatchStatus BatchStatus
+	Valid       bool // Valid is true if BatchStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullBatchStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.BatchStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.BatchStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullBatchStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.BatchStatus), nil
+}
+
 type EnumerationStatus string
 
 const (
-	EnumerationStatusInitialized EnumerationStatus = "initialized"
-	EnumerationStatusInProgress  EnumerationStatus = "in_progress"
-	EnumerationStatusCompleted   EnumerationStatus = "completed"
-	EnumerationStatusFailed      EnumerationStatus = "failed"
+	EnumerationStatusInitialized        EnumerationStatus = "initialized"
+	EnumerationStatusInProgress         EnumerationStatus = "in_progress"
+	EnumerationStatusCompleted          EnumerationStatus = "completed"
+	EnumerationStatusFailed             EnumerationStatus = "failed"
+	EnumerationStatusStalled            EnumerationStatus = "stalled"
+	EnumerationStatusPartiallyCompleted EnumerationStatus = "partially_completed"
 )
 
 func (e *EnumerationStatus) Scan(src interface{}) error {
@@ -145,13 +190,40 @@ type Checkpoint struct {
 	UpdatedAt pgtype.Timestamptz
 }
 
-type EnumerationState struct {
+type EnumerationBatchProgress struct {
+	ID             int64
+	BatchID        string
+	SessionID      string
+	Status         BatchStatus
+	StartedAt      pgtype.Timestamptz
+	CompletedAt    pgtype.Timestamptz
+	ItemsProcessed int32
+	ErrorDetails   pgtype.Text
+	State          []byte
+	CreatedAt      pgtype.Timestamptz
+}
+
+type EnumerationProgress struct {
+	ID             int64
+	SessionID      string
+	StartedAt      pgtype.Timestamptz
+	LastUpdate     pgtype.Timestamptz
+	ItemsFound     int32
+	ItemsProcessed int32
+	FailedBatches  int32
+	TotalBatches   int32
+	CreatedAt      pgtype.Timestamptz
+	UpdatedAt      pgtype.Timestamptz
+}
+
+type EnumerationSessionState struct {
 	ID               int64
 	SessionID        string
 	SourceType       string
 	Config           []byte
 	LastCheckpointID pgtype.Int8
 	Status           EnumerationStatus
+	FailureReason    pgtype.Text
 	CreatedAt        pgtype.Timestamptz
 	UpdatedAt        pgtype.Timestamptz
 }

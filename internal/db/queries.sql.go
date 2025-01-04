@@ -83,6 +83,65 @@ func (q *Queries) CreateAllowlist(ctx context.Context, arg CreateAllowlistParams
 	return id, err
 }
 
+const createEnumerationBatchProgress = `-- name: CreateEnumerationBatchProgress :one
+INSERT INTO enumeration_batch_progress (
+    batch_id, session_id, status, started_at, completed_at,
+    items_processed, error_details, state
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7, $8
+)
+RETURNING id
+`
+
+type CreateEnumerationBatchProgressParams struct {
+	BatchID        string
+	SessionID      string
+	Status         BatchStatus
+	StartedAt      pgtype.Timestamptz
+	CompletedAt    pgtype.Timestamptz
+	ItemsProcessed int32
+	ErrorDetails   pgtype.Text
+	State          []byte
+}
+
+func (q *Queries) CreateEnumerationBatchProgress(ctx context.Context, arg CreateEnumerationBatchProgressParams) (int64, error) {
+	row := q.db.QueryRow(ctx, createEnumerationBatchProgress,
+		arg.BatchID,
+		arg.SessionID,
+		arg.Status,
+		arg.StartedAt,
+		arg.CompletedAt,
+		arg.ItemsProcessed,
+		arg.ErrorDetails,
+		arg.State,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const createEnumerationProgress = `-- name: CreateEnumerationProgress :exec
+INSERT INTO enumeration_progress (
+    session_id, started_at, last_update
+) VALUES (
+    $1, $2, $3
+)
+`
+
+type CreateEnumerationProgressParams struct {
+	SessionID  string
+	StartedAt  pgtype.Timestamptz
+	LastUpdate pgtype.Timestamptz
+}
+
+// ============================================
+// Progress Tracking
+// ============================================
+func (q *Queries) CreateEnumerationProgress(ctx context.Context, arg CreateEnumerationProgressParams) error {
+	_, err := q.db.Exec(ctx, createEnumerationProgress, arg.SessionID, arg.StartedAt, arg.LastUpdate)
+	return err
+}
+
 const createOrUpdateCheckpoint = `-- name: CreateOrUpdateCheckpoint :one
 
 INSERT INTO checkpoints (target_id, data, created_at, updated_at)
@@ -109,38 +168,42 @@ func (q *Queries) CreateOrUpdateCheckpoint(ctx context.Context, arg CreateOrUpda
 	return id, err
 }
 
-const createOrUpdateEnumerationState = `-- name: CreateOrUpdateEnumerationState :exec
-INSERT INTO enumeration_states (
-    session_id, source_type, config, last_checkpoint_id, status
+const createOrUpdateEnumerationSessionState = `-- name: CreateOrUpdateEnumerationSessionState :exec
+INSERT INTO enumeration_session_states (
+    session_id, source_type, config, last_checkpoint_id, status, failure_reason
 ) VALUES (
-    $1, $2, $3, $4, $5
+    $1, $2, $3, $4, $5, $6
 )
 ON CONFLICT (session_id) DO UPDATE
-SET source_type        = EXCLUDED.source_type,
-    config             = EXCLUDED.config,
+SET source_type = EXCLUDED.source_type,
+    config = EXCLUDED.config,
     last_checkpoint_id = EXCLUDED.last_checkpoint_id,
-    status             = EXCLUDED.status,
-    updated_at         = NOW()
+    status = EXCLUDED.status,
+    failure_reason = EXCLUDED.failure_reason,
+    last_updated = NOW(),
+    updated_at = NOW()
 `
 
-type CreateOrUpdateEnumerationStateParams struct {
+type CreateOrUpdateEnumerationSessionStateParams struct {
 	SessionID        string
 	SourceType       string
 	Config           []byte
 	LastCheckpointID pgtype.Int8
 	Status           EnumerationStatus
+	FailureReason    pgtype.Text
 }
 
 // ============================================
 // Enumeration States
 // ============================================
-func (q *Queries) CreateOrUpdateEnumerationState(ctx context.Context, arg CreateOrUpdateEnumerationStateParams) error {
-	_, err := q.db.Exec(ctx, createOrUpdateEnumerationState,
+func (q *Queries) CreateOrUpdateEnumerationSessionState(ctx context.Context, arg CreateOrUpdateEnumerationSessionStateParams) error {
+	_, err := q.db.Exec(ctx, createOrUpdateEnumerationSessionState,
 		arg.SessionID,
 		arg.SourceType,
 		arg.Config,
 		arg.LastCheckpointID,
 		arg.Status,
+		arg.FailureReason,
 	)
 	return err
 }
@@ -203,39 +266,52 @@ func (q *Queries) DeleteCheckpoint(ctx context.Context, targetID string) error {
 	return err
 }
 
-const deleteEnumerationState = `-- name: DeleteEnumerationState :exec
-DELETE FROM enumeration_states
+const deleteEnumerationSessionState = `-- name: DeleteEnumerationSessionState :exec
+DELETE FROM enumeration_session_states
 WHERE session_id = $1
 `
 
-func (q *Queries) DeleteEnumerationState(ctx context.Context, sessionID string) error {
-	_, err := q.db.Exec(ctx, deleteEnumerationState, sessionID)
+func (q *Queries) DeleteEnumerationSessionState(ctx context.Context, sessionID string) error {
+	_, err := q.db.Exec(ctx, deleteEnumerationSessionState, sessionID)
 	return err
 }
 
-const getActiveEnumerationStates = `-- name: GetActiveEnumerationStates :many
-SELECT id, session_id, source_type, config, last_checkpoint_id,
+const getActiveEnumerationSessionStates = `-- name: GetActiveEnumerationSessionStates :many
+SELECT id, session_id, source_type, config, last_checkpoint_id, failure_reason,
        status, created_at, updated_at
-FROM enumeration_states
+FROM enumeration_session_states
 WHERE status IN ('initialized', 'in_progress')
 ORDER BY created_at DESC
 `
 
-func (q *Queries) GetActiveEnumerationStates(ctx context.Context) ([]EnumerationState, error) {
-	rows, err := q.db.Query(ctx, getActiveEnumerationStates)
+type GetActiveEnumerationSessionStatesRow struct {
+	ID               int64
+	SessionID        string
+	SourceType       string
+	Config           []byte
+	LastCheckpointID pgtype.Int8
+	FailureReason    pgtype.Text
+	Status           EnumerationStatus
+	CreatedAt        pgtype.Timestamptz
+	UpdatedAt        pgtype.Timestamptz
+}
+
+func (q *Queries) GetActiveEnumerationSessionStates(ctx context.Context) ([]GetActiveEnumerationSessionStatesRow, error) {
+	rows, err := q.db.Query(ctx, getActiveEnumerationSessionStates)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []EnumerationState
+	var items []GetActiveEnumerationSessionStatesRow
 	for rows.Next() {
-		var i EnumerationState
+		var i GetActiveEnumerationSessionStatesRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.SessionID,
 			&i.SourceType,
 			&i.Config,
 			&i.LastCheckpointID,
+			&i.FailureReason,
 			&i.Status,
 			&i.CreatedAt,
 			&i.UpdatedAt,
@@ -288,16 +364,74 @@ func (q *Queries) GetCheckpointByID(ctx context.Context, id int64) (Checkpoint, 
 	return i, err
 }
 
-const getEnumerationState = `-- name: GetEnumerationState :one
-SELECT id, session_id, source_type, config, last_checkpoint_id,
-       status, created_at, updated_at
-FROM enumeration_states
+const getEnumerationBatchProgressForSession = `-- name: GetEnumerationBatchProgressForSession :many
+SELECT id, batch_id, session_id, status, started_at, completed_at, items_processed, error_details, state, created_at FROM enumeration_batch_progress
+WHERE session_id = $1
+ORDER BY started_at ASC
+`
+
+func (q *Queries) GetEnumerationBatchProgressForSession(ctx context.Context, sessionID string) ([]EnumerationBatchProgress, error) {
+	rows, err := q.db.Query(ctx, getEnumerationBatchProgressForSession, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EnumerationBatchProgress
+	for rows.Next() {
+		var i EnumerationBatchProgress
+		if err := rows.Scan(
+			&i.ID,
+			&i.BatchID,
+			&i.SessionID,
+			&i.Status,
+			&i.StartedAt,
+			&i.CompletedAt,
+			&i.ItemsProcessed,
+			&i.ErrorDetails,
+			&i.State,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getEnumerationProgressForSession = `-- name: GetEnumerationProgressForSession :one
+SELECT id, session_id, started_at, last_update, items_found, items_processed, failed_batches, total_batches, created_at, updated_at FROM enumeration_progress
 WHERE session_id = $1
 `
 
-func (q *Queries) GetEnumerationState(ctx context.Context, sessionID string) (EnumerationState, error) {
-	row := q.db.QueryRow(ctx, getEnumerationState, sessionID)
-	var i EnumerationState
+func (q *Queries) GetEnumerationProgressForSession(ctx context.Context, sessionID string) (EnumerationProgress, error) {
+	row := q.db.QueryRow(ctx, getEnumerationProgressForSession, sessionID)
+	var i EnumerationProgress
+	err := row.Scan(
+		&i.ID,
+		&i.SessionID,
+		&i.StartedAt,
+		&i.LastUpdate,
+		&i.ItemsFound,
+		&i.ItemsProcessed,
+		&i.FailedBatches,
+		&i.TotalBatches,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getEnumerationSessionState = `-- name: GetEnumerationSessionState :one
+SELECT id, session_id, source_type, config, last_checkpoint_id, status, failure_reason, created_at, updated_at FROM enumeration_session_states
+WHERE session_id = $1
+`
+
+func (q *Queries) GetEnumerationSessionState(ctx context.Context, sessionID string) (EnumerationSessionState, error) {
+	row := q.db.QueryRow(ctx, getEnumerationSessionState, sessionID)
+	var i EnumerationSessionState
 	err := row.Scan(
 		&i.ID,
 		&i.SessionID,
@@ -305,35 +439,49 @@ func (q *Queries) GetEnumerationState(ctx context.Context, sessionID string) (En
 		&i.Config,
 		&i.LastCheckpointID,
 		&i.Status,
+		&i.FailureReason,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
 	return i, err
 }
 
-const listEnumerationStates = `-- name: ListEnumerationStates :many
-SELECT id, session_id, source_type, config, last_checkpoint_id,
+const listEnumerationSessionStates = `-- name: ListEnumerationSessionStates :many
+SELECT id, session_id, source_type, config, last_checkpoint_id, failure_reason,
        status, created_at, updated_at
-FROM enumeration_states
+FROM enumeration_session_states
 ORDER BY created_at DESC
 LIMIT $1
 `
 
-func (q *Queries) ListEnumerationStates(ctx context.Context, limit int32) ([]EnumerationState, error) {
-	rows, err := q.db.Query(ctx, listEnumerationStates, limit)
+type ListEnumerationSessionStatesRow struct {
+	ID               int64
+	SessionID        string
+	SourceType       string
+	Config           []byte
+	LastCheckpointID pgtype.Int8
+	FailureReason    pgtype.Text
+	Status           EnumerationStatus
+	CreatedAt        pgtype.Timestamptz
+	UpdatedAt        pgtype.Timestamptz
+}
+
+func (q *Queries) ListEnumerationSessionStates(ctx context.Context, limit int32) ([]ListEnumerationSessionStatesRow, error) {
+	rows, err := q.db.Query(ctx, listEnumerationSessionStates, limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []EnumerationState
+	var items []ListEnumerationSessionStatesRow
 	for rows.Next() {
-		var i EnumerationState
+		var i ListEnumerationSessionStatesRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.SessionID,
 			&i.SourceType,
 			&i.Config,
 			&i.LastCheckpointID,
+			&i.FailureReason,
 			&i.Status,
 			&i.CreatedAt,
 			&i.UpdatedAt,
@@ -346,6 +494,36 @@ func (q *Queries) ListEnumerationStates(ctx context.Context, limit int32) ([]Enu
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateEnumerationProgress = `-- name: UpdateEnumerationProgress :exec
+UPDATE enumeration_progress
+SET items_found = $2,
+    items_processed = $3,
+    failed_batches = $4,
+    total_batches = $5,
+    last_update = NOW(),
+    updated_at = NOW()
+WHERE session_id = $1
+`
+
+type UpdateEnumerationProgressParams struct {
+	SessionID      string
+	ItemsFound     int32
+	ItemsProcessed int32
+	FailedBatches  int32
+	TotalBatches   int32
+}
+
+func (q *Queries) UpdateEnumerationProgress(ctx context.Context, arg UpdateEnumerationProgressParams) error {
+	_, err := q.db.Exec(ctx, updateEnumerationProgress,
+		arg.SessionID,
+		arg.ItemsFound,
+		arg.ItemsProcessed,
+		arg.FailedBatches,
+		arg.TotalBatches,
+	)
+	return err
 }
 
 const upsertRule = `-- name: UpsertRule :one

@@ -188,7 +188,7 @@ func main() {
 
 	configLoader := config.NewFileLoader("/etc/scanner/config/config.yaml")
 	checkpointStorage := enumStore.NewCheckpointStore(pool, tracer)
-	enumStateStorage := enumStore.NewEnumerationStateStore(pool, checkpointStorage, tracer)
+	enumStateStorage := enumStore.NewEnumerationSessionStateStore(pool, checkpointStorage, tracer)
 	eventPublisher := kafka.NewKafkaDomainEventPublisher(broker)
 	enumFactory := enumeration.NewEnumerationFactory(http.DefaultClient, nil, tracer)
 

@@ -23,12 +23,12 @@ func createTestCheckpoint(t *testing.T, ctx context.Context, store *checkpointSt
 	return saved
 }
 
-func setupEnumerationTest(t *testing.T) (context.Context, *enumerationStateStore, *checkpointStore, func()) {
+func setupEnumerationTest(t *testing.T) (context.Context, *enumerationSessionStateStore, *checkpointStore, func()) {
 	t.Helper()
 
 	db, cleanup := storage.SetupTestContainer(t)
 	checkpointStore := NewCheckpointStore(db, storage.NoOpTracer())
-	store := NewEnumerationStateStore(db, checkpointStore, storage.NoOpTracer())
+	store := NewEnumerationSessionStateStore(db, checkpointStore, storage.NoOpTracer())
 	ctx := context.Background()
 
 	return ctx, store, checkpointStore, cleanup

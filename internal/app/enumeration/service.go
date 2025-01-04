@@ -303,10 +303,10 @@ func (s *service) streamEnumerate(
 			// TODO: Handle partial failures once |publishTasks| can handle them.
 			if err := s.publishTasks(ctx, batch.Tasks, state.SessionID()); err != nil {
 				span.RecordError(err)
-				batchProgress = enumeration.NewFailedBatchProgress(err, batch.Checkpoint)
+				batchProgress = enumeration.NewFailedBatchProgress(err, batch.State)
 				s.logger.Error(ctx, "Failed to publish tasks", "error", err)
 			} else {
-				batchProgress = enumeration.NewSuccessfulBatchProgress(len(batch.Tasks), batch.Checkpoint)
+				batchProgress = enumeration.NewSuccessfulBatchProgress(len(batch.Tasks), batch.State)
 			}
 
 			if err := s.domainService.RecordBatchProgress(state, batchProgress); err != nil {

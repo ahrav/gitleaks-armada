@@ -45,8 +45,8 @@ type TargetEnumerator interface {
 // This enables atomic processing of task batches while maintaining
 // resumability through checkpoint tracking.
 type EnumerateBatch struct {
-	Tasks      []task.Task
-	Checkpoint *domain.Checkpoint
+	Tasks []task.Task
+	State map[string]any
 }
 
 var _ TargetEnumerator = new(GitHubEnumerator)
@@ -122,7 +122,7 @@ func (e *GitHubEnumerator) Enumerate(ctx context.Context, startCursor *string, b
 				Credentials: e.creds,
 			})
 		}
-		batchCh <- EnumerateBatch{Tasks: tasks, Checkpoint: nil}
+		batchCh <- EnumerateBatch{Tasks: tasks, State: nil}
 		return nil
 	}
 
@@ -158,10 +158,7 @@ func (e *GitHubEnumerator) Enumerate(ctx context.Context, startCursor *string, b
 
 		batchCh <- EnumerateBatch{
 			Tasks: tasks,
-			Checkpoint: domain.NewTemporaryCheckpoint(
-				e.ghConfig.Org,
-				map[string]any{"endCursor": newCursor},
-			),
+			State: map[string]any{"endCursor": newCursor},
 		}
 
 		if !pageInfo.HasNextPage {

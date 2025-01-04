@@ -7,183 +7,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// BatchStatus represents the lifecycle state of an enumeration batch as a value object.
-// It enables tracking of batch-level outcomes to support partial failure handling
-// and resumable processing.
-type BatchStatus string
-
-const (
-	// BatchStatusSucceeded indicates the batch completed processing all items successfully.
-	BatchStatusSucceeded BatchStatus = "succeeded"
-	// BatchStatusFailed indicates the batch encountered an unrecoverable error.
-	BatchStatusFailed BatchStatus = "failed"
-	// BatchStatusPartial indicates the batch completed with some items failing.
-	BatchStatusPartial BatchStatus = "partial"
-)
-
-// BatchProgress is a value object that captures the execution details and outcomes
-// of a single enumeration batch. It provides granular visibility into batch-level
-// processing to support monitoring and failure analysis.
-type BatchProgress struct {
-	// batchID uniquely identifies this batch within the enumeration.
-	batchID string
-	// status reflects the batch's processing outcome.
-	status BatchStatus
-	// startedAt records when batch processing began.
-	startedAt time.Time
-	// completedAt records when batch processing finished.
-	completedAt time.Time
-	// itemsProcessed tracks the number of successfully handled items.
-	itemsProcessed int
-	// errorDetails captures failure information when status is failed or partial.
-	errorDetails string
-	// checkpoint stores the resumption point for partial failures.
-	checkpoint *Checkpoint
-}
-
-// Getters for BatchProgress.
-func (bp BatchProgress) BatchID() string         { return bp.batchID }
-func (bp BatchProgress) Status() BatchStatus     { return bp.status }
-func (bp BatchProgress) ItemsProcessed() int     { return bp.itemsProcessed }
-func (bp BatchProgress) Checkpoint() *Checkpoint { return bp.checkpoint }
-func (bp BatchProgress) ErrorDetails() string    { return bp.errorDetails }
-
-// MarshalJSON serializes the BatchProgress object into a JSON byte array.
-func (bp *BatchProgress) MarshalJSON() ([]byte, error) {
-	return json.Marshal(&struct {
-		BatchID        string      `json:"batch_id"`
-		Status         BatchStatus `json:"status"`
-		StartedAt      time.Time   `json:"started_at"`
-		CompletedAt    time.Time   `json:"completed_at"`
-		ItemsProcessed int         `json:"items_processed"`
-		ErrorDetails   string      `json:"error_details,omitempty"`
-		Checkpoint     *Checkpoint `json:"checkpoint"`
-	}{
-		BatchID:        bp.batchID,
-		Status:         bp.status,
-		StartedAt:      bp.startedAt,
-		CompletedAt:    bp.completedAt,
-		ItemsProcessed: bp.itemsProcessed,
-		ErrorDetails:   bp.errorDetails,
-		Checkpoint:     bp.checkpoint,
-	})
-}
-
-// UnmarshalJSON deserializes JSON data into a BatchProgress object.
-func (bp *BatchProgress) UnmarshalJSON(data []byte) error {
-	aux := &struct {
-		BatchID        string      `json:"batch_id"`
-		Status         BatchStatus `json:"status"`
-		StartedAt      time.Time   `json:"started_at"`
-		CompletedAt    time.Time   `json:"completed_at"`
-		ItemsProcessed int         `json:"items_processed"`
-		ErrorDetails   string      `json:"error_details,omitempty"`
-		Checkpoint     *Checkpoint `json:"checkpoint"`
-	}{
-		BatchID:        bp.batchID,
-		Status:         bp.status,
-		StartedAt:      bp.startedAt,
-		CompletedAt:    bp.completedAt,
-		ItemsProcessed: bp.itemsProcessed,
-		ErrorDetails:   bp.errorDetails,
-		Checkpoint:     bp.checkpoint,
-	}
-
-	if err := json.Unmarshal(data, &aux); err != nil {
-		return err
-	}
-
-	bp.batchID = aux.BatchID
-	bp.status = aux.Status
-	bp.startedAt = aux.StartedAt
-	bp.completedAt = aux.CompletedAt
-	bp.itemsProcessed = aux.ItemsProcessed
-	bp.errorDetails = aux.ErrorDetails
-	bp.checkpoint = aux.Checkpoint
-
-	return nil
-}
-
-// Progress tracks metrics about an enumeration session's execution. It provides
-// visibility into the session's timeline and processing status to enable monitoring
-// and reporting of long-running enumerations.
-type Progress struct {
-	// Timeline
-	startedAt  time.Time
-	lastUpdate time.Time
-
-	// Metrics
-	itemsFound     int
-	itemsProcessed int
-
-	// Batch tracking
-	batches       []BatchProgress
-	failedBatches int
-	totalBatches  int
-}
-
-// Getters for Progress
-func (p *Progress) ItemsProcessed() int   { return p.itemsProcessed }
-func (p *Progress) LastUpdate() time.Time { return p.lastUpdate }
-func (p *Progress) FailedBatches() int    { return p.failedBatches }
-func (p *Progress) TotalBatches() int     { return p.totalBatches }
-
-// MarshalJSON serializes the Progress object into a JSON byte array.
-func (p *Progress) MarshalJSON() ([]byte, error) {
-	return json.Marshal(&struct {
-		StartedAt      time.Time       `json:"started_at"`
-		LastUpdate     time.Time       `json:"last_update"`
-		ItemsFound     int             `json:"items_found"`
-		ItemsProcessed int             `json:"items_processed"`
-		Batches        []BatchProgress `json:"batches,omitempty"`
-		FailedBatches  int             `json:"failed_batches"`
-		TotalBatches   int             `json:"total_batches"`
-	}{
-		StartedAt:      p.startedAt,
-		LastUpdate:     p.lastUpdate,
-		ItemsFound:     p.itemsFound,
-		ItemsProcessed: p.itemsProcessed,
-		Batches:        p.batches,
-		FailedBatches:  p.failedBatches,
-		TotalBatches:   p.totalBatches,
-	})
-}
-
-// UnmarshalJSON deserializes JSON data into a Progress object.
-func (p *Progress) UnmarshalJSON(data []byte) error {
-	aux := &struct {
-		StartedAt      time.Time       `json:"started_at"`
-		LastUpdate     time.Time       `json:"last_update"`
-		ItemsFound     int             `json:"items_found"`
-		ItemsProcessed int             `json:"items_processed"`
-		Batches        []BatchProgress `json:"batches,omitempty"`
-		FailedBatches  int             `json:"failed_batches"`
-		TotalBatches   int             `json:"total_batches"`
-	}{
-		StartedAt:      p.startedAt,
-		LastUpdate:     p.lastUpdate,
-		ItemsFound:     p.itemsFound,
-		ItemsProcessed: p.itemsProcessed,
-		Batches:        p.batches,
-		FailedBatches:  p.failedBatches,
-		TotalBatches:   p.totalBatches,
-	}
-
-	if err := json.Unmarshal(data, &aux); err != nil {
-		return err
-	}
-
-	p.startedAt = aux.StartedAt
-	p.lastUpdate = aux.LastUpdate
-	p.itemsFound = aux.ItemsFound
-	p.itemsProcessed = aux.ItemsProcessed
-	p.batches = aux.Batches
-	p.failedBatches = aux.FailedBatches
-	p.totalBatches = aux.TotalBatches
-
-	return nil
-}
-
 // Checkpoint is an entity object that stores progress information for resumable target enumeration.
 // It enables reliable scanning of large data sources by tracking the last successfully processed position.
 // As an entity, it has a unique identity (ID) that persists across state changes and is mutable over time
@@ -276,6 +99,230 @@ func (c *Checkpoint) UnmarshalJSON(data []byte) error {
 	c.targetID = aux.TargetID
 	c.data = aux.Data
 	c.updatedAt = aux.UpdatedAt
+
+	return nil
+}
+
+// BatchStatus represents the lifecycle state of an enumeration batch as a value object.
+// It enables tracking of batch-level outcomes to support partial failure handling
+// and resumable processing.
+type BatchStatus string
+
+const (
+	// BatchStatusSucceeded indicates the batch completed processing all items successfully.
+	BatchStatusSucceeded BatchStatus = "succeeded"
+	// BatchStatusFailed indicates the batch encountered an unrecoverable error.
+	BatchStatusFailed BatchStatus = "failed"
+	// BatchStatusPartial indicates the batch completed with some items failing.
+	BatchStatusPartial BatchStatus = "partial"
+)
+
+// BatchProgress is a value object that captures the execution details and outcomes
+// of a single enumeration batch. It provides granular visibility into batch-level
+// processing to support monitoring and failure analysis.
+type BatchProgress struct {
+	// batchID uniquely identifies this batch within the enumeration.
+	batchID string
+	// status reflects the batch's processing outcome.
+	status BatchStatus
+	// startedAt records when batch processing began.
+	startedAt time.Time
+	// completedAt records when batch processing finished.
+	completedAt time.Time
+	// itemsProcessed tracks the number of successfully handled items.
+	itemsProcessed int
+	// errorDetails captures failure information when status is failed or partial.
+	errorDetails string
+	// state stores the state of the enumeration at the time of the batch.
+	state map[string]any
+}
+
+// ReconstructBatchProgress creates a BatchProgress instance from persisted data
+func ReconstructBatchProgress(
+	batchID string,
+	status BatchStatus,
+	startedAt time.Time,
+	completedAt time.Time,
+	itemsProcessed int,
+	errorDetails string,
+	state map[string]any,
+) BatchProgress {
+	return BatchProgress{
+		batchID:        batchID,
+		status:         status,
+		startedAt:      startedAt,
+		completedAt:    completedAt,
+		itemsProcessed: itemsProcessed,
+		errorDetails:   errorDetails,
+		state:          state,
+	}
+}
+
+// Getters for BatchProgress.
+func (bp BatchProgress) BatchID() string        { return bp.batchID }
+func (bp BatchProgress) Status() BatchStatus    { return bp.status }
+func (bp BatchProgress) ItemsProcessed() int    { return bp.itemsProcessed }
+func (bp BatchProgress) State() map[string]any  { return bp.state }
+func (bp BatchProgress) ErrorDetails() string   { return bp.errorDetails }
+func (bp BatchProgress) StartedAt() time.Time   { return bp.startedAt }
+func (bp BatchProgress) CompletedAt() time.Time { return bp.completedAt }
+
+// MarshalJSON serializes the BatchProgress object into a JSON byte array.
+func (bp *BatchProgress) MarshalJSON() ([]byte, error) {
+	return json.Marshal(&struct {
+		BatchID        string         `json:"batch_id"`
+		Status         BatchStatus    `json:"status"`
+		StartedAt      time.Time      `json:"started_at"`
+		CompletedAt    time.Time      `json:"completed_at"`
+		ItemsProcessed int            `json:"items_processed"`
+		ErrorDetails   string         `json:"error_details,omitempty"`
+		State          map[string]any `json:"state"`
+	}{
+		BatchID:        bp.batchID,
+		Status:         bp.status,
+		StartedAt:      bp.startedAt,
+		CompletedAt:    bp.completedAt,
+		ItemsProcessed: bp.itemsProcessed,
+		ErrorDetails:   bp.errorDetails,
+		State:          bp.state,
+	})
+}
+
+// UnmarshalJSON deserializes JSON data into a BatchProgress object.
+func (bp *BatchProgress) UnmarshalJSON(data []byte) error {
+	aux := &struct {
+		BatchID        string         `json:"batch_id"`
+		Status         BatchStatus    `json:"status"`
+		StartedAt      time.Time      `json:"started_at"`
+		CompletedAt    time.Time      `json:"completed_at"`
+		ItemsProcessed int            `json:"items_processed"`
+		ErrorDetails   string         `json:"error_details,omitempty"`
+		State          map[string]any `json:"state"`
+	}{
+		BatchID:        bp.batchID,
+		Status:         bp.status,
+		StartedAt:      bp.startedAt,
+		CompletedAt:    bp.completedAt,
+		ItemsProcessed: bp.itemsProcessed,
+		ErrorDetails:   bp.errorDetails,
+		State:          bp.state,
+	}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	bp.batchID = aux.BatchID
+	bp.status = aux.Status
+	bp.startedAt = aux.StartedAt
+	bp.completedAt = aux.CompletedAt
+	bp.itemsProcessed = aux.ItemsProcessed
+	bp.errorDetails = aux.ErrorDetails
+	bp.state = aux.State
+
+	return nil
+}
+
+// Progress tracks metrics about an enumeration session's execution. It provides
+// visibility into the session's timeline and processing status to enable monitoring
+// and reporting of long-running enumerations.
+type Progress struct {
+	// Timeline
+	startedAt  time.Time
+	lastUpdate time.Time
+
+	// Metrics
+	itemsFound     int
+	itemsProcessed int
+
+	// Batch tracking
+	batches       []BatchProgress
+	failedBatches int
+	totalBatches  int
+}
+
+// ReconstructProgress creates a Progress instance from persisted data.
+func ReconstructProgress(
+	startedAt time.Time,
+	lastUpdate time.Time,
+	itemsFound int,
+	itemsProcessed int,
+	failedBatches int,
+	totalBatches int,
+	batches []BatchProgress,
+) *Progress {
+	return &Progress{
+		startedAt:      startedAt,
+		lastUpdate:     lastUpdate,
+		itemsFound:     itemsFound,
+		itemsProcessed: itemsProcessed,
+		failedBatches:  failedBatches,
+		totalBatches:   totalBatches,
+		batches:        batches,
+	}
+}
+
+// Getters for Progress
+func (p *Progress) StartedAt() time.Time     { return p.startedAt }
+func (p *Progress) LastUpdate() time.Time    { return p.lastUpdate }
+func (p *Progress) ItemsFound() int          { return p.itemsFound }
+func (p *Progress) ItemsProcessed() int      { return p.itemsProcessed }
+func (p *Progress) FailedBatches() int       { return p.failedBatches }
+func (p *Progress) TotalBatches() int        { return p.totalBatches }
+func (p *Progress) Batches() []BatchProgress { return p.batches }
+
+// MarshalJSON serializes the Progress object into a JSON byte array.
+func (p *Progress) MarshalJSON() ([]byte, error) {
+	return json.Marshal(&struct {
+		StartedAt      time.Time       `json:"started_at"`
+		LastUpdate     time.Time       `json:"last_update"`
+		ItemsFound     int             `json:"items_found"`
+		ItemsProcessed int             `json:"items_processed"`
+		Batches        []BatchProgress `json:"batches,omitempty"`
+		FailedBatches  int             `json:"failed_batches"`
+		TotalBatches   int             `json:"total_batches"`
+	}{
+		StartedAt:      p.startedAt,
+		LastUpdate:     p.lastUpdate,
+		ItemsFound:     p.itemsFound,
+		ItemsProcessed: p.itemsProcessed,
+		Batches:        p.batches,
+		FailedBatches:  p.failedBatches,
+		TotalBatches:   p.totalBatches,
+	})
+}
+
+// UnmarshalJSON deserializes JSON data into a Progress object.
+func (p *Progress) UnmarshalJSON(data []byte) error {
+	aux := &struct {
+		StartedAt      time.Time       `json:"started_at"`
+		LastUpdate     time.Time       `json:"last_update"`
+		ItemsFound     int             `json:"items_found"`
+		ItemsProcessed int             `json:"items_processed"`
+		Batches        []BatchProgress `json:"batches,omitempty"`
+		FailedBatches  int             `json:"failed_batches"`
+		TotalBatches   int             `json:"total_batches"`
+	}{
+		StartedAt:      p.startedAt,
+		LastUpdate:     p.lastUpdate,
+		ItemsFound:     p.itemsFound,
+		ItemsProcessed: p.itemsProcessed,
+		Batches:        p.batches,
+		FailedBatches:  p.failedBatches,
+		TotalBatches:   p.totalBatches,
+	}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	p.startedAt = aux.StartedAt
+	p.lastUpdate = aux.LastUpdate
+	p.itemsFound = aux.ItemsFound
+	p.itemsProcessed = aux.ItemsProcessed
+	p.batches = aux.Batches
+	p.failedBatches = aux.FailedBatches
+	p.totalBatches = aux.TotalBatches
 
 	return nil
 }
@@ -456,30 +503,30 @@ func (s *SessionState) UnmarshalJSON(data []byte) error {
 }
 
 // NewSuccessfulBatchProgress creates a BatchProgress record for a successfully completed batch.
-// It captures the number of items processed and the checkpoint for resumption tracking.
+// It captures the number of items processed and the state of the enumeration at the time of the batch.
 // This enables accurate progress monitoring and resumable processing of large datasets.
-func NewSuccessfulBatchProgress(itemCount int, checkpoint *Checkpoint) BatchProgress {
+func NewSuccessfulBatchProgress(itemCount int, state map[string]any) BatchProgress {
 	return BatchProgress{
 		batchID:        uuid.New().String(),
 		status:         BatchStatusSucceeded,
 		startedAt:      time.Now(),
 		completedAt:    time.Now(),
 		itemsProcessed: itemCount,
-		checkpoint:     checkpoint,
+		state:          state,
 	}
 }
 
 // NewFailedBatchProgress creates a BatchProgress record for a failed batch execution.
-// It preserves the error details and checkpoint to support failure analysis and recovery.
-// The checkpoint enables resuming enumeration after addressing the failure.
-func NewFailedBatchProgress(err error, checkpoint *Checkpoint) BatchProgress {
+// It preserves the error details and state of the enumeration at the time of the batch.
+// This enables failure analysis and recovery.
+func NewFailedBatchProgress(err error, state map[string]any) BatchProgress {
 	return BatchProgress{
 		batchID:      uuid.New().String(),
 		status:       BatchStatusFailed,
 		startedAt:    time.Now(),
 		completedAt:  time.Now(),
 		errorDetails: err.Error(),
-		checkpoint:   checkpoint,
+		state:        state,
 	}
 }
 
