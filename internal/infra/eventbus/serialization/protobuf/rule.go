@@ -8,7 +8,7 @@ import (
 // GitleaksRulesMessageToProto converts domain.GitleaksRuleMessage -> pb.RuleMessage.
 func GitleaksRulesMessageToProto(rm rules.GitleaksRuleMessage) *pb.RuleMessage {
 	return &pb.RuleMessage{
-		Rule: ruleToProto(rm.Rule),
+		Rule: ruleToProto(rm.GitleaksRule),
 		Hash: rm.Hash,
 	}
 }
@@ -60,8 +60,8 @@ func conditionToProto(mc rules.AllowlistMatchCondition) pb.AllowlistMatchConditi
 // ProtoToGitleaksRuleMessage converts pb.RuleMessage -> domain.GitleaksRuleMessage.
 func ProtoToGitleaksRuleMessage(pr *pb.RuleMessage) rules.GitleaksRuleMessage {
 	return rules.GitleaksRuleMessage{
-		Rule: protoToRule(pr.Rule),
-		Hash: pr.Hash,
+		GitleaksRule: protoToRule(pr.Rule),
+		Hash:         pr.Hash,
 	}
 }
 

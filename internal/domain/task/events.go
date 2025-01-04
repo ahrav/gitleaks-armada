@@ -7,8 +7,7 @@ import (
 )
 
 const (
-	EventTypeTaskCreated      events.EventType = "TaskCreated"
-	EventTypeTaskBatchCreated events.EventType = "TaskBatchCreated"
+	EventTypeTaskCreated events.EventType = "TaskCreated"
 )
 
 // --------------------------
@@ -36,27 +35,3 @@ func (e TaskCreatedEvent) EventType() events.EventType { return EventTypeTaskCre
 
 // OccurredAt satisfies the events.DomainEvent interface.
 func (e TaskCreatedEvent) OccurredAt() time.Time { return e.occurredAt }
-
-// --------------------------
-// 2. TaskBatchCreatedEvent
-// --------------------------
-
-// TaskBatchCreatedEvent indicates that a batch of tasks (TaskBatch) has been created.
-type TaskBatchCreatedEvent struct {
-	occurredAt time.Time
-	Batch      TaskBatch
-}
-
-// NewTaskBatchCreatedEvent constructs a TaskBatchCreatedEvent using the provided TaskBatch.
-func NewTaskBatchCreatedEvent(b TaskBatch) TaskBatchCreatedEvent {
-	return TaskBatchCreatedEvent{
-		occurredAt: time.Now(),
-		Batch:      b,
-	}
-}
-
-// EventType maps to the enumeration for batch creation.
-func (e TaskBatchCreatedEvent) EventType() events.EventType { return EventTypeTaskBatchCreated }
-
-// OccurredAt returns when the batch was created.
-func (e TaskBatchCreatedEvent) OccurredAt() time.Time { return e.occurredAt }

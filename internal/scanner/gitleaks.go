@@ -185,8 +185,8 @@ func convertDetectorRuleToMessage(rule config.Rule) rules.GitleaksRuleMessage {
 	}
 
 	return rules.GitleaksRuleMessage{
-		Rule: domainRule,
-		Hash: domainRule.GenerateHash(),
+		GitleaksRule: domainRule,
+		Hash:         domainRule.GenerateHash(),
 	}
 }
 

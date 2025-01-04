@@ -82,117 +82,46 @@ func RegisterEventSerializers() {
 	RegisterSerializeFunc(task.EventTypeTaskCreated, serializeTaskCreated)
 	RegisterDeserializeFunc(task.EventTypeTaskCreated, deserializeTaskCreated)
 
-	RegisterSerializeFunc(task.EventTypeTaskBatchCreated, serializeTaskBatchCreated)
-	RegisterDeserializeFunc(task.EventTypeTaskBatchCreated, deserializeTaskBatchCreated)
-
 	RegisterSerializeFunc(rules.EventTypeRuleUpdated, serializeRuleUpdated)
 	RegisterDeserializeFunc(rules.EventTypeRuleUpdated, deserializeRuleUpdated)
-
-	RegisterSerializeFunc(events.EventTypeScanProgressUpdated, serializeScanProgressUpdated)
-	RegisterDeserializeFunc(events.EventTypeScanProgressUpdated, deserializeScanProgressUpdated)
-
-	RegisterSerializeFunc(events.EventTypeScanResultReceived, serializeScanResultReceived)
-	RegisterDeserializeFunc(events.EventTypeScanResultReceived, deserializeScanResultReceived)
 }
 
-// serializeTaskCreated converts a domain.Task to protobuf bytes.
+// serializeTaskCreated converts a TaskCreatedEvent to protobuf bytes.
 func serializeTaskCreated(payload any) ([]byte, error) {
-	dTask, ok := payload.(task.Task)
+	event, ok := payload.(task.TaskCreatedEvent)
 	if !ok {
-		return nil, fmt.Errorf("serializeTask: payload is not domain.Task")
+		return nil, fmt.Errorf("serializeTaskCreated: payload is not TaskCreatedEvent, got %T", payload)
 	}
-	pbTask := protobuf.TaskToProto(dTask)
+	pbTask := protobuf.TaskToProto(event.Task)
 	return proto.Marshal(pbTask)
 }
 
-// deserializeTaskCreated converts protobuf bytes back into a domain.Task.
+// deserializeTaskCreated converts protobuf bytes back into a TaskCreatedEvent.
 func deserializeTaskCreated(data []byte) (any, error) {
 	var pbTask pb.ScanTask
 	if err := proto.Unmarshal(data, &pbTask); err != nil {
 		return nil, fmt.Errorf("unmarshal ScanTask: %w", err)
 	}
-	return protobuf.ProtoToTask(&pbTask), nil
+	t := protobuf.ProtoToTask(&pbTask)
+	return task.NewTaskCreatedEvent(t), nil
 }
 
-func serializeTaskBatchCreated(payload any) ([]byte, error) {
-	batch, ok := payload.(task.TaskBatch)
-	if !ok {
-		return nil, fmt.Errorf("serializeTaskBatch: payload is not domain.TaskBatch")
-	}
-	// Convert []domain.Task -> repeated pb.ScanTask
-	pbBatch := &pb.BatchScanTask{} // you'll define this message in your proto
-	for _, t := range batch.Tasks {
-		pbBatch.Tasks = append(pbBatch.Tasks, protobuf.TaskToProto(t))
-	}
-	return proto.Marshal(pbBatch)
-}
-
-func deserializeTaskBatchCreated(data []byte) (any, error) {
-	var pbBatch pb.BatchScanTask
-	if err := proto.Unmarshal(data, &pbBatch); err != nil {
-		return nil, fmt.Errorf("unmarshal TaskBatch: %w", err)
-	}
-	// convert pbBatch.Tasks -> []domain.Task
-	var tasks []task.Task
-	for _, pt := range pbBatch.Tasks {
-		tasks = append(tasks, protobuf.ProtoToTask(pt))
-	}
-	return task.TaskBatch{Tasks: tasks}, nil
-}
-
-// serializeRuleUpdated converts a domain.GitleaksRuleMessage to protobuf bytes.
+// serializeRuleUpdated converts a RuleUpdatedEvent to protobuf bytes.
 func serializeRuleUpdated(payload any) ([]byte, error) {
-	ruleMsg, ok := payload.(rules.GitleaksRuleMessage)
+	event, ok := payload.(rules.RuleUpdatedEvent)
 	if !ok {
-		return nil, fmt.Errorf("serializeRule: not GitleaksRuleMessage")
+		return nil, fmt.Errorf("serializeRuleUpdated: payload is not RuleUpdatedEvent, got %T", payload)
 	}
-	pbRule := protobuf.GitleaksRulesMessageToProto(ruleMsg)
+	pbRule := protobuf.GitleaksRulesMessageToProto(event.Rule)
 	return proto.Marshal(pbRule)
 }
 
-// deserializeRuleUpdated converts protobuf bytes back into a domain.GitleaksRuleMessage.
+// deserializeRuleUpdated converts protobuf bytes back into a RuleUpdatedEvent.
 func deserializeRuleUpdated(data []byte) (any, error) {
 	var pbRule pb.RuleMessage
 	if err := proto.Unmarshal(data, &pbRule); err != nil {
 		return nil, fmt.Errorf("unmarshal RuleMessage: %w", err)
 	}
-	return protobuf.ProtoToGitleaksRuleMessage(&pbRule), nil
-}
-
-// serializeScanProgressUpdated converts a domain.ScanProgress to protobuf bytes.
-func serializeScanProgressUpdated(payload any) ([]byte, error) {
-	sp, ok := payload.(events.ScanProgress)
-	if !ok {
-		return nil, fmt.Errorf("serializeScanProgress: not ScanProgress")
-	}
-	pbProg := protobuf.ScanProgressToProto(sp)
-	return proto.Marshal(pbProg)
-}
-
-// deserializeScanProgressUpdated converts protobuf bytes back into a domain.ScanProgress.
-func deserializeScanProgressUpdated(data []byte) (any, error) {
-	var pbProg pb.ScanProgress
-	if err := proto.Unmarshal(data, &pbProg); err != nil {
-		return nil, fmt.Errorf("unmarshal ScanProgress: %w", err)
-	}
-	return protobuf.ProtoToScanProgress(&pbProg), nil
-}
-
-// serializeScanResultReceived converts a domain.ScanResult to protobuf bytes.
-func serializeScanResultReceived(payload any) ([]byte, error) {
-	sr, ok := payload.(events.ScanResult)
-	if !ok {
-		return nil, fmt.Errorf("serializeScanResult: not ScanResult")
-	}
-	pbSr := protobuf.ScanResultToProto(sr)
-	return proto.Marshal(pbSr)
-}
-
-// deserializeScanResultReceived converts protobuf bytes back into a domain.ScanResult.
-func deserializeScanResultReceived(data []byte) (any, error) {
-	var pbSr pb.ScanResult
-	if err := proto.Unmarshal(data, &pbSr); err != nil {
-		return nil, fmt.Errorf("unmarshal ScanResult: %w", err)
-	}
-	return protobuf.ProtoToScanResult(&pbSr), nil
+	ruleMsg := protobuf.ProtoToGitleaksRuleMessage(&pbRule)
+	return rules.NewRuleUpdatedEvent(ruleMsg), nil
 }

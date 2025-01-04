@@ -23,11 +23,10 @@ import (
 type Scanner struct {
 	id string
 
-	broker         events.EventBus
-	eventPublisher events.DomainEventPublisher
-	metrics        metrics.ScannerMetrics
-	scanner        *GitLeaksScanner
-	workers        int
+	broker  events.EventBus
+	metrics metrics.ScannerMetrics
+	scanner *GitLeaksScanner
+	workers int
 
 	stopCh   chan struct{}
 	workerWg sync.WaitGroup
@@ -64,28 +63,33 @@ func (s *Scanner) Run(ctx context.Context) error {
 	s.stopCh = make(chan struct{})
 	s.logger.Info(ctx, "Starting scanner", "scanner_id", s.id, "num_workers", s.workers)
 
-	taskCh := make(chan task.Task, 1)
+	taskEventCh := make(chan task.TaskCreatedEvent, 1)
 
 	s.workerWg.Add(s.workers)
 	for i := 0; i < s.workers; i++ {
 		go func(workerID int) {
 			defer s.workerWg.Done()
-			s.worker(ctx, workerID, taskCh)
+			s.worker(ctx, workerID, taskEventCh)
 		}(i)
 	}
 
-	// Set up the subscription to feed tasks to workers.
-	if err := s.broker.Subscribe(ctx, []events.EventType{task.EventTypeTaskCreated}, func(ctx context.Context, evt events.EventEnvelope) error {
-		select {
-		case taskCh <- evt.Payload.(task.Task):
-			return nil
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-s.stopCh:
-			return fmt.Errorf("scanner[%s]: stopping", s.id)
-		}
-	}); err != nil {
-		close(taskCh)
+	if err := s.broker.Subscribe(ctx, []events.EventType{task.EventTypeTaskCreated},
+		func(ctx context.Context, evt events.EventEnvelope) error {
+			taskEvent, ok := evt.Payload.(task.TaskCreatedEvent)
+			if !ok {
+				return fmt.Errorf("expected TaskCreatedEvent, got %T", evt.Payload)
+			}
+
+			select {
+			case taskEventCh <- taskEvent:
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-s.stopCh:
+				return fmt.Errorf("scanner[%s]: stopping", s.id)
+			}
+		}); err != nil {
+		close(taskEventCh)
 		s.workerWg.Wait()
 		return fmt.Errorf("scanner[%s]: failed to subscribe to tasks: %w", s.id, err)
 	}
@@ -94,22 +98,22 @@ func (s *Scanner) Run(ctx context.Context) error {
 	s.logger.Info(ctx, "Context cancelled, stopping scanner", "scanner_id", s.id)
 
 	close(s.stopCh)
-	close(taskCh)
+	close(taskEventCh)
 	s.workerWg.Wait()
 	return ctx.Err()
 }
 
-// worker processes tasks from the task channel until it's closed or context is cancelled.
-func (s *Scanner) worker(ctx context.Context, id int, taskCh <-chan task.Task) {
+// worker processes task events
+func (s *Scanner) worker(ctx context.Context, id int, taskEventCh <-chan task.TaskCreatedEvent) {
 	s.logger.Info(ctx, "Worker started", "scanner_id", s.id, "worker_id", id)
 	for {
 		select {
-		case task, ok := <-taskCh:
+		case taskEvent, ok := <-taskEventCh:
 			if !ok {
 				s.logger.Info(ctx, "Worker shutting down", "scanner_id", s.id, "worker_id", id, "reason", "task_channel_closed")
 				return
 			}
-			if err := s.handleScanTask(ctx, task); err != nil {
+			if err := s.handleScanTask(ctx, taskEvent); err != nil {
 				s.logger.Error(ctx, "Worker failed to process task", "scanner_id", s.id, "worker_id", id, "error", err)
 			}
 		case <-ctx.Done():
@@ -122,22 +126,24 @@ func (s *Scanner) worker(ctx context.Context, id int, taskCh <-chan task.Task) {
 	}
 }
 
-// handleScanTask processes a single repository scan task.
-// It updates metrics for task processing and delegates the actual scanning
-// to the configured scanner implementation.
-func (s *Scanner) handleScanTask(ctx context.Context, task task.Task) error {
-	s.logger.Info(ctx, "Scanning repository", "scanner_id", s.id, "resource_uri", task.ResourceURI)
+// handleScanTask processes a single task event
+func (s *Scanner) handleScanTask(ctx context.Context, evt task.TaskCreatedEvent) error {
+	s.logger.Info(ctx, "Scanning repository",
+		"scanner_id", s.id,
+		"resource_uri", evt.Task.ResourceURI,
+		"occurred_at", evt.OccurredAt(),
+	)
 
-	// Start a new span for the entire task processing
 	ctx, span := s.tracer.Start(ctx, "process_scan_task",
 		trace.WithAttributes(
-			attribute.String("task.id", task.TaskID),
-			attribute.String("resource.uri", task.ResourceURI),
+			attribute.String("task.id", evt.Task.TaskID),
+			attribute.String("resource.uri", evt.Task.ResourceURI),
+			attribute.String("event.occurred_at", evt.OccurredAt().String()),
 		))
 	defer span.End()
 
 	return s.metrics.TrackTask(func() error {
-		if err := s.scanner.Scan(ctx, task.ResourceURI); err != nil {
+		if err := s.scanner.Scan(ctx, evt.Task.ResourceURI); err != nil {
 			span.RecordError(err)
 			return err
 		}

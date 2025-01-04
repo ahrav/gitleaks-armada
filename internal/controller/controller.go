@@ -181,34 +181,38 @@ func (c *Controller) Stop(ctx context.Context) error {
 
 // handleRule processes incoming rule update events. It deduplicates rules based on their hash
 // to prevent unnecessary processing of duplicate rules within a short time window.
-func (c *Controller) handleRule(ctx context.Context, event events.EventEnvelope) error {
-	ruleMsg, ok := event.Payload.(rules.GitleaksRuleMessage)
+func (c *Controller) handleRule(ctx context.Context, evt events.EventEnvelope) error {
+	ruleEvent, ok := evt.Payload.(rules.RuleUpdatedEvent)
 	if !ok {
-		return fmt.Errorf("handleRule: payload is not GitleaksRuleMessage")
+		return fmt.Errorf("handleRule: payload is not RuleUpdatedEvent, got %T", evt.Payload)
 	}
 
 	// Check ephemeral duplicate skip (controller-level).
 	c.rulesMutex.RLock()
-	lastProcessed, exists := c.processedRules[ruleMsg.Hash]
+	lastProcessed, exists := c.processedRules[ruleEvent.Rule.Hash]
 	c.rulesMutex.RUnlock()
 
 	if exists && time.Since(lastProcessed) < time.Minute*5 {
 		c.logger.Info(ctx, "Skipping duplicate rule",
-			"rule_id", ruleMsg.Rule.RuleID,
-			"hash", ruleMsg.Hash)
+			"rule_id", ruleEvent.Rule.RuleID,
+			"hash", ruleEvent.Rule.Hash,
+			"occurred_at", ruleEvent.OccurredAt())
 		return nil
 	}
 
 	// Delegate to domain-level service for real domain logic (persisting rule).
-	if err := c.rulesService.SaveRule(ctx, ruleMsg.Rule); err != nil {
+	if err := c.rulesService.SaveRule(ctx, ruleEvent.Rule.GitleaksRule); err != nil {
 		return fmt.Errorf("failed to persist rule: %w", err)
 	}
 
 	// Mark processed, do some ephemeral cleanup.
 	c.rulesMutex.Lock()
-	c.processedRules[ruleMsg.Hash] = time.Now()
+	c.processedRules[ruleEvent.Rule.Hash] = time.Now()
 	c.rulesMutex.Unlock()
 
-	c.logger.Info(ctx, "Stored new rule", "rule_id", ruleMsg.Rule.RuleID, "hash", ruleMsg.Hash)
+	c.logger.Info(ctx, "Stored new rule",
+		"rule_id", ruleEvent.Rule.RuleID,
+		"hash", ruleEvent.Rule.Hash,
+		"occurred_at", ruleEvent.OccurredAt())
 	return nil
 }
