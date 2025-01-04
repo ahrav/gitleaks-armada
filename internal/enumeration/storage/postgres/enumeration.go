@@ -16,20 +16,20 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/storage"
 )
 
-var _ enumeration.EnumerationStateStorage = (*enumerationStateStore)(nil)
+var _ enumeration.EnumerationStateRepository = (*enumerationStateStore)(nil)
 
 // enumerationStateStore provides persistent storage for enumeration session state
 // using PostgreSQL. It enables resumable scanning across process restarts by maintaining
 // both enumeration state and associated checkpoints.
 type enumerationStateStore struct {
 	q               *db.Queries
-	checkpointStore enumeration.CheckpointStorage
+	checkpointStore enumeration.CheckpointRepository
 	tracer          trace.Tracer
 }
 
 // NewEnumerationStateStore creates a new PostgreSQL-backed enumeration state storage
 // using the provided database connection and checkpoint store.
-func NewEnumerationStateStore(dbConn *pgxpool.Pool, checkpointStore enumeration.CheckpointStorage, tracer trace.Tracer) *enumerationStateStore {
+func NewEnumerationStateStore(dbConn *pgxpool.Pool, checkpointStore enumeration.CheckpointRepository, tracer trace.Tracer) *enumerationStateStore {
 	return &enumerationStateStore{
 		q:               db.New(dbConn),
 		checkpointStore: checkpointStore,

@@ -32,7 +32,7 @@ type metrics interface {
 // service implements the Service interface with dependencies for storage,
 // configuration, metrics, and event publishing.
 type service struct {
-	store          domain.EnumerationStateStorage
+	store          domain.EnumerationStateRepository
 	configLoader   config.Loader // used if we need to load new config
 	enumFactory    domain.EnumeratorFactory
 	eventPublisher events.DomainEventPublisher
@@ -45,7 +45,7 @@ type service struct {
 // It requires storage for enumeration state, configuration loading, factory for creating
 // enumerators, event publishing, logging, metrics collection and tracing capabilities.
 func NewService(
-	store domain.EnumerationStateStorage,
+	store domain.EnumerationStateRepository,
 	configLoader config.Loader,
 	enumFactory domain.EnumeratorFactory,
 	eventPublisher events.DomainEventPublisher,

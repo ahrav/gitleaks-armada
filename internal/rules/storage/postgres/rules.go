@@ -12,8 +12,8 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/ahrav/gitleaks-armada/internal/db"
-	"github.com/ahrav/gitleaks-armada/internal/storage"
 	"github.com/ahrav/gitleaks-armada/internal/domain/rules"
+	"github.com/ahrav/gitleaks-armada/internal/storage"
 )
 
 // RulesMetrics defines the interface for tracking metrics related to rule operations.
@@ -26,7 +26,7 @@ type RulesMetrics interface {
 }
 
 // Compile-time check that RulesStorage implements rules.RulesStorage.
-var _ rules.RulesStorage = (*ruleStore)(nil)
+var _ rules.RuleRepository = (*ruleStore)(nil)
 
 // ruleStore provides persistent storage for Gitleaks rules and allowlists in PostgreSQL.
 // It handles atomic updates of rule sets and their associated allowlist components to maintain

@@ -1,3 +1,17 @@
+// Package serialization provides a registry-based system for serializing and deserializing
+// domain events in the event bus infrastructure. It acts as a translation layer between
+// domain objects and their protobuf wire format representations.
+//
+// The package implements a registry pattern where serialization/deserialization functions
+// are registered for each event type. This approach:
+//   - Maintains a clean separation between domain models and their wire formats
+//   - Centralizes all serialization logic in one place
+//   - Allows for type-safe conversion between domain and protobuf models
+//   - Enables easy addition of new event types without modifying existing code
+//
+// This package enables reliable event-driven communication between
+// different components of the system while keeping the domain layer clean of
+// serialization concerns.
 package serialization
 
 import (
@@ -55,6 +69,11 @@ func DeserializePayload(eventType events.EventType, data []byte) (any, error) {
 		return nil, fmt.Errorf("no deserializer registered for eventType=%s", eventType)
 	}
 	return fn(data)
+}
+
+// TODO: Figure out if init function is the best way to do this.
+func init() {
+	RegisterEventSerializers()
 }
 
 // RegisterEventSerializers initializes the serialization system by registering handlers for all supported event types.

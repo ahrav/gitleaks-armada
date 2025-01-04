@@ -19,7 +19,7 @@ import (
 type enumerationFactory struct {
 	httpClient       *http.Client
 	credStore        *task.CredentialStore
-	enumerationStore enumeration.EnumerationStateStorage
+	enumerationStore enumeration.EnumerationStateRepository
 	tracer           trace.Tracer
 }
 
@@ -28,7 +28,7 @@ type enumerationFactory struct {
 func NewEnumerationFactory(
 	httpClient *http.Client,
 	credStore *task.CredentialStore,
-	enumStore enumeration.EnumerationStateStorage,
+	enumStore enumeration.EnumerationStateRepository,
 	tracer trace.Tracer,
 ) enumeration.EnumeratorFactory {
 	return &enumerationFactory{

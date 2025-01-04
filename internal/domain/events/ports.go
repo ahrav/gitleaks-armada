@@ -1,34 +1,36 @@
+// Package events provides domain event handling capabilities for communicating state changes
+// and important activities across system boundaries in a decoupled way.
 package events
 
 import (
 	"context"
 )
 
-// DomainEventPublisher defines the contract for publishing domain events.
-// It provides a technology-agnostic way to notify other parts of the system about
-// important domain changes and activities.
+// DomainEventPublisher publishes domain events to notify other parts of the system about
+// important domain changes. It provides a technology-agnostic interface to decouple event
+// producers from the underlying messaging infrastructure.
 type DomainEventPublisher interface {
-	// PublishDomainEvent sends a domain event with the specified type and payload.
-	// It accepts optional PublishOptions to configure event routing behavior.
-	// The context allows for cancellation and deadline control.
+	// PublishDomainEvent sends a domain event to interested subscribers. The provided context
+	// controls cancellation and deadlines. Optional PublishOptions configure routing behavior.
+	// Returns an error if publishing fails.
 	PublishDomainEvent(ctx context.Context, event DomainEvent, opts ...PublishOption) error
 }
 
-// EventBus defines the contract for publishing and subscribing to domain events.
-// It abstracts the underlying message transport (e.g., Kafka, GCP Pub/Sub, RabbitMQ)
-// to keep business logic independent of specific messaging implementations.
+// EventBus enables publishing and subscribing to domain events across system boundaries.
+// It abstracts messaging infrastructure details (like Kafka or RabbitMQ) to keep domain
+// logic focused on business concerns rather than transport mechanisms.
 type EventBus interface {
-	// Publish sends a domain event to all interested subscribers.
-	// It accepts optional configuration via PublishOptions.
+	// Publish broadcasts a domain event to all interested subscribers. The provided context
+	// controls the operation lifecycle. Optional PublishOptions configure delivery behavior.
 	// Returns an error if publishing fails.
 	Publish(ctx context.Context, event EventEnvelope, opts ...PublishOption) error
 
-	// Subscribe registers a handler for processing events of specified types.
-	// The handler is called for each matching event received.
+	// Subscribe registers a handler function to process events of specified types.
+	// The handler executes for each matching event received on this bus.
 	// Returns an error if subscription setup fails.
 	Subscribe(ctx context.Context, eventTypes []EventType, handler func(context.Context, EventEnvelope) error) error
 
-	// Close cleanly shuts down the event bus, releasing all associated resources.
-	// This should be called when the event bus is no longer needed.
+	// Close gracefully shuts down the event bus and releases associated resources.
+	// This should be called during system shutdown to prevent resource leaks.
 	Close() error
 }

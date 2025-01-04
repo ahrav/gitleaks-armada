@@ -9,7 +9,7 @@ import (
 )
 
 // Compile-time check that store implements rules.RulesStorage.
-var _ rules.RulesStorage = (*store)(nil)
+var _ rules.RuleRepository = (*store)(nil)
 
 // store provides an in-memory implementation of rules storage.
 type store struct{ rules sync.Map }

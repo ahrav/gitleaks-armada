@@ -40,7 +40,7 @@ type GitHubEnumerator struct {
 	creds    *task.TaskCredentials
 
 	ghClient GitHubAPI
-	storage  enumeration.EnumerationStateStorage
+	storage  enumeration.EnumerationStateRepository
 	tracer   trace.Tracer
 }
 
@@ -49,7 +49,7 @@ type GitHubEnumerator struct {
 func NewGitHubEnumerator(
 	client GitHubAPI,
 	creds *task.TaskCredentials,
-	storage enumeration.EnumerationStateStorage,
+	storage enumeration.EnumerationStateRepository,
 	ghConfig *config.GitHubTarget,
 	tracer trace.Tracer,
 ) *GitHubEnumerator {

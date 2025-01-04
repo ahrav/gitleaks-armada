@@ -16,7 +16,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/storage"
 )
 
-var _ enumeration.CheckpointStorage = (*checkpointStore)(nil)
+var _ enumeration.CheckpointRepository = (*checkpointStore)(nil)
 
 // checkpointStore provides a PostgreSQL implementation of checkpointStore.
 // It uses sqlc-generated queries to manage checkpoint persistence, enabling

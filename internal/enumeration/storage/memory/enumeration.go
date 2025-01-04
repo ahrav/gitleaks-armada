@@ -15,11 +15,11 @@ import (
 type EnumerationStateStorage struct {
 	mu              sync.Mutex
 	states          map[string]*enumeration.EnumerationState // Keyed by session ID
-	checkpointStore enumeration.CheckpointStorage
+	checkpointStore enumeration.CheckpointRepository
 }
 
 // NewEnumerationStateStorage creates a new in-memory enumeration state storage.
-func NewEnumerationStateStorage(checkpointStore enumeration.CheckpointStorage) *EnumerationStateStorage {
+func NewEnumerationStateStorage(checkpointStore enumeration.CheckpointRepository) *EnumerationStateStorage {
 	return &EnumerationStateStorage{
 		states:          make(map[string]*enumeration.EnumerationState),
 		checkpointStore: checkpointStore,

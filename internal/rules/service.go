@@ -8,13 +8,13 @@ import (
 
 // ruleService implements the RuleService interface to provide rule management capabilities.
 type ruleService struct {
-	rulesStorage domain.RulesStorage
+	rulesStorage domain.RuleRepository
 	// TODO: other domain-level fields, logger, tracer, etc.
 }
 
 // NewRuleService creates a new RuleService instance with the provided storage implementation.
 // The storage is used to persist validated rules.
-func NewRuleService(rulesStorage domain.RulesStorage) *ruleService {
+func NewRuleService(rulesStorage domain.RuleRepository) *ruleService {
 	return &ruleService{rulesStorage: rulesStorage}
 }
 

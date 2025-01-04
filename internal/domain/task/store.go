@@ -6,6 +6,8 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/config"
 )
 
+// TODO: This should be a port.
+
 // CredentialStore provides centralized access to authentication configurations.
 // It maps auth references to their corresponding credentials.
 type CredentialStore struct {

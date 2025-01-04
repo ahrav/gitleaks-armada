@@ -1,22 +1,24 @@
+// Package rules provides functionality for managing and validating Gitleaks scanning rules
+// used to detect sensitive information in source code repositories.
 package rules
 
 import "context"
 
-// RuleService provides domain operations for managing Gitleaks scanning rules.
-// It encapsulates business logic for rule validation and persistence.
+// RuleService manages the lifecycle and validation of Gitleaks scanning rules.
+// It acts as the primary interface for rule operations, ensuring rules meet
+// domain requirements before being persisted.
 type RuleService interface {
-	// SaveRule validates and persists a Gitleaks rule to storage.
-	// It ensures the rule meets domain requirements before saving.
+	// SaveRule stores a validated Gitleaks rule.
+	// It performs domain validation before persisting to ensure the rule meets
+	// all requirements. Returns an error if validation or persistence fails.
 	SaveRule(ctx context.Context, r GitleaksRule) error
 }
 
-// RulesStorage defines the storage interface for persisting Gitleaks scanning rules.
-// Implementations of this interface provide durable storage capabilities to maintain
-// rule definitions across service restarts and enable rule sharing between components.
-type RulesStorage interface {
-	// SaveRule persists a single Gitleaks rule and its associated allowlists to storage.
-	// It ensures atomic updates of both the rule and its allowlist components to maintain
-	// data consistency. Returns an error if the save operation fails.
+// RuleRepository provides persistent storage operations for Gitleaks rules.
+// A durable storage implementation is required to maintain rule consistency
+// across service restarts and enable rule sharing between system components.
+type RuleRepository interface {
+	// SaveRule atomically persists a Gitleaks rule and its allowlists.
+	// Returns an error if the save operation fails.
 	SaveRule(ctx context.Context, rule GitleaksRule) error
 }
-
