@@ -199,7 +199,7 @@ type EnumerationBatchProgress struct {
 	CompletedAt    pgtype.Timestamptz
 	ItemsProcessed int32
 	ErrorDetails   pgtype.Text
-	State          []byte
+	CheckpointID   pgtype.Int8
 	CreatedAt      pgtype.Timestamptz
 }
 

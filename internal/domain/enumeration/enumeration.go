@@ -133,8 +133,8 @@ type BatchProgress struct {
 	itemsProcessed int
 	// errorDetails captures failure information when status is failed or partial.
 	errorDetails string
-	// state stores the state of the enumeration at the time of the batch.
-	state map[string]any
+	// checkpoint stores the checkpoint of the enumeration at the time of the batch.
+	checkpoint *Checkpoint
 }
 
 // ReconstructBatchProgress creates a BatchProgress instance from persisted data
@@ -145,7 +145,7 @@ func ReconstructBatchProgress(
 	completedAt time.Time,
 	itemsProcessed int,
 	errorDetails string,
-	state map[string]any,
+	checkpoint *Checkpoint,
 ) BatchProgress {
 	return BatchProgress{
 		batchID:        batchID,
@@ -154,29 +154,29 @@ func ReconstructBatchProgress(
 		completedAt:    completedAt,
 		itemsProcessed: itemsProcessed,
 		errorDetails:   errorDetails,
-		state:          state,
+		checkpoint:     checkpoint,
 	}
 }
 
 // Getters for BatchProgress.
-func (bp BatchProgress) BatchID() string        { return bp.batchID }
-func (bp BatchProgress) Status() BatchStatus    { return bp.status }
-func (bp BatchProgress) ItemsProcessed() int    { return bp.itemsProcessed }
-func (bp BatchProgress) State() map[string]any  { return bp.state }
-func (bp BatchProgress) ErrorDetails() string   { return bp.errorDetails }
-func (bp BatchProgress) StartedAt() time.Time   { return bp.startedAt }
-func (bp BatchProgress) CompletedAt() time.Time { return bp.completedAt }
+func (bp BatchProgress) BatchID() string         { return bp.batchID }
+func (bp BatchProgress) Status() BatchStatus     { return bp.status }
+func (bp BatchProgress) ItemsProcessed() int     { return bp.itemsProcessed }
+func (bp BatchProgress) Checkpoint() *Checkpoint { return bp.checkpoint }
+func (bp BatchProgress) ErrorDetails() string    { return bp.errorDetails }
+func (bp BatchProgress) StartedAt() time.Time    { return bp.startedAt }
+func (bp BatchProgress) CompletedAt() time.Time  { return bp.completedAt }
 
 // MarshalJSON serializes the BatchProgress object into a JSON byte array.
 func (bp *BatchProgress) MarshalJSON() ([]byte, error) {
 	return json.Marshal(&struct {
-		BatchID        string         `json:"batch_id"`
-		Status         BatchStatus    `json:"status"`
-		StartedAt      time.Time      `json:"started_at"`
-		CompletedAt    time.Time      `json:"completed_at"`
-		ItemsProcessed int            `json:"items_processed"`
-		ErrorDetails   string         `json:"error_details,omitempty"`
-		State          map[string]any `json:"state"`
+		BatchID        string      `json:"batch_id"`
+		Status         BatchStatus `json:"status"`
+		StartedAt      time.Time   `json:"started_at"`
+		CompletedAt    time.Time   `json:"completed_at"`
+		ItemsProcessed int         `json:"items_processed"`
+		ErrorDetails   string      `json:"error_details,omitempty"`
+		Checkpoint     *Checkpoint `json:"checkpoint"`
 	}{
 		BatchID:        bp.batchID,
 		Status:         bp.status,
@@ -184,20 +184,20 @@ func (bp *BatchProgress) MarshalJSON() ([]byte, error) {
 		CompletedAt:    bp.completedAt,
 		ItemsProcessed: bp.itemsProcessed,
 		ErrorDetails:   bp.errorDetails,
-		State:          bp.state,
+		Checkpoint:     bp.checkpoint,
 	})
 }
 
 // UnmarshalJSON deserializes JSON data into a BatchProgress object.
 func (bp *BatchProgress) UnmarshalJSON(data []byte) error {
 	aux := &struct {
-		BatchID        string         `json:"batch_id"`
-		Status         BatchStatus    `json:"status"`
-		StartedAt      time.Time      `json:"started_at"`
-		CompletedAt    time.Time      `json:"completed_at"`
-		ItemsProcessed int            `json:"items_processed"`
-		ErrorDetails   string         `json:"error_details,omitempty"`
-		State          map[string]any `json:"state"`
+		BatchID        string      `json:"batch_id"`
+		Status         BatchStatus `json:"status"`
+		StartedAt      time.Time   `json:"started_at"`
+		CompletedAt    time.Time   `json:"completed_at"`
+		ItemsProcessed int         `json:"items_processed"`
+		ErrorDetails   string      `json:"error_details,omitempty"`
+		Checkpoint     *Checkpoint `json:"checkpoint"`
 	}{
 		BatchID:        bp.batchID,
 		Status:         bp.status,
@@ -205,7 +205,7 @@ func (bp *BatchProgress) UnmarshalJSON(data []byte) error {
 		CompletedAt:    bp.completedAt,
 		ItemsProcessed: bp.itemsProcessed,
 		ErrorDetails:   bp.errorDetails,
-		State:          bp.state,
+		Checkpoint:     bp.checkpoint,
 	}
 
 	if err := json.Unmarshal(data, &aux); err != nil {
@@ -218,7 +218,7 @@ func (bp *BatchProgress) UnmarshalJSON(data []byte) error {
 	bp.completedAt = aux.CompletedAt
 	bp.itemsProcessed = aux.ItemsProcessed
 	bp.errorDetails = aux.ErrorDetails
-	bp.state = aux.State
+	bp.checkpoint = aux.Checkpoint
 
 	return nil
 }
@@ -441,6 +441,11 @@ func (s *SessionState) initializeProgress() {
 	}
 }
 
+func (s *SessionState) attachCheckpoint(cp *Checkpoint) {
+	s.lastCheckpoint = cp
+	s.lastUpdated = time.Now()
+}
+
 // MarshalJSON serializes the State object into a JSON byte array.
 func (s *SessionState) MarshalJSON() ([]byte, error) {
 	return json.Marshal(&struct {
@@ -505,28 +510,28 @@ func (s *SessionState) UnmarshalJSON(data []byte) error {
 // NewSuccessfulBatchProgress creates a BatchProgress record for a successfully completed batch.
 // It captures the number of items processed and the state of the enumeration at the time of the batch.
 // This enables accurate progress monitoring and resumable processing of large datasets.
-func NewSuccessfulBatchProgress(itemCount int, state map[string]any) BatchProgress {
+func NewSuccessfulBatchProgress(itemCount int, checkpoint *Checkpoint) BatchProgress {
 	return BatchProgress{
 		batchID:        uuid.New().String(),
 		status:         BatchStatusSucceeded,
 		startedAt:      time.Now(),
 		completedAt:    time.Now(),
 		itemsProcessed: itemCount,
-		state:          state,
+		checkpoint:     checkpoint,
 	}
 }
 
 // NewFailedBatchProgress creates a BatchProgress record for a failed batch execution.
 // It preserves the error details and state of the enumeration at the time of the batch.
 // This enables failure analysis and recovery.
-func NewFailedBatchProgress(err error, state map[string]any) BatchProgress {
+func NewFailedBatchProgress(err error, checkpoint *Checkpoint) BatchProgress {
 	return BatchProgress{
 		batchID:      uuid.New().String(),
 		status:       BatchStatusFailed,
 		startedAt:    time.Now(),
 		completedAt:  time.Now(),
 		errorDetails: err.Error(),
-		state:        state,
+		checkpoint:   checkpoint,
 	}
 }
 

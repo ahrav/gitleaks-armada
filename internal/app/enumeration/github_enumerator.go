@@ -14,7 +14,6 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
-	domain "github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/domain/task"
 	"github.com/ahrav/gitleaks-armada/pkg/common"
 	"github.com/ahrav/gitleaks-armada/pkg/config"
@@ -45,8 +44,8 @@ type TargetEnumerator interface {
 // This enables atomic processing of task batches while maintaining
 // resumability through checkpoint tracking.
 type EnumerateBatch struct {
-	Tasks []task.Task
-	State map[string]any
+	Tasks      []task.Task
+	NextCursor string
 }
 
 var _ TargetEnumerator = new(GitHubEnumerator)
@@ -59,7 +58,6 @@ type GitHubEnumerator struct {
 	creds    *task.TaskCredentials
 
 	ghClient GitHubAPI
-	storage  domain.StateRepository
 	tracer   trace.Tracer
 }
 
@@ -122,7 +120,7 @@ func (e *GitHubEnumerator) Enumerate(ctx context.Context, startCursor *string, b
 				Credentials: e.creds,
 			})
 		}
-		batchCh <- EnumerateBatch{Tasks: tasks, State: nil}
+		batchCh <- EnumerateBatch{Tasks: tasks}
 		return nil
 	}
 
@@ -157,18 +155,14 @@ func (e *GitHubEnumerator) Enumerate(ctx context.Context, startCursor *string, b
 		newCursor := pageInfo.EndCursor
 
 		batchCh <- EnumerateBatch{
-			Tasks: tasks,
-			State: map[string]any{"endCursor": newCursor},
+			Tasks:      tasks,
+			NextCursor: newCursor,
 		}
 
 		if !pageInfo.HasNextPage {
 			break
 		}
 		endCursor = &newCursor
-
-		// if err := e.storage.Save(ctx, state); err != nil {
-		// 	return fmt.Errorf("failed to save enumeration state with new checkpoint: %w", err)
-		// }
 	}
 
 	return nil

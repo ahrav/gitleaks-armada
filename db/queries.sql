@@ -97,7 +97,7 @@ ORDER BY started_at ASC;
 -- name: CreateEnumerationBatchProgress :one
 INSERT INTO enumeration_batch_progress (
     batch_id, session_id, status, started_at, completed_at,
-    items_processed, error_details, state
+    items_processed, error_details, checkpoint_id
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8
 )

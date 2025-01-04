@@ -290,7 +290,7 @@ func (s *service) streamEnumerate(
 		attribute.String("source_type", state.SourceType()),
 	)
 
-	batchCh := make(chan EnumerateBatch)
+	batchCh := make(chan EnumerateBatch, 1)
 	var wg sync.WaitGroup
 	wg.Add(1)
 
@@ -298,15 +298,23 @@ func (s *service) streamEnumerate(
 	go func() {
 		defer wg.Done()
 		for batch := range batchCh {
+			var checkpoint *enumeration.Checkpoint
+			if batch.NextCursor != "" {
+				checkpoint = enumeration.NewTemporaryCheckpoint(
+					state.SessionID(),
+					map[string]any{"endCursor": batch.NextCursor},
+				)
+			}
+
 			var batchProgress enumeration.BatchProgress
 
 			// TODO: Handle partial failures once |publishTasks| can handle them.
 			if err := s.publishTasks(ctx, batch.Tasks, state.SessionID()); err != nil {
 				span.RecordError(err)
-				batchProgress = enumeration.NewFailedBatchProgress(err, batch.State)
+				batchProgress = enumeration.NewFailedBatchProgress(err, checkpoint)
 				s.logger.Error(ctx, "Failed to publish tasks", "error", err)
 			} else {
-				batchProgress = enumeration.NewSuccessfulBatchProgress(len(batch.Tasks), batch.State)
+				batchProgress = enumeration.NewSuccessfulBatchProgress(len(batch.Tasks), checkpoint)
 			}
 
 			if err := s.domainService.RecordBatchProgress(state, batchProgress); err != nil {

@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -72,53 +71,75 @@ func (s *enumerationSessionStateStore) Save(ctx context.Context, state *enumerat
 			return fmt.Errorf("failed to save enumeration state: %w", err)
 		}
 
+		// 3) Save progress + batch progress
 		if state.Progress() != nil {
-			// Save progress.
-			err = s.q.CreateEnumerationProgress(ctx, db.CreateEnumerationProgressParams{
-				SessionID:  state.SessionID(),
-				StartedAt:  pgtype.Timestamptz{Time: state.Progress().StartedAt(), Valid: true},
-				LastUpdate: pgtype.Timestamptz{Time: state.Progress().LastUpdate(), Valid: true},
-			})
-			if err != nil {
-				return fmt.Errorf("failed to create progress: %w", err)
+			if err := s.saveProgress(ctx, state); err != nil {
+				return err
 			}
-
-			err = s.q.UpdateEnumerationProgress(ctx, db.UpdateEnumerationProgressParams{
-				SessionID:      state.SessionID(),
-				ItemsFound:     int32(state.Progress().ItemsFound()),
-				ItemsProcessed: int32(state.Progress().ItemsProcessed()),
-				FailedBatches:  int32(state.Progress().FailedBatches()),
-				TotalBatches:   int32(state.Progress().TotalBatches()),
-			})
-			if err != nil {
-				return fmt.Errorf("failed to update progress: %w", err)
-			}
-
-			// Save batch progress with state as JSONB.
 			for _, batch := range state.Progress().Batches() {
-				stateJSON, err := json.Marshal(batch.State())
-				if err != nil {
-					return fmt.Errorf("failed to marshal batch state: %w", err)
-				}
-
-				_, err = s.q.CreateEnumerationBatchProgress(ctx, db.CreateEnumerationBatchProgressParams{
-					BatchID:        batch.BatchID(),
-					SessionID:      state.SessionID(),
-					Status:         db.BatchStatus(batch.Status()),
-					StartedAt:      pgtype.Timestamptz{Time: batch.StartedAt(), Valid: true},
-					CompletedAt:    pgtype.Timestamptz{Time: batch.CompletedAt(), Valid: true},
-					ItemsProcessed: int32(batch.ItemsProcessed()),
-					ErrorDetails:   pgtype.Text{String: batch.ErrorDetails(), Valid: true},
-					State:          stateJSON,
-				})
-				if err != nil {
-					return fmt.Errorf("failed to create batch progress: %w", err)
+				if err := s.saveBatchProgress(ctx, state.SessionID(), batch); err != nil {
+					return err
 				}
 			}
 		}
 
 		return nil
 	})
+}
+
+func (s *enumerationSessionStateStore) saveProgress(ctx context.Context, state *enumeration.SessionState) error {
+	// Upsert enumeration_progress row
+	err := s.q.CreateEnumerationProgress(ctx, db.CreateEnumerationProgressParams{
+		SessionID:  state.SessionID(),
+		StartedAt:  pgtype.Timestamptz{Time: state.Progress().StartedAt(), Valid: true},
+		LastUpdate: pgtype.Timestamptz{Time: state.Progress().LastUpdate(), Valid: true},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create progress: %w", err)
+	}
+
+	err = s.q.UpdateEnumerationProgress(ctx, db.UpdateEnumerationProgressParams{
+		SessionID:      state.SessionID(),
+		ItemsFound:     int32(state.Progress().ItemsFound()),
+		ItemsProcessed: int32(state.Progress().ItemsProcessed()),
+		FailedBatches:  int32(state.Progress().FailedBatches()),
+		TotalBatches:   int32(state.Progress().TotalBatches()),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to update progress: %w", err)
+	}
+	return nil
+}
+
+func (s *enumerationSessionStateStore) saveBatchProgress(ctx context.Context, sessionID string, batch enumeration.BatchProgress) error {
+	// 1) Save the batch's checkpoint if present
+	var checkpointID pgtype.Int8
+	if cp := batch.Checkpoint(); cp != nil {
+		if err := s.checkpointStore.Save(ctx, cp); err != nil {
+			return fmt.Errorf("failed to save batch checkpoint: %w", err)
+		}
+		checkpointID = pgtype.Int8{Int64: cp.ID(), Valid: true}
+	} else {
+		checkpointID = pgtype.Int8{Valid: false} // no checkpoint
+	}
+
+	// 2) Insert or update the enumeration_batch_progress row
+	//    (Assuming your SQL code has a param for checkpoint_id)
+	_, err := s.q.CreateEnumerationBatchProgress(ctx, db.CreateEnumerationBatchProgressParams{
+		BatchID:        batch.BatchID(),
+		SessionID:      sessionID,
+		Status:         db.BatchStatus(batch.Status()),
+		StartedAt:      pgtype.Timestamptz{Time: batch.StartedAt(), Valid: true},
+		CompletedAt:    pgtype.Timestamptz{Time: batch.CompletedAt(), Valid: true},
+		ItemsProcessed: int32(batch.ItemsProcessed()),
+		ErrorDetails:   pgtype.Text{String: batch.ErrorDetails(), Valid: batch.ErrorDetails() != ""},
+		CheckpointID:   checkpointID, // new column
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create batch progress: %w", err)
+	}
+
+	return nil
 }
 
 // Load retrieves the current enumeration state and its associated checkpoint.
@@ -230,65 +251,85 @@ func (s *enumerationSessionStateStore) convertDBStatesToEnumStates(ctx context.C
 	return states, nil
 }
 
-// Helper function to convert DB state to domain model.
-func (s *enumerationSessionStateStore) convertDBStateToEnumState(ctx context.Context, dbState db.EnumerationSessionState) (*enumeration.SessionState, error) {
+// convertDBStateToEnumState loads all relevant data (session row, progress row, batch progress rows)
+// and re-hydrates a domain SessionState object with typed Checkpoint entities.
+func (s *enumerationSessionStateStore) convertDBStateToEnumState(
+	ctx context.Context,
+	dbState db.EnumerationSessionState,
+) (*enumeration.SessionState, error) {
 	var state *enumeration.SessionState
+
 	err := storage.ExecuteAndTrace(ctx, s.tracer, "postgres.convert_db_state", []attribute.KeyValue{
 		attribute.String("session_id", dbState.SessionID),
 		attribute.Bool("has_checkpoint", dbState.LastCheckpointID.Valid),
 	}, func(ctx context.Context) error {
-		// Load checkpoint if present.
-		var checkpoint *enumeration.Checkpoint
+
+		// 1) Load the session's "last checkpoint" if the ID is valid
+		var sessionCheckpoint *enumeration.Checkpoint
 		if dbState.LastCheckpointID.Valid {
-			var err error
-			checkpoint, err = s.checkpointStore.LoadByID(ctx, dbState.LastCheckpointID.Int64)
+			cp, err := s.checkpointStore.LoadByID(ctx, dbState.LastCheckpointID.Int64)
 			if err != nil {
-				return fmt.Errorf("failed to load checkpoint: %w", err)
+				return fmt.Errorf("failed to load session checkpoint: %w", err)
 			}
+			sessionCheckpoint = cp
 		}
 
-		// Load progress data.
-		progress, err := s.q.GetEnumerationProgressForSession(ctx, dbState.SessionID)
+		// 2) Load the top-level enumeration progress (if it exists)
+		progressRow, err := s.q.GetEnumerationProgressForSession(ctx, dbState.SessionID)
+		// If there's truly no progress row, that's not necessarily an error;
+		// check for pgx.ErrNoRows or handle as you wish:
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return fmt.Errorf("failed to load progress: %w", err)
+			return fmt.Errorf("failed to load progress for session %s: %w", dbState.SessionID, err)
 		}
 
-		// Load batch progress.
-		batches, err := s.q.GetEnumerationBatchProgressForSession(ctx, dbState.SessionID)
+		// 3) Load all batch progress rows for this session
+		dbBatches, err := s.q.GetEnumerationBatchProgressForSession(ctx, dbState.SessionID)
 		if err != nil {
-			return fmt.Errorf("failed to load batch progress: %w", err)
+			return fmt.Errorf("failed to load batch progress for session %s: %w", dbState.SessionID, err)
 		}
 
-		batchProgresses := make([]enumeration.BatchProgress, len(batches))
-		for i, batch := range batches {
-			var state map[string]any
-			if batch.State != nil {
-				if err := json.Unmarshal(batch.State, &state); err != nil {
-					return fmt.Errorf("failed to unmarshal batch state: %w", err)
+		// 4) Reconstruct domain BatchProgress objects, each referencing its own checkpoint if checkpoint_id is set
+		batchProgresses := make([]enumeration.BatchProgress, len(dbBatches))
+		for i, row := range dbBatches {
+			// If row.CheckpointID is valid, load that checkpoint
+			var batchCheckpoint *enumeration.Checkpoint
+			if row.CheckpointID.Valid {
+				cp, err := s.checkpointStore.LoadByID(ctx, row.CheckpointID.Int64)
+				if err != nil {
+					return fmt.Errorf("failed to load batch checkpoint (batch_id=%s): %w", row.BatchID, err)
 				}
+				batchCheckpoint = cp
 			}
 
+			// Reconstruct the batch progress domain object
 			batchProgresses[i] = enumeration.ReconstructBatchProgress(
-				batch.BatchID,
-				enumeration.BatchStatus(batch.Status),
-				batch.StartedAt.Time,
-				batch.CompletedAt.Time,
-				int(batch.ItemsProcessed),
-				batch.ErrorDetails.String,
-				state,
+				row.BatchID,
+				enumeration.BatchStatus(row.Status),
+				row.StartedAt.Time,
+				row.CompletedAt.Time,
+				int(row.ItemsProcessed),
+				row.ErrorDetails.String,
+				batchCheckpoint,
 			)
 		}
 
-		domainProgress := enumeration.ReconstructProgress(
-			progress.StartedAt.Time,
-			progress.LastUpdate.Time,
-			int(progress.ItemsFound),
-			int(progress.ItemsProcessed),
-			int(progress.FailedBatches),
-			int(progress.TotalBatches),
-			batchProgresses,
-		)
+		// 5) Construct a domain Progress object if the progress row exists
+		//    (If none existed, progressRow might be zeroed out or an invalid reference).
+		var domainProgress *enumeration.Progress
+		// Typically, you'll check for a valid row:
+		if progressRow.SessionID != "" {
+			domainProgress = enumeration.ReconstructProgress(
+				progressRow.StartedAt.Time,
+				progressRow.LastUpdate.Time,
+				int(progressRow.ItemsFound),
+				int(progressRow.ItemsProcessed),
+				int(progressRow.FailedBatches),
+				int(progressRow.TotalBatches),
+				batchProgresses,
+			)
+		}
 
+		// 6) Finally reconstruct the SessionState aggregate
 		state = enumeration.ReconstructState(
 			dbState.SessionID,
 			dbState.SourceType,
@@ -296,10 +337,12 @@ func (s *enumerationSessionStateStore) convertDBStateToEnumState(ctx context.Con
 			enumeration.Status(dbState.Status),
 			dbState.UpdatedAt.Time,
 			dbState.FailureReason.String,
-			checkpoint,
+			sessionCheckpoint,
 			domainProgress,
 		)
+
 		return nil
 	})
+
 	return state, err
 }

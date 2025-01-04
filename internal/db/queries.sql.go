@@ -86,7 +86,7 @@ func (q *Queries) CreateAllowlist(ctx context.Context, arg CreateAllowlistParams
 const createEnumerationBatchProgress = `-- name: CreateEnumerationBatchProgress :one
 INSERT INTO enumeration_batch_progress (
     batch_id, session_id, status, started_at, completed_at,
-    items_processed, error_details, state
+    items_processed, error_details, checkpoint_id
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8
 )
@@ -101,7 +101,7 @@ type CreateEnumerationBatchProgressParams struct {
 	CompletedAt    pgtype.Timestamptz
 	ItemsProcessed int32
 	ErrorDetails   pgtype.Text
-	State          []byte
+	CheckpointID   pgtype.Int8
 }
 
 func (q *Queries) CreateEnumerationBatchProgress(ctx context.Context, arg CreateEnumerationBatchProgressParams) (int64, error) {
@@ -113,7 +113,7 @@ func (q *Queries) CreateEnumerationBatchProgress(ctx context.Context, arg Create
 		arg.CompletedAt,
 		arg.ItemsProcessed,
 		arg.ErrorDetails,
-		arg.State,
+		arg.CheckpointID,
 	)
 	var id int64
 	err := row.Scan(&id)
@@ -365,7 +365,7 @@ func (q *Queries) GetCheckpointByID(ctx context.Context, id int64) (Checkpoint, 
 }
 
 const getEnumerationBatchProgressForSession = `-- name: GetEnumerationBatchProgressForSession :many
-SELECT id, batch_id, session_id, status, started_at, completed_at, items_processed, error_details, state, created_at FROM enumeration_batch_progress
+SELECT id, batch_id, session_id, status, started_at, completed_at, items_processed, error_details, checkpoint_id, created_at FROM enumeration_batch_progress
 WHERE session_id = $1
 ORDER BY started_at ASC
 `
@@ -388,7 +388,7 @@ func (q *Queries) GetEnumerationBatchProgressForSession(ctx context.Context, ses
 			&i.CompletedAt,
 			&i.ItemsProcessed,
 			&i.ErrorDetails,
-			&i.State,
+			&i.CheckpointID,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err

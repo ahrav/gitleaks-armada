@@ -64,7 +64,7 @@ CREATE TABLE enumeration_batch_progress (
     completed_at TIMESTAMPTZ NOT NULL,
     items_processed INTEGER NOT NULL DEFAULT 0,
     error_details TEXT,
-    state JSONB,
+    checkpoint_id BIGINT REFERENCES checkpoints(id),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
