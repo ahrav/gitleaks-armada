@@ -353,9 +353,7 @@ func (s *SessionState) RecordBatchProgress(batch BatchProgress) error {
 		return newMissingCheckpointError()
 	}
 
-	if batch.ItemsProcessed() < 0 ||
-		(s.Progress() != nil &&
-			batch.ItemsProcessed()+s.Progress().ItemsProcessed() < s.Progress().ItemsProcessed()) {
+	if batch.ItemsProcessed() < 0 {
 		return newInvalidItemCountError()
 	}
 
