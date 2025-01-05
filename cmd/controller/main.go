@@ -19,11 +19,11 @@ import (
 	"github.com/jackc/pgx/v5/stdlib"
 	"go.uber.org/automaxprocs/maxprocs"
 
+	"github.com/ahrav/gitleaks-armada/internal/app/controller"
+	"github.com/ahrav/gitleaks-armada/internal/app/controller/metrics"
 	"github.com/ahrav/gitleaks-armada/internal/app/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/app/rules"
 	"github.com/ahrav/gitleaks-armada/internal/config/fileloader"
-	"github.com/ahrav/gitleaks-armada/internal/controller"
-	"github.com/ahrav/gitleaks-armada/internal/controller/metrics"
 	"github.com/ahrav/gitleaks-armada/internal/infra/cluster/kubernetes"
 	"github.com/ahrav/gitleaks-armada/internal/infra/eventbus/kafka"
 	enumStore "github.com/ahrav/gitleaks-armada/internal/infra/storage/enumeration/postgres"

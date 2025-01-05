@@ -9,10 +9,10 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/ahrav/gitleaks-armada/internal/app/cluster"
+	"github.com/ahrav/gitleaks-armada/internal/app/controller/metrics"
 	"github.com/ahrav/gitleaks-armada/internal/app/enumeration"
 	rulessvc "github.com/ahrav/gitleaks-armada/internal/app/rules"
 	"github.com/ahrav/gitleaks-armada/internal/config"
-	"github.com/ahrav/gitleaks-armada/internal/controller/metrics"
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/rules"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
