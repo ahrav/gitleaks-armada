@@ -1,4 +1,4 @@
-package enumeration_test
+package enumeration
 
 import (
 	"encoding/json"
@@ -6,13 +6,11 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-
-	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 )
 
 func TestReconstructProgress(t *testing.T) {
 	now := time.Now()
-	progress := enumeration.ReconstructProgress(
+	progress := ReconstructProgress(
 		now.Add(-10*time.Minute),
 		now,
 		100,
@@ -30,7 +28,7 @@ func TestReconstructProgress(t *testing.T) {
 }
 
 func TestProgressJSONMarshaling(t *testing.T) {
-	p := enumeration.ReconstructProgress(
+	p := ReconstructProgress(
 		time.Now().Add(-5*time.Hour),
 		time.Now(),
 		200,
@@ -43,7 +41,7 @@ func TestProgressJSONMarshaling(t *testing.T) {
 	data, err := json.Marshal(p)
 	require.NoError(t, err)
 
-	var p2 enumeration.Progress
+	var p2 Progress
 	require.NoError(t, json.Unmarshal(data, &p2))
 
 	require.Equal(t, p.ItemsFound(), p2.ItemsFound())

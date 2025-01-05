@@ -80,6 +80,17 @@ func newInvalidItemCountError() error {
 	}
 }
 
+type TimeProvider interface {
+	Now() time.Time
+}
+
+// Real implementation for production
+type realTimeProvider struct{}
+
+func (r *realTimeProvider) Now() time.Time {
+	return time.Now()
+}
+
 // Status represents the lifecycle states of an enumeration session.
 // It is implemented as a value object using a string type to ensure type safety
 // and domain invariants.
@@ -127,6 +138,8 @@ type SessionState struct {
 	// Progress tracking.
 	lastCheckpoint *Checkpoint
 	progress       *Progress
+
+	timeProvider TimeProvider
 }
 
 // NewState creates a new enumeration State aggregate root with the provided source type and configuration.
@@ -134,11 +147,12 @@ type SessionState struct {
 // The domain owns identity generation to maintain aggregate consistency.
 func NewState(sourceType string, config json.RawMessage) *SessionState {
 	return &SessionState{
-		sessionID:   uuid.New().String(),
-		sourceType:  sourceType,
-		config:      config,
-		status:      StatusInitialized,
-		lastUpdated: time.Now(),
+		sessionID:    uuid.New().String(),
+		sourceType:   sourceType,
+		config:       config,
+		status:       StatusInitialized,
+		lastUpdated:  time.Now(),
+		timeProvider: &realTimeProvider{},
 	}
 }
 
@@ -185,12 +199,14 @@ func (s *SessionState) setStatus(status Status) {
 
 func (s *SessionState) setFailureReason(reason string) { s.failureReason = reason }
 
-func (s *SessionState) updateLastUpdated() { s.lastUpdated = time.Now() }
+func (s *SessionState) updateLastUpdated() { s.lastUpdated = s.timeProvider.Now() }
 
 func (s *SessionState) initializeProgress() {
+	now := s.timeProvider.Now()
 	s.progress = &Progress{
-		startedAt:  time.Now(),
-		lastUpdate: time.Now(),
+		startedAt:    now,
+		lastUpdate:   now,
+		timeProvider: s.timeProvider,
 	}
 }
 
@@ -264,14 +280,13 @@ func (s *SessionState) UnmarshalJSON(data []byte) error {
 // It maintains aggregate progress metrics and ensures the state reflects the latest
 // batch outcomes for monitoring and resumption.
 func (s *SessionState) addBatchProgress(batch BatchProgress) {
-	// Initialize progress tracking if this is the first batch.
 	if s.progress == nil {
 		s.initializeProgress()
 	}
 
 	s.progress.batches = append(s.progress.batches, batch)
 	s.progress.totalBatches++
-	s.progress.lastUpdate = time.Now()
+	s.progress.lastUpdate = s.timeProvider.Now()
 
 	if batch.status == BatchStatusFailed {
 		s.progress.failedBatches++
@@ -344,13 +359,17 @@ func (s *SessionState) RecordBatchProgress(batch BatchProgress) error {
 		return newInvalidItemCountError()
 	}
 
+	// Check for stall before updating progress.
+	if s.IsStalled(defaultStallThreshold) {
+		s.setStatus(StatusStalled)
+		return nil
+	}
+
 	s.addBatchProgress(batch)
 	s.attachCheckpoint(batch.Checkpoint())
 
-	// Auto-transition based on progress conditions.
-	if s.IsStalled(defaultStallThreshold) {
-		s.setStatus(StatusStalled)
-	} else if s.HasFailedBatches() && s.Progress().ItemsProcessed() > 0 {
+	// Check for partial completion.
+	if s.HasFailedBatches() && s.Progress().ItemsProcessed() > 0 {
 		s.setStatus(StatusPartiallyCompleted)
 	}
 
@@ -363,7 +382,8 @@ func (s *SessionState) IsStalled(threshold time.Duration) bool {
 		return false
 	}
 
-	return time.Since(s.Progress().LastUpdate()) > threshold
+	timeSinceLastUpdate := s.timeProvider.Now().Sub(s.Progress().LastUpdate())
+	return timeSinceLastUpdate > threshold
 }
 
 // validTransitions defines the allowed state transitions for enumerations.
@@ -390,4 +410,9 @@ func (s *SessionState) CanTransitionTo(targetStatus Status) bool {
 		}
 	}
 	return false
+}
+
+func (s *SessionState) withTimeProvider(tp TimeProvider) *SessionState {
+	s.timeProvider = tp
+	return s
 }

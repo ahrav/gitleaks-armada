@@ -12,6 +12,7 @@ type Progress struct {
 	// Timeline
 	startedAt  time.Time
 	lastUpdate time.Time
+	timeProvider TimeProvider
 
 	// Metrics
 	itemsFound     int
