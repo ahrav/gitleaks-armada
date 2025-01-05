@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
-	"github.com/ahrav/gitleaks-armada/internal/storage"
+	"github.com/ahrav/gitleaks-armada/internal/infra/storage"
 )
 
 func setupCheckpointTest(t *testing.T) (context.Context, *checkpointStore, func()) {

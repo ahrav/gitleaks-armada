@@ -13,7 +13,7 @@ import (
 
 	"github.com/ahrav/gitleaks-armada/internal/db"
 	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
-	"github.com/ahrav/gitleaks-armada/internal/storage"
+	"github.com/ahrav/gitleaks-armada/internal/infra/storage"
 )
 
 var _ enumeration.CheckpointRepository = (*checkpointStore)(nil)
