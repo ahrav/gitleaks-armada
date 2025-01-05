@@ -1,8 +1,27 @@
-package task
+package enumeration
 
-import "fmt"
+import (
+	"fmt"
 
-// CredentialType represents the supported authentication mechanisms for scanning targets.
+	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
+)
+
+// Task represents a single enumeration task entity that needs to be processed.
+// It contains all the information needed to locate and authenticate against
+// a resource that needs to be scanned for sensitive data.
+type Task struct {
+	shared.CoreTask
+	ResourceURI string            // Location of the resource to scan
+	Metadata    map[string]string // Additional context for task processing
+	Credentials *TaskCredentials  // Authentication credentials for the resource
+}
+
+// TaskBatch is a collection of tasks to be scanned in a single batch.
+type TaskBatch struct {
+	Tasks []Task
+}
+
+// CredentialType represents the supported authentication mechanisms for enumeration targets.
 type CredentialType string
 
 const (

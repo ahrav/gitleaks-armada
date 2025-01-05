@@ -9,9 +9,9 @@ import (
 	"github.com/IBM/sarama"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/rules"
-	"github.com/ahrav/gitleaks-armada/internal/domain/task"
 	"github.com/ahrav/gitleaks-armada/internal/infra/eventbus/kafka/tracing"
 	"github.com/ahrav/gitleaks-armada/internal/infra/eventbus/serialization"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
@@ -111,7 +111,7 @@ func NewKafkaEventBusFromConfig(
 	// Map domain events to their corresponding Kafka topics to enable
 	// type-safe event routing.
 	topicsMap := map[events.EventType]string{
-		task.EventTypeTaskCreated:           cfg.TaskTopic,
+		enumeration.EventTypeTaskCreated:    cfg.TaskTopic,
 		events.EventTypeScanResultReceived:  cfg.ResultsTopic,
 		events.EventTypeScanProgressUpdated: cfg.ProgressTopic,
 		rules.EventTypeRuleUpdated:          cfg.RulesTopic,

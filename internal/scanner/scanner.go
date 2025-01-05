@@ -11,8 +11,8 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
-	"github.com/ahrav/gitleaks-armada/internal/domain/task"
 	"github.com/ahrav/gitleaks-armada/internal/scanner/metrics"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
@@ -63,7 +63,7 @@ func (s *Scanner) Run(ctx context.Context) error {
 	s.stopCh = make(chan struct{})
 	s.logger.Info(ctx, "Starting scanner", "scanner_id", s.id, "num_workers", s.workers)
 
-	taskEventCh := make(chan task.TaskCreatedEvent, 1)
+	taskEventCh := make(chan enumeration.TaskCreatedEvent, 1)
 
 	s.workerWg.Add(s.workers)
 	for i := 0; i < s.workers; i++ {
@@ -73,9 +73,9 @@ func (s *Scanner) Run(ctx context.Context) error {
 		}(i)
 	}
 
-	if err := s.broker.Subscribe(ctx, []events.EventType{task.EventTypeTaskCreated},
+	if err := s.broker.Subscribe(ctx, []events.EventType{enumeration.EventTypeTaskCreated},
 		func(ctx context.Context, evt events.EventEnvelope) error {
-			taskEvent, ok := evt.Payload.(task.TaskCreatedEvent)
+			taskEvent, ok := evt.Payload.(enumeration.TaskCreatedEvent)
 			if !ok {
 				return fmt.Errorf("expected TaskCreatedEvent, got %T", evt.Payload)
 			}
@@ -104,7 +104,7 @@ func (s *Scanner) Run(ctx context.Context) error {
 }
 
 // worker processes task events
-func (s *Scanner) worker(ctx context.Context, id int, taskEventCh <-chan task.TaskCreatedEvent) {
+func (s *Scanner) worker(ctx context.Context, id int, taskEventCh <-chan enumeration.TaskCreatedEvent) {
 	s.logger.Info(ctx, "Worker started", "scanner_id", s.id, "worker_id", id)
 	for {
 		select {
@@ -127,7 +127,7 @@ func (s *Scanner) worker(ctx context.Context, id int, taskEventCh <-chan task.Ta
 }
 
 // handleScanTask processes a single task event
-func (s *Scanner) handleScanTask(ctx context.Context, evt task.TaskCreatedEvent) error {
+func (s *Scanner) handleScanTask(ctx context.Context, evt enumeration.TaskCreatedEvent) error {
 	s.logger.Info(ctx, "Scanning repository",
 		"scanner_id", s.id,
 		"resource_uri", evt.Task.ResourceURI,

@@ -19,9 +19,9 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
+	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/rules"
-	"github.com/ahrav/gitleaks-armada/internal/domain/task"
 	"github.com/ahrav/gitleaks-armada/internal/infra/eventbus/serialization/protobuf"
 	pb "github.com/ahrav/gitleaks-armada/proto/scanner"
 )
@@ -79,31 +79,31 @@ func init() {
 // RegisterEventSerializers initializes the serialization system by registering handlers for all supported event types.
 // This must be called during system startup before any event processing can occur.
 func RegisterEventSerializers() {
-	RegisterSerializeFunc(task.EventTypeTaskCreated, serializeTaskCreated)
-	RegisterDeserializeFunc(task.EventTypeTaskCreated, deserializeTaskCreated)
+	RegisterSerializeFunc(enumeration.EventTypeTaskCreated, serializeEnumerationTaskCreated)
+	RegisterDeserializeFunc(enumeration.EventTypeTaskCreated, deserializeEnumerationTaskCreated)
 
 	RegisterSerializeFunc(rules.EventTypeRuleUpdated, serializeRuleUpdated)
 	RegisterDeserializeFunc(rules.EventTypeRuleUpdated, deserializeRuleUpdated)
 }
 
-// serializeTaskCreated converts a TaskCreatedEvent to protobuf bytes.
-func serializeTaskCreated(payload any) ([]byte, error) {
-	event, ok := payload.(task.TaskCreatedEvent)
+// serializeEnumerationTaskCreated converts a TaskCreatedEvent to protobuf bytes.
+func serializeEnumerationTaskCreated(payload any) ([]byte, error) {
+	event, ok := payload.(enumeration.TaskCreatedEvent)
 	if !ok {
-		return nil, fmt.Errorf("serializeTaskCreated: payload is not TaskCreatedEvent, got %T", payload)
+		return nil, fmt.Errorf("serializeEnumerationTaskCreated: payload is not TaskCreatedEvent, got %T", payload)
 	}
 	pbTask := protobuf.TaskToProto(event.Task)
 	return proto.Marshal(pbTask)
 }
 
-// deserializeTaskCreated converts protobuf bytes back into a TaskCreatedEvent.
-func deserializeTaskCreated(data []byte) (any, error) {
-	var pbTask pb.ScanTask
+// deserializeEnumerationTaskCreated converts protobuf bytes back into a TaskCreatedEvent.
+func deserializeEnumerationTaskCreated(data []byte) (any, error) {
+	var pbTask pb.EnumerationTask
 	if err := proto.Unmarshal(data, &pbTask); err != nil {
-		return nil, fmt.Errorf("unmarshal ScanTask: %w", err)
+		return nil, fmt.Errorf("unmarshal EnumerationTask: %w", err)
 	}
 	t := protobuf.ProtoToTask(&pbTask)
-	return task.NewTaskCreatedEvent(t), nil
+	return enumeration.NewTaskCreatedEvent(t), nil
 }
 
 // serializeRuleUpdated converts a RuleUpdatedEvent to protobuf bytes.

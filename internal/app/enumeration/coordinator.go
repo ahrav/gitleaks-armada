@@ -11,9 +11,9 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/ahrav/gitleaks-armada/internal/config"
+	"github.com/ahrav/gitleaks-armada/internal/config/loaders"
 	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
-	"github.com/ahrav/gitleaks-armada/internal/domain/task"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
 
@@ -49,7 +49,7 @@ type coordinator struct {
 
 	// External dependencies.
 	eventPublisher events.DomainEventPublisher
-	configLoader   config.Loader
+	configLoader   loaders.Loader
 
 	logger  *logger.Logger
 	metrics metrics
@@ -64,7 +64,7 @@ func NewCoordinator(
 	checkpointRepo enumeration.CheckpointRepository,
 	enumFactory EnumeratorFactory,
 	eventPublisher events.DomainEventPublisher,
-	cfgLoader config.Loader,
+	cfgLoader loaders.Loader,
 	logger *logger.Logger,
 	metrics metrics,
 	tracer trace.Tracer,
@@ -358,7 +358,7 @@ func (s *coordinator) streamEnumerate(
 // It ensures tasks are durably recorded and can be processed by downstream consumers.
 // The session ID is used for correlation and tracking task lineage.
 // TODO: Handle partial failures.
-func (s *coordinator) publishTasks(ctx context.Context, tasks []task.Task, sessionID string) error {
+func (s *coordinator) publishTasks(ctx context.Context, tasks []enumeration.Task, sessionID string) error {
 	ctx, span := s.tracer.Start(ctx, "enumeration.publishTasks")
 	defer span.End()
 
@@ -371,7 +371,7 @@ func (s *coordinator) publishTasks(ctx context.Context, tasks []task.Task, sessi
 	for _, t := range tasks {
 		err := s.eventPublisher.PublishDomainEvent(
 			ctx,
-			task.NewTaskCreatedEvent(t),
+			enumeration.NewTaskCreatedEvent(t),
 			events.WithKey(sessionID),
 		)
 		if err != nil {

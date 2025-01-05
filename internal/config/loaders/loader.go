@@ -1,7 +1,9 @@
-package config
+package loaders
 
 import (
 	"context"
+
+	"github.com/ahrav/gitleaks-armada/internal/config"
 )
 
 // Loader provides configuration loading capabilities. It abstracts the source
@@ -10,5 +12,5 @@ import (
 type Loader interface {
 	// Load retrieves and parses the configuration from the underlying source.
 	// It returns the parsed configuration or an error if loading fails.
-	Load(ctx context.Context) (*Config, error)
+	Load(ctx context.Context) (*config.Config, error)
 }

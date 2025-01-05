@@ -9,7 +9,8 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/ahrav/gitleaks-armada/internal/config"
-	"github.com/ahrav/gitleaks-armada/internal/domain/task"
+	"github.com/ahrav/gitleaks-armada/internal/config/credentials"
+	"github.com/ahrav/gitleaks-armada/internal/config/credentials/memory"
 )
 
 // EnumeratorFactory creates TargetEnumerators for different data sources.
@@ -24,7 +25,7 @@ type EnumeratorFactory interface {
 // enumerationFactory creates target enumerators with required dependencies.
 type enumerationFactory struct {
 	httpClient *http.Client
-	credStore  *task.CredentialStore
+	credStore  credentials.Store
 	tracer     trace.Tracer
 }
 
@@ -32,7 +33,7 @@ type enumerationFactory struct {
 // It takes the required dependencies needed by all enumerator types.
 func NewEnumerationFactory(
 	httpClient *http.Client,
-	credStore *task.CredentialStore,
+	credStore credentials.Store,
 	tracer trace.Tracer,
 ) EnumeratorFactory {
 	return &enumerationFactory{
@@ -57,7 +58,7 @@ func (f *enumerationFactory) CreateEnumerator(target config.TargetSpec, auth map
 	if f.credStore == nil {
 		var err error
 		_, credSpan := f.tracer.Start(ctx, "factory.createCredentialStore")
-		f.credStore, err = task.NewCredentialStore(auth)
+		f.credStore, err = memory.NewCredentialStore(auth)
 		if err != nil {
 			credSpan.RecordError(err)
 			credSpan.End()

@@ -8,9 +8,9 @@ import (
 	"errors"
 	"sync"
 
+	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/rules"
-	"github.com/ahrav/gitleaks-armada/internal/domain/task"
 )
 
 type handlerList[T any] []func(T) error
@@ -22,7 +22,7 @@ type handlerList[T any] []func(T) error
 type Broker struct {
 	mu sync.RWMutex
 
-	taskHandlers     handlerList[task.Task]
+	taskHandlers     handlerList[enumeration.Task]
 	resultHandlers   handlerList[events.ScanResult]
 	progressHandlers handlerList[events.ScanProgress]
 	ruleHandlers     handlerList[rules.GitleaksRuleMessage]
@@ -32,7 +32,7 @@ type Broker struct {
 // handler slices for each message type.
 func NewBroker() *Broker {
 	return &Broker{
-		taskHandlers:     make(handlerList[task.Task], 0),
+		taskHandlers:     make(handlerList[enumeration.Task], 0),
 		resultHandlers:   make(handlerList[events.ScanResult], 0),
 		progressHandlers: make(handlerList[events.ScanProgress], 0),
 		ruleHandlers:     make(handlerList[rules.GitleaksRuleMessage], 0),
@@ -92,13 +92,13 @@ func publish[T any](ctx context.Context, mu *sync.RWMutex, handlers handlerList[
 
 // PublishTask broadcasts a task to all subscribed handlers, stopping at the first error.
 // The handlers are copied before iteration to prevent deadlocks and ensure consistency.
-func (b *Broker) PublishTask(ctx context.Context, task task.Task) error {
+func (b *Broker) PublishTask(ctx context.Context, task enumeration.Task) error {
 	return publish(ctx, &b.mu, b.taskHandlers, task)
 }
 
 // PublishTasks publishes multiple tasks sequentially to all subscribed handlers.
 // It stops at the first error encountered during publishing.
-func (b *Broker) PublishTasks(ctx context.Context, tasks []task.Task) error {
+func (b *Broker) PublishTasks(ctx context.Context, tasks []enumeration.Task) error {
 	for _, task := range tasks {
 		if err := b.PublishTask(ctx, task); err != nil {
 			return err
@@ -109,7 +109,7 @@ func (b *Broker) PublishTasks(ctx context.Context, tasks []task.Task) error {
 
 // SubscribeTasks registers a new handler function for processing tasks.
 // Multiple handlers can be registered and will all receive published tasks.
-func (b *Broker) SubscribeTasks(ctx context.Context, handler func(task.Task) error) error {
+func (b *Broker) SubscribeTasks(ctx context.Context, handler func(enumeration.Task) error) error {
 	return subscribe(ctx, &b.mu, &b.taskHandlers, handler)
 }
 

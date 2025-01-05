@@ -6,21 +6,21 @@ import "google/protobuf/struct.proto";
 
 option go_package = "github.com/ahrav/gitleaks-armada/proto/scanner;scanner";
 
-message ScanTask {
-  string task_id = 1;
-  SourceType source_type = 2; // SOURCE_TYPE_GITHUB
-  string resource_uri = 3;    // e.g., "git://github.com/org/repo"
-  map<string, string> metadata = 4;
-  TaskCredentials credentials = 5;
-}
-
-message BatchScanTask { repeated ScanTask tasks = 1; }
-
 enum SourceType {
   SOURCE_TYPE_UNSPECIFIED = 0;
   SOURCE_TYPE_GITHUB = 1;
   SOURCE_TYPE_S3 = 2;
 }
+
+message EnumerationTask {
+  string task_id = 1;
+  SourceType source_type = 2;
+  string resource_uri = 3;    // e.g., "git://github.com/org/repo"
+  map<string, string> metadata = 4;
+  TaskCredentials credentials = 5;
+}
+
+message BatchEnumerationTask { repeated EnumerationTask tasks = 1; }
 
 message ScanProgress {
   string task_id = 1;         // Matches the ScanTask task_id

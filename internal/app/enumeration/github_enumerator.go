@@ -15,7 +15,8 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/ahrav/gitleaks-armada/internal/config"
-	"github.com/ahrav/gitleaks-armada/internal/domain/task"
+	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
+	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	"github.com/ahrav/gitleaks-armada/pkg/common"
 )
 
@@ -44,7 +45,7 @@ type TargetEnumerator interface {
 // This enables atomic processing of task batches while maintaining
 // resumability through checkpoint tracking.
 type EnumerateBatch struct {
-	Tasks      []task.Task
+	Tasks      []enumeration.Task
 	NextCursor string
 }
 
@@ -55,7 +56,7 @@ var _ TargetEnumerator = new(GitHubEnumerator)
 // efficiently and reliably.
 type GitHubEnumerator struct {
 	ghConfig *config.GitHubTarget
-	creds    *task.TaskCredentials
+	creds    *enumeration.TaskCredentials
 
 	ghClient GitHubAPI
 	tracer   trace.Tracer
@@ -65,7 +66,7 @@ type GitHubEnumerator struct {
 // credentials and state storage.
 func NewGitHubEnumerator(
 	client GitHubAPI,
-	creds *task.TaskCredentials,
+	creds *enumeration.TaskCredentials,
 	ghConfig *config.GitHubTarget,
 	tracer trace.Tracer,
 ) *GitHubEnumerator {
@@ -79,8 +80,8 @@ func NewGitHubEnumerator(
 
 // extractGitHubToken retrieves and validates the authentication token from GitHub credentials.
 // It returns an error if the credentials are not GitHub type or if the token is missing.
-func extractGitHubToken(creds *task.TaskCredentials) (string, error) {
-	if creds.Type != task.CredentialTypeGitHub && creds.Type != task.CredentialTypeUnauthenticated {
+func extractGitHubToken(creds *enumeration.TaskCredentials) (string, error) {
+	if creds.Type != enumeration.CredentialTypeGitHub && creds.Type != enumeration.CredentialTypeUnauthenticated {
 		return "", fmt.Errorf("expected github credentials, got %s", creds.Type)
 	}
 
@@ -111,10 +112,12 @@ func (e *GitHubEnumerator) Enumerate(ctx context.Context, startCursor *string, b
 	// If we have a repo list, process it directly.
 	// TODO: Batch this too.
 	if len(e.ghConfig.RepoList) > 0 {
-		tasks := make([]task.Task, 0, len(e.ghConfig.RepoList))
+		tasks := make([]enumeration.Task, 0, len(e.ghConfig.RepoList))
 		for _, repoURL := range e.ghConfig.RepoList {
-			tasks = append(tasks, task.Task{
-				TaskID:      generateTaskID(),
+			tasks = append(tasks, enumeration.Task{
+				CoreTask: shared.CoreTask{
+					TaskID: generateTaskID(),
+				},
 				ResourceURI: repoURL,
 				Metadata:    e.ghConfig.Metadata,
 				Credentials: e.creds,
@@ -140,10 +143,12 @@ func (e *GitHubEnumerator) Enumerate(ctx context.Context, startCursor *string, b
 		apiSpan.End()
 
 		_, taskSpan := e.tracer.Start(ctx, "create_tasks")
-		tasks := make([]task.Task, 0, len(respData.Data.Organization.Repositories.Nodes))
+		tasks := make([]enumeration.Task, 0, len(respData.Data.Organization.Repositories.Nodes))
 		for _, node := range respData.Data.Organization.Repositories.Nodes {
-			tasks = append(tasks, task.Task{
-				TaskID:      generateTaskID(),
+			tasks = append(tasks, enumeration.Task{
+				CoreTask: shared.CoreTask{
+					TaskID: generateTaskID(),
+				},
 				ResourceURI: buildGithubResourceURI(e.ghConfig.Org, node.Name),
 				Metadata:    e.ghConfig.Metadata,
 				Credentials: e.creds,
@@ -186,9 +191,9 @@ type GitHubClient struct {
 }
 
 // NewGitHubClient creates a new GitHub client with rate limiting.
-func NewGitHubClient(httpClient *http.Client, creds *task.TaskCredentials, tracer trace.Tracer) (*GitHubClient, error) {
+func NewGitHubClient(httpClient *http.Client, creds *enumeration.TaskCredentials, tracer trace.Tracer) (*GitHubClient, error) {
 	var token string
-	if creds.Type == task.CredentialTypeGitHub {
+	if creds.Type == enumeration.CredentialTypeGitHub {
 		var err error
 		token, err = extractGitHubToken(creds)
 		if err != nil {
