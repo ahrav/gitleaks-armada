@@ -10,13 +10,11 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/ahrav/gitleaks-armada/internal/config"
 	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
-	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	"github.com/ahrav/gitleaks-armada/pkg/common"
 )
 
@@ -41,11 +39,25 @@ type TargetEnumerator interface {
 	) error
 }
 
+// TargetInfo represents a scannable target with its associated metadata.
+// It provides the minimal information needed to create a scan task while
+// keeping the enumeration layer decoupled from domain specifics.
+type TargetInfo struct {
+	// SourceType identifies the type of system being scanned (e.g., "github", "s3").
+	SourceType string
+
+	// ResourceURI is the unique location identifier for the target.
+	ResourceURI string
+
+	// Metadata contains additional context needed for scanning the target.
+	Metadata map[string]string
+}
+
 // EnumerateBatch groups related scan tasks with their checkpoint data.
 // This enables atomic processing of task batches while maintaining
 // resumability through checkpoint tracking.
 type EnumerateBatch struct {
-	Tasks      []*enumeration.Task
+	Targets    []*TargetInfo
 	NextCursor string
 }
 
@@ -56,7 +68,6 @@ var _ TargetEnumerator = new(GitHubEnumerator)
 // efficiently and reliably.
 type GitHubEnumerator struct {
 	ghConfig *config.GitHubTarget
-	creds    *enumeration.TaskCredentials
 
 	ghClient GitHubAPI
 	tracer   trace.Tracer
@@ -66,31 +77,17 @@ type GitHubEnumerator struct {
 // credentials and state storage.
 func NewGitHubEnumerator(
 	client GitHubAPI,
-	creds *enumeration.TaskCredentials,
 	ghConfig *config.GitHubTarget,
 	tracer trace.Tracer,
 ) *GitHubEnumerator {
 	return &GitHubEnumerator{
 		ghClient: client,
-		creds:    creds,
 		ghConfig: ghConfig,
 		tracer:   tracer,
 	}
 }
 
-// extractGitHubToken retrieves and validates the authentication token from GitHub credentials.
-// It returns an error if the credentials are not GitHub type or if the token is missing.
-func extractGitHubToken(creds *enumeration.TaskCredentials) (string, error) {
-	if creds.Type != enumeration.CredentialTypeGitHub && creds.Type != enumeration.CredentialTypeUnauthenticated {
-		return "", fmt.Errorf("expected github credentials, got %s", creds.Type)
-	}
-
-	tokenVal, ok := creds.Values["auth_token"].(string)
-	if !ok || tokenVal == "" {
-		return "", fmt.Errorf("auth_token missing or empty in GitHub credentials")
-	}
-	return tokenVal, nil
-}
+const githubSourceType = "github"
 
 // Enumerate fetches all repositories from a GitHub organization and creates scan tasks.
 // It uses GraphQL for efficient pagination and maintains checkpoints for resumability.
@@ -112,16 +109,15 @@ func (e *GitHubEnumerator) Enumerate(ctx context.Context, startCursor *string, b
 	// If we have a repo list, process it directly.
 	// TODO: Batch this too.
 	if len(e.ghConfig.RepoList) > 0 {
-		tasks := make([]*enumeration.Task, 0, len(e.ghConfig.RepoList))
+		targets := make([]*TargetInfo, 0, len(e.ghConfig.RepoList))
 		for _, repoURL := range e.ghConfig.RepoList {
-			tasks = append(tasks, enumeration.NewTask(
-				shared.SourceTypeGitHub,
-				repoURL,
-				e.ghConfig.Metadata,
-				e.creds,
-			))
+			targets = append(targets, &TargetInfo{
+				SourceType:  githubSourceType,
+				ResourceURI: repoURL,
+				Metadata:    e.ghConfig.Metadata,
+			})
 		}
-		batchCh <- EnumerateBatch{Tasks: tasks}
+		batchCh <- EnumerateBatch{Targets: targets}
 		return nil
 	}
 
@@ -141,14 +137,13 @@ func (e *GitHubEnumerator) Enumerate(ctx context.Context, startCursor *string, b
 		apiSpan.End()
 
 		_, taskSpan := e.tracer.Start(ctx, "create_tasks")
-		tasks := make([]*enumeration.Task, 0, len(respData.Data.Organization.Repositories.Nodes))
+		targets := make([]*TargetInfo, 0, len(respData.Data.Organization.Repositories.Nodes))
 		for _, node := range respData.Data.Organization.Repositories.Nodes {
-			tasks = append(tasks, enumeration.NewTask(
-				shared.SourceTypeGitHub,
-				buildGithubResourceURI(e.ghConfig.Org, node.Name),
-				e.ghConfig.Metadata,
-				e.creds,
-			))
+			targets = append(targets, &TargetInfo{
+				SourceType:  githubSourceType,
+				ResourceURI: buildGithubResourceURI(e.ghConfig.Org, node.Name),
+				Metadata:    e.ghConfig.Metadata,
+			})
 		}
 		taskSpan.End()
 
@@ -156,7 +151,7 @@ func (e *GitHubEnumerator) Enumerate(ctx context.Context, startCursor *string, b
 		newCursor := pageInfo.EndCursor
 
 		batchCh <- EnumerateBatch{
-			Tasks:      tasks,
+			Targets:    targets,
 			NextCursor: newCursor,
 		}
 
@@ -168,10 +163,6 @@ func (e *GitHubEnumerator) Enumerate(ctx context.Context, startCursor *string, b
 
 	return nil
 }
-
-// generateTaskID creates a unique identifier for each scan task.
-// This allows tracking individual tasks through the processing pipeline.
-func generateTaskID() string { return uuid.New().String() }
 
 // buildGithubResourceURI creates a standardized URI for GitHub repositories.
 // The URI format follows the standard HTTPS clone URL pattern used by GitHub.
@@ -187,7 +178,11 @@ type GitHubClient struct {
 }
 
 // NewGitHubClient creates a new GitHub client with rate limiting.
-func NewGitHubClient(httpClient *http.Client, creds *enumeration.TaskCredentials, tracer trace.Tracer) (*GitHubClient, error) {
+func NewGitHubClient(
+	httpClient *http.Client,
+	creds *enumeration.TaskCredentials,
+	tracer trace.Tracer,
+) (*GitHubClient, error) {
 	var token string
 	if creds.Type == enumeration.CredentialTypeGitHub {
 		var err error
@@ -205,6 +200,20 @@ func NewGitHubClient(httpClient *http.Client, creds *enumeration.TaskCredentials
 		token:       token,
 		tracer:      tracer,
 	}, nil
+}
+
+// extractGitHubToken retrieves and validates the authentication token from GitHub credentials.
+// It returns an error if the credentials are not GitHub type or if the token is missing.
+func extractGitHubToken(creds *enumeration.TaskCredentials) (string, error) {
+	if creds.Type != enumeration.CredentialTypeGitHub && creds.Type != enumeration.CredentialTypeUnauthenticated {
+		return "", fmt.Errorf("expected github credentials, got %s", creds.Type)
+	}
+
+	tokenVal, ok := creds.Values["auth_token"].(string)
+	if !ok || tokenVal == "" {
+		return "", fmt.Errorf("auth_token missing or empty in GitHub credentials")
+	}
+	return tokenVal, nil
 }
 
 // githubGraphQLResponse represents the structure of GitHub's GraphQL API response

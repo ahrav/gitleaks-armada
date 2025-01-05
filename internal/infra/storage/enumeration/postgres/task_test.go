@@ -44,8 +44,13 @@ func createTestTask(t *testing.T, ctx context.Context, sessionStore *enumeration
 	}
 
 	credentials := enumeration.NewGitHubCredentials("test-token")
-	task := enumeration.NewTask(shared.SourceTypeGitHub, "https://github.com/test-org/test-repo", metadata, credentials)
-	task.SetSessionID(state.SessionID()) // Set the session ID to link to the enumeration state
+	task := enumeration.NewTask(
+		shared.SourceTypeGitHub,
+		state.SessionID(),
+		"https://github.com/test-org/test-repo",
+		metadata,
+		credentials,
+	)
 	return task
 }
 
@@ -147,11 +152,11 @@ func TestPGTaskStorage_MetadataHandling(t *testing.T) {
 
 	task := enumeration.NewTask(
 		shared.SourceTypeGitHub,
+		state.SessionID(),
 		"https://github.com/test-org/test-repo",
 		metadata,
 		enumeration.NewGitHubCredentials("test-token"),
 	)
-	task.SetSessionID(state.SessionID())
 
 	// Save and reload.
 	err = store.Save(ctx, task)

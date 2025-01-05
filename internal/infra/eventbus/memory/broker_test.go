@@ -24,6 +24,7 @@ func TestPublishAndSubscribeTasks(t *testing.T) {
 	expectedTask := enumeration.NewTask(
 		shared.SourceTypeGitHub,
 		"test-uri",
+		"test-session",
 		map[string]string{},
 		nil,
 	)
@@ -52,6 +53,7 @@ func TestMultipleSubscribers(t *testing.T) {
 
 	tsk := enumeration.NewTask(
 		shared.SourceTypeGitHub,
+		"test-session",
 		"test-uri",
 		map[string]string{},
 		nil,
@@ -81,6 +83,7 @@ func TestHandlerError(t *testing.T) {
 
 	tsk := enumeration.NewTask(
 		shared.SourceTypeGitHub,
+		"test-session",
 		"test-uri",
 		map[string]string{},
 		nil,
@@ -118,6 +121,7 @@ func TestConcurrentPublishSubscribe(t *testing.T) {
 		go func(id int) {
 			task := enumeration.NewTask(
 				shared.SourceTypeGitHub,
+				"test-session",
 				"test-uri",
 				map[string]string{},
 				nil,
@@ -171,6 +175,7 @@ func TestContextCancellation(t *testing.T) {
 
 	tsk := enumeration.NewTask(
 		shared.SourceTypeGitHub,
+		"test-session",
 		"test-uri",
 		map[string]string{},
 		nil,

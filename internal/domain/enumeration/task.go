@@ -23,7 +23,7 @@ type Task struct {
 // NewTask creates a new Task instance.
 func NewTask(
 	sourceType shared.SourceType,
-	// sessionID string, // TODO: Add this back in
+	sessionID string,
 	resourceURI string,
 	metadata map[string]string,
 	credentials *TaskCredentials,
@@ -32,7 +32,7 @@ func NewTask(
 		CoreTask: shared.CoreTask{
 			TaskID: generateTaskID(),
 		},
-		// sessionID:   sessionID,
+		sessionID:   sessionID,
 		resourceURI: resourceURI,
 		metadata:    metadata,
 		credentials: credentials,
@@ -69,9 +69,6 @@ func (t *Task) SessionID() string             { return t.sessionID }
 func (t *Task) ResourceURI() string           { return t.resourceURI }
 func (t *Task) Metadata() map[string]string   { return t.metadata }
 func (t *Task) Credentials() *TaskCredentials { return t.credentials }
-
-// Setter methods.
-func (t *Task) SetSessionID(sessionID string) { t.sessionID = sessionID }
 
 // TaskBatch is a collection of tasks to be scanned in a single batch.
 type TaskBatch struct {

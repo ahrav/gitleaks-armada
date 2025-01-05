@@ -11,9 +11,12 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/ahrav/gitleaks-armada/internal/config"
+	"github.com/ahrav/gitleaks-armada/internal/config/credentials"
+	"github.com/ahrav/gitleaks-armada/internal/config/credentials/memory"
 	"github.com/ahrav/gitleaks-armada/internal/config/loaders"
 	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
+	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
 
@@ -46,6 +49,7 @@ type coordinator struct {
 
 	// Creates enumerators for different target types.
 	enumFactory EnumeratorFactory
+	credStore   credentials.Store
 
 	// External dependencies.
 	eventPublisher events.DomainEventPublisher
@@ -104,6 +108,12 @@ func (s *coordinator) ExecuteEnumeration(ctx context.Context) error {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 		s.metrics.IncConfigReloads()
+
+		s.credStore, err = memory.NewCredentialStore(cfg.Auth)
+		if err != nil {
+			return fmt.Errorf("failed to create credential store: %w", err)
+		}
+
 		return s.startFreshEnumerations(ctx, cfg)
 	}
 
@@ -122,7 +132,7 @@ func (s *coordinator) startFreshEnumerations(ctx context.Context, cfg *config.Co
 		start := time.Now()
 		state := enumeration.NewState(string(target.SourceType), s.marshalConfig(ctx, target, cfg.Auth))
 
-		if err := s.processTargetEnumeration(ctx, state, target, cfg.Auth); err != nil {
+		if err := s.processTargetEnumeration(ctx, state, target); err != nil {
 			s.logger.Error(ctx, "Target enumeration failed",
 				"target_type", target.SourceType,
 				"error", err)
@@ -137,7 +147,11 @@ func (s *coordinator) startFreshEnumerations(ctx context.Context, cfg *config.Co
 
 // marshalConfig serializes the target configuration into a JSON raw message.
 // This allows storing the complete target configuration with the enumeration state.
-func (s *coordinator) marshalConfig(ctx context.Context, target config.TargetSpec, auth map[string]config.AuthConfig) json.RawMessage {
+func (s *coordinator) marshalConfig(
+	ctx context.Context,
+	target config.TargetSpec,
+	auth map[string]config.AuthConfig,
+) json.RawMessage {
 	ctx, span := s.tracer.Start(ctx, "enumeration.marshalConfig")
 	defer span.End()
 
@@ -183,6 +197,7 @@ func (s *coordinator) resumeEnumerations(ctx context.Context, states []*enumerat
 	for _, st := range states {
 		var combined struct {
 			config.TargetSpec
+			Auth config.AuthConfig `json:"auth,omitempty"`
 		}
 
 		if err := json.Unmarshal(st.Config(), &combined); err != nil {
@@ -192,7 +207,18 @@ func (s *coordinator) resumeEnumerations(ctx context.Context, states []*enumerat
 			continue
 		}
 
-		if err := s.processTargetEnumeration(ctx, st, combined.TargetSpec, nil); err != nil {
+		if s.credStore == nil {
+			var err error
+			s.credStore, err = memory.NewCredentialStore(map[string]config.AuthConfig{
+				combined.AuthRef: combined.Auth,
+			})
+			if err != nil {
+				span.RecordError(err)
+				return fmt.Errorf("failed to create credential store: %w", err)
+			}
+		}
+
+		if err := s.processTargetEnumeration(ctx, st, combined.TargetSpec); err != nil {
 			s.logger.Error(ctx, "Resume enumeration failed",
 				"session_id", st.SessionID,
 				"error", err)
@@ -208,7 +234,6 @@ func (s *coordinator) processTargetEnumeration(
 	ctx context.Context,
 	state *enumeration.SessionState,
 	target config.TargetSpec,
-	auth map[string]config.AuthConfig,
 ) error {
 	ctx, span := s.tracer.Start(ctx, "enumeration.processTarget")
 	defer span.End()
@@ -235,7 +260,13 @@ func (s *coordinator) processTargetEnumeration(
 		return err
 	}
 
-	enumerator, err := s.enumFactory.CreateEnumerator(target, auth)
+	creds, err := s.credStore.GetCredentials(target.AuthRef)
+	if err != nil {
+		span.RecordError(err)
+		return fmt.Errorf("failed to get credentials: %w", err)
+	}
+
+	enumerator, err := s.enumFactory.CreateEnumerator(target, creds)
 	if err != nil {
 		if markErr := state.MarkFailed(err.Error()); markErr != nil {
 			span.RecordError(markErr)
@@ -257,7 +288,7 @@ func (s *coordinator) processTargetEnumeration(
 		}
 	}
 
-	if err := s.streamEnumerate(ctx, enumerator, state, resumeCursor); err != nil {
+	if err := s.streamEnumerate(ctx, enumerator, state, resumeCursor, creds); err != nil {
 		span.RecordError(err)
 		s.logger.Error(ctx, "Enumeration failed",
 			"session_id", state.SessionID(),
@@ -276,6 +307,7 @@ func (s *coordinator) streamEnumerate(
 	enumerator TargetEnumerator,
 	state *enumeration.SessionState,
 	startCursor *string,
+	creds *enumeration.TaskCredentials,
 ) error {
 	ctx, span := s.tracer.Start(ctx, "enumeration.streamEnumerate")
 	defer span.End()
@@ -304,12 +336,12 @@ func (s *coordinator) streamEnumerate(
 			var batchProgress enumeration.BatchProgress
 
 			// TODO: Handle partial failures once |publishTasks| can handle them.
-			if err := s.publishTasks(ctx, batch.Tasks, state.SessionID()); err != nil {
+			if err := s.publishTasks(ctx, batch.Targets, state.SessionID(), creds); err != nil {
 				span.RecordError(err)
 				batchProgress = enumeration.NewFailedBatchProgress(err, checkpoint)
 				s.logger.Error(ctx, "Failed to publish tasks", "error", err)
 			} else {
-				batchProgress = enumeration.NewSuccessfulBatchProgress(len(batch.Tasks), checkpoint)
+				batchProgress = enumeration.NewSuccessfulBatchProgress(len(batch.Targets), checkpoint)
 			}
 
 			if err := state.RecordBatchProgress(batchProgress); err != nil {
@@ -358,20 +390,32 @@ func (s *coordinator) streamEnumerate(
 // It ensures tasks are durably recorded and can be processed by downstream consumers.
 // The session ID is used for correlation and tracking task lineage.
 // TODO: Handle partial failures.
-func (s *coordinator) publishTasks(ctx context.Context, tasks []*enumeration.Task, sessionID string) error {
+func (s *coordinator) publishTasks(
+	ctx context.Context,
+	targets []*TargetInfo,
+	sessionID string,
+	creds *enumeration.TaskCredentials,
+) error {
 	ctx, span := s.tracer.Start(ctx, "enumeration.publishTasks")
 	defer span.End()
 
 	span.SetAttributes(
 		attribute.String("session_id", sessionID),
-		attribute.Int("num_tasks", len(tasks)),
+		attribute.Int("num_targets", len(targets)),
 	)
 
 	var totalTasks int
-	for _, t := range tasks {
+	for _, t := range targets {
+		task := enumeration.NewTask(
+			shared.SourceType(t.SourceType),
+			sessionID,
+			t.ResourceURI,
+			t.Metadata,
+			creds,
+		)
 		err := s.eventPublisher.PublishDomainEvent(
 			ctx,
-			enumeration.NewTaskCreatedEvent(t),
+			enumeration.NewTaskCreatedEvent(task),
 			events.WithKey(sessionID),
 		)
 		if err != nil {
