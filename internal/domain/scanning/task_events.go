@@ -8,34 +8,30 @@ import (
 
 // Event types relevant to Tasks:
 const (
-	EventTypeTaskCreated    events.EventType = "TaskCreated"
+	EventTypeTaskStarted    events.EventType = "TaskStarted"
 	EventTypeTaskProgressed events.EventType = "TaskProgressed"
 	EventTypeTaskStale      events.EventType = "TaskStale"
 	EventTypeTaskCompleted  events.EventType = "TaskCompleted"
 	EventTypeTaskFailed     events.EventType = "TaskFailed"
 )
 
-// TaskCreatedEvent indicates a new task was added to a job.
-type TaskCreatedEvent struct {
+// TaskStartedEvent indicates a new task was added to a job.
+type TaskStartedEvent struct {
 	occurredAt time.Time
 	JobID      string
 	TaskID     string
 }
 
-func NewTaskCreatedEvent(jobID, taskID string) TaskCreatedEvent {
-	return TaskCreatedEvent{
+func NewTaskStartedEvent(jobID, taskID string) TaskStartedEvent {
+	return TaskStartedEvent{
 		occurredAt: time.Now(),
 		JobID:      jobID,
 		TaskID:     taskID,
 	}
 }
 
-func (e TaskCreatedEvent) EventType() events.EventType {
-	return EventTypeTaskCreated
-}
-func (e TaskCreatedEvent) OccurredAt() time.Time {
-	return e.occurredAt
-}
+func (e TaskStartedEvent) EventType() events.EventType { return EventTypeTaskStarted }
+func (e TaskStartedEvent) OccurredAt() time.Time       { return e.occurredAt }
 
 // TaskProgressedEvent signals a new ScanProgress update was received.
 type TaskProgressedEvent struct {
@@ -50,12 +46,8 @@ func NewTaskProgressedEvent(p ScanProgress) TaskProgressedEvent {
 	}
 }
 
-func (e TaskProgressedEvent) EventType() events.EventType {
-	return EventTypeTaskProgressed
-}
-func (e TaskProgressedEvent) OccurredAt() time.Time {
-	return e.occurredAt
-}
+func (e TaskProgressedEvent) EventType() events.EventType { return EventTypeTaskProgressed }
+func (e TaskProgressedEvent) OccurredAt() time.Time       { return e.occurredAt }
 
 // TaskStaleEvent means the task was marked STALE (e.g., no progress updates).
 type TaskStaleEvent struct {
@@ -76,12 +68,8 @@ func NewTaskStaleEvent(jobID, taskID string, reason StallReason, since time.Time
 	}
 }
 
-func (e TaskStaleEvent) EventType() events.EventType {
-	return EventTypeTaskStale
-}
-func (e TaskStaleEvent) OccurredAt() time.Time {
-	return e.occurredAt
-}
+func (e TaskStaleEvent) EventType() events.EventType { return EventTypeTaskStale }
+func (e TaskStaleEvent) OccurredAt() time.Time       { return e.occurredAt }
 
 // TaskCompletedEvent means the task is done scanning successfully.
 type TaskCompletedEvent struct {
@@ -98,12 +86,8 @@ func NewTaskCompletedEvent(jobID, taskID string) TaskCompletedEvent {
 	}
 }
 
-func (e TaskCompletedEvent) EventType() events.EventType {
-	return EventTypeTaskCompleted
-}
-func (e TaskCompletedEvent) OccurredAt() time.Time {
-	return e.occurredAt
-}
+func (e TaskCompletedEvent) EventType() events.EventType { return EventTypeTaskCompleted }
+func (e TaskCompletedEvent) OccurredAt() time.Time       { return e.occurredAt }
 
 // TaskFailedEvent means the task encountered a failure it can’t recover from.
 type TaskFailedEvent struct {
@@ -122,9 +106,5 @@ func NewTaskFailedEvent(jobID, taskID, reason string) TaskFailedEvent {
 	}
 }
 
-func (e TaskFailedEvent) EventType() events.EventType {
-	return EventTypeTaskFailed
-}
-func (e TaskFailedEvent) OccurredAt() time.Time {
-	return e.occurredAt
-}
+func (e TaskFailedEvent) EventType() events.EventType { return EventTypeTaskFailed }
+func (e TaskFailedEvent) OccurredAt() time.Time       { return e.occurredAt }
