@@ -37,6 +37,8 @@ type metrics interface {
 	ObserveTargetProcessingTime(duration time.Duration)
 	IncTargetsProcessed()
 	TrackEnumeration(fn func() error) error
+	IncTasksEnqueued()
+	IncTasksFailedToEnqueue()
 }
 
 // Orchestrator implements target enumeration by orchestrating domain logic, repository calls,
@@ -93,41 +95,42 @@ func NewCoordinator(
 // it loads the current configuration and starts new enumerations. Otherwise, it resumes
 // the existing enumeration sessions.
 func (s *coordinator) ExecuteEnumeration(ctx context.Context) error {
-	ctx, span := s.tracer.Start(ctx, "enumeration.ExecuteEnumeration")
-	defer span.End()
+	return s.metrics.TrackEnumeration(func() error {
+		ctx, span := s.tracer.Start(ctx, "enumeration.ExecuteEnumeration")
+		defer span.End()
 
-	activeStates, err := s.stateRepo.GetActiveStates(ctx)
-	if err != nil {
-		span.RecordError(err)
-		return fmt.Errorf("failed to load active states: %w", err)
-	}
-
-	if len(activeStates) == 0 {
-		// Start fresh since no active enumerations exist
-		cfg, err := s.configLoader.Load(ctx)
+		activeStates, err := s.stateRepo.GetActiveStates(ctx)
 		if err != nil {
 			span.RecordError(err)
-			s.metrics.IncConfigReloadErrors()
-			return fmt.Errorf("failed to load config: %w", err)
-		}
-		s.metrics.IncConfigReloads()
-
-		s.credStore, err = memory.NewCredentialStore(cfg.Auth)
-		if err != nil {
-			return fmt.Errorf("failed to create credential store: %w", err)
+			return fmt.Errorf("failed to load active states: %w", err)
 		}
 
-		return s.startFreshEnumerations(ctx, cfg)
-	}
+		if len(activeStates) == 0 {
+			return s.startFreshEnumerations(ctx)
+		}
 
-	return s.resumeEnumerations(ctx, activeStates)
+		return s.resumeEnumerations(ctx, activeStates)
+	})
 }
 
 // startFreshEnumerations processes each target from the configuration, creating new
 // enumeration states and running the appropriate enumerator for each target type.
-func (s *coordinator) startFreshEnumerations(ctx context.Context, cfg *config.Config) error {
+func (s *coordinator) startFreshEnumerations(ctx context.Context) error {
 	ctx, span := s.tracer.Start(ctx, "enumeration.startFreshEnumerations")
 	defer span.End()
+
+	cfg, err := s.configLoader.Load(ctx)
+	if err != nil {
+		span.RecordError(err)
+		s.metrics.IncConfigReloadErrors()
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+	s.metrics.IncConfigReloads()
+
+	s.credStore, err = memory.NewCredentialStore(cfg.Auth)
+	if err != nil {
+		return fmt.Errorf("failed to create credential store: %w", err)
+	}
 
 	span.SetAttributes(attribute.Int("target_count", len(cfg.Targets)))
 
@@ -427,9 +430,12 @@ func (s *coordinator) publishTasks(
 		)
 		if err != nil {
 			span.RecordError(err)
+			s.metrics.IncTasksFailedToEnqueue()
 			return err
 		}
 		totalTasks++
+
+		s.metrics.IncTasksEnqueued()
 
 		saveCtx, saveSpan := s.tracer.Start(ctx, "enumeration.saveTask")
 		if err := s.taskRepo.Save(saveCtx, task); err != nil {
