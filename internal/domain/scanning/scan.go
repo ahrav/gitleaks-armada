@@ -12,10 +12,13 @@ type JobStatus string
 const (
 	// JobStatusInitialized indicates a job has been created but not yet started.
 	JobStatusInitialized JobStatus = "INITIALIZED"
+
 	// JobStatusInProgress indicates a job is actively processing tasks.
 	JobStatusInProgress JobStatus = "IN_PROGRESS"
+
 	// JobStatusCompleted indicates all job tasks finished successfully.
 	JobStatusCompleted JobStatus = "COMPLETED"
+
 	// JobStatusFailed indicates the job encountered an unrecoverable error.
 	JobStatusFailed JobStatus = "FAILED"
 )
@@ -27,12 +30,16 @@ type TaskStatus string
 const (
 	// TaskStatusInitialized indicates a task is queued but not yet processing.
 	TaskStatusInitialized TaskStatus = "INITIALIZED"
+
 	// TaskStatusInProgress indicates a task is actively scanning.
 	TaskStatusInProgress TaskStatus = "IN_PROGRESS"
+
 	// TaskStatusCompleted indicates a task finished successfully.
 	TaskStatusCompleted TaskStatus = "COMPLETED"
+
 	// TaskStatusFailed indicates a task encountered an unrecoverable error.
 	TaskStatusFailed TaskStatus = "FAILED"
+
 	// TaskStatusStale indicates a task stopped reporting progress and may need recovery.
 	TaskStatusStale TaskStatus = "STALE"
 )
@@ -245,8 +252,10 @@ type StallReason string
 const (
 	// StallReasonNoProgress indicates the task has stopped sending progress updates.
 	StallReasonNoProgress StallReason = "NO_PROGRESS"
+
 	// StallReasonLowThroughput indicates the task's processing rate has fallen below acceptable thresholds.
 	StallReasonLowThroughput StallReason = "LOW_THROUGHPUT"
+
 	// StallReasonHighErrors indicates the task has exceeded error thresholds and requires intervention.
 	StallReasonHighErrors StallReason = "HIGH_ERRORS"
 )

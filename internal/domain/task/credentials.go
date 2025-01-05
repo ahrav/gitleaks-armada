@@ -8,10 +8,13 @@ type CredentialType string
 const (
 	// CredentialTypeUnspecified indicates no credential type was provided
 	CredentialTypeUnspecified CredentialType = ""
+
 	// CredentialTypeUnauthenticated is used for public resources that don't require auth
 	CredentialTypeUnauthenticated CredentialType = "unauthenticated"
+
 	// CredentialTypeGitHub authenticates against GitHub using a personal access token
 	CredentialTypeGitHub CredentialType = "github"
+
 	// CredentialTypeS3 authenticates against AWS S3 using access credentials
 	CredentialTypeS3 CredentialType = "s3"
 )

@@ -54,12 +54,16 @@ type ScanJobStatus string
 const (
 	// ScanJobStatusUnspecified indicates an invalid or unknown status.
 	ScanJobStatusUnspecified ScanJobStatus = "UNSPECIFIED"
+
 	// ScanJobStatusQueued indicates the scan is waiting to be processed.
 	ScanJobStatusQueued ScanJobStatus = "QUEUED"
+
 	// ScanJobStatusRunning indicates the scan is actively being processed.
 	ScanJobStatusRunning ScanJobStatus = "RUNNING"
+
 	// ScanJobStatusCompleted indicates the scan finished successfully.
 	ScanJobStatusCompleted ScanJobStatus = "COMPLETED"
+
 	// ScanJobStatusFailed indicates the scan encountered an error.
 	ScanJobStatusFailed ScanJobStatus = "FAILED"
 )

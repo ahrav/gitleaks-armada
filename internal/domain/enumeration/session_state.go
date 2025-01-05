@@ -16,10 +16,13 @@ type EnumerationErrorKind int
 const (
 	// ErrKindInvalidStateTransition indicates an attempt to transition to an invalid state.
 	ErrKindInvalidStateTransition EnumerationErrorKind = iota
+
 	// ErrKindInvalidProgress indicates invalid progress tracking updates.
 	ErrKindInvalidProgress
+
 	// ErrKindMissingCheckpoint indicates a missing required checkpoint.
 	ErrKindMissingCheckpoint
+
 	// ErrKindInvalidItemCount indicates an invalid count of processed items.
 	ErrKindInvalidItemCount
 )
@@ -101,18 +104,23 @@ const (
 	// StatusInitialized indicates the session is configured but hasn't started scanning.
 	// This is the initial valid state for new enumeration sessions.
 	StatusInitialized Status = "initialized"
+
 	// StatusInProgress indicates active scanning and task generation is underway.
 	// The session can only transition to this state from StatusInitialized.
 	StatusInProgress Status = "in_progress"
+
 	// StatusCompleted indicates all targets were successfully enumerated.
 	// This is a terminal state that can only be reached from StatusInProgress.
 	StatusCompleted Status = "completed"
+
 	// StatusFailed indicates the enumeration encountered an unrecoverable error.
 	// This is a terminal state that can be reached from any non-terminal state.
 	StatusFailed Status = "failed"
+
 	// StatusStalled indicates the enumeration has not made progress within the configured threshold.
 	// This state can transition back to StatusInProgress if progress resumes.
 	StatusStalled Status = "stalled"
+
 	// StatusPartiallyCompleted indicates the enumeration completed with some failed batches.
 	StatusPartiallyCompleted Status = "partially_completed"
 )

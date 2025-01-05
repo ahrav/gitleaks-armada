@@ -20,13 +20,13 @@ import (
 	"go.uber.org/automaxprocs/maxprocs"
 
 	"github.com/ahrav/gitleaks-armada/internal/app/enumeration"
+	"github.com/ahrav/gitleaks-armada/internal/app/rules"
 	"github.com/ahrav/gitleaks-armada/internal/cluster/kubernetes"
 	"github.com/ahrav/gitleaks-armada/internal/controller"
 	"github.com/ahrav/gitleaks-armada/internal/controller/metrics"
 	"github.com/ahrav/gitleaks-armada/internal/infra/eventbus/kafka"
-	"github.com/ahrav/gitleaks-armada/internal/rules"
-	rulesStore "github.com/ahrav/gitleaks-armada/internal/rules/storage/postgres"
 	enumStore "github.com/ahrav/gitleaks-armada/internal/storage/enumeration/postgres"
+	rulesStore "github.com/ahrav/gitleaks-armada/internal/storage/rules/postgres"
 	"github.com/ahrav/gitleaks-armada/pkg/common"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/common/otel"
@@ -202,7 +202,7 @@ func main() {
 		tracer,
 	)
 
-	rulesService := rules.NewRuleService(rulesStore.NewStore(pool, tracer, metricCollector))
+	rulesService := rules.NewService(rulesStore.NewStore(pool, tracer, metricCollector))
 	ctrl := controller.NewController(
 		hostname,
 		coord,

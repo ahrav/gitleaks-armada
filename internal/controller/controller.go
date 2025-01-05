@@ -9,6 +9,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/ahrav/gitleaks-armada/internal/app/enumeration"
+	rulessvc "github.com/ahrav/gitleaks-armada/internal/app/rules"
 	"github.com/ahrav/gitleaks-armada/internal/controller/metrics"
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/rules"
@@ -29,7 +30,7 @@ type Controller struct {
 	eventPublisher events.DomainEventPublisher
 
 	enumerationService enumeration.Coordinator
-	rulesService       rules.RuleService
+	rulesService       rulessvc.Service
 
 	// mu protects running and cancelFn state
 	mu       sync.Mutex
@@ -64,7 +65,7 @@ func NewController(
 	queue events.EventBus,
 	eventPublisher events.DomainEventPublisher,
 	enumerationService enumeration.Coordinator,
-	rulesService rules.RuleService,
+	rulesService rulessvc.Service,
 	configLoader config.Loader,
 	logger *logger.Logger,
 	metrics metrics.ControllerMetrics,

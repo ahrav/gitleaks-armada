@@ -19,30 +19,6 @@ type GitleaksRule struct {
 	Allowlists  []GitleaksAllowlist
 }
 
-type GitleaksAllowlist struct {
-	Description    string
-	MatchCondition AllowlistMatchCondition
-	Commits        []string
-	PathRegexes    []string
-	Regexes        []string
-	RegexTarget    string
-	StopWords      []string
-}
-
-type AllowlistMatchCondition string
-
-const (
-	MatchConditionUnspecified AllowlistMatchCondition = "UNSPECIFIED"
-	MatchConditionOR          AllowlistMatchCondition = "OR"
-	MatchConditionAND         AllowlistMatchCondition = "AND"
-)
-
-// GitleaksRuleMessage represents a single rule and its metadata for transmission.
-type GitleaksRuleMessage struct {
-	GitleaksRule
-	Hash string // Hash of this specific rule's content
-}
-
 // GenerateHash generates a deterministic MD5 hash of the essential rule content.
 func (r GitleaksRule) GenerateHash() string {
 	h := md5.New()

@@ -26,7 +26,7 @@ type RulesMetrics interface {
 }
 
 // Compile-time check that RulesStorage implements rules.RulesStorage.
-var _ rules.RuleRepository = (*ruleStore)(nil)
+var _ rules.Repository = (*ruleStore)(nil)
 
 // ruleStore provides persistent storage for Gitleaks rules and allowlists in PostgreSQL.
 // It handles atomic updates of rule sets and their associated allowlist components to maintain
