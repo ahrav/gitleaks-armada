@@ -23,7 +23,6 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/cluster/kubernetes"
 	"github.com/ahrav/gitleaks-armada/internal/controller"
 	"github.com/ahrav/gitleaks-armada/internal/controller/metrics"
-	enumDomain "github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 	enumStore "github.com/ahrav/gitleaks-armada/internal/enumeration/storage/postgres"
 	"github.com/ahrav/gitleaks-armada/internal/infra/eventbus/kafka"
 	"github.com/ahrav/gitleaks-armada/internal/rules"
@@ -196,7 +195,6 @@ func main() {
 		enumStateStorage,
 		checkpointStorage,
 		enumFactory,
-		enumDomain.NewLifecycleService(),
 		eventPublisher,
 		configLoader,
 		log,

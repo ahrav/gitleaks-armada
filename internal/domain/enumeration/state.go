@@ -359,17 +359,77 @@ func (p *Progress) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// Domain errors define the core failure modes of enumeration state management.
-var (
-	// ErrInvalidStateTransition indicates an attempt to make a disallowed state transition.
-	ErrInvalidStateTransition = fmt.Errorf("invalid state transition")
+// EnumerationErrorKind identifies specific types of errors that can occur during enumeration.
+// This enables error handling code to make decisions based on the type of error.
+type EnumerationErrorKind int
 
-	// ErrInvalidProgress indicates invalid progress tracking data.
-	ErrInvalidProgress = fmt.Errorf("invalid progress update")
-
-	// ErrMissingCheckpoint indicates a progress update without required checkpoint data.
-	ErrMissingCheckpoint = fmt.Errorf("checkpoint required for progress update")
+// Error kinds for enumeration operations.
+const (
+	// ErrKindInvalidStateTransition indicates an attempt to transition to an invalid state.
+	ErrKindInvalidStateTransition EnumerationErrorKind = iota
+	// ErrKindInvalidProgress indicates invalid progress tracking updates.
+	ErrKindInvalidProgress
+	// ErrKindMissingCheckpoint indicates a missing required checkpoint.
+	ErrKindMissingCheckpoint
+	// ErrKindInvalidItemCount indicates an invalid count of processed items.
+	ErrKindInvalidItemCount
 )
+
+// EnumerationError represents domain-specific errors that can occur during enumeration.
+// It provides context about the type of error to enable appropriate error handling.
+type EnumerationError struct {
+	msg  string
+	kind EnumerationErrorKind
+}
+
+// Error returns the error message. This implements the error interface.
+func (e *EnumerationError) Error() string { return e.msg }
+
+// Is enables error wrapping by comparing error kinds. This implements error wrapping
+// introduced in Go 1.13.
+func (e *EnumerationError) Is(target error) bool {
+	t, ok := target.(*EnumerationError)
+	if !ok {
+		return false
+	}
+	return e.kind == t.kind
+}
+
+// newInvalidStateTransitionError creates an error for invalid state transitions.
+// It includes the attempted transition details to aid in debugging.
+func newInvalidStateTransitionError(from, to Status) error {
+	return &EnumerationError{
+		msg:  fmt.Sprintf("cannot transition from %s to %s", from, to),
+		kind: ErrKindInvalidStateTransition,
+	}
+}
+
+// newInvalidProgressError creates an error for invalid progress updates.
+// The message parameter provides context about why the progress update was invalid.
+func newInvalidProgressError(msg string) error {
+	return &EnumerationError{
+		msg:  fmt.Sprintf("invalid progress update: %s", msg),
+		kind: ErrKindInvalidProgress,
+	}
+}
+
+// newMissingCheckpointError creates an error when a required checkpoint is missing.
+// This typically occurs when trying to update progress without a valid checkpoint.
+func newMissingCheckpointError() error {
+	return &EnumerationError{
+		msg:  "checkpoint required for progress update",
+		kind: ErrKindMissingCheckpoint,
+	}
+}
+
+// newInvalidItemCountError creates an error when item counts are invalid.
+// This occurs when processed item counts decrease or become negative.
+func newInvalidItemCountError() error {
+	return &EnumerationError{
+		msg:  "invalid items processed count",
+		kind: ErrKindInvalidItemCount,
+	}
+}
 
 // Status represents the lifecycle states of an enumeration session.
 // It is implemented as a value object using a string type to ensure type safety
@@ -580,8 +640,7 @@ func (s *SessionState) HasFailedBatches() bool {
 // progress tracking if not already present.
 func (s *SessionState) MarkInProgress() error {
 	if !s.CanTransitionTo(StatusInProgress) {
-		return fmt.Errorf("%w: cannot transition from %s to %s",
-			ErrInvalidStateTransition, s.Status(), StatusInProgress)
+		return newInvalidStateTransitionError(s.Status(), StatusInProgress)
 	}
 
 	s.setStatus(StatusInProgress)
@@ -596,8 +655,7 @@ func (s *SessionState) MarkInProgress() error {
 // MarkCompleted transitions an enumeration to the completed state.
 func (s *SessionState) MarkCompleted() error {
 	if !s.CanTransitionTo(StatusCompleted) {
-		return fmt.Errorf("%w: cannot transition from %s to %s",
-			ErrInvalidStateTransition, s.Status(), StatusCompleted)
+		return newInvalidStateTransitionError(s.Status(), StatusCompleted)
 	}
 
 	s.setStatus(StatusCompleted)
@@ -608,8 +666,7 @@ func (s *SessionState) MarkCompleted() error {
 // MarkFailed transitions an enumeration to the failed state with a reason.
 func (s *SessionState) MarkFailed(reason string) error {
 	if !s.CanTransitionTo(StatusFailed) {
-		return fmt.Errorf("%w: cannot transition from %s to %s",
-			ErrInvalidStateTransition, s.Status(), StatusFailed)
+		return newInvalidStateTransitionError(s.Status(), StatusFailed)
 	}
 
 	s.setStatus(StatusFailed)
@@ -625,17 +682,17 @@ const defaultStallThreshold = 10 * time.Second
 // RecordBatchProgress updates the enumeration state with progress from a batch.
 func (s *SessionState) RecordBatchProgress(batch BatchProgress) error {
 	if s.Status() != StatusInProgress {
-		return fmt.Errorf("%w: can only update progress when in progress", ErrInvalidProgress)
+		return newInvalidProgressError("can only update progress when in progress")
 	}
 
 	if batch.Checkpoint() == nil {
-		return fmt.Errorf("%w: checkpoint required for progress update", ErrMissingCheckpoint)
+		return newMissingCheckpointError()
 	}
 
 	if batch.ItemsProcessed() < 0 ||
 		(s.Progress() != nil &&
 			batch.ItemsProcessed()+s.Progress().ItemsProcessed() < s.Progress().ItemsProcessed()) {
-		return fmt.Errorf("%w: invalid items processed count", ErrInvalidProgress)
+		return newInvalidItemCountError()
 	}
 
 	s.addBatchProgress(batch)
