@@ -137,13 +137,13 @@ func (s *Scanner) handleScanTask(ctx context.Context, evt enumeration.TaskCreate
 	ctx, span := s.tracer.Start(ctx, "process_scan_task",
 		trace.WithAttributes(
 			attribute.String("task.id", evt.Task.TaskID),
-			attribute.String("resource.uri", evt.Task.ResourceURI),
+			attribute.String("resource.uri", evt.Task.ResourceURI()),
 			attribute.String("event.occurred_at", evt.OccurredAt().String()),
 		))
 	defer span.End()
 
 	return s.metrics.TrackTask(func() error {
-		if err := s.scanner.Scan(ctx, evt.Task.ResourceURI); err != nil {
+		if err := s.scanner.Scan(ctx, evt.Task.ResourceURI()); err != nil {
 			span.RecordError(err)
 			return err
 		}

@@ -12,14 +12,14 @@ var taskSourceTypeToProto = map[shared.SourceType]pb.SourceType{
 }
 
 // TaskToProto converts a domain Task to its protobuf representation (pb.ScanTask).
-func TaskToProto(t enumeration.Task) *pb.EnumerationTask {
-	if t.Credentials == nil {
+func TaskToProto(t *enumeration.Task) *pb.EnumerationTask {
+	if t.Credentials() == nil {
 		// If no credentials, we can pass a nil or an empty TaskCredentials
 		return &pb.EnumerationTask{
 			TaskId:      t.TaskID,
 			SourceType:  taskSourceTypeToProto[t.SourceType],
-			ResourceUri: t.ResourceURI,
-			Metadata:    t.Metadata,
+			ResourceUri: t.ResourceURI(),
+			Metadata:    t.Metadata(),
 			// Credentials: nil,
 		}
 	}
@@ -27,9 +27,9 @@ func TaskToProto(t enumeration.Task) *pb.EnumerationTask {
 	return &pb.EnumerationTask{
 		TaskId:      t.TaskID,
 		SourceType:  taskSourceTypeToProto[t.SourceType],
-		ResourceUri: t.ResourceURI,
-		Metadata:    t.Metadata,
-		Credentials: ToProtoCredentials(t.Credentials),
+		ResourceUri: t.ResourceURI(),
+		Metadata:    t.Metadata(),
+		Credentials: ToProtoCredentials(t.Credentials()),
 	}
 }
 
@@ -39,21 +39,20 @@ var protoSourceTypeToTaskSourceType = map[pb.SourceType]shared.SourceType{
 }
 
 // ProtoToTask converts a protobuf ScanTask to a domain Task.
-func ProtoToTask(pt *pb.EnumerationTask) enumeration.Task {
+func ProtoToTask(pt *pb.EnumerationTask) *enumeration.Task {
 	var creds *enumeration.TaskCredentials
 	if pt.Credentials != nil {
 		creds = ProtoToDomainCredentials(pt.Credentials)
 	}
 
-	return enumeration.Task{
-		CoreTask: shared.CoreTask{
-			TaskID:     pt.TaskId,
-			SourceType: protoSourceTypeToTaskSourceType[pt.SourceType],
-		},
-		ResourceURI: pt.ResourceUri,
-		Metadata:    pt.Metadata,
-		Credentials: creds,
-	}
+	return enumeration.ReconstructTask(
+		pt.TaskId,
+		protoSourceTypeToTaskSourceType[pt.SourceType],
+		pt.ResourceUri,
+		"", // TODO: Add session ID
+		pt.Metadata,
+		creds,
+	)
 }
 
 // ToProtoCredentials converts domain.TaskCredentials -> pb.TaskCredentials.

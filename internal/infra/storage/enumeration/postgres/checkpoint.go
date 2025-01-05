@@ -30,10 +30,7 @@ type checkpointStore struct {
 // the provided database connection. It initializes the underlying sqlc queries
 // used for checkpoint operations.
 func NewCheckpointStore(dbConn *pgxpool.Pool, tracer trace.Tracer) *checkpointStore {
-	return &checkpointStore{
-		q:      db.New(dbConn),
-		tracer: tracer,
-	}
+	return &checkpointStore{q: db.New(dbConn), tracer: tracer}
 }
 
 // Save persists a checkpoint to PostgreSQL. The checkpoint's Data field is

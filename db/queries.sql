@@ -65,6 +65,41 @@ ORDER BY created_at DESC
 LIMIT $1;
 
 -- ============================================
+-- Enumeration Tasks
+-- ============================================
+-- name: CreateTask :exec
+WITH core_task AS (
+    INSERT INTO tasks (task_id, source_type)
+    VALUES ($1, $2)
+    RETURNING task_id
+)
+INSERT INTO enumeration_tasks (
+    task_id,
+    session_id,
+    resource_uri,
+    metadata
+) VALUES (
+    (SELECT task_id FROM core_task),
+    $3,
+    $4,
+    $5
+);
+
+-- name: GetTaskByID :one
+SELECT
+    t.task_id,
+    t.source_type,
+    et.session_id,
+    et.resource_uri,
+    et.metadata,
+    et.created_at,
+    et.updated_at
+FROM tasks t
+JOIN enumeration_tasks et ON t.task_id = et.task_id
+WHERE t.task_id = $1;
+
+
+-- ============================================
 -- Progress Tracking
 -- ============================================
 -- name: CreateEnumerationProgress :exec

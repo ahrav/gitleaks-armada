@@ -3,18 +3,75 @@ package enumeration
 import (
 	"fmt"
 
+	"github.com/google/uuid"
+
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 )
 
-// Task represents a single enumeration task entity that needs to be processed.
-// It contains all the information needed to locate and authenticate against
-// a resource that needs to be scanned for sensitive data.
+// Task is an aggregate root that represents a single enumeration task that needs to be processed.
+// As an aggregate root, it encapsulates all the information needed to locate and authenticate against
+// a resource that needs to be scanned for sensitive data, while maintaining consistency boundaries
+// around its child entities and value objects.
 type Task struct {
 	shared.CoreTask
-	ResourceURI string            // Location of the resource to scan
-	Metadata    map[string]string // Additional context for task processing
-	Credentials *TaskCredentials  // Authentication credentials for the resource
+	sessionID   string            // ID of the session this task belongs to
+	resourceURI string            // Location of the resource to scan
+	metadata    map[string]string // Additional context for task processing
+	credentials *TaskCredentials  // Authentication credentials for the resource
 }
+
+// NewTask creates a new Task instance.
+func NewTask(
+	sourceType shared.SourceType,
+	// sessionID string, // TODO: Add this back in
+	resourceURI string,
+	metadata map[string]string,
+	credentials *TaskCredentials,
+) *Task {
+	return &Task{
+		CoreTask: shared.CoreTask{
+			TaskID: generateTaskID(),
+		},
+		// sessionID:   sessionID,
+		resourceURI: resourceURI,
+		metadata:    metadata,
+		credentials: credentials,
+	}
+}
+
+// ReconstructTask creates a Task instance from persisted data.
+func ReconstructTask(
+	taskID string,
+	sourceType shared.SourceType,
+	sessionID string,
+	resourceURI string,
+	metadata map[string]string,
+	credentials *TaskCredentials,
+) *Task {
+	return &Task{
+		CoreTask: shared.CoreTask{
+			TaskID:     taskID,
+			SourceType: sourceType,
+		},
+		sessionID:   sessionID,
+		resourceURI: resourceURI,
+		metadata:    metadata,
+		credentials: credentials,
+	}
+}
+
+// generateTaskID creates a unique identifier for each scan task.
+// This allows tracking individual tasks through the processing pipeline.
+func generateTaskID() string { return uuid.New().String() }
+
+// Getter methods.
+func (t *Task) SessionID() string             { return t.sessionID }
+func (t *Task) ResourceURI() string           { return t.resourceURI }
+func (t *Task) Metadata() map[string]string   { return t.metadata }
+func (t *Task) Credentials() *TaskCredentials { return t.credentials }
+
+// Setter methods.
+func (t *Task) SetSessionID(sessionID string) { t.sessionID = sessionID }
 
 // TaskBatch is a collection of tasks to be scanned in a single batch.
 type TaskBatch struct {

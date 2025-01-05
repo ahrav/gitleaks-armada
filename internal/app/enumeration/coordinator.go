@@ -358,7 +358,7 @@ func (s *coordinator) streamEnumerate(
 // It ensures tasks are durably recorded and can be processed by downstream consumers.
 // The session ID is used for correlation and tracking task lineage.
 // TODO: Handle partial failures.
-func (s *coordinator) publishTasks(ctx context.Context, tasks []enumeration.Task, sessionID string) error {
+func (s *coordinator) publishTasks(ctx context.Context, tasks []*enumeration.Task, sessionID string) error {
 	ctx, span := s.tracer.Start(ctx, "enumeration.publishTasks")
 	defer span.End()
 

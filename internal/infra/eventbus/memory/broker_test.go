@@ -3,7 +3,6 @@ package memory
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -22,21 +21,21 @@ func TestPublishAndSubscribeTasks(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(1)
 
-	expectedTask := enumeration.Task{
-		CoreTask: shared.CoreTask{
-			TaskID: "test-task",
-		},
-		ResourceURI: "test-uri",
-	}
+	expectedTask := enumeration.NewTask(
+		shared.SourceTypeGitHub,
+		"test-uri",
+		map[string]string{},
+		nil,
+	)
 
 	err := broker.SubscribeTasks(ctx, func(task enumeration.Task) error {
 		defer wg.Done()
-		assert.Equal(t, expectedTask, task)
+		assert.Equal(t, *expectedTask, task)
 		return nil
 	})
 	assert.NoError(t, err)
 
-	err = broker.PublishTask(ctx, expectedTask)
+	err = broker.PublishTask(ctx, *expectedTask)
 	assert.NoError(t, err)
 
 	wg.Wait()
@@ -51,23 +50,23 @@ func TestMultipleSubscribers(t *testing.T) {
 	subscriberCount := 3
 	wg.Add(subscriberCount)
 
-	tsk := enumeration.Task{
-		CoreTask: shared.CoreTask{
-			TaskID: "test-multiple",
-		},
-		ResourceURI: "test-uri",
-	}
+	tsk := enumeration.NewTask(
+		shared.SourceTypeGitHub,
+		"test-uri",
+		map[string]string{},
+		nil,
+	)
 
 	for i := 0; i < subscriberCount; i++ {
 		err := broker.SubscribeTasks(ctx, func(receivedTask enumeration.Task) error {
 			defer wg.Done()
-			assert.Equal(t, tsk, receivedTask)
+			assert.Equal(t, *tsk, receivedTask)
 			return nil
 		})
 		assert.NoError(t, err)
 	}
 
-	err := broker.PublishTask(ctx, tsk)
+	err := broker.PublishTask(ctx, *tsk)
 	assert.NoError(t, err)
 
 	wg.Wait()
@@ -80,18 +79,20 @@ func TestHandlerError(t *testing.T) {
 	ctx := context.Background()
 	expectedErr := errors.New("handler error")
 
+	tsk := enumeration.NewTask(
+		shared.SourceTypeGitHub,
+		"test-uri",
+		map[string]string{},
+		nil,
+	)
+
 	// Subscribe with an error-returning handler.
 	err := broker.SubscribeTasks(ctx, func(task enumeration.Task) error {
 		return expectedErr
 	})
 	assert.NoError(t, err)
 
-	err = broker.PublishTask(ctx, enumeration.Task{
-		CoreTask: shared.CoreTask{
-			TaskID: "test-error",
-		},
-		ResourceURI: "test-uri",
-	})
+	err = broker.PublishTask(ctx, *tsk)
 	assert.ErrorIs(t, err, expectedErr)
 }
 
@@ -115,13 +116,13 @@ func TestConcurrentPublishSubscribe(t *testing.T) {
 
 	for i := 0; i < taskCount; i++ {
 		go func(id int) {
-			task := enumeration.Task{
-				CoreTask: shared.CoreTask{
-					TaskID: fmt.Sprintf("task-%d", id),
-				},
-				ResourceURI: "test-uri",
-			}
-			err := broker.PublishTask(ctx, task)
+			task := enumeration.NewTask(
+				shared.SourceTypeGitHub,
+				"test-uri",
+				map[string]string{},
+				nil,
+			)
+			err := broker.PublishTask(ctx, *task)
 			assert.NoError(t, err)
 		}(i)
 	}
@@ -168,15 +169,17 @@ func TestContextCancellation(t *testing.T) {
 	broker := NewBroker()
 	ctx, cancel := context.WithCancel(context.Background())
 
+	tsk := enumeration.NewTask(
+		shared.SourceTypeGitHub,
+		"test-uri",
+		map[string]string{},
+		nil,
+	)
+
 	// Cancel context before publishing.
 	cancel()
 
-	err := broker.PublishTask(ctx, enumeration.Task{
-		CoreTask: shared.CoreTask{
-			TaskID: "test-task",
-		},
-		ResourceURI: "test-uri",
-	})
+	err := broker.PublishTask(ctx, *tsk)
 	assert.ErrorIs(t, err, context.Canceled)
 
 	err = broker.SubscribeTasks(ctx, func(task enumeration.Task) error {

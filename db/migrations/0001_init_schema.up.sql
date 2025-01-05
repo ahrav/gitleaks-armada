@@ -2,19 +2,19 @@
 
 -- 1. Define the enumeration_status enum
 CREATE TYPE enumeration_status AS ENUM (
-    'initialized',
-    'in_progress',
-    'completed',
-    'failed',
-    'stalled',
-    'partially_completed'
+    'INITIALIZED',
+    'IN_PROGRESS',
+    'COMPLETED',
+    'FAILED',
+    'STALLED',
+    'PARTIALLY_COMPLETED'
 );
 
 -- 2. Create batch_status enum
 CREATE TYPE batch_status AS ENUM (
-    'succeeded',
-    'failed',
-    'partial'
+    'SUCCEEDED',
+    'FAILED',
+    'PARTIALLY_COMPLETED'
 );
 
 -- 3. Create checkpoints table
@@ -40,7 +40,23 @@ CREATE TABLE enumeration_session_states (
     CONSTRAINT unique_enumeration_session_id UNIQUE (session_id)
 );
 
--- 5. Add new progress tables
+-- 5. Tasks Table
+CREATE TABLE tasks (
+    task_id VARCHAR PRIMARY KEY,
+    source_type VARCHAR NOT NULL
+);
+
+-- 6. Enumeration Tasks Table
+CREATE TABLE enumeration_tasks (
+    task_id VARCHAR PRIMARY KEY REFERENCES tasks(task_id),
+    session_id VARCHAR(64) NOT NULL REFERENCES enumeration_session_states(session_id),
+    resource_uri VARCHAR NOT NULL,
+    metadata JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 7. Add new progress tables
 CREATE TABLE enumeration_progress (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     session_id VARCHAR(64) NOT NULL REFERENCES enumeration_session_states(session_id),
@@ -67,6 +83,6 @@ CREATE TABLE enumeration_batch_progress (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 6. Add indexes
+-- 8. Add indexes
 CREATE INDEX idx_batch_progress_session_id ON enumeration_batch_progress(session_id);
 CREATE INDEX idx_batch_progress_status ON enumeration_batch_progress(status);

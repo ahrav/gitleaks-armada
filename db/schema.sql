@@ -2,19 +2,19 @@
 
 -- Enumeration Status Enum
 CREATE TYPE enumeration_status AS ENUM (
-    'initialized',
-    'in_progress',
-    'completed',
-    'failed',
-    'stalled',
-    'partially_completed'
+    'INITIALIZED',
+    'IN_PROGRESS',
+    'COMPLETED',
+    'FAILED',
+    'STALLED',
+    'PARTIALLY_COMPLETED'
 );
 
 -- Batch Status Enum
 CREATE TYPE batch_status AS ENUM (
-    'succeeded',
-    'failed',
-    'partial'
+    'SUCCEEDED',
+    'FAILED',
+    'PARTIALLY_COMPLETED'
 );
 
 -- Checkpoints Table
@@ -38,6 +38,22 @@ CREATE TABLE enumeration_session_states (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT unique_enumeration_session_id UNIQUE (session_id)
+);
+
+-- Tasks Table
+CREATE TABLE tasks (
+    task_id VARCHAR PRIMARY KEY,
+    source_type VARCHAR NOT NULL
+);
+
+-- Enumeration Tasks Table
+CREATE TABLE enumeration_tasks (
+    task_id VARCHAR PRIMARY KEY REFERENCES tasks(task_id),
+    session_id VARCHAR(64) NOT NULL REFERENCES enumeration_session_states(session_id),
+    resource_uri VARCHAR NOT NULL,
+    metadata JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Progress tracking for enumeration sessions
@@ -104,10 +120,10 @@ CREATE INDEX idx_scan_targets_target_id ON scan_targets (target_id);
 
 -- Scan Job Status Enum
 CREATE TYPE scan_job_status AS ENUM (
-    'queued',
-    'running',
-    'completed',
-    'failed'
+    'QUEUED',
+    'RUNNING',
+    'COMPLETED',
+    'FAILED'
 );
 
 -- Scan Jobs Table

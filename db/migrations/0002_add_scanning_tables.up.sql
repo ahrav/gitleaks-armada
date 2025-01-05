@@ -32,10 +32,10 @@ CREATE INDEX idx_scan_targets_target_id ON scan_targets (target_id);
 
 -- Scan Job Status Enum
 CREATE TYPE scan_job_status AS ENUM (
-    'queued',
-    'running',
-    'completed',
-    'failed'
+    'QUEUED',
+    'RUNNING',
+    'COMPLETED',
+    'FAILED'
 );
 
 -- Scan Jobs Table

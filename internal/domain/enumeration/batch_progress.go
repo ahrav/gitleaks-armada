@@ -14,13 +14,13 @@ type BatchStatus string
 
 const (
 	// BatchStatusSucceeded indicates the batch completed processing all items successfully.
-	BatchStatusSucceeded BatchStatus = "succeeded"
+	BatchStatusSucceeded BatchStatus = "SUCCEEDED"
 
 	// BatchStatusFailed indicates the batch encountered an unrecoverable error.
-	BatchStatusFailed BatchStatus = "failed"
+	BatchStatusFailed BatchStatus = "FAILED"
 
 	// BatchStatusPartial indicates the batch completed with some items failing.
-	BatchStatusPartial BatchStatus = "partial"
+	BatchStatusPartial BatchStatus = "PARTIALLY_COMPLETED"
 )
 
 // BatchProgress is a value object that captures the execution details and outcomes

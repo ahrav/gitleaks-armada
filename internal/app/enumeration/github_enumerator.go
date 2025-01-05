@@ -45,7 +45,7 @@ type TargetEnumerator interface {
 // This enables atomic processing of task batches while maintaining
 // resumability through checkpoint tracking.
 type EnumerateBatch struct {
-	Tasks      []enumeration.Task
+	Tasks      []*enumeration.Task
 	NextCursor string
 }
 
@@ -112,16 +112,14 @@ func (e *GitHubEnumerator) Enumerate(ctx context.Context, startCursor *string, b
 	// If we have a repo list, process it directly.
 	// TODO: Batch this too.
 	if len(e.ghConfig.RepoList) > 0 {
-		tasks := make([]enumeration.Task, 0, len(e.ghConfig.RepoList))
+		tasks := make([]*enumeration.Task, 0, len(e.ghConfig.RepoList))
 		for _, repoURL := range e.ghConfig.RepoList {
-			tasks = append(tasks, enumeration.Task{
-				CoreTask: shared.CoreTask{
-					TaskID: generateTaskID(),
-				},
-				ResourceURI: repoURL,
-				Metadata:    e.ghConfig.Metadata,
-				Credentials: e.creds,
-			})
+			tasks = append(tasks, enumeration.NewTask(
+				shared.SourceTypeGitHub,
+				repoURL,
+				e.ghConfig.Metadata,
+				e.creds,
+			))
 		}
 		batchCh <- EnumerateBatch{Tasks: tasks}
 		return nil
@@ -143,16 +141,14 @@ func (e *GitHubEnumerator) Enumerate(ctx context.Context, startCursor *string, b
 		apiSpan.End()
 
 		_, taskSpan := e.tracer.Start(ctx, "create_tasks")
-		tasks := make([]enumeration.Task, 0, len(respData.Data.Organization.Repositories.Nodes))
+		tasks := make([]*enumeration.Task, 0, len(respData.Data.Organization.Repositories.Nodes))
 		for _, node := range respData.Data.Organization.Repositories.Nodes {
-			tasks = append(tasks, enumeration.Task{
-				CoreTask: shared.CoreTask{
-					TaskID: generateTaskID(),
-				},
-				ResourceURI: buildGithubResourceURI(e.ghConfig.Org, node.Name),
-				Metadata:    e.ghConfig.Metadata,
-				Credentials: e.creds,
-			})
+			tasks = append(tasks, enumeration.NewTask(
+				shared.SourceTypeGitHub,
+				buildGithubResourceURI(e.ghConfig.Org, node.Name),
+				e.ghConfig.Metadata,
+				e.creds,
+			))
 		}
 		taskSpan.End()
 

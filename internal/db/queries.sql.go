@@ -217,6 +217,47 @@ func (q *Queries) CreateOrUpdateEnumerationSessionState(ctx context.Context, arg
 	return err
 }
 
+const createTask = `-- name: CreateTask :exec
+WITH core_task AS (
+    INSERT INTO tasks (task_id, source_type)
+    VALUES ($1, $2)
+    RETURNING task_id
+)
+INSERT INTO enumeration_tasks (
+    task_id,
+    session_id,
+    resource_uri,
+    metadata
+) VALUES (
+    (SELECT task_id FROM core_task),
+    $3,
+    $4,
+    $5
+)
+`
+
+type CreateTaskParams struct {
+	TaskID      string
+	SourceType  string
+	SessionID   string
+	ResourceUri string
+	Metadata    []byte
+}
+
+// ============================================
+// Enumeration Tasks
+// ============================================
+func (q *Queries) CreateTask(ctx context.Context, arg CreateTaskParams) error {
+	_, err := q.db.Exec(ctx, createTask,
+		arg.TaskID,
+		arg.SourceType,
+		arg.SessionID,
+		arg.ResourceUri,
+		arg.Metadata,
+	)
+	return err
+}
+
 const deleteAllowlistCommits = `-- name: DeleteAllowlistCommits :exec
 DELETE FROM allowlist_commits WHERE allowlist_id = $1
 `
@@ -448,6 +489,45 @@ func (q *Queries) GetEnumerationSessionState(ctx context.Context, sessionID stri
 		&i.LastCheckpointID,
 		&i.Status,
 		&i.FailureReason,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getTaskByID = `-- name: GetTaskByID :one
+SELECT
+    t.task_id,
+    t.source_type,
+    et.session_id,
+    et.resource_uri,
+    et.metadata,
+    et.created_at,
+    et.updated_at
+FROM tasks t
+JOIN enumeration_tasks et ON t.task_id = et.task_id
+WHERE t.task_id = $1
+`
+
+type GetTaskByIDRow struct {
+	TaskID      string
+	SourceType  string
+	SessionID   string
+	ResourceUri string
+	Metadata    []byte
+	CreatedAt   pgtype.Timestamptz
+	UpdatedAt   pgtype.Timestamptz
+}
+
+func (q *Queries) GetTaskByID(ctx context.Context, taskID string) (GetTaskByIDRow, error) {
+	row := q.db.QueryRow(ctx, getTaskByID, taskID)
+	var i GetTaskByIDRow
+	err := row.Scan(
+		&i.TaskID,
+		&i.SourceType,
+		&i.SessionID,
+		&i.ResourceUri,
+		&i.Metadata,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)

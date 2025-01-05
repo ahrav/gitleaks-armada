@@ -227,6 +227,15 @@ type EnumerationSessionState struct {
 	UpdatedAt        pgtype.Timestamptz
 }
 
+type EnumerationTask struct {
+	TaskID      string
+	SessionID   string
+	ResourceUri string
+	Metadata    []byte
+	CreatedAt   pgtype.Timestamptz
+	UpdatedAt   pgtype.Timestamptz
+}
+
 type Finding struct {
 	ID           int64
 	ScanJobID    int64
@@ -286,4 +295,9 @@ type ScanTarget struct {
 	Metadata     []byte
 	CreatedAt    pgtype.Timestamptz
 	UpdatedAt    pgtype.Timestamptz
+}
+
+type Task struct {
+	TaskID     string
+	SourceType string
 }

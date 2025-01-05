@@ -48,3 +48,15 @@ type CheckpointRepository interface {
 	// It is not an error if the checkpoint does not exist.
 	Delete(ctx context.Context, targetID string) error
 }
+
+// TaskRepository provides persistent storage for enumeration tasks. It enables
+// tracking and retrieval of individual tasks generated during the enumeration process,
+// which is essential for monitoring scan progress and debugging issues.
+type TaskRepository interface {
+	// Save persists a new enumeration task to storage. This ensures tasks are
+	// durably recorded before being processed by downstream consumers.
+	Save(ctx context.Context, task *Task) error
+
+	// GetByID retrieves a task by its unique identifier.
+	GetByID(ctx context.Context, taskID string) (*Task, error)
+}

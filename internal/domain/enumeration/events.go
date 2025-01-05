@@ -18,12 +18,12 @@ const (
 // has been created. It references the actual Task struct from this package.
 type TaskCreatedEvent struct {
 	occurredAt time.Time
-	Task       Task
+	Task       *Task
 }
 
 // NewTaskCreatedEvent constructs a TaskCreatedEvent, capturing the current time
 // and embedding the new Task as part of the event payload.
-func NewTaskCreatedEvent(t Task) TaskCreatedEvent {
+func NewTaskCreatedEvent(t *Task) TaskCreatedEvent {
 	return TaskCreatedEvent{
 		occurredAt: time.Now(),
 		Task:       t,
