@@ -30,7 +30,8 @@ func NewTask(
 ) *Task {
 	return &Task{
 		CoreTask: shared.CoreTask{
-			TaskID: generateTaskID(),
+			TaskID:     generateTaskID(),
+			SourceType: sourceType,
 		},
 		sessionID:   sessionID,
 		resourceURI: resourceURI,
