@@ -37,20 +37,26 @@ func NewEnumerationSessionStateStore(dbConn *pgxpool.Pool, checkpointStore enume
 	}
 }
 
+var defaultDBAttributes = []attribute.KeyValue{
+	attribute.String("db.system", "postgresql"),
+}
+
 // Save persists an enumeration state and its associated checkpoint (if any) to PostgreSQL.
 // It ensures atomic updates by saving the checkpoint first, then updating the enumeration state
 // with a reference to the checkpoint.
 func (s *enumerationSessionStateStore) Save(ctx context.Context, state *enumeration.SessionState) error {
-	return storage.ExecuteAndTrace(ctx, s.tracer, "postgres.save_enumeration_state", []attribute.KeyValue{
+	dbAttrs := append(
+		defaultDBAttributes,
 		attribute.String("session_id", state.SessionID()),
 		attribute.String("source_type", state.SourceType()),
 		attribute.String("status", string(state.Status())),
 		attribute.Bool("has_checkpoint", state.LastCheckpoint() != nil),
-	}, func(ctx context.Context) error {
+	)
+	return storage.ExecuteAndTrace(ctx, s.tracer, "postgres.save_enumeration_state", dbAttrs, func(ctx context.Context) error {
 		// Save checkpoint if present.
 		var lastCheckpointID pgtype.Int8
 		if state.LastCheckpoint() != nil {
-			if err := storage.ExecuteAndTrace(ctx, s.tracer, "postgres.save_checkpoint", nil, func(ctx context.Context) error {
+			if err := storage.ExecuteAndTrace(ctx, s.tracer, "postgres.save_checkpoint", dbAttrs, func(ctx context.Context) error {
 				return s.checkpointStore.Save(ctx, state.LastCheckpoint())
 			}); err != nil {
 				return fmt.Errorf("failed to save checkpoint: %w", err)
@@ -141,10 +147,12 @@ func (s *enumerationSessionStateStore) saveBatchProgress(ctx context.Context, se
 // Load retrieves the current enumeration state and its associated checkpoint.
 // Returns nil if no state exists.
 func (s *enumerationSessionStateStore) Load(ctx context.Context, sessionID string) (*enumeration.SessionState, error) {
-	var state *enumeration.SessionState
-	err := storage.ExecuteAndTrace(ctx, s.tracer, "postgres.load_enumeration_state", []attribute.KeyValue{
+	dbAttrs := append(
+		defaultDBAttributes,
 		attribute.String("session_id", sessionID),
-	}, func(ctx context.Context) error {
+	)
+	var state *enumeration.SessionState
+	err := storage.ExecuteAndTrace(ctx, s.tracer, "postgres.load_enumeration_state", dbAttrs, func(ctx context.Context) error {
 		dbState, err := s.q.GetEnumerationSessionState(ctx, sessionID)
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
@@ -165,26 +173,29 @@ func (s *enumerationSessionStateStore) Load(ctx context.Context, sessionID strin
 
 func (s *enumerationSessionStateStore) GetActiveStates(ctx context.Context) ([]*enumeration.SessionState, error) {
 	var states []*enumeration.SessionState
-	err := storage.ExecuteAndTrace(ctx, s.tracer, "postgres.get_active_enumeration_states", nil, func(ctx context.Context) error {
-		dbStates, err := s.q.GetActiveEnumerationSessionStates(ctx)
-		if err != nil {
-			return fmt.Errorf("failed to get active enumeration states: %w", err)
-		}
+	err := storage.ExecuteAndTrace(
+		ctx, s.tracer, "postgres.get_active_enumeration_states", defaultDBAttributes, func(ctx context.Context) error {
+			dbStates, err := s.q.GetActiveEnumerationSessionStates(ctx)
+			if err != nil {
+				return fmt.Errorf("failed to get active enumeration states: %w", err)
+			}
 
-		states, err = s.convertDBStatesToEnumStates(ctx, dbStates)
-		if err != nil {
-			return fmt.Errorf("failed to convert states: %w", err)
-		}
-		return nil
-	})
+			states, err = s.convertDBStatesToEnumStates(ctx, dbStates)
+			if err != nil {
+				return fmt.Errorf("failed to convert states: %w", err)
+			}
+			return nil
+		})
 	return states, err
 }
 
 func (s *enumerationSessionStateStore) List(ctx context.Context, limit int) ([]*enumeration.SessionState, error) {
-	var states []*enumeration.SessionState
-	err := storage.ExecuteAndTrace(ctx, s.tracer, "postgres.list_enumeration_states", []attribute.KeyValue{
+	dbAttrs := append(
+		defaultDBAttributes,
 		attribute.Int("limit", limit),
-	}, func(ctx context.Context) error {
+	)
+	var states []*enumeration.SessionState
+	err := storage.ExecuteAndTrace(ctx, s.tracer, "postgres.list_enumeration_states", dbAttrs, func(ctx context.Context) error {
 		dbStates, err := s.q.ListEnumerationSessionStates(ctx, int32(limit))
 		if err != nil {
 			return fmt.Errorf("failed to list enumeration states: %w", err)

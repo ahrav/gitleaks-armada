@@ -14,9 +14,9 @@ import (
 type BatchStatus string
 
 const (
-	BatchStatusSucceeded BatchStatus = "succeeded"
-	BatchStatusFailed    BatchStatus = "failed"
-	BatchStatusPartial   BatchStatus = "partial"
+	BatchStatusSUCCEEDED          BatchStatus = "SUCCEEDED"
+	BatchStatusFAILED             BatchStatus = "FAILED"
+	BatchStatusPARTIALLYCOMPLETED BatchStatus = "PARTIALLY_COMPLETED"
 )
 
 func (e *BatchStatus) Scan(src interface{}) error {
@@ -57,12 +57,12 @@ func (ns NullBatchStatus) Value() (driver.Value, error) {
 type EnumerationStatus string
 
 const (
-	EnumerationStatusInitialized        EnumerationStatus = "initialized"
-	EnumerationStatusInProgress         EnumerationStatus = "in_progress"
-	EnumerationStatusCompleted          EnumerationStatus = "completed"
-	EnumerationStatusFailed             EnumerationStatus = "failed"
-	EnumerationStatusStalled            EnumerationStatus = "stalled"
-	EnumerationStatusPartiallyCompleted EnumerationStatus = "partially_completed"
+	EnumerationStatusINITIALIZED        EnumerationStatus = "INITIALIZED"
+	EnumerationStatusINPROGRESS         EnumerationStatus = "IN_PROGRESS"
+	EnumerationStatusCOMPLETED          EnumerationStatus = "COMPLETED"
+	EnumerationStatusFAILED             EnumerationStatus = "FAILED"
+	EnumerationStatusSTALLED            EnumerationStatus = "STALLED"
+	EnumerationStatusPARTIALLYCOMPLETED EnumerationStatus = "PARTIALLY_COMPLETED"
 )
 
 func (e *EnumerationStatus) Scan(src interface{}) error {
@@ -103,10 +103,10 @@ func (ns NullEnumerationStatus) Value() (driver.Value, error) {
 type ScanJobStatus string
 
 const (
-	ScanJobStatusQueued    ScanJobStatus = "queued"
-	ScanJobStatusRunning   ScanJobStatus = "running"
-	ScanJobStatusCompleted ScanJobStatus = "completed"
-	ScanJobStatusFailed    ScanJobStatus = "failed"
+	ScanJobStatusQUEUED    ScanJobStatus = "QUEUED"
+	ScanJobStatusRUNNING   ScanJobStatus = "RUNNING"
+	ScanJobStatusCOMPLETED ScanJobStatus = "COMPLETED"
+	ScanJobStatusFAILED    ScanJobStatus = "FAILED"
 )
 
 func (e *ScanJobStatus) Scan(src interface{}) error {

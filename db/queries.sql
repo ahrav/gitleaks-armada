@@ -54,7 +54,7 @@ WHERE session_id = $1;
 SELECT id, session_id, source_type, config, last_checkpoint_id, failure_reason,
        status, created_at, updated_at
 FROM enumeration_session_states
-WHERE status IN ('initialized', 'in_progress')
+WHERE status IN ('INITIALIZED', 'IN_PROGRESS')
 ORDER BY created_at DESC;
 
 -- name: ListEnumerationSessionStates :many

@@ -37,7 +37,12 @@ func ExecuteAndTrace(
 	attributes []attribute.KeyValue,
 	operation func(ctx context.Context) error,
 ) error {
-	ctx, span := tracer.Start(ctx, spanName, trace.WithAttributes(attributes...))
+	ctx, span := tracer.Start(
+		ctx,
+		spanName,
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(attributes...),
+	)
 	defer span.End()
 
 	err := operation(ctx)

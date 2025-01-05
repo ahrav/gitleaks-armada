@@ -101,6 +101,9 @@ spec:
       - name: wait-for-kafka
         image: busybox:1.28
         command: ['sh', '-c', 'until nc -z kafka 9092; do echo waiting for kafka; sleep 2; done;']
+      - name: wait-for-tempo
+        image: busybox:1.28
+        command: ['sh', '-c', 'until nc -z tempo 4317; do echo "waiting for tempo"; sleep 2; done;']
 ---
 apiVersion: v1
 kind: Service

@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"syscall"
 
+	"github.com/exaring/otelpgx"
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/pgx"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
@@ -91,7 +92,15 @@ func main() {
 			user, password, host, dbname)
 	}
 
-	pool, err := pgxpool.New(ctx, dsn)
+	poolCfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		log.Error(ctx, "failed to parse db config", "error", err)
+		os.Exit(1)
+	}
+
+	poolCfg.ConnConfig.Tracer = otelpgx.NewTracer()
+
+	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
 	if err != nil {
 		log.Error(ctx, "failed to open db", "error", err)
 		os.Exit(1)
@@ -190,10 +199,11 @@ func main() {
 	enumStateStorage := enumStore.NewEnumerationSessionStateStore(pool, checkpointStorage, tracer)
 	eventPublisher := kafka.NewKafkaDomainEventPublisher(broker)
 	enumFactory := enumeration.NewEnumerationFactory(http.DefaultClient, tracer)
-
+	enumTaskStorage := enumStore.NewTaskStore(pool, tracer)
 	enumService := enumeration.NewCoordinator(
 		enumStateStorage,
 		checkpointStorage,
+		enumTaskStorage,
 		enumFactory,
 		eventPublisher,
 		configLoader,

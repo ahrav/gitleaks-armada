@@ -127,6 +127,9 @@ spec:
       - name: wait-for-postgres
         image: busybox:1.28
         command: ['sh', '-c', 'until nc -z postgres 5432; do echo waiting for postgres; sleep 2; done;']
+      - name: wait-for-tempo
+        image: busybox:1.28
+        command: ['sh', '-c', 'until nc -z tempo 4317; do echo "waiting for tempo"; sleep 2; done;']
 ---
 apiVersion: v1
 kind: Service

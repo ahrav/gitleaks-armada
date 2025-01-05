@@ -44,8 +44,9 @@ type metrics interface {
 // the overall scanning process.
 type coordinator struct {
 	// Domain repositories.
-	repo           enumeration.StateRepository
+	stateRepo      enumeration.StateRepository
 	checkpointRepo enumeration.CheckpointRepository
+	taskRepo       enumeration.TaskRepository
 
 	// Creates enumerators for different target types.
 	enumFactory EnumeratorFactory
@@ -64,8 +65,9 @@ type coordinator struct {
 // It wires together all required dependencies including repositories, domain services,
 // and external integrations needed for the enumeration workflow.
 func NewCoordinator(
-	repo enumeration.StateRepository,
+	stateRepo enumeration.StateRepository,
 	checkpointRepo enumeration.CheckpointRepository,
+	taskRepo enumeration.TaskRepository,
 	enumFactory EnumeratorFactory,
 	eventPublisher events.DomainEventPublisher,
 	cfgLoader loaders.Loader,
@@ -74,8 +76,9 @@ func NewCoordinator(
 	tracer trace.Tracer,
 ) Coordinator {
 	return &coordinator{
-		repo:           repo,
+		stateRepo:      stateRepo,
 		checkpointRepo: checkpointRepo,
+		taskRepo:       taskRepo,
 		enumFactory:    enumFactory,
 		eventPublisher: eventPublisher,
 		configLoader:   cfgLoader,
@@ -93,7 +96,7 @@ func (s *coordinator) ExecuteEnumeration(ctx context.Context) error {
 	ctx, span := s.tracer.Start(ctx, "enumeration.ExecuteEnumeration")
 	defer span.End()
 
-	activeStates, err := s.repo.GetActiveStates(ctx)
+	activeStates, err := s.stateRepo.GetActiveStates(ctx)
 	if err != nil {
 		span.RecordError(err)
 		return fmt.Errorf("failed to load active states: %w", err)
@@ -243,7 +246,7 @@ func (s *coordinator) processTargetEnumeration(
 		attribute.String("session_id", state.SessionID()),
 	)
 
-	if err := s.repo.Save(ctx, state); err != nil {
+	if err := s.stateRepo.Save(ctx, state); err != nil {
 		span.RecordError(err)
 		return fmt.Errorf("failed to save initial state: %w", err)
 	}
@@ -254,7 +257,7 @@ func (s *coordinator) processTargetEnumeration(
 		return err
 	}
 
-	if err := s.repo.Save(ctx, state); err != nil {
+	if err := s.stateRepo.Save(ctx, state); err != nil {
 		span.RecordError(err)
 		s.logger.Error(ctx, "Failed to save state transition", "error", err)
 		return err
@@ -273,7 +276,7 @@ func (s *coordinator) processTargetEnumeration(
 			s.logger.Error(ctx, "Failed to mark enumeration as failed", "error", markErr)
 		}
 
-		if saveErr := s.repo.Save(ctx, state); saveErr != nil {
+		if saveErr := s.stateRepo.Save(ctx, state); saveErr != nil {
 			span.RecordError(saveErr)
 			s.logger.Error(ctx, "Failed to save failed state", "error", saveErr)
 		}
@@ -350,7 +353,7 @@ func (s *coordinator) streamEnumerate(
 				return
 			}
 
-			if err := s.repo.Save(ctx, state); err != nil {
+			if err := s.stateRepo.Save(ctx, state); err != nil {
 				span.RecordError(err)
 				s.logger.Error(ctx, "Failed to save enumeration state", "error", err)
 			}
@@ -367,7 +370,7 @@ func (s *coordinator) streamEnumerate(
 			span.RecordError(err)
 			s.logger.Error(ctx, "Failed to mark enumeration as failed", "error", err)
 		}
-		if err := s.repo.Save(ctx, state); err != nil {
+		if err := s.stateRepo.Save(ctx, state); err != nil {
 			span.RecordError(err)
 			s.logger.Error(ctx, "Failed to save enumeration state", "error", err)
 		}
@@ -379,10 +382,14 @@ func (s *coordinator) streamEnumerate(
 		s.logger.Error(ctx, "Failed to mark enumeration as completed", "error", err)
 	}
 
-	if err := s.repo.Save(ctx, state); err != nil {
+	saveCtx, saveSpan := s.tracer.Start(ctx, "enumeration.saveState")
+	if err := s.stateRepo.Save(saveCtx, state); err != nil {
+		saveSpan.RecordError(err)
+		saveSpan.End()
 		span.RecordError(err)
 		s.logger.Error(ctx, "Failed to save enumeration state", "error", err)
 	}
+	saveSpan.End()
 	return nil
 }
 
@@ -423,7 +430,17 @@ func (s *coordinator) publishTasks(
 			return err
 		}
 		totalTasks++
+
+		saveCtx, saveSpan := s.tracer.Start(ctx, "enumeration.saveTask")
+		if err := s.taskRepo.Save(saveCtx, task); err != nil {
+			saveSpan.RecordError(err)
+			saveSpan.End()
+			span.RecordError(err)
+			return err
+		}
+		saveSpan.End()
 	}
+
 	span.SetAttributes(attribute.Int("total_tasks_published", totalTasks))
 
 	return nil

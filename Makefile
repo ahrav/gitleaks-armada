@@ -44,7 +44,7 @@ POSTGRES_URL = postgres://postgres:postgres@localhost:5432/secretscanner?sslmode
 # -------------------------------------------------------------------------------
 .PHONY: all build-controller build-scanner docker-controller docker-scanner kind-up kind-down kind-load dev-apply dev-status clean proto proto-gen kafka-setup kafka-logs kafka-topics kafka-restart kafka-delete kafka-consumer-groups kafka-delete-topics kafka-reset create-config-secret monitoring-setup monitoring-port-forward monitoring-cleanup postgres-setup postgres-logs postgres-restart postgres-delete sqlc-proto-gen rollout-restart-controller rollout-restart-scanner rollout-restart test test-coverage
 
-all: build-all docker-all kind-load postgres-setup kafka-setup create-config-secret dev-apply monitoring-setup
+all: build-all docker-all kind-load postgres-setup kafka-setup create-config-secret monitoring-setup dev-apply
 
 # Build targets
 build-all: proto-gen sqlc-proto-gen build-controller build-scanner
@@ -281,6 +281,12 @@ monitoring-setup:
 	kubectl apply -f $(K8S_MANIFESTS)/prometheus.yaml -n $(NAMESPACE)
 	kubectl apply -f $(K8S_MANIFESTS)/tempo.yaml -n $(NAMESPACE)
 	kubectl apply -f $(K8S_MANIFESTS)/grafana.yaml -n $(NAMESPACE)
+	@echo "Waiting for monitoring services to be ready..."
+	kubectl wait --for=condition=ready pod -l app=prometheus --timeout=120s -n $(NAMESPACE) || true
+	kubectl wait --for=condition=ready pod -l app=grafana --timeout=120s -n $(NAMESPACE) || true
+	kubectl wait --for=condition=ready pod -l app=tempo --timeout=120s -n $(NAMESPACE) || true
+	@echo "Verifying Tempo connectivity..."
+	kubectl run -n $(NAMESPACE) tempo-test --rm -i --restart=Never --image=busybox -- nc -zvw 1 tempo 4317 || true
 
 monitoring-port-forward:
 	@echo "Access Prometheus at http://localhost:9090"

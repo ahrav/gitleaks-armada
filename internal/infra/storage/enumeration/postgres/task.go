@@ -33,11 +33,13 @@ func NewTaskStore(dbConn *pgxpool.Pool, tracer trace.Tracer) *taskStore {
 
 // Save persists a new enumeration task to storage.
 func (t *taskStore) Save(ctx context.Context, task *enumeration.Task) error {
-	return storage.ExecuteAndTrace(ctx, t.tracer, "postgres.save_task", []attribute.KeyValue{
+	dbAttrs := append(
+		defaultDBAttributes,
 		attribute.String("task_id", task.TaskID),
 		attribute.String("session_id", task.SessionID()),
 		attribute.String("resource_uri", task.ResourceURI()),
-	}, func(ctx context.Context) error {
+	)
+	return storage.ExecuteAndTrace(ctx, t.tracer, "postgres.save_task", dbAttrs, func(ctx context.Context) error {
 		metadata, err := json.Marshal(task.Metadata())
 		if err != nil {
 			return fmt.Errorf("failed to marshal task metadata: %w", err)
@@ -61,9 +63,11 @@ func (t *taskStore) Save(ctx context.Context, task *enumeration.Task) error {
 // GetByID retrieves a task by its unique identifier.
 func (t *taskStore) GetByID(ctx context.Context, taskID string) (*enumeration.Task, error) {
 	var task *enumeration.Task
-	err := storage.ExecuteAndTrace(ctx, t.tracer, "postgres.get_task", []attribute.KeyValue{
+	dbAttrs := append(
+		defaultDBAttributes,
 		attribute.String("task_id", taskID),
-	}, func(ctx context.Context) error {
+	)
+	err := storage.ExecuteAndTrace(ctx, t.tracer, "postgres.get_task", dbAttrs, func(ctx context.Context) error {
 		dbTask, err := t.q.GetTaskByID(ctx, taskID)
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
