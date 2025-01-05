@@ -40,7 +40,6 @@ SET source_type = EXCLUDED.source_type,
     last_checkpoint_id = EXCLUDED.last_checkpoint_id,
     status = EXCLUDED.status,
     failure_reason = EXCLUDED.failure_reason,
-    last_updated = NOW(),
     updated_at = NOW();
 
 -- name: GetEnumerationSessionState :one
@@ -70,9 +69,9 @@ LIMIT $1;
 -- ============================================
 -- name: CreateEnumerationProgress :exec
 INSERT INTO enumeration_progress (
-    session_id, started_at, last_update
+    session_id, started_at, items_found, items_processed, failed_batches, total_batches
 ) VALUES (
-    $1, $2, $3
+    $1, $2, $3, $4, $5, $6
 );
 
 -- name: UpdateEnumerationProgress :exec
@@ -81,7 +80,6 @@ SET items_found = $2,
     items_processed = $3,
     failed_batches = $4,
     total_batches = $5,
-    last_update = NOW(),
     updated_at = NOW()
 WHERE session_id = $1;
 

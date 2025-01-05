@@ -45,7 +45,6 @@ CREATE TABLE enumeration_progress (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     session_id VARCHAR(64) NOT NULL REFERENCES enumeration_session_states(session_id),
     started_at TIMESTAMPTZ NOT NULL,
-    last_update TIMESTAMPTZ NOT NULL,
     items_found INTEGER NOT NULL DEFAULT 0,
     items_processed INTEGER NOT NULL DEFAULT 0,
     failed_batches INTEGER NOT NULL DEFAULT 0,

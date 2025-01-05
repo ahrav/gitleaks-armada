@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -34,25 +35,58 @@ func setupEnumerationTest(t *testing.T) (context.Context, *enumerationSessionSta
 	return ctx, store, checkpointStore, cleanup
 }
 
+func setupTestState(t *testing.T, ctx context.Context, checkpointStore *checkpointStore, targetID string) (*enumeration.SessionState, enumeration.Service) {
+	t.Helper()
+	domainSvc := enumeration.NewService()
+	state := enumeration.NewState("github", json.RawMessage(`{"org": "test-org"}`))
+
+	err := domainSvc.MarkInProgress(state)
+	require.NoError(t, err)
+
+	if targetID != "" {
+		cp := createTestCheckpoint(t, ctx, checkpointStore, targetID, map[string]any{
+			"cursor": "abc123",
+			"nested": map[string]any{
+				"key": "value",
+			},
+		})
+
+		batchProgress := enumeration.NewSuccessfulBatchProgress(5, cp)
+		err = domainSvc.RecordBatchProgress(state, batchProgress)
+		require.NoError(t, err)
+	}
+
+	return state, domainSvc
+}
+
 func TestPGEnumerationStateStorage_SaveAndLoad(t *testing.T) {
 	t.Parallel()
 
-	ctx, store, _, cleanup := setupEnumerationTest(t)
+	ctx, store, checkpointStore, cleanup := setupEnumerationTest(t)
 	defer cleanup()
 
-	// checkpoint := createTestCheckpoint(t, ctx, checkpointStore, "test-target", map[string]any{
-	// 	"cursor": "abc123",
-	// })
+	domainSvc := enumeration.NewService()
 
 	state := enumeration.NewState("github", json.RawMessage(`{"org": "test-org"}`))
-	// state.SetLastCheckpoint(checkpoint)
 
-	err := store.Save(ctx, state)
+	err := domainSvc.MarkInProgress(state)
+	require.NoError(t, err)
+
+	cp := createTestCheckpoint(t, ctx, checkpointStore, "test-target", map[string]any{
+		"cursor": "abc123",
+	})
+
+	batchProgress := enumeration.NewSuccessfulBatchProgress(5, cp)
+
+	err = domainSvc.RecordBatchProgress(state, batchProgress)
+	require.NoError(t, err)
+
+	err = store.Save(ctx, state)
 	require.NoError(t, err)
 
 	loaded, err := store.Load(ctx, state.SessionID())
 	require.NoError(t, err)
-	require.NotNil(t, loaded)
+	require.NotNil(t, loaded, "Loaded session should not be nil")
 
 	assert.Equal(t, state.SessionID(), loaded.SessionID())
 	assert.Equal(t, state.SourceType(), loaded.SourceType())
@@ -60,10 +94,10 @@ func TestPGEnumerationStateStorage_SaveAndLoad(t *testing.T) {
 	assert.Equal(t, state.Status(), loaded.Status())
 	assert.False(t, loaded.LastUpdated().IsZero(), "LastUpdated should be set")
 
-	// Verify checkpoint was saved and linked correctly
-	assert.NotNil(t, loaded.LastCheckpoint())
-	assert.Equal(t, state.LastCheckpoint().TargetID, loaded.LastCheckpoint().TargetID)
-	assert.Equal(t, state.LastCheckpoint().Data()["cursor"], loaded.LastCheckpoint().Data()["cursor"])
+	//  Verify checkpoint was saved and linked correctly.
+	require.NotNil(t, loaded.LastCheckpoint(), "Loaded session should have a checkpoint")
+	assert.Equal(t, "test-target", loaded.LastCheckpoint().TargetID())
+	assert.Equal(t, "abc123", loaded.LastCheckpoint().Data()["cursor"])
 }
 
 func TestPGEnumerationStateStorage_LoadEmpty(t *testing.T) {
@@ -80,14 +114,10 @@ func TestPGEnumerationStateStorage_LoadEmpty(t *testing.T) {
 func TestPGEnumerationStateStorage_Update(t *testing.T) {
 	t.Parallel()
 
-	ctx, store, _, cleanup := setupEnumerationTest(t)
+	ctx, store, checkpointStore, cleanup := setupEnumerationTest(t)
 	defer cleanup()
 
-	// checkpoint := createTestCheckpoint(t, ctx, checkpointStore, "test-target", map[string]any{
-	// 	"cursor": "abc123",
-	// })
-
-	state := enumeration.NewState("github", json.RawMessage(`{}`))
+	state, _ := setupTestState(t, ctx, checkpointStore, "test-target")
 
 	err := store.Save(ctx, state)
 	require.NoError(t, err)
@@ -96,7 +126,7 @@ func TestPGEnumerationStateStorage_Update(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, loaded)
 
-	assert.Equal(t, enumeration.StatusInitialized, loaded.Status())
+	assert.Equal(t, enumeration.StatusInProgress, loaded.Status())
 	assert.True(t, loaded.LastUpdated().After(state.LastUpdated()),
 		"LastUpdated should be later than initial save")
 }
@@ -104,17 +134,10 @@ func TestPGEnumerationStateStorage_Update(t *testing.T) {
 func TestPGEnumerationStateStorage_Mutability(t *testing.T) {
 	t.Parallel()
 
-	ctx, store, _, cleanup := setupEnumerationTest(t)
+	ctx, store, checkpointStore, cleanup := setupEnumerationTest(t)
 	defer cleanup()
 
-	// checkpoint := createTestCheckpoint(t, ctx, checkpointStore, "test-target", map[string]any{
-	// 	"cursor": "abc123",
-	// 	"nested": map[string]any{
-	// 		"key": "value",
-	// 	},
-	// })
-
-	state := enumeration.NewState("github", json.RawMessage(`{}`))
+	state, _ := setupTestState(t, ctx, checkpointStore, "test-target")
 
 	err := store.Save(ctx, state)
 	require.NoError(t, err)
@@ -133,132 +156,115 @@ func TestPGEnumerationStateStorage_Mutability(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, reloaded)
 
-	assert.Equal(t, enumeration.StatusInitialized, reloaded.Status(), "Status should not be modified")
+	assert.Equal(t, enumeration.StatusInProgress, reloaded.Status(), "Status should not be modified")
 	assert.Equal(t, "abc123", reloaded.LastCheckpoint().Data()["cursor"], "Checkpoint cursor should not be modified")
 	if nestedMap, ok := reloaded.LastCheckpoint().Data()["nested"].(map[string]any); ok {
 		assert.Equal(t, "value", nestedMap["key"], "Nested checkpoint value should not be modified")
 	}
 }
 
-// func TestPGEnumerationStateStorage_ConcurrentOperations(t *testing.T) {
-// 	t.Parallel()
+func TestPGEnumerationStateStorage_ConcurrentOperations(t *testing.T) {
+	t.Parallel()
 
-// 	ctx, store, _, cleanup := setupEnumerationTest(t)
-// 	defer cleanup()
+	ctx, store, checkpointStore, cleanup := setupEnumerationTest(t)
+	defer cleanup()
 
-// 	const goroutines = 10
-// 	done := make(chan bool)
+	const goroutines = 10
+	done := make(chan bool)
 
-// 	for i := 0; i < goroutines; i++ {
-// 		go func(id int) {
-// 			// checkpoint := createTestCheckpoint(t, ctx, checkpointStore, fmt.Sprintf("test-target-%d", id), map[string]any{
-// 			// 	"value": id,
-// 			// })
+	for i := 0; i < goroutines; i++ {
+		go func(id int) {
+			state, _ := setupTestState(t, ctx, checkpointStore, fmt.Sprintf("test-target-%d", id))
 
-// 			state := enumeration.NewState("github", json.RawMessage(`{}`))
+			err := store.Save(ctx, state)
+			require.NoError(t, err)
 
-// 			err := store.Save(ctx, state)
-// 			require.NoError(t, err)
+			_, err = store.Load(ctx, state.SessionID())
+			require.NoError(t, err)
 
-// 			_, err = store.Load(ctx, state.SessionID())
-// 			require.NoError(t, err)
+			done <- true
+		}(i)
+	}
 
-// 			done <- true
-// 		}(i)
-// 	}
+	for i := 0; i < goroutines; i++ {
+		<-done
+	}
+}
 
-// 	for i := 0; i < goroutines; i++ {
-// 		<-done
-// 	}
+func TestPGEnumerationStateStorage_GetActiveStates(t *testing.T) {
+	t.Parallel()
 
-// 	loaded, err := store.Load(ctx, state.SessionID())
-// 	require.NoError(t, err)
-// 	require.NotNil(t, loaded)
-// 	assert.Equal(t, "concurrent-session", loaded.SessionID)
-// 	assert.Equal(t, enumeration.StatusInProgress, loaded.Status)
-// }
+	ctx, store, _, cleanup := setupEnumerationTest(t)
+	defer cleanup()
 
-// func TestPGEnumerationStateStorage_GetActiveStates(t *testing.T) {
-// 	t.Parallel()
+	domainSvc := enumeration.NewService()
 
-// 	ctx, store, _, cleanup := setupEnumerationTest(t)
-// 	defer cleanup()
+	// Create states with different statuses
+	states := make([]*enumeration.SessionState, 3)
+	for i := range states {
+		state := enumeration.NewState("github", json.RawMessage(`{}`))
+		states[i] = state
 
-// 	// Create states with different statuses.
-// 	states := []*enumeration.State{
-// 		{
-// 			SessionID:  "session-1",
-// 			SourceType: "github",
-// 			Status:     enumeration.StatusInitialized,
-// 			Config:     json.RawMessage(`{}`),
-// 		},
-// 		{
-// 			SessionID:  "session-2",
-// 			SourceType: "github",
-// 			Status:     enumeration.StatusInProgress,
-// 			Config:     json.RawMessage(`{}`),
-// 		},
-// 		{
-// 			SessionID:  "session-3",
-// 			SourceType: "github",
-// 			Status:     enumeration.StatusCompleted,
-// 			Config:     json.RawMessage(`{}`),
-// 		},
-// 	}
+		switch i {
+		case 1:
+			err := domainSvc.MarkInProgress(state)
+			require.NoError(t, err)
+		case 2:
+			err := domainSvc.MarkInProgress(state)
+			require.NoError(t, err)
+			err = domainSvc.MarkCompleted(state)
+			require.NoError(t, err)
+		}
 
-// 	for _, s := range states {
-// 		err := store.Save(ctx, s)
-// 		require.NoError(t, err)
-// 	}
+		err := store.Save(ctx, state)
+		require.NoError(t, err)
+	}
 
-// 	active, err := store.GetActiveStates(ctx)
-// 	require.NoError(t, err)
-// 	require.Len(t, active, 2, "Should have 2 active states")
+	active, err := store.GetActiveStates(ctx)
+	require.NoError(t, err)
+	require.Len(t, active, 2, "Should have 2 active states")
 
-// 	for _, s := range active {
-// 		assert.Contains(t, []enumeration.Status{
-// 			enumeration.StatusInitialized,
-// 			enumeration.StatusInProgress,
-// 		}, s.Status)
-// 	}
-// }
+	for _, s := range active {
+		assert.Contains(t, []enumeration.Status{
+			enumeration.StatusInitialized,
+			enumeration.StatusInProgress,
+		}, s.Status())
+	}
+}
 
-// func TestPGEnumerationStateStorage_List(t *testing.T) {
-// 	t.Parallel()
+func TestPGEnumerationStateStorage_List(t *testing.T) {
+	t.Parallel()
 
-// 	ctx, store, _, cleanup := setupEnumerationTest(t)
-// 	defer cleanup()
+	ctx, store, _, cleanup := setupEnumerationTest(t)
+	defer cleanup()
 
-// 	states := []*enumeration.State{
-// 		{
-// 			SessionID:  "session-1",
-// 			SourceType: "github",
-// 			Status:     enumeration.StatusCompleted,
-// 			Config:     json.RawMessage(`{}`),
-// 		},
-// 		{
-// 			SessionID:  "session-2",
-// 			SourceType: "github",
-// 			Status:     enumeration.StatusInProgress,
-// 			Config:     json.RawMessage(`{}`),
-// 		},
-// 		{
-// 			SessionID:  "session-3",
-// 			SourceType: "github",
-// 			Status:     enumeration.StatusInitialized,
-// 			Config:     json.RawMessage(`{}`),
-// 		},
-// 	}
+	domainSvc := enumeration.NewService()
 
-// 	for _, s := range states {
-// 		err := store.Save(ctx, s)
-// 		require.NoError(t, err)
-// 	}
+	// Create states with different statuses
+	states := make([]*enumeration.SessionState, 3)
+	for i := range states {
+		state := enumeration.NewState("github", json.RawMessage(`{}`))
+		states[i] = state
 
-// 	listed, err := store.List(ctx, 2)
-// 	require.NoError(t, err)
-// 	require.Len(t, listed, 2, "Should respect the limit")
+		switch i {
+		case 0:
+			err := domainSvc.MarkInProgress(state)
+			require.NoError(t, err)
+			err = domainSvc.MarkCompleted(state)
+			require.NoError(t, err)
+		case 1:
+			err := domainSvc.MarkInProgress(state)
+			require.NoError(t, err)
+		}
 
-// 	assert.Equal(t, "session-3", listed[0].SessionID)
-// 	assert.Equal(t, "session-2", listed[1].SessionID)
-// }
+		err := store.Save(ctx, state)
+		require.NoError(t, err)
+	}
+
+	listed, err := store.List(ctx, 2)
+	require.NoError(t, err)
+	require.Len(t, listed, 2, "Should respect the limit")
+
+	assert.Equal(t, states[2].SessionID(), listed[0].SessionID())
+	assert.Equal(t, states[1].SessionID(), listed[1].SessionID())
+}

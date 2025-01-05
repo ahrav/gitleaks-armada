@@ -50,6 +50,9 @@ func (c *Checkpoint) TargetID() string     { return c.targetID }
 func (c *Checkpoint) Data() map[string]any { return c.data }
 func (c *Checkpoint) UpdatedAt() time.Time { return c.updatedAt }
 
+// IsTemporary returns true if the checkpoint has no ID.
+func (c *Checkpoint) IsTemporary() bool { return c.id == 0 }
+
 // Setters for Checkpoint.
 
 // SetID updates the checkpoint's ID after persistence. This should only be used

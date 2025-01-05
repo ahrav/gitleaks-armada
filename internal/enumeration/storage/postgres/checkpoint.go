@@ -41,9 +41,9 @@ func NewCheckpointStore(dbConn *pgxpool.Pool, tracer trace.Tracer) *checkpointSt
 func (p *checkpointStore) Save(ctx context.Context, cp *enumeration.Checkpoint) error {
 	return storage.ExecuteAndTrace(ctx, p.tracer, "postgres.save_checkpoint", []attribute.KeyValue{
 		attribute.String("target_id", cp.TargetID()),
-		attribute.Int("data_size", len(fmt.Sprint(cp.Data))),
+		attribute.Int("data_size", len(cp.Data())),
 	}, func(ctx context.Context) error {
-		dataBytes, err := json.Marshal(cp.Data)
+		dataBytes, err := json.Marshal(cp.Data())
 		if err != nil {
 			return fmt.Errorf("failed to marshal checkpoint data: %w", err)
 		}
@@ -55,7 +55,9 @@ func (p *checkpointStore) Save(ctx context.Context, cp *enumeration.Checkpoint) 
 		if err != nil {
 			return fmt.Errorf("failed to save checkpoint: %w", err)
 		}
-		cp.SetID(id)
+		if cp.IsTemporary() {
+			cp.SetID(id)
+		}
 		return nil
 	})
 }

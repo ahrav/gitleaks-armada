@@ -122,23 +122,33 @@ func (q *Queries) CreateEnumerationBatchProgress(ctx context.Context, arg Create
 
 const createEnumerationProgress = `-- name: CreateEnumerationProgress :exec
 INSERT INTO enumeration_progress (
-    session_id, started_at, last_update
+    session_id, started_at, items_found, items_processed, failed_batches, total_batches
 ) VALUES (
-    $1, $2, $3
+    $1, $2, $3, $4, $5, $6
 )
 `
 
 type CreateEnumerationProgressParams struct {
-	SessionID  string
-	StartedAt  pgtype.Timestamptz
-	LastUpdate pgtype.Timestamptz
+	SessionID      string
+	StartedAt      pgtype.Timestamptz
+	ItemsFound     int32
+	ItemsProcessed int32
+	FailedBatches  int32
+	TotalBatches   int32
 }
 
 // ============================================
 // Progress Tracking
 // ============================================
 func (q *Queries) CreateEnumerationProgress(ctx context.Context, arg CreateEnumerationProgressParams) error {
-	_, err := q.db.Exec(ctx, createEnumerationProgress, arg.SessionID, arg.StartedAt, arg.LastUpdate)
+	_, err := q.db.Exec(ctx, createEnumerationProgress,
+		arg.SessionID,
+		arg.StartedAt,
+		arg.ItemsFound,
+		arg.ItemsProcessed,
+		arg.FailedBatches,
+		arg.TotalBatches,
+	)
 	return err
 }
 
@@ -180,7 +190,6 @@ SET source_type = EXCLUDED.source_type,
     last_checkpoint_id = EXCLUDED.last_checkpoint_id,
     status = EXCLUDED.status,
     failure_reason = EXCLUDED.failure_reason,
-    last_updated = NOW(),
     updated_at = NOW()
 `
 
@@ -402,7 +411,7 @@ func (q *Queries) GetEnumerationBatchProgressForSession(ctx context.Context, ses
 }
 
 const getEnumerationProgressForSession = `-- name: GetEnumerationProgressForSession :one
-SELECT id, session_id, started_at, last_update, items_found, items_processed, failed_batches, total_batches, created_at, updated_at FROM enumeration_progress
+SELECT id, session_id, started_at, items_found, items_processed, failed_batches, total_batches, created_at, updated_at FROM enumeration_progress
 WHERE session_id = $1
 `
 
@@ -413,7 +422,6 @@ func (q *Queries) GetEnumerationProgressForSession(ctx context.Context, sessionI
 		&i.ID,
 		&i.SessionID,
 		&i.StartedAt,
-		&i.LastUpdate,
 		&i.ItemsFound,
 		&i.ItemsProcessed,
 		&i.FailedBatches,
@@ -502,7 +510,6 @@ SET items_found = $2,
     items_processed = $3,
     failed_batches = $4,
     total_batches = $5,
-    last_update = NOW(),
     updated_at = NOW()
 WHERE session_id = $1
 `

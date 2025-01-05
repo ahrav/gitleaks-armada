@@ -207,7 +207,6 @@ type EnumerationProgress struct {
 	ID             int64
 	SessionID      string
 	StartedAt      pgtype.Timestamptz
-	LastUpdate     pgtype.Timestamptz
 	ItemsFound     int32
 	ItemsProcessed int32
 	FailedBatches  int32

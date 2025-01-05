@@ -89,9 +89,8 @@ func (s *enumerationSessionStateStore) Save(ctx context.Context, state *enumerat
 
 func (s *enumerationSessionStateStore) saveProgress(ctx context.Context, state *enumeration.SessionState) error {
 	err := s.q.CreateEnumerationProgress(ctx, db.CreateEnumerationProgressParams{
-		SessionID:  state.SessionID(),
-		StartedAt:  pgtype.Timestamptz{Time: state.Progress().StartedAt(), Valid: true},
-		LastUpdate: pgtype.Timestamptz{Time: state.Progress().LastUpdate(), Valid: true},
+		SessionID: state.SessionID(),
+		StartedAt: pgtype.Timestamptz{Time: state.Progress().StartedAt(), Valid: true},
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create progress: %w", err)
@@ -314,7 +313,7 @@ func (s *enumerationSessionStateStore) convertDBStateToEnumState(
 		if progressRow.SessionID != "" {
 			domainProgress = enumeration.ReconstructProgress(
 				progressRow.StartedAt.Time,
-				progressRow.LastUpdate.Time,
+				progressRow.UpdatedAt.Time,
 				int(progressRow.ItemsFound),
 				int(progressRow.ItemsProcessed),
 				int(progressRow.FailedBatches),
