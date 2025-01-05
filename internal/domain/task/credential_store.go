@@ -3,7 +3,7 @@ package task
 import (
 	"fmt"
 
-	"github.com/ahrav/gitleaks-armada/pkg/config"
+	"github.com/ahrav/gitleaks-armada/internal/config"
 )
 
 // TODO: This should be a port.

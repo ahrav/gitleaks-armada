@@ -21,16 +21,16 @@ import (
 
 	"github.com/ahrav/gitleaks-armada/internal/app/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/app/rules"
-	"github.com/ahrav/gitleaks-armada/internal/cluster/kubernetes"
+	"github.com/ahrav/gitleaks-armada/internal/config/fileloader"
 	"github.com/ahrav/gitleaks-armada/internal/controller"
 	"github.com/ahrav/gitleaks-armada/internal/controller/metrics"
+	"github.com/ahrav/gitleaks-armada/internal/infra/cluster/kubernetes"
 	"github.com/ahrav/gitleaks-armada/internal/infra/eventbus/kafka"
 	enumStore "github.com/ahrav/gitleaks-armada/internal/infra/storage/enumeration/postgres"
 	rulesStore "github.com/ahrav/gitleaks-armada/internal/infra/storage/rules/postgres"
 	"github.com/ahrav/gitleaks-armada/pkg/common"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/common/otel"
-	"github.com/ahrav/gitleaks-armada/pkg/config"
 )
 
 func main() {
@@ -185,7 +185,7 @@ func main() {
 	}
 	log.Info(ctx, "Controller connected to Kafka")
 
-	configLoader := config.NewFileLoader("/etc/scanner/config/config.yaml")
+	configLoader := fileloader.NewFileLoader("/etc/scanner/config/config.yaml")
 	checkpointStorage := enumStore.NewCheckpointStore(pool, tracer)
 	enumStateStorage := enumStore.NewEnumerationSessionStateStore(pool, checkpointStorage, tracer)
 	eventPublisher := kafka.NewKafkaDomainEventPublisher(broker)

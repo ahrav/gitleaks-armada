@@ -8,14 +8,14 @@ import (
 
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/ahrav/gitleaks-armada/internal/app/cluster"
 	"github.com/ahrav/gitleaks-armada/internal/app/enumeration"
 	rulessvc "github.com/ahrav/gitleaks-armada/internal/app/rules"
+	"github.com/ahrav/gitleaks-armada/internal/config"
 	"github.com/ahrav/gitleaks-armada/internal/controller/metrics"
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/rules"
-	"github.com/ahrav/gitleaks-armada/pkg/cluster"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
-	"github.com/ahrav/gitleaks-armada/pkg/config"
 )
 
 // Controller coordinates work distribution across a cluster of workers. It manages

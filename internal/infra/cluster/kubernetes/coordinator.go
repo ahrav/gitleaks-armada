@@ -11,7 +11,7 @@ import (
 	"k8s.io/client-go/tools/leaderelection"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
 
-	"github.com/ahrav/gitleaks-armada/pkg/cluster"
+	"github.com/ahrav/gitleaks-armada/internal/app/cluster"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
 
