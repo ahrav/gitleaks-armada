@@ -35,12 +35,11 @@ func setupEnumerationTest(t *testing.T) (context.Context, *enumerationSessionSta
 	return ctx, store, checkpointStore, cleanup
 }
 
-func setupTestState(t *testing.T, ctx context.Context, checkpointStore *checkpointStore, targetID string) (*enumeration.SessionState, enumeration.LifecycleService) {
+func setupTestState(t *testing.T, ctx context.Context, checkpointStore *checkpointStore, targetID string) *enumeration.SessionState {
 	t.Helper()
-	domainSvc := enumeration.NewLifecycleService()
 	state := enumeration.NewState("github", json.RawMessage(`{"org": "test-org"}`))
 
-	err := domainSvc.MarkInProgress(state)
+	err := state.MarkInProgress()
 	require.NoError(t, err)
 
 	if targetID != "" {
@@ -52,11 +51,11 @@ func setupTestState(t *testing.T, ctx context.Context, checkpointStore *checkpoi
 		})
 
 		batchProgress := enumeration.NewSuccessfulBatchProgress(5, cp)
-		err = domainSvc.RecordBatchProgress(state, batchProgress)
+		err = state.RecordBatchProgress(batchProgress)
 		require.NoError(t, err)
 	}
 
-	return state, domainSvc
+	return state
 }
 
 func TestPGEnumerationStateStorage_SaveAndLoad(t *testing.T) {
@@ -65,12 +64,7 @@ func TestPGEnumerationStateStorage_SaveAndLoad(t *testing.T) {
 	ctx, store, checkpointStore, cleanup := setupEnumerationTest(t)
 	defer cleanup()
 
-	domainSvc := enumeration.NewLifecycleService()
-
-	state := enumeration.NewState("github", json.RawMessage(`{"org": "test-org"}`))
-
-	err := domainSvc.MarkInProgress(state)
-	require.NoError(t, err)
+	state := setupTestState(t, ctx, checkpointStore, "test-target")
 
 	cp := createTestCheckpoint(t, ctx, checkpointStore, "test-target", map[string]any{
 		"cursor": "abc123",
@@ -78,7 +72,7 @@ func TestPGEnumerationStateStorage_SaveAndLoad(t *testing.T) {
 
 	batchProgress := enumeration.NewSuccessfulBatchProgress(5, cp)
 
-	err = domainSvc.RecordBatchProgress(state, batchProgress)
+	err := state.RecordBatchProgress(batchProgress)
 	require.NoError(t, err)
 
 	err = store.Save(ctx, state)
@@ -117,7 +111,7 @@ func TestPGEnumerationStateStorage_Update(t *testing.T) {
 	ctx, store, checkpointStore, cleanup := setupEnumerationTest(t)
 	defer cleanup()
 
-	state, _ := setupTestState(t, ctx, checkpointStore, "test-target")
+	state := setupTestState(t, ctx, checkpointStore, "test-target")
 
 	err := store.Save(ctx, state)
 	require.NoError(t, err)
@@ -137,7 +131,7 @@ func TestPGEnumerationStateStorage_Mutability(t *testing.T) {
 	ctx, store, checkpointStore, cleanup := setupEnumerationTest(t)
 	defer cleanup()
 
-	state, _ := setupTestState(t, ctx, checkpointStore, "test-target")
+	state := setupTestState(t, ctx, checkpointStore, "test-target")
 
 	err := store.Save(ctx, state)
 	require.NoError(t, err)
@@ -174,7 +168,7 @@ func TestPGEnumerationStateStorage_ConcurrentOperations(t *testing.T) {
 
 	for i := 0; i < goroutines; i++ {
 		go func(id int) {
-			state, _ := setupTestState(t, ctx, checkpointStore, fmt.Sprintf("test-target-%d", id))
+			state := setupTestState(t, ctx, checkpointStore, fmt.Sprintf("test-target-%d", id))
 
 			err := store.Save(ctx, state)
 			require.NoError(t, err)
@@ -197,8 +191,6 @@ func TestPGEnumerationStateStorage_GetActiveStates(t *testing.T) {
 	ctx, store, _, cleanup := setupEnumerationTest(t)
 	defer cleanup()
 
-	domainSvc := enumeration.NewLifecycleService()
-
 	// Create states with different statuses
 	states := make([]*enumeration.SessionState, 3)
 	for i := range states {
@@ -207,12 +199,12 @@ func TestPGEnumerationStateStorage_GetActiveStates(t *testing.T) {
 
 		switch i {
 		case 1:
-			err := domainSvc.MarkInProgress(state)
+			err := state.MarkInProgress()
 			require.NoError(t, err)
 		case 2:
-			err := domainSvc.MarkInProgress(state)
+			err := state.MarkInProgress()
 			require.NoError(t, err)
-			err = domainSvc.MarkCompleted(state)
+			err = state.MarkCompleted()
 			require.NoError(t, err)
 		}
 
@@ -238,8 +230,6 @@ func TestPGEnumerationStateStorage_List(t *testing.T) {
 	ctx, store, _, cleanup := setupEnumerationTest(t)
 	defer cleanup()
 
-	domainSvc := enumeration.NewLifecycleService()
-
 	// Create states with different statuses
 	states := make([]*enumeration.SessionState, 3)
 	for i := range states {
@@ -248,12 +238,12 @@ func TestPGEnumerationStateStorage_List(t *testing.T) {
 
 		switch i {
 		case 0:
-			err := domainSvc.MarkInProgress(state)
+			err := state.MarkInProgress()
 			require.NoError(t, err)
-			err = domainSvc.MarkCompleted(state)
+			err = state.MarkCompleted()
 			require.NoError(t, err)
 		case 1:
-			err := domainSvc.MarkInProgress(state)
+			err := state.MarkInProgress()
 			require.NoError(t, err)
 		}
 

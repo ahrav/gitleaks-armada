@@ -23,10 +23,9 @@ func TestMemoryEnumerationStateStorage_SaveAndLoad(t *testing.T) {
 	t.Parallel()
 
 	ctx, store := setupEnumerationTest(t)
-	domainSvc := enumeration.NewLifecycleService()
 
 	state := enumeration.NewState("github", json.RawMessage(`{"org": "test-org"}`))
-	err := domainSvc.MarkInProgress(state)
+	err := state.MarkInProgress()
 	require.NoError(t, err)
 
 	err = store.Save(ctx, state)
@@ -56,10 +55,9 @@ func TestMemoryEnumerationStateStorage_Update(t *testing.T) {
 	t.Parallel()
 
 	ctx, store := setupEnumerationTest(t)
-	domainSvc := enumeration.NewLifecycleService()
 
 	state := enumeration.NewState("github", json.RawMessage(`{"org": "test-org"}`))
-	err := domainSvc.MarkInProgress(state)
+	err := state.MarkInProgress()
 	require.NoError(t, err)
 
 	err = store.Save(ctx, state)
@@ -102,8 +100,6 @@ func TestMemoryEnumerationStateStorage_GetActiveStates(t *testing.T) {
 	t.Parallel()
 
 	ctx, store := setupEnumerationTest(t)
-	domainSvc := enumeration.NewLifecycleService()
-
 	// Create states with different statuses
 	states := make([]*enumeration.SessionState, 3)
 	for i := range states {
@@ -112,12 +108,12 @@ func TestMemoryEnumerationStateStorage_GetActiveStates(t *testing.T) {
 
 		switch i {
 		case 1:
-			err := domainSvc.MarkInProgress(state)
+			err := state.MarkInProgress()
 			require.NoError(t, err)
 		case 2:
-			err := domainSvc.MarkInProgress(state)
+			err := state.MarkInProgress()
 			require.NoError(t, err)
-			err = domainSvc.MarkCompleted(state)
+			err = state.MarkCompleted()
 			require.NoError(t, err)
 		}
 
@@ -141,7 +137,6 @@ func TestMemoryEnumerationStateStorage_List(t *testing.T) {
 	t.Parallel()
 
 	ctx, store := setupEnumerationTest(t)
-	domainSvc := enumeration.NewLifecycleService()
 
 	// Create states with different statuses
 	states := make([]*enumeration.SessionState, 3)
@@ -151,12 +146,12 @@ func TestMemoryEnumerationStateStorage_List(t *testing.T) {
 
 		switch i {
 		case 0:
-			err := domainSvc.MarkInProgress(state)
+			err := state.MarkInProgress()
 			require.NoError(t, err)
-			err = domainSvc.MarkCompleted(state)
+			err = state.MarkCompleted()
 			require.NoError(t, err)
 		case 1:
-			err := domainSvc.MarkInProgress(state)
+			err := state.MarkInProgress()
 			require.NoError(t, err)
 		}
 

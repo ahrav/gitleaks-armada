@@ -2,6 +2,7 @@ package enumeration
 
 import (
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -138,6 +139,34 @@ type BatchProgress struct {
 	errorDetails string
 	// checkpoint stores the checkpoint of the enumeration at the time of the batch.
 	checkpoint *Checkpoint
+}
+
+// NewSuccessfulBatchProgress creates a BatchProgress record for a successfully completed batch.
+// It captures the number of items processed and the state of the enumeration at the time of the batch.
+// This enables accurate progress monitoring and resumable processing of large datasets.
+func NewSuccessfulBatchProgress(itemCount int, checkpoint *Checkpoint) BatchProgress {
+	return BatchProgress{
+		batchID:        uuid.New().String(),
+		status:         BatchStatusSucceeded,
+		startedAt:      time.Now(),
+		completedAt:    time.Now(),
+		itemsProcessed: itemCount,
+		checkpoint:     checkpoint,
+	}
+}
+
+// NewFailedBatchProgress creates a BatchProgress record for a failed batch execution.
+// It preserves the error details and state of the enumeration at the time of the batch.
+// This enables failure analysis and recovery.
+func NewFailedBatchProgress(err error, checkpoint *Checkpoint) BatchProgress {
+	return BatchProgress{
+		batchID:      uuid.New().String(),
+		status:       BatchStatusFailed,
+		startedAt:    time.Now(),
+		completedAt:  time.Now(),
+		errorDetails: err.Error(),
+		checkpoint:   checkpoint,
+	}
 }
 
 // ReconstructBatchProgress creates a BatchProgress instance from persisted data
@@ -330,6 +359,18 @@ func (p *Progress) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// Domain errors define the core failure modes of enumeration state management.
+var (
+	// ErrInvalidStateTransition indicates an attempt to make a disallowed state transition.
+	ErrInvalidStateTransition = fmt.Errorf("invalid state transition")
+
+	// ErrInvalidProgress indicates invalid progress tracking data.
+	ErrInvalidProgress = fmt.Errorf("invalid progress update")
+
+	// ErrMissingCheckpoint indicates a progress update without required checkpoint data.
+	ErrMissingCheckpoint = fmt.Errorf("checkpoint required for progress update")
+)
+
 // Status represents the lifecycle states of an enumeration session.
 // It is implemented as a value object using a string type to ensure type safety
 // and domain invariants.
@@ -417,7 +458,7 @@ func ReconstructState(
 	}
 }
 
-// Getters for State
+// Getters for SessionState.
 func (s *SessionState) SessionID() string           { return s.sessionID }
 func (s *SessionState) SourceType() string          { return s.sourceType }
 func (s *SessionState) Status() Status              { return s.status }
@@ -427,10 +468,10 @@ func (s *SessionState) FailureReason() string       { return s.failureReason }
 func (s *SessionState) Config() json.RawMessage     { return s.config }
 func (s *SessionState) LastUpdated() time.Time      { return s.lastUpdated }
 
-// State methods for internal modifications
+// SessionState methods for internal modifications.
 func (s *SessionState) setStatus(status Status) {
 	s.status = status
-	s.lastUpdated = time.Now()
+	s.updateLastUpdated()
 }
 
 func (s *SessionState) setFailureReason(reason string) { s.failureReason = reason }
@@ -510,34 +551,6 @@ func (s *SessionState) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// NewSuccessfulBatchProgress creates a BatchProgress record for a successfully completed batch.
-// It captures the number of items processed and the state of the enumeration at the time of the batch.
-// This enables accurate progress monitoring and resumable processing of large datasets.
-func NewSuccessfulBatchProgress(itemCount int, checkpoint *Checkpoint) BatchProgress {
-	return BatchProgress{
-		batchID:        uuid.New().String(),
-		status:         BatchStatusSucceeded,
-		startedAt:      time.Now(),
-		completedAt:    time.Now(),
-		itemsProcessed: itemCount,
-		checkpoint:     checkpoint,
-	}
-}
-
-// NewFailedBatchProgress creates a BatchProgress record for a failed batch execution.
-// It preserves the error details and state of the enumeration at the time of the batch.
-// This enables failure analysis and recovery.
-func NewFailedBatchProgress(err error, checkpoint *Checkpoint) BatchProgress {
-	return BatchProgress{
-		batchID:      uuid.New().String(),
-		status:       BatchStatusFailed,
-		startedAt:    time.Now(),
-		completedAt:  time.Now(),
-		errorDetails: err.Error(),
-		checkpoint:   checkpoint,
-	}
-}
-
 // addBatchProgress updates the enumeration state with results from a completed batch.
 // It maintains aggregate progress metrics and ensures the state reflects the latest
 // batch outcomes for monitoring and resumption.
@@ -561,4 +574,114 @@ func (s *SessionState) addBatchProgress(batch BatchProgress) {
 // HasFailedBatches returns true if any batches failed during enumeration.
 func (s *SessionState) HasFailedBatches() bool {
 	return s.progress != nil && s.progress.failedBatches > 0
+}
+
+// MarkInProgress transitions an enumeration to the in-progress state. It initializes
+// progress tracking if not already present.
+func (s *SessionState) MarkInProgress() error {
+	if !s.CanTransitionTo(StatusInProgress) {
+		return fmt.Errorf("%w: cannot transition from %s to %s",
+			ErrInvalidStateTransition, s.Status(), StatusInProgress)
+	}
+
+	s.setStatus(StatusInProgress)
+	s.updateLastUpdated()
+
+	if s.Progress() == nil {
+		s.initializeProgress()
+	}
+	return nil
+}
+
+// MarkCompleted transitions an enumeration to the completed state.
+func (s *SessionState) MarkCompleted() error {
+	if !s.CanTransitionTo(StatusCompleted) {
+		return fmt.Errorf("%w: cannot transition from %s to %s",
+			ErrInvalidStateTransition, s.Status(), StatusCompleted)
+	}
+
+	s.setStatus(StatusCompleted)
+	s.updateLastUpdated()
+	return nil
+}
+
+// MarkFailed transitions an enumeration to the failed state with a reason.
+func (s *SessionState) MarkFailed(reason string) error {
+	if !s.CanTransitionTo(StatusFailed) {
+		return fmt.Errorf("%w: cannot transition from %s to %s",
+			ErrInvalidStateTransition, s.Status(), StatusFailed)
+	}
+
+	s.setStatus(StatusFailed)
+	s.setFailureReason(reason)
+	s.updateLastUpdated()
+	return nil
+}
+
+// TODO: Consider setting this on the session state.
+// This could open up the ability to set different thresholds for different sessions.
+const defaultStallThreshold = 10 * time.Second
+
+// RecordBatchProgress updates the enumeration state with progress from a batch.
+func (s *SessionState) RecordBatchProgress(batch BatchProgress) error {
+	if s.Status() != StatusInProgress {
+		return fmt.Errorf("%w: can only update progress when in progress", ErrInvalidProgress)
+	}
+
+	if batch.Checkpoint() == nil {
+		return fmt.Errorf("%w: checkpoint required for progress update", ErrMissingCheckpoint)
+	}
+
+	if batch.ItemsProcessed() < 0 ||
+		(s.Progress() != nil &&
+			batch.ItemsProcessed()+s.Progress().ItemsProcessed() < s.Progress().ItemsProcessed()) {
+		return fmt.Errorf("%w: invalid items processed count", ErrInvalidProgress)
+	}
+
+	s.addBatchProgress(batch)
+	s.attachCheckpoint(batch.Checkpoint())
+
+	// Auto-transition based on progress conditions.
+	if s.IsStalled(defaultStallThreshold) {
+		s.setStatus(StatusStalled)
+	} else if s.HasFailedBatches() && s.Progress().ItemsProcessed() > 0 {
+		s.setStatus(StatusPartiallyCompleted)
+	}
+
+	return nil
+}
+
+// IsStalled determines if an enumeration has exceeded the staleness threshold.
+func (s *SessionState) IsStalled(threshold time.Duration) bool {
+	if s.Progress() == nil || s.Status() != StatusInProgress {
+		return false
+	}
+
+	return time.Since(s.Progress().LastUpdate()) > threshold
+}
+
+// validTransitions defines the allowed state transitions for enumerations.
+// Empty slices indicate terminal states with no allowed transitions.
+// TODO: revist this.
+var validTransitions = map[Status][]Status{
+	StatusInitialized: {StatusInProgress, StatusFailed},
+	StatusInProgress:  {StatusCompleted, StatusFailed, StatusStalled},
+	StatusStalled:     {StatusInProgress, StatusFailed, StatusCompleted},
+	StatusFailed:      {}, // Terminal state
+	StatusCompleted:   {}, // Terminal state
+}
+
+// CanTransitionTo validates if a state transition is allowed.
+func (s *SessionState) CanTransitionTo(targetStatus Status) bool {
+	allowedTransitions, exists := validTransitions[s.Status()]
+	if !exists {
+		return false
+	}
+
+	for _, allowed := range allowedTransitions {
+		if targetStatus == allowed {
+			return true
+		}
+	}
+	return false
 }
