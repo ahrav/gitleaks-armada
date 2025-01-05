@@ -89,8 +89,11 @@ func SetupTestContainer(t *testing.T) (*pgxpool.Pool, func()) {
 	require.NoError(t, err)
 
 	_, currentFile, _, _ := runtime.Caller(0)
-	projectRoot := filepath.Join(filepath.Dir(currentFile), "..", "..")
+	projectRoot := filepath.Join(filepath.Dir(currentFile), "..", "..", "..")
+
+	// Try looking for migrations in db/migrations instead of internal/db/migrations
 	migrationsPath := fmt.Sprintf("file://%s", filepath.Join(projectRoot, "db", "migrations"))
+
 	migrations, err := migrate.NewWithDatabaseInstance(migrationsPath, "postgres", driver)
 	require.NoError(t, err)
 
