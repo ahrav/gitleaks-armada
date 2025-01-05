@@ -28,7 +28,7 @@ type Controller struct {
 	workQueue      events.EventBus
 	eventPublisher events.DomainEventPublisher
 
-	enumerationService enumeration.Service
+	enumerationService enumeration.Orchestrator
 	rulesService       rules.RuleService
 
 	// mu protects running and cancelFn state
@@ -63,7 +63,7 @@ func NewController(
 	coord cluster.Coordinator,
 	queue events.EventBus,
 	eventPublisher events.DomainEventPublisher,
-	enumerationService enumeration.Service,
+	enumerationService enumeration.Orchestrator,
 	rulesService rules.RuleService,
 	configLoader config.Loader,
 	logger *logger.Logger,

@@ -17,10 +17,10 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/config"
 )
 
-// Service defines the core domain operations for target enumeration.
+// Orchestrator defines the core domain operations for target enumeration.
 // It coordinates the overall scanning process by managing enumeration state
 // and supporting resumable scans.
-type Service interface {
+type Orchestrator interface {
 	// ExecuteEnumeration performs target enumeration by either resuming from
 	// existing state or starting fresh. It handles the full enumeration lifecycle
 	// including state management and task generation.
@@ -36,10 +36,10 @@ type metrics interface {
 	TrackEnumeration(fn func() error) error
 }
 
-// Service implements target enumeration by orchestrating domain logic, repository calls,
+// Orchestrator implements target enumeration by orchestrating domain logic, repository calls,
 // and event publishing. It manages the lifecycle of enumeration sessions and coordinates
 // the overall scanning process.
-type service struct {
+type orchestrator struct {
 	// Domain repositories.
 	repo           enumeration.StateRepository
 	checkpointRepo enumeration.CheckpointRepository
@@ -48,7 +48,7 @@ type service struct {
 	enumFactory EnumeratorFactory
 
 	// Core domain service for enumeration logic.
-	domainService enumeration.Service
+	domainService enumeration.LifecycleService
 
 	// External dependencies.
 	eventPublisher events.DomainEventPublisher
@@ -59,21 +59,21 @@ type service struct {
 	tracer  trace.Tracer
 }
 
-// NewService creates a new Service that coordinates target enumeration.
+// NewOrchestrator creates a new Service that coordinates target enumeration.
 // It wires together all required dependencies including repositories, domain services,
 // and external integrations needed for the enumeration workflow.
-func NewService(
+func NewOrchestrator(
 	repo enumeration.StateRepository,
 	checkpointRepo enumeration.CheckpointRepository,
 	enumFactory EnumeratorFactory,
-	domainSvc enumeration.Service,
+	domainSvc enumeration.LifecycleService,
 	eventPublisher events.DomainEventPublisher,
 	cfgLoader config.Loader,
 	logger *logger.Logger,
 	metrics metrics,
 	tracer trace.Tracer,
-) Service {
-	return &service{
+) Orchestrator {
+	return &orchestrator{
 		repo:           repo,
 		checkpointRepo: checkpointRepo,
 		enumFactory:    enumFactory,
@@ -90,7 +90,7 @@ func NewService(
 // or starting fresh. It first checks for any active enumeration states - if none exist,
 // it loads the current configuration and starts new enumerations. Otherwise, it resumes
 // the existing enumeration sessions.
-func (s *service) ExecuteEnumeration(ctx context.Context) error {
+func (s *orchestrator) ExecuteEnumeration(ctx context.Context) error {
 	ctx, span := s.tracer.Start(ctx, "enumeration.ExecuteEnumeration")
 	defer span.End()
 
@@ -117,7 +117,7 @@ func (s *service) ExecuteEnumeration(ctx context.Context) error {
 
 // startFreshEnumerations processes each target from the configuration, creating new
 // enumeration states and running the appropriate enumerator for each target type.
-func (s *service) startFreshEnumerations(ctx context.Context, cfg *config.Config) error {
+func (s *orchestrator) startFreshEnumerations(ctx context.Context, cfg *config.Config) error {
 	ctx, span := s.tracer.Start(ctx, "enumeration.startFreshEnumerations")
 	defer span.End()
 
@@ -142,7 +142,7 @@ func (s *service) startFreshEnumerations(ctx context.Context, cfg *config.Config
 
 // marshalConfig serializes the target configuration into a JSON raw message.
 // This allows storing the complete target configuration with the enumeration state.
-func (s *service) marshalConfig(ctx context.Context, target config.TargetSpec, auth map[string]config.AuthConfig) json.RawMessage {
+func (s *orchestrator) marshalConfig(ctx context.Context, target config.TargetSpec, auth map[string]config.AuthConfig) json.RawMessage {
 	ctx, span := s.tracer.Start(ctx, "enumeration.marshalConfig")
 	defer span.End()
 
@@ -179,7 +179,7 @@ func (s *service) marshalConfig(ctx context.Context, target config.TargetSpec, a
 
 // resumeEnumerations attempts to continue enumeration from previously saved states.
 // This allows recovery from interruptions and supports incremental scanning.
-func (s *service) resumeEnumerations(ctx context.Context, states []*enumeration.SessionState) error {
+func (s *orchestrator) resumeEnumerations(ctx context.Context, states []*enumeration.SessionState) error {
 	ctx, span := s.tracer.Start(ctx, "enumeration.resumeEnumerations")
 	defer span.End()
 
@@ -209,7 +209,7 @@ func (s *service) resumeEnumerations(ctx context.Context, states []*enumeration.
 
 // processTargetEnumeration handles the lifecycle of a single target's enumeration,
 // including state transitions, enumerator creation, and streaming of results.
-func (s *service) processTargetEnumeration(
+func (s *orchestrator) processTargetEnumeration(
 	ctx context.Context,
 	state *enumeration.SessionState,
 	target config.TargetSpec,
@@ -276,7 +276,7 @@ func (s *service) processTargetEnumeration(
 // streamEnumerate processes a target enumeration by streaming batches of tasks from the enumerator.
 // It handles checkpointing progress and publishing tasks while managing the enumeration lifecycle.
 // This enables efficient processing of large datasets by avoiding loading everything into memory.
-func (s *service) streamEnumerate(
+func (s *orchestrator) streamEnumerate(
 	ctx context.Context,
 	enumerator TargetEnumerator,
 	state *enumeration.SessionState,
@@ -363,7 +363,7 @@ func (s *service) streamEnumerate(
 // It ensures tasks are durably recorded and can be processed by downstream consumers.
 // The session ID is used for correlation and tracking task lineage.
 // TODO: Handle partial failures.
-func (s *service) publishTasks(ctx context.Context, tasks []task.Task, sessionID string) error {
+func (s *orchestrator) publishTasks(ctx context.Context, tasks []task.Task, sessionID string) error {
 	ctx, span := s.tracer.Start(ctx, "enumeration.publishTasks")
 	defer span.End()
 

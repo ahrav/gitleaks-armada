@@ -23,7 +23,7 @@ func TestMemoryEnumerationStateStorage_SaveAndLoad(t *testing.T) {
 	t.Parallel()
 
 	ctx, store := setupEnumerationTest(t)
-	domainSvc := enumeration.NewService()
+	domainSvc := enumeration.NewLifecycleService()
 
 	state := enumeration.NewState("github", json.RawMessage(`{"org": "test-org"}`))
 	err := domainSvc.MarkInProgress(state)
@@ -56,7 +56,7 @@ func TestMemoryEnumerationStateStorage_Update(t *testing.T) {
 	t.Parallel()
 
 	ctx, store := setupEnumerationTest(t)
-	domainSvc := enumeration.NewService()
+	domainSvc := enumeration.NewLifecycleService()
 
 	state := enumeration.NewState("github", json.RawMessage(`{"org": "test-org"}`))
 	err := domainSvc.MarkInProgress(state)
@@ -102,7 +102,7 @@ func TestMemoryEnumerationStateStorage_GetActiveStates(t *testing.T) {
 	t.Parallel()
 
 	ctx, store := setupEnumerationTest(t)
-	domainSvc := enumeration.NewService()
+	domainSvc := enumeration.NewLifecycleService()
 
 	// Create states with different statuses
 	states := make([]*enumeration.SessionState, 3)
@@ -141,7 +141,7 @@ func TestMemoryEnumerationStateStorage_List(t *testing.T) {
 	t.Parallel()
 
 	ctx, store := setupEnumerationTest(t)
-	domainSvc := enumeration.NewService()
+	domainSvc := enumeration.NewLifecycleService()
 
 	// Create states with different statuses
 	states := make([]*enumeration.SessionState, 3)

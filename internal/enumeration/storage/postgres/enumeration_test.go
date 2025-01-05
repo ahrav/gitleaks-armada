@@ -35,9 +35,9 @@ func setupEnumerationTest(t *testing.T) (context.Context, *enumerationSessionSta
 	return ctx, store, checkpointStore, cleanup
 }
 
-func setupTestState(t *testing.T, ctx context.Context, checkpointStore *checkpointStore, targetID string) (*enumeration.SessionState, enumeration.Service) {
+func setupTestState(t *testing.T, ctx context.Context, checkpointStore *checkpointStore, targetID string) (*enumeration.SessionState, enumeration.LifecycleService) {
 	t.Helper()
-	domainSvc := enumeration.NewService()
+	domainSvc := enumeration.NewLifecycleService()
 	state := enumeration.NewState("github", json.RawMessage(`{"org": "test-org"}`))
 
 	err := domainSvc.MarkInProgress(state)
@@ -65,7 +65,7 @@ func TestPGEnumerationStateStorage_SaveAndLoad(t *testing.T) {
 	ctx, store, checkpointStore, cleanup := setupEnumerationTest(t)
 	defer cleanup()
 
-	domainSvc := enumeration.NewService()
+	domainSvc := enumeration.NewLifecycleService()
 
 	state := enumeration.NewState("github", json.RawMessage(`{"org": "test-org"}`))
 
@@ -197,7 +197,7 @@ func TestPGEnumerationStateStorage_GetActiveStates(t *testing.T) {
 	ctx, store, _, cleanup := setupEnumerationTest(t)
 	defer cleanup()
 
-	domainSvc := enumeration.NewService()
+	domainSvc := enumeration.NewLifecycleService()
 
 	// Create states with different statuses
 	states := make([]*enumeration.SessionState, 3)
@@ -238,7 +238,7 @@ func TestPGEnumerationStateStorage_List(t *testing.T) {
 	ctx, store, _, cleanup := setupEnumerationTest(t)
 	defer cleanup()
 
-	domainSvc := enumeration.NewService()
+	domainSvc := enumeration.NewLifecycleService()
 
 	// Create states with different statuses
 	states := make([]*enumeration.SessionState, 3)

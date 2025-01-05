@@ -5,10 +5,10 @@ import (
 	"time"
 )
 
-// Service manages the lifecycle and state transitions of enumeration sessions.
+// LifecycleService manages the lifecycle and state transitions of enumeration sessions.
 // It encapsulates the core domain logic for tracking progress, validating state changes,
 // and detecting stalled operations without dependencies on external services.
-type Service interface {
+type LifecycleService interface {
 	// State management.
 
 	// MarkInProgress transitions an enumeration to the in-progress state.
@@ -46,12 +46,12 @@ var (
 	ErrMissingCheckpoint = fmt.Errorf("checkpoint required for progress update")
 )
 
-type service struct{ stallThreshold time.Duration }
+type lifecycleService struct{ stallThreshold time.Duration }
 
-// NewService creates a new domain service with default configuration.
-func NewService() Service {
+// NewLifecycleService creates a new domain service with default configuration.
+func NewLifecycleService() LifecycleService {
 	const defaultStallThreshold = 30 * time.Minute
-	return &service{
+	return &lifecycleService{
 		stallThreshold: defaultStallThreshold, // TODO: Make this configurable.
 	}
 }
@@ -59,8 +59,8 @@ func NewService() Service {
 // MarkInProgress transitions an enumeration to the in-progress state. It initializes
 // progress tracking if not already present. This transition is only allowed from
 // specific states per domain rules.
-func (ds *service) MarkInProgress(state *SessionState) error {
-	if !ds.CanTransitionTo(state, StatusInProgress) {
+func (ls *lifecycleService) MarkInProgress(state *SessionState) error {
+	if !ls.CanTransitionTo(state, StatusInProgress) {
 		return fmt.Errorf("%w: cannot transition from %s to %s",
 			ErrInvalidStateTransition, state.Status(), StatusInProgress)
 	}
@@ -77,8 +77,8 @@ func (ds *service) MarkInProgress(state *SessionState) error {
 // MarkCompleted transitions an enumeration to the completed state, indicating all
 // targets were successfully processed. This is a terminal state that can only be
 // reached from in-progress or stalled states.
-func (ds *service) MarkCompleted(state *SessionState) error {
-	if !ds.CanTransitionTo(state, StatusCompleted) {
+func (ls *lifecycleService) MarkCompleted(state *SessionState) error {
+	if !ls.CanTransitionTo(state, StatusCompleted) {
 		return fmt.Errorf("%w: cannot transition from %s to %s",
 			ErrInvalidStateTransition, state.Status(), StatusCompleted)
 	}
@@ -91,8 +91,8 @@ func (ds *service) MarkCompleted(state *SessionState) error {
 // MarkFailed transitions an enumeration to the failed state with a reason for the
 // failure. This is a terminal state that captures unrecoverable errors during
 // enumeration.
-func (ds *service) MarkFailed(state *SessionState, reason string) error {
-	if !ds.CanTransitionTo(state, StatusFailed) {
+func (ls *lifecycleService) MarkFailed(state *SessionState, reason string) error {
+	if !ls.CanTransitionTo(state, StatusFailed) {
 		return fmt.Errorf("%w: cannot transition from %s to %s",
 			ErrInvalidStateTransition, state.Status(), StatusFailed)
 	}
@@ -106,7 +106,7 @@ func (ds *service) MarkFailed(state *SessionState, reason string) error {
 // RecordBatchProgress updates the enumeration state with progress from a batch of
 // processed items. It enforces monotonically increasing progress and automatically
 // transitions to stalled or partially completed states based on progress conditions.
-func (ds *service) RecordBatchProgress(state *SessionState, batch BatchProgress) error {
+func (ls *lifecycleService) RecordBatchProgress(state *SessionState, batch BatchProgress) error {
 	if state.Status() != StatusInProgress {
 		return fmt.Errorf("%w: can only update progress when in progress", ErrInvalidProgress)
 	}
@@ -126,7 +126,7 @@ func (ds *service) RecordBatchProgress(state *SessionState, batch BatchProgress)
 	state.attachCheckpoint(batch.Checkpoint())
 
 	// Auto-transition based on progress conditions
-	if ds.IsStalled(state, ds.stallThreshold) {
+	if ls.IsStalled(state, ls.stallThreshold) {
 		state.setStatus(StatusStalled)
 	} else if state.HasFailedBatches() && state.Progress().ItemsProcessed() > 0 {
 		state.setStatus(StatusPartiallyCompleted)
@@ -137,7 +137,7 @@ func (ds *service) RecordBatchProgress(state *SessionState, batch BatchProgress)
 
 // IsStalled determines if an enumeration has exceeded the staleness threshold by
 // checking the time since the last progress update.
-func (ds *service) IsStalled(state *SessionState, threshold time.Duration) bool {
+func (ls *lifecycleService) IsStalled(state *SessionState, threshold time.Duration) bool {
 	if state.Progress() == nil || state.Status() != StatusInProgress {
 		return false
 	}
@@ -158,7 +158,7 @@ var validTransitions = map[Status][]Status{
 
 // CanTransitionTo validates if a state transition is allowed by checking the
 // transition rules defined in validTransitions.
-func (ds *service) CanTransitionTo(state *SessionState, targetStatus Status) bool {
+func (ls *lifecycleService) CanTransitionTo(state *SessionState, targetStatus Status) bool {
 	allowedTransitions, exists := validTransitions[state.Status()]
 	if !exists {
 		return false
