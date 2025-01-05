@@ -62,7 +62,7 @@ func (j *ScanJob) GetLastUpdateTime() time.Time { return j.lastUpdateTime }
 
 // AddTask registers a new scan task with this job and updates task counters.
 func (j *ScanJob) AddTask(task *ScanTask) {
-	j.tasks[task.taskID] = task
+	j.tasks[task.TaskID] = task
 	j.totalTasks = len(j.tasks)
 	j.updateStatusCounters()
 	j.lastUpdateTime = time.Now()

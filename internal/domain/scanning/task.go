@@ -3,6 +3,8 @@ package scanning
 import (
 	"encoding/json"
 	"time"
+
+	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 )
 
 // TaskStatus represents the execution state of an individual scan task. It enables
@@ -55,7 +57,7 @@ type Checkpoint struct {
 // ScanTask tracks the full lifecycle and state of an individual scanning operation.
 // It maintains historical progress data and enables task recovery and monitoring.
 type ScanTask struct {
-	taskID          string
+	shared.CoreTask
 	jobID           string
 	status          TaskStatus
 	lastSequenceNum int64
@@ -70,7 +72,9 @@ type ScanTask struct {
 // It establishes the task's relationship to its parent job and initializes monitoring state.
 func NewScanTask(jobID, taskID string) *ScanTask {
 	return &ScanTask{
-		taskID:    taskID,
+		CoreTask: shared.CoreTask{
+			TaskID: taskID,
+		},
 		jobID:     jobID,
 		status:    TaskStatusInitialized,
 		startTime: time.Now(),
@@ -106,13 +110,13 @@ func (t *ScanTask) GetLastUpdateTime() time.Time { return t.lastUpdate }
 func (t *ScanTask) GetItemsProcessed() int64 { return t.itemsProcessed }
 
 // GetTaskID returns the unique identifier for this scan task.
-func (t *ScanTask) GetTaskID() string { return t.taskID }
+func (t *ScanTask) GetTaskID() string { return t.TaskID }
 
 // GetSummary returns a TaskSummary containing the key metrics and status
 // for this task's execution progress.
 func (t *ScanTask) GetSummary(duration time.Duration) TaskSummary {
 	return TaskSummary{
-		taskID:          t.taskID,
+		taskID:          t.TaskID,
 		status:          t.status,
 		itemsProcessed:  t.itemsProcessed,
 		duration:        duration,
@@ -153,7 +157,7 @@ type StalledTask struct {
 func (t *ScanTask) ToStalledTask(reason StallReason, stallTime time.Time) *StalledTask {
 	return &StalledTask{
 		JobID:           t.jobID,
-		TaskID:          t.taskID,
+		TaskID:          t.TaskID,
 		StallReason:     reason,
 		StalledDuration: time.Since(stallTime),
 		LastUpdate:      t.lastUpdate,
