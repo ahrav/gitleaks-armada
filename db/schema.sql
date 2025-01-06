@@ -81,7 +81,8 @@ CREATE TABLE enumeration_batch_progress (
     items_processed INTEGER NOT NULL DEFAULT 0,
     error_details TEXT,
     checkpoint_id BIGINT REFERENCES checkpoints(id),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Indexes

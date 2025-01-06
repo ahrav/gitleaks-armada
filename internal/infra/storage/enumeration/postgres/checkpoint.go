@@ -47,7 +47,7 @@ func (p *checkpointStore) Save(ctx context.Context, cp *enumeration.Checkpoint) 
 			return fmt.Errorf("failed to marshal checkpoint data: %w", err)
 		}
 
-		id, err := p.q.CreateOrUpdateCheckpoint(ctx, db.CreateOrUpdateCheckpointParams{
+		id, err := p.q.UpsertCheckpoint(ctx, db.UpsertCheckpointParams{
 			TargetID: cp.TargetID(),
 			Data:     dataBytes,
 		})

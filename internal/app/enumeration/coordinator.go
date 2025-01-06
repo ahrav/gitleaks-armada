@@ -286,7 +286,9 @@ func (s *coordinator) processTargetEnumeration(
 		return fmt.Errorf("failed to create enumerator: %w", err)
 	}
 
-	// Get resume cursor if this is a resumed enumeration.
+	// TODO: This needs to be removed and places within the given enumerator.
+	// "endCursor" is specific to the github enumerator and should not be used explicitly
+	// by the coordinator.
 	var resumeCursor *string
 	if state.LastCheckpoint() != nil {
 		if c, ok := state.LastCheckpoint().Data()["endCursor"].(string); ok {
@@ -337,6 +339,8 @@ func (s *coordinator) streamEnumerate(
 					state.SessionID(),
 					map[string]any{"endCursor": batch.NextCursor},
 				)
+			} else {
+				checkpoint = enumeration.NewTemporaryCheckpoint(state.SessionID(), nil)
 			}
 
 			var batchProgress enumeration.BatchProgress

@@ -143,7 +143,7 @@ func (s *ruleStore) SaveRule(ctx context.Context, rule rules.GitleaksRule) error
 						attribute.Int("regex_count", len(al.Regexes)),
 						attribute.Int("stopword_count", len(al.StopWords)),
 					}, func(ctx context.Context) error {
-						allowlistID, err := qtx.CreateAllowlist(ctx, db.CreateAllowlistParams{
+						allowlistID, err := qtx.UpsertAllowlist(ctx, db.UpsertAllowlistParams{
 							RuleID:         ruleID,
 							Description:    pgtype.Text{String: al.Description, Valid: true},
 							MatchCondition: string(al.MatchCondition),

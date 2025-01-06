@@ -65,7 +65,7 @@ func (s *enumerationSessionStateStore) Save(ctx context.Context, state *enumerat
 		}
 
 		// Save the session state.
-		err := s.q.CreateOrUpdateEnumerationSessionState(ctx, db.CreateOrUpdateEnumerationSessionStateParams{
+		err := s.q.UpsertEnumerationSessionState(ctx, db.UpsertEnumerationSessionStateParams{
 			SessionID:        state.SessionID(),
 			SourceType:       state.SourceType(),
 			Config:           state.Config(),
@@ -94,54 +94,59 @@ func (s *enumerationSessionStateStore) Save(ctx context.Context, state *enumerat
 }
 
 func (s *enumerationSessionStateStore) saveProgress(ctx context.Context, state *enumeration.SessionState) error {
-	err := s.q.CreateEnumerationProgress(ctx, db.CreateEnumerationProgressParams{
-		SessionID: state.SessionID(),
-		StartedAt: pgtype.Timestamptz{Time: state.Progress().StartedAt(), Valid: true},
+	dbAttrs := append(
+		defaultDBAttributes,
+		attribute.String("session_id", state.SessionID()),
+	)
+	return storage.ExecuteAndTrace(ctx, s.tracer, "postgres.save_enumeration_progress", dbAttrs, func(ctx context.Context) error {
+		err := s.q.UpsertEnumerationProgress(ctx, db.UpsertEnumerationProgressParams{
+			SessionID:      state.SessionID(),
+			StartedAt:      pgtype.Timestamptz{Time: state.Progress().StartedAt(), Valid: true},
+			ItemsFound:     int32(state.Progress().ItemsFound()),
+			ItemsProcessed: int32(state.Progress().ItemsProcessed()),
+			FailedBatches:  int32(state.Progress().FailedBatches()),
+			TotalBatches:   int32(state.Progress().TotalBatches()),
+		})
+		if err != nil {
+			return fmt.Errorf("failed to upsert progress: %w", err)
+		}
+		return nil
 	})
-	if err != nil {
-		return fmt.Errorf("failed to create progress: %w", err)
-	}
-
-	err = s.q.UpdateEnumerationProgress(ctx, db.UpdateEnumerationProgressParams{
-		SessionID:      state.SessionID(),
-		ItemsFound:     int32(state.Progress().ItemsFound()),
-		ItemsProcessed: int32(state.Progress().ItemsProcessed()),
-		FailedBatches:  int32(state.Progress().FailedBatches()),
-		TotalBatches:   int32(state.Progress().TotalBatches()),
-	})
-	if err != nil {
-		return fmt.Errorf("failed to update progress: %w", err)
-	}
-	return nil
 }
 
 func (s *enumerationSessionStateStore) saveBatchProgress(ctx context.Context, sessionID string, batch enumeration.BatchProgress) error {
-	//  Save the batch's checkpoint if present.
-	var checkpointID pgtype.Int8
-	if cp := batch.Checkpoint(); cp != nil {
-		if err := s.checkpointStore.Save(ctx, cp); err != nil {
-			return fmt.Errorf("failed to save batch checkpoint: %w", err)
+	dbAttrs := append(
+		defaultDBAttributes,
+		attribute.String("session_id", sessionID),
+		attribute.String("batch_id", batch.BatchID()),
+		attribute.Bool("has_checkpoint", batch.Checkpoint() != nil),
+	)
+	return storage.ExecuteAndTrace(ctx, s.tracer, "postgres.save_batch_progress", dbAttrs, func(ctx context.Context) error {
+		var checkpointID pgtype.Int8
+		if cp := batch.Checkpoint(); cp != nil {
+			if err := s.checkpointStore.Save(ctx, cp); err != nil {
+				return fmt.Errorf("failed to save batch checkpoint: %w", err)
+			}
+			checkpointID = pgtype.Int8{Int64: cp.ID(), Valid: true}
+		} else {
+			checkpointID = pgtype.Int8{Valid: false}
 		}
-		checkpointID = pgtype.Int8{Int64: cp.ID(), Valid: true}
-	} else {
-		checkpointID = pgtype.Int8{Valid: false} // no checkpoint
-	}
 
-	_, err := s.q.CreateEnumerationBatchProgress(ctx, db.CreateEnumerationBatchProgressParams{
-		BatchID:        batch.BatchID(),
-		SessionID:      sessionID,
-		Status:         db.BatchStatus(batch.Status()),
-		StartedAt:      pgtype.Timestamptz{Time: batch.StartedAt(), Valid: true},
-		CompletedAt:    pgtype.Timestamptz{Time: batch.CompletedAt(), Valid: true},
-		ItemsProcessed: int32(batch.ItemsProcessed()),
-		ErrorDetails:   pgtype.Text{String: batch.ErrorDetails(), Valid: batch.ErrorDetails() != ""},
-		CheckpointID:   checkpointID,
+		_, err := s.q.UpsertEnumerationBatchProgress(ctx, db.UpsertEnumerationBatchProgressParams{
+			BatchID:        batch.BatchID(),
+			SessionID:      sessionID,
+			Status:         db.BatchStatus(batch.Status()),
+			StartedAt:      pgtype.Timestamptz{Time: batch.StartedAt(), Valid: true},
+			CompletedAt:    pgtype.Timestamptz{Time: batch.CompletedAt(), Valid: true},
+			ItemsProcessed: int32(batch.ItemsProcessed()),
+			ErrorDetails:   pgtype.Text{String: batch.ErrorDetails(), Valid: batch.ErrorDetails() != ""},
+			CheckpointID:   checkpointID,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to upsert batch progress: %w", err)
+		}
+		return nil
 	})
-	if err != nil {
-		return fmt.Errorf("failed to create batch progress: %w", err)
-	}
-
-	return nil
 }
 
 // Load retrieves the current enumeration state and its associated checkpoint.

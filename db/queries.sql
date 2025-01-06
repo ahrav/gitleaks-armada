@@ -3,7 +3,7 @@
 -- ============================================
 -- Checkpoints
 -- ============================================
--- name: CreateOrUpdateCheckpoint :one
+-- name: UpsertCheckpoint :one
 INSERT INTO checkpoints (target_id, data, created_at, updated_at)
 VALUES ($1, $2, NOW(), NOW())
 ON CONFLICT (target_id) DO UPDATE
@@ -28,7 +28,7 @@ WHERE id = $1;
 -- ============================================
 -- Enumeration States
 -- ============================================
--- name: CreateOrUpdateEnumerationSessionState :exec
+-- name: UpsertEnumerationSessionState :exec
 INSERT INTO enumeration_session_states (
     session_id, source_type, config, last_checkpoint_id, status, failure_reason
 ) VALUES (
@@ -102,21 +102,18 @@ WHERE t.task_id = $1;
 -- ============================================
 -- Progress Tracking
 -- ============================================
--- name: CreateEnumerationProgress :exec
+-- name: UpsertEnumerationProgress :exec
 INSERT INTO enumeration_progress (
     session_id, started_at, items_found, items_processed, failed_batches, total_batches
 ) VALUES (
     $1, $2, $3, $4, $5, $6
-);
-
--- name: UpdateEnumerationProgress :exec
-UPDATE enumeration_progress
-SET items_found = $2,
-    items_processed = $3,
-    failed_batches = $4,
-    total_batches = $5,
-    updated_at = NOW()
-WHERE session_id = $1;
+)
+ON CONFLICT (session_id) DO UPDATE SET
+    items_found = EXCLUDED.items_found,
+    items_processed = EXCLUDED.items_processed,
+    failed_batches = EXCLUDED.failed_batches,
+    total_batches = EXCLUDED.total_batches,
+    updated_at = NOW();
 
 -- name: GetEnumerationProgressForSession :one
 SELECT * FROM enumeration_progress
@@ -127,13 +124,20 @@ SELECT * FROM enumeration_batch_progress
 WHERE session_id = $1
 ORDER BY started_at ASC;
 
--- name: CreateEnumerationBatchProgress :one
+-- name: UpsertEnumerationBatchProgress :one
 INSERT INTO enumeration_batch_progress (
     batch_id, session_id, status, started_at, completed_at,
     items_processed, error_details, checkpoint_id
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8
 )
+ON CONFLICT (batch_id) DO UPDATE SET
+    status = EXCLUDED.status,
+    completed_at = EXCLUDED.completed_at,
+    items_processed = EXCLUDED.items_processed,
+    error_details = EXCLUDED.error_details,
+    checkpoint_id = EXCLUDED.checkpoint_id,
+    updated_at = NOW()
 RETURNING id;
 
 -- ============================================
@@ -164,7 +168,7 @@ INSERT INTO rules (
 -- ============================================
 -- Allowlists
 -- ============================================
--- name: CreateAllowlist :one
+-- name: UpsertAllowlist :one
 INSERT INTO allowlists (
     rule_id, description, match_condition, regex_target
 ) VALUES (

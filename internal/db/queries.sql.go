@@ -49,174 +49,6 @@ type BulkInsertRulesParams struct {
 	Keywords    []string
 }
 
-const createAllowlist = `-- name: CreateAllowlist :one
-INSERT INTO allowlists (
-    rule_id, description, match_condition, regex_target
-) VALUES (
-    $1, $2, $3, $4
-)
-ON CONFLICT (rule_id, match_condition, regex_target) DO UPDATE
-SET description = EXCLUDED.description,
-    updated_at = NOW()
-RETURNING id
-`
-
-type CreateAllowlistParams struct {
-	RuleID         int64
-	Description    pgtype.Text
-	MatchCondition string
-	RegexTarget    pgtype.Text
-}
-
-// ============================================
-// Allowlists
-// ============================================
-func (q *Queries) CreateAllowlist(ctx context.Context, arg CreateAllowlistParams) (int64, error) {
-	row := q.db.QueryRow(ctx, createAllowlist,
-		arg.RuleID,
-		arg.Description,
-		arg.MatchCondition,
-		arg.RegexTarget,
-	)
-	var id int64
-	err := row.Scan(&id)
-	return id, err
-}
-
-const createEnumerationBatchProgress = `-- name: CreateEnumerationBatchProgress :one
-INSERT INTO enumeration_batch_progress (
-    batch_id, session_id, status, started_at, completed_at,
-    items_processed, error_details, checkpoint_id
-) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8
-)
-RETURNING id
-`
-
-type CreateEnumerationBatchProgressParams struct {
-	BatchID        string
-	SessionID      string
-	Status         BatchStatus
-	StartedAt      pgtype.Timestamptz
-	CompletedAt    pgtype.Timestamptz
-	ItemsProcessed int32
-	ErrorDetails   pgtype.Text
-	CheckpointID   pgtype.Int8
-}
-
-func (q *Queries) CreateEnumerationBatchProgress(ctx context.Context, arg CreateEnumerationBatchProgressParams) (int64, error) {
-	row := q.db.QueryRow(ctx, createEnumerationBatchProgress,
-		arg.BatchID,
-		arg.SessionID,
-		arg.Status,
-		arg.StartedAt,
-		arg.CompletedAt,
-		arg.ItemsProcessed,
-		arg.ErrorDetails,
-		arg.CheckpointID,
-	)
-	var id int64
-	err := row.Scan(&id)
-	return id, err
-}
-
-const createEnumerationProgress = `-- name: CreateEnumerationProgress :exec
-INSERT INTO enumeration_progress (
-    session_id, started_at, items_found, items_processed, failed_batches, total_batches
-) VALUES (
-    $1, $2, $3, $4, $5, $6
-)
-`
-
-type CreateEnumerationProgressParams struct {
-	SessionID      string
-	StartedAt      pgtype.Timestamptz
-	ItemsFound     int32
-	ItemsProcessed int32
-	FailedBatches  int32
-	TotalBatches   int32
-}
-
-// ============================================
-// Progress Tracking
-// ============================================
-func (q *Queries) CreateEnumerationProgress(ctx context.Context, arg CreateEnumerationProgressParams) error {
-	_, err := q.db.Exec(ctx, createEnumerationProgress,
-		arg.SessionID,
-		arg.StartedAt,
-		arg.ItemsFound,
-		arg.ItemsProcessed,
-		arg.FailedBatches,
-		arg.TotalBatches,
-	)
-	return err
-}
-
-const createOrUpdateCheckpoint = `-- name: CreateOrUpdateCheckpoint :one
-
-INSERT INTO checkpoints (target_id, data, created_at, updated_at)
-VALUES ($1, $2, NOW(), NOW())
-ON CONFLICT (target_id) DO UPDATE
-    SET data = EXCLUDED.data,
-        updated_at = NOW()
-RETURNING id
-`
-
-type CreateOrUpdateCheckpointParams struct {
-	TargetID string
-	Data     []byte
-}
-
-// queries.sql
-// ============================================
-// Checkpoints
-// ============================================
-func (q *Queries) CreateOrUpdateCheckpoint(ctx context.Context, arg CreateOrUpdateCheckpointParams) (int64, error) {
-	row := q.db.QueryRow(ctx, createOrUpdateCheckpoint, arg.TargetID, arg.Data)
-	var id int64
-	err := row.Scan(&id)
-	return id, err
-}
-
-const createOrUpdateEnumerationSessionState = `-- name: CreateOrUpdateEnumerationSessionState :exec
-INSERT INTO enumeration_session_states (
-    session_id, source_type, config, last_checkpoint_id, status, failure_reason
-) VALUES (
-    $1, $2, $3, $4, $5, $6
-)
-ON CONFLICT (session_id) DO UPDATE
-SET source_type = EXCLUDED.source_type,
-    config = EXCLUDED.config,
-    last_checkpoint_id = EXCLUDED.last_checkpoint_id,
-    status = EXCLUDED.status,
-    failure_reason = EXCLUDED.failure_reason,
-    updated_at = NOW()
-`
-
-type CreateOrUpdateEnumerationSessionStateParams struct {
-	SessionID        string
-	SourceType       string
-	Config           []byte
-	LastCheckpointID pgtype.Int8
-	Status           EnumerationStatus
-	FailureReason    pgtype.Text
-}
-
-// ============================================
-// Enumeration States
-// ============================================
-func (q *Queries) CreateOrUpdateEnumerationSessionState(ctx context.Context, arg CreateOrUpdateEnumerationSessionStateParams) error {
-	_, err := q.db.Exec(ctx, createOrUpdateEnumerationSessionState,
-		arg.SessionID,
-		arg.SourceType,
-		arg.Config,
-		arg.LastCheckpointID,
-		arg.Status,
-		arg.FailureReason,
-	)
-	return err
-}
-
 const createTask = `-- name: CreateTask :exec
 WITH core_task AS (
     INSERT INTO tasks (task_id, source_type)
@@ -415,7 +247,7 @@ func (q *Queries) GetCheckpointByID(ctx context.Context, id int64) (Checkpoint, 
 }
 
 const getEnumerationBatchProgressForSession = `-- name: GetEnumerationBatchProgressForSession :many
-SELECT id, batch_id, session_id, status, started_at, completed_at, items_processed, error_details, checkpoint_id, created_at FROM enumeration_batch_progress
+SELECT id, batch_id, session_id, status, started_at, completed_at, items_processed, error_details, checkpoint_id, created_at, updated_at FROM enumeration_batch_progress
 WHERE session_id = $1
 ORDER BY started_at ASC
 `
@@ -440,6 +272,7 @@ func (q *Queries) GetEnumerationBatchProgressForSession(ctx context.Context, ses
 			&i.ErrorDetails,
 			&i.CheckpointID,
 			&i.CreatedAt,
+			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -584,31 +417,183 @@ func (q *Queries) ListEnumerationSessionStates(ctx context.Context, limit int32)
 	return items, nil
 }
 
-const updateEnumerationProgress = `-- name: UpdateEnumerationProgress :exec
-UPDATE enumeration_progress
-SET items_found = $2,
-    items_processed = $3,
-    failed_batches = $4,
-    total_batches = $5,
+const upsertAllowlist = `-- name: UpsertAllowlist :one
+INSERT INTO allowlists (
+    rule_id, description, match_condition, regex_target
+) VALUES (
+    $1, $2, $3, $4
+)
+ON CONFLICT (rule_id, match_condition, regex_target) DO UPDATE
+SET description = EXCLUDED.description,
     updated_at = NOW()
-WHERE session_id = $1
+RETURNING id
 `
 
-type UpdateEnumerationProgressParams struct {
+type UpsertAllowlistParams struct {
+	RuleID         int64
+	Description    pgtype.Text
+	MatchCondition string
+	RegexTarget    pgtype.Text
+}
+
+// ============================================
+// Allowlists
+// ============================================
+func (q *Queries) UpsertAllowlist(ctx context.Context, arg UpsertAllowlistParams) (int64, error) {
+	row := q.db.QueryRow(ctx, upsertAllowlist,
+		arg.RuleID,
+		arg.Description,
+		arg.MatchCondition,
+		arg.RegexTarget,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const upsertCheckpoint = `-- name: UpsertCheckpoint :one
+
+INSERT INTO checkpoints (target_id, data, created_at, updated_at)
+VALUES ($1, $2, NOW(), NOW())
+ON CONFLICT (target_id) DO UPDATE
+    SET data = EXCLUDED.data,
+        updated_at = NOW()
+RETURNING id
+`
+
+type UpsertCheckpointParams struct {
+	TargetID string
+	Data     []byte
+}
+
+// queries.sql
+// ============================================
+// Checkpoints
+// ============================================
+func (q *Queries) UpsertCheckpoint(ctx context.Context, arg UpsertCheckpointParams) (int64, error) {
+	row := q.db.QueryRow(ctx, upsertCheckpoint, arg.TargetID, arg.Data)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const upsertEnumerationBatchProgress = `-- name: UpsertEnumerationBatchProgress :one
+INSERT INTO enumeration_batch_progress (
+    batch_id, session_id, status, started_at, completed_at,
+    items_processed, error_details, checkpoint_id
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7, $8
+)
+ON CONFLICT (batch_id) DO UPDATE SET
+    status = EXCLUDED.status,
+    completed_at = EXCLUDED.completed_at,
+    items_processed = EXCLUDED.items_processed,
+    error_details = EXCLUDED.error_details,
+    checkpoint_id = EXCLUDED.checkpoint_id,
+    updated_at = NOW()
+RETURNING id
+`
+
+type UpsertEnumerationBatchProgressParams struct {
+	BatchID        string
 	SessionID      string
+	Status         BatchStatus
+	StartedAt      pgtype.Timestamptz
+	CompletedAt    pgtype.Timestamptz
+	ItemsProcessed int32
+	ErrorDetails   pgtype.Text
+	CheckpointID   pgtype.Int8
+}
+
+func (q *Queries) UpsertEnumerationBatchProgress(ctx context.Context, arg UpsertEnumerationBatchProgressParams) (int64, error) {
+	row := q.db.QueryRow(ctx, upsertEnumerationBatchProgress,
+		arg.BatchID,
+		arg.SessionID,
+		arg.Status,
+		arg.StartedAt,
+		arg.CompletedAt,
+		arg.ItemsProcessed,
+		arg.ErrorDetails,
+		arg.CheckpointID,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const upsertEnumerationProgress = `-- name: UpsertEnumerationProgress :exec
+INSERT INTO enumeration_progress (
+    session_id, started_at, items_found, items_processed, failed_batches, total_batches
+) VALUES (
+    $1, $2, $3, $4, $5, $6
+)
+ON CONFLICT (session_id) DO UPDATE SET
+    items_found = EXCLUDED.items_found,
+    items_processed = EXCLUDED.items_processed,
+    failed_batches = EXCLUDED.failed_batches,
+    total_batches = EXCLUDED.total_batches,
+    updated_at = NOW()
+`
+
+type UpsertEnumerationProgressParams struct {
+	SessionID      string
+	StartedAt      pgtype.Timestamptz
 	ItemsFound     int32
 	ItemsProcessed int32
 	FailedBatches  int32
 	TotalBatches   int32
 }
 
-func (q *Queries) UpdateEnumerationProgress(ctx context.Context, arg UpdateEnumerationProgressParams) error {
-	_, err := q.db.Exec(ctx, updateEnumerationProgress,
+// ============================================
+// Progress Tracking
+// ============================================
+func (q *Queries) UpsertEnumerationProgress(ctx context.Context, arg UpsertEnumerationProgressParams) error {
+	_, err := q.db.Exec(ctx, upsertEnumerationProgress,
 		arg.SessionID,
+		arg.StartedAt,
 		arg.ItemsFound,
 		arg.ItemsProcessed,
 		arg.FailedBatches,
 		arg.TotalBatches,
+	)
+	return err
+}
+
+const upsertEnumerationSessionState = `-- name: UpsertEnumerationSessionState :exec
+INSERT INTO enumeration_session_states (
+    session_id, source_type, config, last_checkpoint_id, status, failure_reason
+) VALUES (
+    $1, $2, $3, $4, $5, $6
+)
+ON CONFLICT (session_id) DO UPDATE
+SET source_type = EXCLUDED.source_type,
+    config = EXCLUDED.config,
+    last_checkpoint_id = EXCLUDED.last_checkpoint_id,
+    status = EXCLUDED.status,
+    failure_reason = EXCLUDED.failure_reason,
+    updated_at = NOW()
+`
+
+type UpsertEnumerationSessionStateParams struct {
+	SessionID        string
+	SourceType       string
+	Config           []byte
+	LastCheckpointID pgtype.Int8
+	Status           EnumerationStatus
+	FailureReason    pgtype.Text
+}
+
+// ============================================
+// Enumeration States
+// ============================================
+func (q *Queries) UpsertEnumerationSessionState(ctx context.Context, arg UpsertEnumerationSessionStateParams) error {
+	_, err := q.db.Exec(ctx, upsertEnumerationSessionState,
+		arg.SessionID,
+		arg.SourceType,
+		arg.Config,
+		arg.LastCheckpointID,
+		arg.Status,
+		arg.FailureReason,
 	)
 	return err
 }

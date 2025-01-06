@@ -201,6 +201,7 @@ type EnumerationBatchProgress struct {
 	ErrorDetails   pgtype.Text
 	CheckpointID   pgtype.Int8
 	CreatedAt      pgtype.Timestamptz
+	UpdatedAt      pgtype.Timestamptz
 }
 
 type EnumerationProgress struct {
