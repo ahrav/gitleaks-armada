@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/ahrav/gitleaks-armada/internal/config"
@@ -96,58 +97,111 @@ func NewCoordinator(
 // the existing enumeration sessions.
 func (s *coordinator) ExecuteEnumeration(ctx context.Context) error {
 	return s.metrics.TrackEnumeration(func() error {
-		ctx, span := s.tracer.Start(ctx, "enumeration.ExecuteEnumeration")
+		ctx, span := s.tracer.Start(ctx, "enumeration.ExecuteEnumeration",
+			trace.WithAttributes(
+				attribute.String("component", "coordinator"),
+				attribute.String("operation", "execute_enumeration"),
+			))
 		defer span.End()
 
+		span.AddEvent("checking_active_states")
 		activeStates, err := s.stateRepo.GetActiveStates(ctx)
 		if err != nil {
 			span.RecordError(err)
+			span.SetStatus(codes.Error, "failed to load active states")
 			return fmt.Errorf("failed to load active states: %w", err)
 		}
+		span.AddEvent("active_states_loaded", trace.WithAttributes(
+			attribute.Int("active_state_count", len(activeStates)),
+		))
 
 		if len(activeStates) == 0 {
-			return s.startFreshEnumerations(ctx)
+			span.AddEvent("starting_fresh_enumeration")
+			err := s.startFreshEnumerations(ctx)
+			if err != nil {
+				span.RecordError(err)
+				span.SetStatus(codes.Error, "fresh enumeration failed")
+				return err
+			}
+			return nil
 		}
 
-		return s.resumeEnumerations(ctx, activeStates)
+		span.AddEvent("resuming_enumeration", trace.WithAttributes(
+			attribute.Int("state_count", len(activeStates)),
+		))
+		err = s.resumeEnumerations(ctx, activeStates)
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "enumeration resume failed")
+			return err
+		}
+
+		span.SetStatus(codes.Ok, "enumeration completed successfully")
+		return nil
 	})
 }
 
 // startFreshEnumerations processes each target from the configuration, creating new
 // enumeration states and running the appropriate enumerator for each target type.
 func (s *coordinator) startFreshEnumerations(ctx context.Context) error {
-	ctx, span := s.tracer.Start(ctx, "enumeration.startFreshEnumerations")
+	ctx, span := s.tracer.Start(ctx, "enumeration.startFreshEnumerations",
+		trace.WithAttributes(
+			attribute.String("component", "coordinator"),
+			attribute.String("operation", "start_fresh_enumerations"),
+		))
 	defer span.End()
 
 	cfg, err := s.configLoader.Load(ctx)
 	if err != nil {
 		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to load configuration")
 		s.metrics.IncConfigReloadErrors()
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 	s.metrics.IncConfigReloads()
+	span.AddEvent("configuration_loaded")
 
 	s.credStore, err = memory.NewCredentialStore(cfg.Auth)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to create credential store")
 		return fmt.Errorf("failed to create credential store: %w", err)
 	}
+	span.AddEvent("credential_store_initialized")
 
-	span.SetAttributes(attribute.Int("target_count", len(cfg.Targets)))
+	span.SetAttributes(
+		attribute.Int("target_count", len(cfg.Targets)),
+		attribute.Int("auth_config_count", len(cfg.Auth)),
+	)
 
-	for _, target := range cfg.Targets {
+	for i, target := range cfg.Targets {
+		targetSpan := trace.SpanFromContext(ctx)
+		targetSpan.AddEvent("processing_target", trace.WithAttributes(
+			attribute.Int("target_index", i),
+			attribute.String("target_type", string(target.SourceType)),
+			attribute.String("auth_ref", target.AuthRef),
+		))
+
 		start := time.Now()
 		state := enumeration.NewState(string(target.SourceType), s.marshalConfig(ctx, target, cfg.Auth))
 
 		if err := s.processTargetEnumeration(ctx, state, target); err != nil {
+			targetSpan.RecordError(err)
+			targetSpan.SetStatus(codes.Error, "target enumeration failed")
 			s.logger.Error(ctx, "Target enumeration failed",
 				"target_type", target.SourceType,
 				"error", err)
 			continue // Continue with other targets
 		}
 
+		targetSpan.AddEvent("target_processed", trace.WithAttributes(
+			attribute.Int64("processing_time_ms", time.Since(start).Milliseconds()),
+		))
 		s.metrics.ObserveTargetProcessingTime(time.Since(start))
 		s.metrics.IncTargetsProcessed()
 	}
+
+	span.SetStatus(codes.Ok, "fresh enumeration completed")
 	return nil
 }
 
@@ -199,38 +253,66 @@ func (s *coordinator) resumeEnumerations(ctx context.Context, states []*enumerat
 	defer span.End()
 
 	span.SetAttributes(attribute.Int("state_count", len(states)))
+	span.AddEvent("starting_enumeration_resume")
 
 	for _, st := range states {
+		stateCtx, stateSpan := s.tracer.Start(ctx, "enumeration.process_state",
+			trace.WithAttributes(
+				attribute.String("session_id", st.SessionID()),
+				attribute.String("source_type", string(st.SourceType())),
+			),
+		)
+
 		var combined struct {
 			config.TargetSpec
 			Auth config.AuthConfig `json:"auth,omitempty"`
 		}
 
 		if err := json.Unmarshal(st.Config(), &combined); err != nil {
-			s.logger.Error(ctx, "Failed to unmarshal target config",
+			stateSpan.RecordError(err)
+			stateSpan.SetStatus(codes.Error, "failed to unmarshal config")
+			s.logger.Error(stateCtx, "Failed to unmarshal target config",
 				"session_id", st.SessionID(),
 				"error", err)
+			stateSpan.End()
 			continue
 		}
 
+		stateSpan.AddEvent("config_unmarshaled")
+
 		if s.credStore == nil {
+			credSpan := trace.SpanFromContext(stateCtx)
+			credSpan.AddEvent("initializing_credential_store")
+
 			var err error
 			s.credStore, err = memory.NewCredentialStore(map[string]config.AuthConfig{
 				combined.AuthRef: combined.Auth,
 			})
 			if err != nil {
-				span.RecordError(err)
+				credSpan.RecordError(err)
+				credSpan.SetStatus(codes.Error, "failed to create credential store")
+				stateSpan.End()
 				return fmt.Errorf("failed to create credential store: %w", err)
 			}
+			credSpan.AddEvent("credential_store_initialized")
 		}
 
-		if err := s.processTargetEnumeration(ctx, st, combined.TargetSpec); err != nil {
-			s.logger.Error(ctx, "Resume enumeration failed",
-				"session_id", st.SessionID,
+		if err := s.processTargetEnumeration(stateCtx, st, combined.TargetSpec); err != nil {
+			stateSpan.RecordError(err)
+			stateSpan.SetStatus(codes.Error, "enumeration failed")
+			s.logger.Error(stateCtx, "Resume enumeration failed",
+				"session_id", st.SessionID(),
 				"error", err)
+			stateSpan.End()
 			continue
 		}
+
+		stateSpan.SetStatus(codes.Ok, "state processed successfully")
+		stateSpan.End()
 	}
+
+	span.AddEvent("enumeration_resume_completed")
+	span.SetStatus(codes.Ok, "all states processed")
 	return nil
 }
 
@@ -251,29 +333,40 @@ func (s *coordinator) processTargetEnumeration(
 
 	if err := s.stateRepo.Save(ctx, state); err != nil {
 		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to save initial state")
 		return fmt.Errorf("failed to save initial state: %w", err)
 	}
+	span.AddEvent("initial_state_saved")
 
 	if err := state.MarkInProgress(); err != nil {
 		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to mark in progress")
 		s.logger.Error(ctx, "Failed to mark enumeration as in-progress", "error", err)
 		return err
 	}
+	span.AddEvent("state_marked_in_progress")
 
 	if err := s.stateRepo.Save(ctx, state); err != nil {
 		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to save state transition")
 		s.logger.Error(ctx, "Failed to save state transition", "error", err)
 		return err
 	}
+	span.AddEvent("state_transition_saved")
 
 	creds, err := s.credStore.GetCredentials(target.AuthRef)
 	if err != nil {
 		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to get credentials")
 		return fmt.Errorf("failed to get credentials: %w", err)
 	}
+	span.AddEvent("credentials_retrieved")
 
 	enumerator, err := s.enumFactory.CreateEnumerator(target, creds)
 	if err != nil {
+		span.AddEvent("marking_enumeration_failed", trace.WithAttributes(
+			attribute.String("error", err.Error()),
+		))
 		if markErr := state.MarkFailed(err.Error()); markErr != nil {
 			span.RecordError(markErr)
 			s.logger.Error(ctx, "Failed to mark enumeration as failed", "error", markErr)
@@ -283,8 +376,11 @@ func (s *coordinator) processTargetEnumeration(
 			span.RecordError(saveErr)
 			s.logger.Error(ctx, "Failed to save failed state", "error", saveErr)
 		}
+		span.AddEvent("failed_state_saved")
+		span.SetStatus(codes.Error, "failed to create enumerator")
 		return fmt.Errorf("failed to create enumerator: %w", err)
 	}
+	span.AddEvent("enumerator_created")
 
 	// TODO: This needs to be removed and places within the given enumerator.
 	// "endCursor" is specific to the github enumerator and should not be used explicitly
@@ -293,17 +389,23 @@ func (s *coordinator) processTargetEnumeration(
 	if state.LastCheckpoint() != nil {
 		if c, ok := state.LastCheckpoint().Data()["endCursor"].(string); ok {
 			resumeCursor = &c
+			span.AddEvent("resuming_from_checkpoint", trace.WithAttributes(
+				attribute.String("cursor", c),
+			))
 		}
 	}
 
 	if err := s.streamEnumerate(ctx, enumerator, state, resumeCursor, creds); err != nil {
 		span.RecordError(err)
+		span.SetStatus(codes.Error, "enumeration stream failed")
 		s.logger.Error(ctx, "Enumeration failed",
 			"session_id", state.SessionID(),
 			"error", err)
 		return err
 	}
+	span.AddEvent("enumeration_stream_completed")
 
+	span.SetStatus(codes.Ok, "enumeration completed successfully")
 	return nil
 }
 
@@ -333,37 +435,58 @@ func (s *coordinator) streamEnumerate(
 	go func() {
 		defer wg.Done()
 		for batch := range batchCh {
+			batchCtx, batchSpan := s.tracer.Start(ctx, "enumeration.processBatch")
+			batchSpan.SetAttributes(
+				attribute.String("session_id", state.SessionID()),
+				attribute.Int("batch_size", len(batch.Targets)),
+				attribute.String("next_cursor", batch.NextCursor),
+			)
+			batchSpan.AddEvent("Starting batch processing")
+
 			var checkpoint *enumeration.Checkpoint
 			if batch.NextCursor != "" {
 				checkpoint = enumeration.NewTemporaryCheckpoint(
 					state.SessionID(),
 					map[string]any{"endCursor": batch.NextCursor},
 				)
+				batchSpan.AddEvent("Created checkpoint")
 			} else {
 				checkpoint = enumeration.NewTemporaryCheckpoint(state.SessionID(), nil)
+				batchSpan.AddEvent("Created empty checkpoint")
 			}
 
 			var batchProgress enumeration.BatchProgress
 
 			// TODO: Handle partial failures once |publishTasks| can handle them.
-			if err := s.publishTasks(ctx, batch.Targets, state.SessionID(), creds); err != nil {
-				span.RecordError(err)
+			if err := s.publishTasks(batchCtx, batch.Targets, state.SessionID(), creds); err != nil {
+				batchSpan.RecordError(err)
 				batchProgress = enumeration.NewFailedBatchProgress(err, checkpoint)
-				s.logger.Error(ctx, "Failed to publish tasks", "error", err)
+				batchSpan.AddEvent("Failed to publish tasks", trace.WithAttributes(
+					attribute.String("error", err.Error()),
+					attribute.Int("failed_targets", len(batch.Targets)),
+				))
 			} else {
 				batchProgress = enumeration.NewSuccessfulBatchProgress(len(batch.Targets), checkpoint)
+				batchSpan.AddEvent("Successfully published batch")
 			}
 
 			if err := state.RecordBatchProgress(batchProgress); err != nil {
-				span.RecordError(err)
-				s.logger.Error(ctx, "Failed to update progress", "error", err)
+				batchSpan.RecordError(err)
+				batchSpan.AddEvent("Failed to update progress", trace.WithAttributes(
+					attribute.String("error", err.Error()),
+					attribute.String("batch_status", string(batchProgress.Status())),
+				))
+				batchSpan.End()
 				return
 			}
 
-			if err := s.stateRepo.Save(ctx, state); err != nil {
-				span.RecordError(err)
-				s.logger.Error(ctx, "Failed to save enumeration state", "error", err)
+			if err := s.stateRepo.Save(batchCtx, state); err != nil {
+				batchSpan.RecordError(err)
+				batchSpan.AddEvent("Failed to save state", trace.WithAttributes(
+					attribute.String("error", err.Error()),
+				))
 			}
+			batchSpan.End()
 		}
 	}()
 
@@ -384,19 +507,17 @@ func (s *coordinator) streamEnumerate(
 		return err
 	}
 
+	span.AddEvent("Enumeration completed")
+
 	if err := state.MarkCompleted(); err != nil {
 		span.RecordError(err)
 		s.logger.Error(ctx, "Failed to mark enumeration as completed", "error", err)
 	}
 
-	saveCtx, saveSpan := s.tracer.Start(ctx, "enumeration.saveState")
-	if err := s.stateRepo.Save(saveCtx, state); err != nil {
-		saveSpan.RecordError(err)
-		saveSpan.End()
+	if err := s.stateRepo.Save(ctx, state); err != nil {
 		span.RecordError(err)
 		s.logger.Error(ctx, "Failed to save enumeration state", "error", err)
 	}
-	saveSpan.End()
 	return nil
 }
 
@@ -417,9 +538,16 @@ func (s *coordinator) publishTasks(
 		attribute.String("session_id", sessionID),
 		attribute.Int("num_targets", len(targets)),
 	)
+	span.AddEvent("Starting task publication")
 
 	var totalTasks int
 	for _, t := range targets {
+		taskCtx, taskSpan := s.tracer.Start(ctx, "enumeration.processTarget")
+		taskSpan.SetAttributes(
+			attribute.String("resource_uri", t.ResourceURI),
+			attribute.String("source_type", t.SourceType),
+		)
+
 		task := enumeration.NewTask(
 			shared.SourceType(t.SourceType),
 			sessionID,
@@ -427,31 +555,43 @@ func (s *coordinator) publishTasks(
 			t.Metadata,
 			creds,
 		)
+		taskSpan.AddEvent("Created task", trace.WithAttributes(
+			attribute.String("task_id", task.TaskID),
+		))
+
 		err := s.eventPublisher.PublishDomainEvent(
-			ctx,
+			taskCtx,
 			enumeration.NewTaskCreatedEvent(task),
 			events.WithKey(sessionID),
 		)
 		if err != nil {
-			span.RecordError(err)
+			taskSpan.RecordError(err)
+			taskSpan.AddEvent("Failed to publish task event", trace.WithAttributes(
+				attribute.String("error", err.Error()),
+			))
 			s.metrics.IncTasksFailedToEnqueue()
+			taskSpan.End()
 			return err
 		}
+		taskSpan.AddEvent("Published task event")
 		totalTasks++
 
 		s.metrics.IncTasksEnqueued()
 
-		saveCtx, saveSpan := s.tracer.Start(ctx, "enumeration.saveTask")
-		if err := s.taskRepo.Save(saveCtx, task); err != nil {
-			saveSpan.RecordError(err)
-			saveSpan.End()
-			span.RecordError(err)
+		if err := s.taskRepo.Save(taskCtx, task); err != nil {
+			taskSpan.RecordError(err)
+			taskSpan.AddEvent("Failed to save task", trace.WithAttributes(
+				attribute.String("error", err.Error()),
+			))
+			taskSpan.End()
 			return err
 		}
-		saveSpan.End()
+		taskSpan.AddEvent("Successfully saved task")
+		taskSpan.End()
 	}
 
 	span.SetAttributes(attribute.Int("total_tasks_published", totalTasks))
+	span.AddEvent("Completed task publication")
 
 	return nil
 }
