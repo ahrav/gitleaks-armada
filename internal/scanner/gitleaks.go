@@ -50,13 +50,13 @@ func NewGitLeaksScanner(
 // It ensures the cloned repository is cleaned up after scanning.
 func (s *GitLeaksScanner) Scan(ctx context.Context, repoURL string) error {
 	// Parent span for the entire scan operation
-	ctx, span := s.tracer.Start(ctx, "gitleaks.scan",
+	ctx, span := s.tracer.Start(ctx, "gitleaks_scanner.scanning.scan_repository",
 		trace.WithAttributes(
 			attribute.String("repository.url", repoURL),
 		))
 	defer span.End()
 
-	_, dirSpan := s.tracer.Start(ctx, "create_temp_dir")
+	_, dirSpan := s.tracer.Start(ctx, "gitleaks_scanner.scanning.create_temp_dir")
 	tempDir, err := os.MkdirTemp("", "gitleaks-scan-")
 	if err != nil {
 		dirSpan.RecordError(err)
@@ -66,7 +66,7 @@ func (s *GitLeaksScanner) Scan(ctx context.Context, repoURL string) error {
 	dirSpan.End()
 
 	defer func() {
-		cleanupCtx, cleanupSpan := s.tracer.Start(ctx, "cleanup_temp_dir")
+		cleanupCtx, cleanupSpan := s.tracer.Start(ctx, "gitleaks_scanner.scanning.cleanup_temp_dir")
 		if err := os.RemoveAll(tempDir); err != nil {
 			cleanupSpan.RecordError(err)
 			s.logger.Error(cleanupCtx, "failed to cleanup temp directory", "error", err)
@@ -74,7 +74,7 @@ func (s *GitLeaksScanner) Scan(ctx context.Context, repoURL string) error {
 		cleanupSpan.End()
 	}()
 
-	cloneCtx, cloneSpan := s.tracer.Start(ctx, "git.clone",
+	cloneCtx, cloneSpan := s.tracer.Start(ctx, "gitleaks_scanner.scanning.clone_repository",
 		trace.WithAttributes(
 			attribute.String("repository.url", repoURL),
 			attribute.String("clone.path", tempDir),
@@ -86,7 +86,7 @@ func (s *GitLeaksScanner) Scan(ctx context.Context, repoURL string) error {
 	}
 	cloneSpan.End()
 
-	_, cmdSpan := s.tracer.Start(ctx, "git.setup_log_cmd")
+	_, cmdSpan := s.tracer.Start(ctx, "gitleaks_scanner.scanning.setup_git_log")
 	gitCmd, err := sources.NewGitLogCmd(tempDir, "")
 	if err != nil {
 		cmdSpan.RecordError(err)
@@ -95,7 +95,7 @@ func (s *GitLeaksScanner) Scan(ctx context.Context, repoURL string) error {
 	}
 	cmdSpan.End()
 
-	_, detectSpan := s.tracer.Start(ctx, "gitleaks.detect")
+	_, detectSpan := s.tracer.Start(ctx, "gitleaks_scanner.scanning.detect_secrets")
 	findings, err := s.detector.DetectGit(gitCmd)
 	if err != nil {
 		detectSpan.RecordError(err)
@@ -151,7 +151,7 @@ func publishRulesOnStartup(
 	logger *logger.Logger,
 	tracer trace.Tracer,
 ) error {
-	ctx, span := tracer.Start(ctx, "gitleaks.publish_rules",
+	ctx, span := tracer.Start(ctx, "gitleaks_scanner.scanning.publish_rules",
 		trace.WithAttributes(
 			attribute.Int("rules.count", len(detector.Config.Rules)),
 		))

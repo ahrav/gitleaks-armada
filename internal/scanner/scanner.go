@@ -134,7 +134,7 @@ func (s *Scanner) handleScanTask(ctx context.Context, evt enumeration.TaskCreate
 		"occurred_at", evt.OccurredAt(),
 	)
 
-	ctx, span := s.tracer.Start(ctx, "process_scan_task",
+	ctx, span := s.tracer.Start(ctx, "scanner.scanning.process_scan_task",
 		trace.WithAttributes(
 			attribute.String("task.id", evt.Task.TaskID),
 			attribute.String("resource.uri", evt.Task.ResourceURI()),
