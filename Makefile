@@ -11,9 +11,10 @@ SCANNER_APP := scanner
 SCANNER_IMAGE := $(SCANNER_APP):latest
 
 # Add monitoring variables
-PROMETHEUS_IMAGE := prom/prometheus:v2.55.0
-GRAFANA_IMAGE := grafana/grafana:11.3.0
-TEMPO_IMAGE := grafana/tempo:2.6.0
+PROMETHEUS_IMAGE := prom/prometheus:v3.1.0
+GRAFANA_IMAGE := grafana/grafana:11.4.0
+TEMPO_IMAGE := grafana/tempo:2.6.1
+OTEL_COLLECTOR_IMAGE := otel/opentelemetry-collector-contrib:0.116.1
 
 K8S_MANIFESTS := k8s
 
@@ -91,6 +92,10 @@ dev-apply:
 	kubectl apply -f $(K8S_MANIFESTS)/kafka.yaml -n $(NAMESPACE)
 	kubectl apply -f $(K8S_MANIFESTS)/controller.yaml -n $(NAMESPACE)
 	kubectl apply -f $(K8S_MANIFESTS)/scanner.yaml -n $(NAMESPACE)
+	kubectl apply -f $(K8S_MANIFESTS)/otel.yaml -n $(NAMESPACE)
+	kubectl apply -f $(K8S_MANIFESTS)/prometheus.yaml -n $(NAMESPACE)
+	kubectl apply -f $(K8S_MANIFESTS)/tempo.yaml -n $(NAMESPACE)
+	kubectl apply -f $(K8S_MANIFESTS)/grafana.yaml -n $(NAMESPACE)
 
 # Show status
 dev-status:
@@ -275,13 +280,17 @@ monitoring-setup:
 	docker pull $(PROMETHEUS_IMAGE)
 	docker pull $(GRAFANA_IMAGE)
 	docker pull $(TEMPO_IMAGE)
+	docker pull $(OTEL_COLLECTOR_IMAGE)
 	kind load docker-image $(PROMETHEUS_IMAGE) --name $(KIND_CLUSTER)
 	kind load docker-image $(GRAFANA_IMAGE) --name $(KIND_CLUSTER)
 	kind load docker-image $(TEMPO_IMAGE) --name $(KIND_CLUSTER)
+	kind load docker-image $(OTEL_COLLECTOR_IMAGE) --name $(KIND_CLUSTER)
+	kubectl apply -f $(K8S_MANIFESTS)/otel.yaml -n $(NAMESPACE)
 	kubectl apply -f $(K8S_MANIFESTS)/prometheus.yaml -n $(NAMESPACE)
 	kubectl apply -f $(K8S_MANIFESTS)/tempo.yaml -n $(NAMESPACE)
 	kubectl apply -f $(K8S_MANIFESTS)/grafana.yaml -n $(NAMESPACE)
 	@echo "Waiting for monitoring services to be ready..."
+	kubectl wait --for=condition=ready pod -l app=otel-collector --timeout=120s -n $(NAMESPACE) || true
 	kubectl wait --for=condition=ready pod -l app=prometheus --timeout=120s -n $(NAMESPACE) || true
 	kubectl wait --for=condition=ready pod -l app=grafana --timeout=120s -n $(NAMESPACE) || true
 	kubectl wait --for=condition=ready pod -l app=tempo --timeout=120s -n $(NAMESPACE) || true
@@ -292,11 +301,21 @@ monitoring-port-forward:
 	@echo "Access Prometheus at http://localhost:9090"
 	@echo "Access Grafana at http://localhost:3000 (admin/admin)"
 	@echo "Access Tempo at http://localhost:3200"
+	@echo "Access OpenTelemetry Collector at:"
+	@echo "  - gRPC: localhost:4317"
+	@echo "  - HTTP: localhost:4318"
+	@echo "  - Prometheus: http://localhost:8889"
+	@echo "  - zPages: http://localhost:55679"
 	kubectl port-forward -n $(NAMESPACE) svc/prometheus 9090:9090 & \
 	kubectl port-forward -n $(NAMESPACE) svc/grafana 3000:3000 & \
-	kubectl port-forward -n $(NAMESPACE) svc/tempo 3200:3200
+	kubectl port-forward -n $(NAMESPACE) svc/tempo 3200:3200 & \
+	kubectl port-forward -n $(NAMESPACE) svc/otel-collector 4317:4317 & \
+	kubectl port-forward -n $(NAMESPACE) svc/otel-collector 4318:4318 & \
+	kubectl port-forward -n $(NAMESPACE) svc/otel-collector 8889:8889 & \
+	kubectl port-forward -n $(NAMESPACE) svc/otel-collector 55679:55679
 
 monitoring-cleanup:
+	kubectl delete -f $(K8S_MANIFESTS)/otel.yaml -n $(NAMESPACE) || true
 	kubectl delete -f $(K8S_MANIFESTS)/prometheus.yaml -n $(NAMESPACE) || true
 	kubectl delete -f $(K8S_MANIFESTS)/tempo.yaml -n $(NAMESPACE) || true
 	kubectl delete -f $(K8S_MANIFESTS)/grafana.yaml -n $(NAMESPACE) || true
@@ -397,7 +416,7 @@ prometheus-restart:
 	kubectl rollout restart deployment/prometheus -n $(NAMESPACE)
 
 # Restart all monitoring services
-monitoring-restart: tempo-restart grafana-restart prometheus-restart
+monitoring-restart: tempo-restart grafana-restart prometheus-restart otel-restart
 	@echo "All monitoring services restarted"
 
 # Restart everything (monitoring + application)
@@ -414,3 +433,10 @@ test-coverage:
 	go test -v -race -coverprofile=coverage.out ./...
 	go tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report generated at coverage.html"
+
+# Add new OpenTelemetry-specific targets
+otel-logs:
+	kubectl logs -l app=otel-collector -n $(NAMESPACE) --tail=100 -f
+
+otel-restart:
+	kubectl rollout restart deployment/otel-collector -n $(NAMESPACE)

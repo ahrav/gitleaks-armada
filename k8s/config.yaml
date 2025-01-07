@@ -12,5 +12,5 @@ data:
   POSTGRES_PORT: "5432"
   POSTGRES_DB: "secretscanner"
   POSTGRES_USER: "postgres"
-  TEMPO_HOST: "tempo:4317"
-  TEMPO_PROBABILITY: "0.5"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "otel-collector.secret-scanner.svc.cluster.local:4317"
+  OTEL_SAMPLING_RATIO: "0.5"

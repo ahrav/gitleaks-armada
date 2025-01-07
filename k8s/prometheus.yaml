@@ -10,19 +10,16 @@ data:
       evaluation_interval: 15s
       scrape_timeout: 10s
     scrape_configs:
-      - job_name: "scanner-worker"
-        metrics_path: '/metrics'
+      - job_name: "otel-collector"
         scrape_interval: 5s
-        scrape_timeout: 2s
         static_configs:
-          - targets: ["scanner-worker.secret-scanner.svc:8081"]
-
-      - job_name: "scanner-controller"
-        metrics_path: '/metrics'
-        scrape_interval: 5s
-        scrape_timeout: 2s
-        static_configs:
-          - targets: ["scanner-controller.secret-scanner.svc:8081"]
+          - targets: ["otel-collector.secret-scanner.svc:8889"]
+        metric_relabel_configs:
+          - action: labeldrop
+            regex: ^exported_job$
+          - action: labelmap
+            regex: ^exported_(.+)$
+            replacement: $1
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -45,7 +42,7 @@ spec:
     spec:
       containers:
         - name: prometheus
-          image: prom/prometheus:v2.55.0
+          image: prom/prometheus:v3.1.0
           args:
             - "--storage.tsdb.retention.time=1h"
             - "--config.file=/prom-conf/prometheus.yaml"

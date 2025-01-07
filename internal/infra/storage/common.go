@@ -114,6 +114,10 @@ func SetupTestContainer(t *testing.T) (*pgxpool.Pool, func()) {
 }
 
 func NoOpTracer() trace.Tracer {
-	tracer, _, _ := otel.InitTracing(logger.NewWithHandler(slog.NewJSONHandler(io.Discard, nil)), otel.Config{})
+	tracer, _, _ := otel.InitTelemetry(logger.NewWithHandler(slog.NewJSONHandler(io.Discard, nil)), otel.Config{
+		ServiceName:      "test",
+		ExporterEndpoint: "localhost:4317",
+		InsecureExporter: true,
+	})
 	return tracer.Tracer("test")
 }

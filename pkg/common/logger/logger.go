@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"time"
+
+	"go.opentelemetry.io/contrib/bridges/otelslog"
 )
 
 // TraceIDFn represents a function that can return the trace id from
@@ -101,42 +103,88 @@ func (log *Logger) write(ctx context.Context, level Level, caller int, msg strin
 	log.handler.Handle(ctx, r)
 }
 
-func new(w io.Writer, minLevel Level, serviceName string, traceIDFn TraceIDFn, events Events) *Logger {
-	// Convert the file name to just the name.ext when this key/value will
-	// be logged.
-	f := func(groups []string, a slog.Attr) slog.Attr {
-		if a.Key == slog.SourceKey {
-			if source, ok := a.Value.Any().(*slog.Source); ok {
-				v := fmt.Sprintf("%s:%d", filepath.Base(source.File), source.Line)
-				return slog.Attr{Key: "file", Value: slog.StringValue(v)}
-			}
+// MultiHandler implements slog.Handler to write to multiple handlers.
+type MultiHandler struct {
+	handlers []slog.Handler
+}
+
+func (h *MultiHandler) Enabled(ctx context.Context, level slog.Level) bool {
+	for _, handler := range h.handlers {
+		if handler.Enabled(ctx, level) {
+			return true
 		}
-
-		return a
 	}
+	return false
+}
 
-	// Construct the slog JSON handler for use.
-	handler := slog.Handler(
-		slog.NewJSONHandler(w, &slog.HandlerOptions{
-			AddSource:   true,
-			Level:       slog.Level(minLevel),
-			ReplaceAttr: f,
-		}),
+func (h *MultiHandler) Handle(ctx context.Context, r slog.Record) error {
+	for _, handler := range h.handlers {
+		if err := handler.Handle(ctx, r); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (h *MultiHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	handlers := make([]slog.Handler, len(h.handlers))
+	for i, handler := range h.handlers {
+		handlers[i] = handler.WithAttrs(attrs)
+	}
+	return &MultiHandler{handlers: handlers}
+}
+
+func (h *MultiHandler) WithGroup(name string) slog.Handler {
+	handlers := make([]slog.Handler, len(h.handlers))
+	for i, handler := range h.handlers {
+		handlers[i] = handler.WithGroup(name)
+	}
+	return &MultiHandler{handlers: handlers}
+}
+
+func new(w io.Writer, minLevel Level, serviceName string, traceIDFn TraceIDFn, events Events) *Logger {
+	// Create our original JSON handler with all its functionality.
+	jsonHandler := slog.NewJSONHandler(w, &slog.HandlerOptions{
+		AddSource: true,
+		Level:     slog.Level(minLevel),
+		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+			if a.Key == slog.SourceKey {
+				if source, ok := a.Value.Any().(*slog.Source); ok {
+					v := fmt.Sprintf("%s:%d", filepath.Base(source.File), source.Line)
+					return slog.Attr{Key: "file", Value: slog.StringValue(v)}
+				}
+			}
+			return a
+		},
+	})
+
+	// Create the OpenTelemetry handler.
+	// TODO: Revist this to see if this is the correct way to use it.
+	otelHandler := otelslog.NewHandler(
+		serviceName,
+		otelslog.WithSource(true),
 	)
 
-	// If events are to be processed, wrap the JSON handler around the custom
-	// log handler.
+	multiHandler := &MultiHandler{
+		handlers: []slog.Handler{
+			jsonHandler,
+			otelHandler,
+		},
+	}
+
+	var handler slog.Handler = multiHandler
+
+	// If events are configured, wrap the combined handler.
 	if events.Debug != nil || events.Info != nil || events.Warn != nil || events.Error != nil {
 		handler = newLogHandler(handler, events)
 	}
 
-	// Attributes to add to every log.
-	attrs := []slog.Attr{
+	handler = handler.WithAttrs([]slog.Attr{
 		{Key: "service", Value: slog.StringValue(serviceName)},
+	})
+
+	return &Logger{
+		handler:   handler,
+		traceIDFn: traceIDFn,
 	}
-
-	// Add those attributes and capture the final handler.
-	handler = handler.WithAttrs(attrs)
-
-	return &Logger{handler: handler, traceIDFn: traceIDFn}
 }

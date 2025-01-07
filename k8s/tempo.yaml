@@ -1,3 +1,6 @@
+# -------------------------------
+# Tempo ConfigMap
+# -------------------------------
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -5,9 +8,6 @@ metadata:
   namespace: secret-scanner
 data:
   tempo.yaml: |
-    usage_report:
-      reporting_enabled: false
-
     server:
       http_listen_port: 3200
 
@@ -15,18 +15,20 @@ data:
       receivers:
         otlp:
           protocols:
-            http:
             grpc:
+              endpoint: "0.0.0.0:4317"
+            http:
+              endpoint: "0.0.0.0:4318"
 
     ingester:
       trace_idle_period: 10s
-      max_block_bytes: 1_000_000
+      max_block_bytes: 1000000
       max_block_duration: 5m
 
     compactor:
       compaction:
         compaction_window: 1h
-        max_block_bytes: 100_000_000
+        max_block_bytes: 100000000
         block_retention: 1h
         compacted_block_retention: 10m
 
@@ -34,14 +36,14 @@ data:
       trace:
         backend: local
         block:
-          bloom_filter_false_positive: .05
+          bloom_filter_false_positive: 0.05
           v2_index_downsample_bytes: 1000
           v2_encoding: zstd
         wal:
-          path: /tmp/tempo/wal
+          path: /var/tempo/wal  # ephemeral path
           v2_encoding: snappy
         local:
-          path: /tmp/tempo/blocks
+          path: /var/tempo/blocks  # ephemeral path
         pool:
           max_workers: 100
           queue_depth: 10000
@@ -49,6 +51,9 @@ data:
     overrides:
       metrics_generator_processors: [service-graphs, span-metrics]
 ---
+# -------------------------------
+# Tempo Deployment (Ephemeral)
+# -------------------------------
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -67,30 +72,40 @@ spec:
         app: tempo
     spec:
       containers:
-      - name: tempo
-        image: grafana/tempo:2.6.0
-        args:
-        - -config.file=/tempo-conf/tempo.yaml
-        ports:
-        - containerPort: 3200
-          name: http
-        - containerPort: 4317
-          name: otlp-grpc
-        - containerPort: 4318
-          name: otlp-http
-        volumeMounts:
-        - name: config-volume
-          mountPath: /tempo-conf
-        resources:
-          requests:
-            cpu: 100m
-          limits:
-            cpu: 1000m
+        - name: tempo
+          image: grafana/tempo:2.6.1
+          args:
+            - -config.file=/tempo-conf/tempo.yaml
+          ports:
+            - containerPort: 3200
+              name: http
+            - containerPort: 4317
+              name: otlp-grpc
+            - containerPort: 4318
+              name: otlp-http
+          volumeMounts:
+            - name: config-volume
+              mountPath: /tempo-conf
+            - name: tempo-storage
+              mountPath: /var/tempo
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
       volumes:
-      - name: config-volume
-        configMap:
-          name: tempo-config
+        - name: config-volume
+          configMap:
+            name: tempo-config
+        # TODO: Use PVC instead of emptyDir
+        - name: tempo-storage
+          emptyDir: {}
 ---
+# -------------------------------
+# Tempo Service
+# -------------------------------
 apiVersion: v1
 kind: Service
 metadata:
@@ -101,9 +116,12 @@ spec:
   selector:
     app: tempo
   ports:
-  - port: 3200
-    name: http
-  - port: 4317
-    name: otlp-grpc
-  - port: 4318
-    name: otlp-http
+    - port: 3200
+      targetPort: 3200
+      name: http
+    - port: 4317
+      targetPort: 4317
+      name: otlp-grpc
+    - port: 4318
+      targetPort: 4318
+      name: otlp-http
