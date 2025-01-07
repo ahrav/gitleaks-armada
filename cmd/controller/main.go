@@ -128,10 +128,10 @@ func main() {
 
 	cfg := &kubernetes.K8sConfig{
 		Namespace:    namespace,
-		LeaderLockID: "scanner-leader-lock",
+		LeaderLockID: "controller-leader-lock",
 		Identity:     podName,
-		Name:         "scanner-controller",
-		WorkerName:   "scanner-worker",
+		Name:         "controller",
+		WorkerName:   "worker",
 	}
 
 	coord, err := kubernetes.NewCoordinator(cfg, log)
@@ -169,7 +169,11 @@ func main() {
 	defer telemetryTeardown(ctx)
 
 	tracer := tp.Tracer(os.Getenv("OTEL_SERVICE_NAME"))
-	metricCollector := metrics.New()
+	metricCollector, err := metrics.New()
+	if err != nil {
+		log.Error(ctx, "failed to create metrics collector", "error", err)
+		os.Exit(1)
+	}
 
 	kafkaCfg := &kafka.Config{
 		Brokers:       strings.Split(os.Getenv("KAFKA_BROKERS"), ","),

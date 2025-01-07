@@ -142,7 +142,7 @@ func (s *Scanner) handleScanTask(ctx context.Context, evt enumeration.TaskCreate
 		))
 	defer span.End()
 
-	return s.metrics.TrackTask(func() error {
+	return s.metrics.TrackTask(ctx, func() error {
 		if err := s.scanner.Scan(ctx, evt.Task.ResourceURI()); err != nil {
 			span.RecordError(err)
 			return err

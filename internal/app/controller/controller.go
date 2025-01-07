@@ -103,7 +103,7 @@ func (c *Controller) Run(ctx context.Context) (<-chan struct{}, error) {
 
 	c.coordinator.OnLeadershipChange(func(isLeader bool) {
 		c.logger.Info(ctx, "Leadership change", "controller_id", c.id, "is_leader", isLeader)
-		c.metrics.SetLeaderStatus(isLeader)
+		c.metrics.SetLeaderStatus(ctx, isLeader)
 
 		c.mu.Lock()
 		c.running = isLeader

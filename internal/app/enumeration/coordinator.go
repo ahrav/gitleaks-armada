@@ -33,13 +33,13 @@ type Coordinator interface {
 
 // metrics defines the interface for tracking enumeration-related metrics.
 type metrics interface {
-	IncConfigReloadErrors()
-	IncConfigReloads()
-	ObserveTargetProcessingTime(duration time.Duration)
-	IncTargetsProcessed()
-	TrackEnumeration(fn func() error) error
-	IncTasksEnqueued()
-	IncTasksFailedToEnqueue()
+	IncConfigReloadErrors(ctx context.Context)
+	IncConfigReloads(ctx context.Context)
+	ObserveTargetProcessingTime(ctx context.Context, duration time.Duration)
+	IncTargetsProcessed(ctx context.Context)
+	TrackEnumeration(ctx context.Context, fn func() error) error
+	IncTasksEnqueued(ctx context.Context)
+	IncTasksFailedToEnqueue(ctx context.Context)
 }
 
 // Orchestrator implements target enumeration by orchestrating domain logic, repository calls,
@@ -96,7 +96,7 @@ func NewCoordinator(
 // it loads the current configuration and starts new enumerations. Otherwise, it resumes
 // the existing enumeration sessions.
 func (s *coordinator) ExecuteEnumeration(ctx context.Context) error {
-	return s.metrics.TrackEnumeration(func() error {
+	return s.metrics.TrackEnumeration(ctx, func() error {
 		ctx, span := s.tracer.Start(ctx, "enumeration.ExecuteEnumeration",
 			trace.WithAttributes(
 				attribute.String("component", "coordinator"),
@@ -155,10 +155,10 @@ func (s *coordinator) startFreshEnumerations(ctx context.Context) error {
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to load configuration")
-		s.metrics.IncConfigReloadErrors()
+		s.metrics.IncConfigReloadErrors(ctx)
 		return fmt.Errorf("failed to load config: %w", err)
 	}
-	s.metrics.IncConfigReloads()
+	s.metrics.IncConfigReloads(ctx)
 	span.AddEvent("configuration_loaded")
 
 	s.credStore, err = memory.NewCredentialStore(cfg.Auth)
@@ -197,8 +197,8 @@ func (s *coordinator) startFreshEnumerations(ctx context.Context) error {
 		targetSpan.AddEvent("target_processed", trace.WithAttributes(
 			attribute.Int64("processing_time_ms", time.Since(start).Milliseconds()),
 		))
-		s.metrics.ObserveTargetProcessingTime(time.Since(start))
-		s.metrics.IncTargetsProcessed()
+		s.metrics.ObserveTargetProcessingTime(ctx, time.Since(start))
+		s.metrics.IncTargetsProcessed(ctx)
 	}
 
 	span.SetStatus(codes.Ok, "fresh enumeration completed")
@@ -569,14 +569,14 @@ func (s *coordinator) publishTasks(
 			taskSpan.AddEvent("Failed to publish task event", trace.WithAttributes(
 				attribute.String("error", err.Error()),
 			))
-			s.metrics.IncTasksFailedToEnqueue()
+			s.metrics.IncTasksFailedToEnqueue(ctx)
 			taskSpan.End()
 			return err
 		}
 		taskSpan.AddEvent("Published task event")
 		totalTasks++
 
-		s.metrics.IncTasksEnqueued()
+		s.metrics.IncTasksEnqueued(ctx)
 
 		if err := s.taskRepo.Save(taskCtx, task); err != nil {
 			taskSpan.RecordError(err)

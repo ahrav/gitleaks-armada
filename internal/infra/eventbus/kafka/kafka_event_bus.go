@@ -20,10 +20,10 @@ import (
 // BrokerMetrics defines metrics operations needed to monitor Kafka message handling.
 // It enables tracking of successful and failed message publishing/consumption.
 type BrokerMetrics interface {
-	IncMessagePublished(topic string)
-	IncMessageConsumed(topic string)
-	IncPublishError(topic string)
-	IncConsumeError(topic string)
+	IncMessagePublished(ctx context.Context, topic string)
+	IncMessageConsumed(ctx context.Context, topic string)
+	IncPublishError(ctx context.Context, topic string)
+	IncConsumeError(ctx context.Context, topic string)
 }
 
 // Config contains settings for connecting to and interacting with Kafka brokers.
@@ -153,7 +153,7 @@ func (k *KafkaEventBus) Publish(ctx context.Context, event events.EventEnvelope,
 		span.RecordError(err)
 
 		if k.metrics != nil {
-			k.metrics.IncPublishError(topic)
+			k.metrics.IncPublishError(ctx, topic)
 		}
 		return fmt.Errorf("failed to serialize payload for event %s: %w", event.Type, err)
 	}
@@ -171,13 +171,13 @@ func (k *KafkaEventBus) Publish(ctx context.Context, event events.EventEnvelope,
 		span.RecordError(sendErr)
 
 		if k.metrics != nil {
-			k.metrics.IncPublishError(topic)
+			k.metrics.IncPublishError(ctx, topic)
 		}
 		return fmt.Errorf("failed to send message to kafka topic %s: %w", topic, sendErr)
 	}
 
 	if k.metrics != nil {
-		k.metrics.IncMessagePublished(topic)
+		k.metrics.IncMessagePublished(ctx, topic)
 	}
 	k.logger.Info(ctx, "Published message to Kafka",
 		"topic", topic,
@@ -294,7 +294,7 @@ func (h *domainEventHandler) ConsumeClaim(
 		payload, err := serialization.DeserializePayload(eType, msg.Value)
 		if err != nil {
 			if h.metrics != nil {
-				h.metrics.IncConsumeError(msg.Topic)
+				h.metrics.IncConsumeError(msgCtx, msg.Topic)
 			}
 			span.RecordError(err)
 			sess.MarkMessage(msg, "")
@@ -318,13 +318,13 @@ func (h *domainEventHandler) ConsumeClaim(
 
 		if err := h.userHandler(msgCtx, dEvent); err != nil {
 			if h.metrics != nil {
-				h.metrics.IncConsumeError(msg.Topic)
+				h.metrics.IncConsumeError(msgCtx, msg.Topic)
 			}
 			h.logger.Error(msgCtx, "Failed to handle message", "error", err)
 			span.RecordError(err)
 		} else {
 			if h.metrics != nil {
-				h.metrics.IncMessageConsumed(msg.Topic)
+				h.metrics.IncMessageConsumed(msgCtx, msg.Topic)
 			}
 			h.logger.Info(msgCtx, "Successfully processed message", "topic", msg.Topic)
 		}

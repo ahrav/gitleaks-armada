@@ -34,10 +34,10 @@ SECRET_NAME ?= scanner-targets
 
 # Add to Variables section
 POSTGRES_IMAGE := postgres:17.2
-KAFKA_TASK_TOPIC := scanner-tasks
-KAFKA_RESULTS_TOPIC := scanner-results
-KAFKA_PROGRESS_TOPIC := scanner-progress
-KAFKA_RULES_TOPIC := scanner-rules
+KAFKA_TASK_TOPIC := tasks
+KAFKA_RESULTS_TOPIC := results
+KAFKA_PROGRESS_TOPIC := progress
+KAFKA_RULES_TOPIC := rules
 POSTGRES_URL = postgres://postgres:postgres@localhost:5432/secretscanner?sslmode=disable
 
 # -------------------------------------------------------------------------------
@@ -122,27 +122,27 @@ rollout-restart: rollout-restart-controller rollout-restart-scanner
 
 redeploy-%:
 	$(MAKE) build-$* docker-$* kind-load-$*
-	kubectl rollout restart deployment/scanner-$* -n $(NAMESPACE)
+	kubectl rollout restart deployment/$* -n $(NAMESPACE)
 
 rollout-restart-controller:
-	kubectl rollout restart deployment/scanner-controller -n $(NAMESPACE)
+	kubectl rollout restart deployment/controller -n $(NAMESPACE)
 
 rollout-restart-scanner:
-	kubectl rollout restart deployment/scanner-worker -n $(NAMESPACE)
+	kubectl rollout restart deployment/scanner -n $(NAMESPACE)
 
 # View logs
 logs-controller:
-	kubectl logs -l app=scanner-controller -n $(NAMESPACE) --tail=100 -f
+	kubectl logs -l app=controller -n $(NAMESPACE) --tail=100 -f
 
 logs-scanner:
-	kubectl logs -l app=scanner-worker -n $(NAMESPACE) --tail=100 -f
+	kubectl logs -l app=scanner -n $(NAMESPACE) --tail=100 -f
 
 # Scale deployments
 scale-controller:
-	kubectl scale deployment/scanner-controller -n $(NAMESPACE) --replicas=$(replicas)
+	kubectl scale deployment/controller -n $(NAMESPACE) --replicas=$(replicas)
 
 scale-scanner:
-	kubectl scale deployment/scanner-worker -n $(NAMESPACE) --replicas=$(replicas)
+	kubectl scale deployment/scanner -n $(NAMESPACE) --replicas=$(replicas)
 
 # Proto targets
 proto: proto-deps proto-gen
@@ -371,14 +371,14 @@ kafka-debug-controller-consumers:
 	@echo "Checking controller consumer group..."
 	kubectl exec -it -n $(NAMESPACE) deployment/kafka -- /opt/bitnami/kafka/bin/kafka-consumer-groups.sh \
 		--describe \
-		--group controller-workers \
+		--group controller \
 		--bootstrap-server localhost:9092
 
 kafka-debug-scanner-consumers:
 	@echo "Checking scanner consumer group..."
 	kubectl exec -it -n $(NAMESPACE) deployment/kafka -- /opt/bitnami/kafka/bin/kafka-consumer-groups.sh \
 		--describe \
-		--group scanner-workers \
+		--group scanner \
 		--bootstrap-server localhost:9092
 
 # Comprehensive Kafka debug target

@@ -1,19 +1,19 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: scanner-worker
+  name: scanner
   namespace: secret-scanner
   labels:
-    app: scanner-worker
+    app: scanner
 spec:
   replicas: 3
   selector:
     matchLabels:
-      app: scanner-worker
+      app: scanner
   template:
     metadata:
       labels:
-        app: scanner-worker
+        app: scanner
     spec:
       containers:
       - name: scanner
@@ -44,7 +44,7 @@ spec:
               name: scanner-config
               key: KAFKA_RULES_TOPIC
         - name: KAFKA_GROUP_ID
-          value: "scanner-workers"
+          value: "scanner"
         - name: POD_NAME
           valueFrom:
             fieldRef:

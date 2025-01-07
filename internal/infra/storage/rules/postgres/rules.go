@@ -19,10 +19,10 @@ import (
 // RulesMetrics defines the interface for tracking metrics related to rule operations.
 type RulesMetrics interface {
 	// IncRulesSaved increments the counter for successfully saved rules
-	IncRulesSaved()
+	IncRulesSaved(ctx context.Context)
 
 	// IncRuleSaveErrors increments the counter for rule save failures.
-	IncRuleSaveErrors()
+	IncRuleSaveErrors(ctx context.Context)
 }
 
 // Compile-time check that RulesStorage implements rules.RulesStorage.
@@ -168,11 +168,11 @@ func (s *ruleStore) SaveRule(ctx context.Context, rule rules.GitleaksRule) error
 		})
 
 		if err != nil {
-			s.metrics.IncRuleSaveErrors()
+			s.metrics.IncRuleSaveErrors(ctx)
 			return err
 		}
 
-		s.metrics.IncRulesSaved()
+		s.metrics.IncRulesSaved(ctx)
 		return nil
 	})
 }

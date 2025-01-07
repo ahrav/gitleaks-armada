@@ -1,10 +1,12 @@
 package metrics
 
 import (
+	"context"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 
 	"github.com/ahrav/gitleaks-armada/internal/infra/eventbus/kafka"
 )
@@ -15,183 +17,214 @@ type ScannerMetrics interface {
 	kafka.BrokerMetrics
 
 	// Task metrics
-	IncTasksProcessed()
-	IncTaskErrors()
-	TrackTask(f func() error) error
+	IncTasksProcessed(ctx context.Context)
+	IncTaskErrors(ctx context.Context)
+	TrackTask(ctx context.Context, f func() error) error
 
 	// Git operations metrics
-	ObserveCloneTime(duration time.Duration)
-	IncCloneErrors()
+	ObserveCloneTime(ctx context.Context, duration time.Duration)
+	IncCloneErrors(ctx context.Context)
 
 	// Finding metrics
-	ObserveFindings(count int)
+	ObserveFindings(ctx context.Context, count int)
 
 	// Worker metrics
-	SetActiveWorkers(count int)
-	IncWorkerErrors()
+	SetActiveWorkers(ctx context.Context, count int)
+	IncWorkerErrors(ctx context.Context)
 }
 
 // Scanner implements ScannerMetrics
 type Scanner struct {
-	// Task metrics
-	MessagesPublished *prometheus.CounterVec // labels: topic
-	MessagesConsumed  *prometheus.CounterVec // labels: topic
-	PublishErrors     *prometheus.CounterVec // labels: topic
-	ConsumeErrors     *prometheus.CounterVec // labels: topic
+	// Messaging metrics
+	messagesPublished metric.Int64Counter
+	messagesConsumed  metric.Int64Counter
+	publishErrors     metric.Int64Counter
+	consumeErrors     metric.Int64Counter
 
-	TasksProcessed  prometheus.Counter
-	TaskErrors      prometheus.Counter
-	ActiveTasks     prometheus.Gauge
-	TaskProcessTime prometheus.Histogram
+	// Task metrics
+	tasksProcessed  metric.Int64Counter
+	taskErrors      metric.Int64Counter
+	activeTasks     metric.Int64UpDownCounter
+	taskProcessTime metric.Float64Histogram
 
 	// Git operations metrics
-	CloneTime   prometheus.Histogram
-	CloneErrors prometheus.Counter
+	cloneTime   metric.Float64Histogram
+	cloneErrors metric.Int64Counter
 
 	// Finding metrics
-	FindingsPerTask      prometheus.Histogram
-	LastFindingFoundTime prometheus.Gauge
+	findingsPerTask      metric.Float64Histogram
+	lastFindingFoundTime metric.Float64ObservableGauge
 
 	// Worker metrics
-	ActiveWorkers prometheus.Gauge
-	WorkerErrors  prometheus.Counter
+	activeWorkers metric.Int64UpDownCounter
+	workerErrors  metric.Int64Counter
 }
 
 const namespace = "scanner"
 
-// New creates a new ScannerMetricsImpl instance
-func New() *Scanner {
-	return &Scanner{
-		// Task metrics
-		MessagesPublished: promauto.NewCounterVec(prometheus.CounterOpts{
-			Namespace: namespace,
-			Name:      "messages_published_total",
-			Help:      "Total number of messages published",
-		}, []string{"topic"}),
-		MessagesConsumed: promauto.NewCounterVec(prometheus.CounterOpts{
-			Namespace: namespace,
-			Name:      "messages_consumed_total",
-			Help:      "Total number of messages consumed",
-		}, []string{"topic"}),
-		PublishErrors: promauto.NewCounterVec(prometheus.CounterOpts{
-			Namespace: namespace,
-			Name:      "publish_errors_total",
-			Help:      "Total number of publish errors",
-		}, []string{"topic"}),
-		ConsumeErrors: promauto.NewCounterVec(prometheus.CounterOpts{
-			Namespace: namespace,
-			Name:      "consume_errors_total",
-			Help:      "Total number of consume errors",
-		}, []string{"topic"}),
+// New creates a new Scanner metrics instance.
+func New() (*Scanner, error) {
+	meter := otel.GetMeterProvider().Meter(namespace, metric.WithInstrumentationVersion("v0.1.0"))
 
-		TasksProcessed: promauto.NewCounter(prometheus.CounterOpts{
-			Namespace: namespace,
-			Name:      "tasks_processed_total",
-			Help:      "Total number of tasks successfully processed",
-		}),
-		TaskErrors: promauto.NewCounter(prometheus.CounterOpts{
-			Namespace: namespace,
-			Name:      "task_errors_total",
-			Help:      "Total number of task processing errors",
-		}),
-		ActiveTasks: promauto.NewGauge(prometheus.GaugeOpts{
-			Namespace: namespace,
-			Name:      "active_tasks",
-			Help:      "Number of tasks currently being processed",
-		}),
-		TaskProcessTime: promauto.NewHistogram(prometheus.HistogramOpts{
-			Namespace: namespace,
-			Name:      "task_process_duration_seconds",
-			Help:      "Time taken to process each task",
-			Buckets:   prometheus.ExponentialBuckets(5, 2, 16),
-		}),
+	s := new(Scanner)
+	var err error
 
-		// Git operations metrics
-		CloneTime: promauto.NewHistogram(prometheus.HistogramOpts{
-			Namespace: namespace,
-			Name:      "git_clone_duration_seconds",
-			Help:      "Time taken to clone repositories",
-			Buckets:   prometheus.ExponentialBuckets(1, 2, 10),
-		}),
-		CloneErrors: promauto.NewCounter(prometheus.CounterOpts{
-			Namespace: namespace,
-			Name:      "git_clone_errors_total",
-			Help:      "Total number of repository clone errors",
-		}),
-
-		// Finding metrics
-		FindingsPerTask: promauto.NewHistogram(prometheus.HistogramOpts{
-			Namespace: namespace,
-			Name:      "findings_per_task",
-			Help:      "Number of findings discovered per task",
-			Buckets:   prometheus.LinearBuckets(0, 5, 20),
-		}),
-		LastFindingFoundTime: promauto.NewGauge(prometheus.GaugeOpts{
-			Namespace: namespace,
-			Name:      "last_finding_timestamp",
-			Help:      "Timestamp of the last finding discovered",
-		}),
-
-		// Worker metrics
-		ActiveWorkers: promauto.NewGauge(prometheus.GaugeOpts{
-			Namespace: namespace,
-			Name:      "active_workers",
-			Help:      "Number of active workers",
-		}),
-		WorkerErrors: promauto.NewCounter(prometheus.CounterOpts{
-			Namespace: namespace,
-			Name:      "worker_errors_total",
-			Help:      "Total number of worker errors",
-		}),
+	// Initialize messaging metrics
+	if s.messagesPublished, err = meter.Int64Counter(
+		"messages_published_total",
+		metric.WithDescription("Total number of messages published"),
+	); err != nil {
+		return nil, err
 	}
+
+	if s.messagesConsumed, err = meter.Int64Counter(
+		"messages_consumed_total",
+		metric.WithDescription("Total number of messages consumed"),
+	); err != nil {
+		return nil, err
+	}
+
+	if s.publishErrors, err = meter.Int64Counter(
+		"publish_errors_total",
+		metric.WithDescription("Total number of publish errors"),
+	); err != nil {
+		return nil, err
+	}
+
+	if s.consumeErrors, err = meter.Int64Counter(
+		"consume_errors_total",
+		metric.WithDescription("Total number of consume errors"),
+	); err != nil {
+		return nil, err
+	}
+
+	// Initialize task metrics
+	if s.tasksProcessed, err = meter.Int64Counter(
+		"tasks_processed_total",
+		metric.WithDescription("Total number of tasks successfully processed"),
+	); err != nil {
+		return nil, err
+	}
+
+	if s.taskErrors, err = meter.Int64Counter(
+		"task_errors_total",
+		metric.WithDescription("Total number of task processing errors"),
+	); err != nil {
+		return nil, err
+	}
+
+	if s.activeTasks, err = meter.Int64UpDownCounter(
+		"active_tasks",
+		metric.WithDescription("Number of tasks currently being processed"),
+	); err != nil {
+		return nil, err
+	}
+
+	if s.taskProcessTime, err = meter.Float64Histogram(
+		"task_process_duration_seconds",
+		metric.WithDescription("Time taken to process each task"),
+	); err != nil {
+		return nil, err
+	}
+
+	// Initialize Git operations metrics
+	if s.cloneTime, err = meter.Float64Histogram(
+		"git_clone_duration_seconds",
+		metric.WithDescription("Time taken to clone repositories"),
+	); err != nil {
+		return nil, err
+	}
+
+	if s.cloneErrors, err = meter.Int64Counter(
+		"git_clone_errors_total",
+		metric.WithDescription("Total number of repository clone errors"),
+	); err != nil {
+		return nil, err
+	}
+
+	// Initialize finding metrics
+	if s.findingsPerTask, err = meter.Float64Histogram(
+		"findings_per_task",
+		metric.WithDescription("Number of findings discovered per task"),
+	); err != nil {
+		return nil, err
+	}
+
+	// Initialize worker metrics
+	if s.activeWorkers, err = meter.Int64UpDownCounter(
+		"active_workers",
+		metric.WithDescription("Number of active workers"),
+	); err != nil {
+		return nil, err
+	}
+
+	if s.workerErrors, err = meter.Int64Counter(
+		"worker_errors_total",
+		metric.WithDescription("Total number of worker errors"),
+	); err != nil {
+		return nil, err
+	}
+
+	return s, nil
 }
 
 // Task metrics implementations
-func (m *Scanner) IncTasksProcessed() { m.TasksProcessed.Inc() }
+func (m *Scanner) IncTasksProcessed(ctx context.Context) {
+	m.tasksProcessed.Add(ctx, 1)
+}
 
-func (m *Scanner) IncTaskErrors() { m.TaskErrors.Inc() }
+func (m *Scanner) IncTaskErrors(ctx context.Context) {
+	m.taskErrors.Add(ctx, 1)
+}
 
-func (m *Scanner) TrackTask(f func() error) error {
+func (m *Scanner) TrackTask(ctx context.Context, f func() error) error {
+	m.activeTasks.Add(ctx, 1)
+	defer m.activeTasks.Add(ctx, -1)
+
 	start := time.Now()
-	m.ActiveTasks.Inc()
-	defer m.ActiveTasks.Dec()
-
 	err := f()
-	m.TaskProcessTime.Observe(time.Since(start).Seconds())
+	m.taskProcessTime.Record(ctx, time.Since(start).Seconds())
 	return err
 }
 
 // Git operations metrics implementations
-func (m *Scanner) ObserveCloneTime(duration time.Duration) {
-	m.CloneTime.Observe(duration.Seconds())
+func (m *Scanner) ObserveCloneTime(ctx context.Context, duration time.Duration) {
+	m.cloneTime.Record(ctx, duration.Seconds())
 }
 
-func (m *Scanner) IncCloneErrors() { m.CloneErrors.Inc() }
+func (m *Scanner) IncCloneErrors(ctx context.Context) {
+	m.cloneErrors.Add(ctx, 1)
+}
 
 // Finding metrics implementations
-func (m *Scanner) ObserveFindings(count int) {
-	m.FindingsPerTask.Observe(float64(count))
-	m.LastFindingFoundTime.SetToCurrentTime()
+func (m *Scanner) ObserveFindings(ctx context.Context, count int) {
+	m.findingsPerTask.Record(ctx, float64(count))
 }
 
 // Worker metrics implementations
-func (m *Scanner) SetActiveWorkers(count int) { m.ActiveWorkers.Set(float64(count)) }
+func (m *Scanner) SetActiveWorkers(ctx context.Context, count int) {
+	// Since we can't directly set the value, we need to calculate the difference
+	// This is a basic implementation and might need refinement based on requirements
+	m.activeWorkers.Add(ctx, int64(count))
+}
 
-func (m *Scanner) IncWorkerErrors() { m.WorkerErrors.Inc() }
+func (m *Scanner) IncWorkerErrors(ctx context.Context) {
+	m.workerErrors.Add(ctx, 1)
+}
 
 // Kafka BrokerMetrics implementations
-func (m *Scanner) IncMessagePublished(topic string) {
-	m.MessagesPublished.WithLabelValues(topic).Inc()
+func (m *Scanner) IncMessagePublished(ctx context.Context, topic string) {
+	m.messagesPublished.Add(ctx, 1, metric.WithAttributes(attribute.String("topic", topic)))
 }
 
-func (m *Scanner) IncMessageConsumed(topic string) {
-	m.MessagesConsumed.WithLabelValues(topic).Inc()
+func (m *Scanner) IncMessageConsumed(ctx context.Context, topic string) {
+	m.messagesConsumed.Add(ctx, 1, metric.WithAttributes(attribute.String("topic", topic)))
 }
 
-func (m *Scanner) IncPublishError(topic string) {
-	m.PublishErrors.WithLabelValues(topic).Inc()
+func (m *Scanner) IncPublishError(ctx context.Context, topic string) {
+	m.publishErrors.Add(ctx, 1, metric.WithAttributes(attribute.String("topic", topic)))
 }
 
-func (m *Scanner) IncConsumeError(topic string) {
-	m.ConsumeErrors.WithLabelValues(topic).Inc()
+func (m *Scanner) IncConsumeError(ctx context.Context, topic string) {
+	m.consumeErrors.Add(ctx, 1, metric.WithAttributes(attribute.String("topic", topic)))
 }

@@ -4,9 +4,9 @@ metadata:
   name: scanner-config
   namespace: secret-scanner
 data:
-  KAFKA_TASK_TOPIC: "scanner-tasks"
-  KAFKA_RESULTS_TOPIC: "scanner-results"
-  KAFKA_RULES_TOPIC: "scanner-rules"
+  KAFKA_TASK_TOPIC: "tasks"
+  KAFKA_RESULTS_TOPIC: "results"
+  KAFKA_RULES_TOPIC: "rules"
   KAFKA_BROKERS: "kafka:9092"
   POSTGRES_HOST: "postgres"
   POSTGRES_PORT: "5432"

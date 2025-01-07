@@ -83,7 +83,11 @@ func main() {
 	defer telemetryTeardown(ctx)
 
 	tracer := tp.Tracer(os.Getenv("OTEL_SERVICE_NAME"))
-	metricsCollector := metrics.New()
+	metricsCollector, err := metrics.New()
+	if err != nil {
+		log.Error(ctx, "failed to create metrics collector", "error", err)
+		os.Exit(1)
+	}
 
 	kafkaCfg := &kafka.Config{
 		Brokers:      strings.Split(os.Getenv("KAFKA_BROKERS"), ","),

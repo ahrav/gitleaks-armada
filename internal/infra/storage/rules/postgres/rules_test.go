@@ -20,7 +20,9 @@ func TestRulesStorage_SaveRule(t *testing.T) {
 	defer cleanup()
 
 	// TODO: Replace this with a mock metrics implementation.
-	rulesStorage := NewStore(dbConn, storage.NoOpTracer(), metrics.New())
+	metricsCollector, err := metrics.New()
+	require.NoError(t, err)
+	rulesStorage := NewStore(dbConn, storage.NoOpTracer(), metricsCollector)
 
 	rule := rules.GitleaksRule{
 		RuleID:      "rule-1",
@@ -45,8 +47,7 @@ func TestRulesStorage_SaveRule(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	err := rulesStorage.SaveRule(ctx, rule)
-	require.NoError(t, err)
+	require.NoError(t, rulesStorage.SaveRule(ctx, rule))
 
 	// TODO: Add a getter or some other method to verify data was inserted.
 	// We don't currently have a getter since we don't have a use case for it yet.
