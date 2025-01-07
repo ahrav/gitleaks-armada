@@ -94,7 +94,7 @@ const githubSourceType = "github"
 // The method streams batches of tasks through the provided channel and updates progress
 // in the enumeration state storage.
 func (e *GitHubEnumerator) Enumerate(ctx context.Context, startCursor *string, batchCh chan<- EnumerateBatch) error {
-	ctx, span := e.tracer.Start(ctx, "github.enumerate",
+	ctx, span := e.tracer.Start(ctx, "github_enumerator.enumeration.enumerate",
 		trace.WithAttributes(
 			attribute.String("org", e.ghConfig.Org),
 			attribute.Int("repo_list_count", len(e.ghConfig.RepoList)),
@@ -127,7 +127,7 @@ func (e *GitHubEnumerator) Enumerate(ctx context.Context, startCursor *string, b
 	const batchSize = 100 // GitHub GraphQL API limit per query
 	for {
 		// Create child span for API calls
-		apiCtx, apiSpan := e.tracer.Start(ctx, "github.list_repositories")
+		apiCtx, apiSpan := e.tracer.Start(ctx, "github_enumerator.enumeration.list_repositories")
 		respData, err := e.ghClient.ListRepositories(apiCtx, e.ghConfig.Org, endCursor)
 		if err != nil {
 			apiSpan.RecordError(err)
@@ -136,7 +136,7 @@ func (e *GitHubEnumerator) Enumerate(ctx context.Context, startCursor *string, b
 		}
 		apiSpan.End()
 
-		_, taskSpan := e.tracer.Start(ctx, "create_tasks")
+		_, taskSpan := e.tracer.Start(ctx, "github_enumerator.enumeration.create_tasks")
 		targets := make([]*TargetInfo, 0, len(respData.Data.Organization.Repositories.Nodes))
 		for _, node := range respData.Data.Organization.Repositories.Nodes {
 			targets = append(targets, &TargetInfo{
@@ -242,7 +242,7 @@ type githubGraphQLResponse struct {
 // using the GraphQL API. It fetches repositories in batches of 100 and accepts an optional
 // cursor for continuation.
 func (c *GitHubClient) ListRepositories(ctx context.Context, org string, cursor *string) (*githubGraphQLResponse, error) {
-	ctx, span := c.tracer.Start(ctx, "github.ListRepositories",
+	ctx, span := c.tracer.Start(ctx, "github_enumerator.enumeration.list_repositories",
 		trace.WithAttributes(
 			attribute.String("org", org),
 			attribute.String("cursor", stringOrNone(cursor)),
@@ -292,7 +292,7 @@ func (c *GitHubClient) doGitHubGraphQLRequest(
 	query string,
 	variables map[string]any,
 ) (*githubGraphQLResponse, error) {
-	ctx, span := c.tracer.Start(ctx, "github.doGraphQLRequest")
+	ctx, span := c.tracer.Start(ctx, "github_enumerator.do_github_graphql_request")
 	defer span.End()
 
 	const apiUrl = "https://api.github.com/graphql"

@@ -45,7 +45,7 @@ func NewEnumerationFactory(
 // TODO: Revist the use of this factory it's still a bit wonky with the credential store.
 func (f *enumerationFactory) CreateEnumerator(target config.TargetSpec, creds *enumeration.TaskCredentials) (TargetEnumerator, error) {
 	ctx := context.Background()
-	ctx, span := f.tracer.Start(ctx, "factory.CreateEnumerator",
+	ctx, span := f.tracer.Start(ctx, "factory.enumeration.create_enumerator",
 		trace.WithAttributes(
 			attribute.String("source_type", string(target.SourceType)),
 			attribute.String("auth_ref", target.AuthRef),
@@ -60,7 +60,7 @@ func (f *enumerationFactory) CreateEnumerator(target config.TargetSpec, creds *e
 			return nil, fmt.Errorf("github target configuration is missing")
 		}
 
-		_, ghSpan := f.tracer.Start(ctx, "factory.createGitHubClient")
+		_, ghSpan := f.tracer.Start(ctx, "factory.enumeration.create_github_client")
 		ghClient, err := NewGitHubClient(f.httpClient, creds, f.tracer)
 		if err != nil {
 			ghSpan.RecordError(err)

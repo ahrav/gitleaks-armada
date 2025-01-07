@@ -97,7 +97,7 @@ func NewCoordinator(
 // the existing enumeration sessions.
 func (s *coordinator) ExecuteEnumeration(ctx context.Context) error {
 	return s.metrics.TrackEnumeration(ctx, func() error {
-		ctx, span := s.tracer.Start(ctx, "enumeration.ExecuteEnumeration",
+		ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.execute_enumeration",
 			trace.WithAttributes(
 				attribute.String("component", "coordinator"),
 				attribute.String("operation", "execute_enumeration"),
@@ -144,7 +144,7 @@ func (s *coordinator) ExecuteEnumeration(ctx context.Context) error {
 // startFreshEnumerations processes each target from the configuration, creating new
 // enumeration states and running the appropriate enumerator for each target type.
 func (s *coordinator) startFreshEnumerations(ctx context.Context) error {
-	ctx, span := s.tracer.Start(ctx, "enumeration.startFreshEnumerations",
+	ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.start_fresh_enumerations",
 		trace.WithAttributes(
 			attribute.String("component", "coordinator"),
 			attribute.String("operation", "start_fresh_enumerations"),
@@ -212,13 +212,12 @@ func (s *coordinator) marshalConfig(
 	target config.TargetSpec,
 	auth map[string]config.AuthConfig,
 ) json.RawMessage {
-	ctx, span := s.tracer.Start(ctx, "enumeration.marshalConfig")
+	ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.marshal_config",
+		trace.WithAttributes(
+			attribute.String("source_type", string(target.SourceType)),
+			attribute.String("auth_ref", target.AuthRef),
+		))
 	defer span.End()
-
-	span.SetAttributes(
-		attribute.String("source_type", string(target.SourceType)),
-		attribute.String("auth_ref", target.AuthRef),
-	)
 
 	// Combine target configuration with its authentication details into a single config.
 	// This combined config is necessary for two reasons:
@@ -249,14 +248,14 @@ func (s *coordinator) marshalConfig(
 // resumeEnumerations attempts to continue enumeration from previously saved states.
 // This allows recovery from interruptions and supports incremental scanning.
 func (s *coordinator) resumeEnumerations(ctx context.Context, states []*enumeration.SessionState) error {
-	ctx, span := s.tracer.Start(ctx, "enumeration.resumeEnumerations")
+	ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.resume_enumerations",
+		trace.WithAttributes(attribute.Int("state_count", len(states))))
 	defer span.End()
 
-	span.SetAttributes(attribute.Int("state_count", len(states)))
 	span.AddEvent("starting_enumeration_resume")
 
 	for _, st := range states {
-		stateCtx, stateSpan := s.tracer.Start(ctx, "enumeration.process_state",
+		stateCtx, stateSpan := s.tracer.Start(ctx, "coordinator.enumeration.process_state",
 			trace.WithAttributes(
 				attribute.String("session_id", st.SessionID()),
 				attribute.String("source_type", string(st.SourceType())),
@@ -323,13 +322,12 @@ func (s *coordinator) processTargetEnumeration(
 	state *enumeration.SessionState,
 	target config.TargetSpec,
 ) error {
-	ctx, span := s.tracer.Start(ctx, "enumeration.processTarget")
+	ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.process_target_enumeration",
+		trace.WithAttributes(
+			attribute.String("source_type", string(target.SourceType)),
+			attribute.String("session_id", state.SessionID()),
+		))
 	defer span.End()
-
-	span.SetAttributes(
-		attribute.String("source_type", string(target.SourceType)),
-		attribute.String("session_id", state.SessionID()),
-	)
 
 	if err := s.stateRepo.Save(ctx, state); err != nil {
 		span.RecordError(err)
@@ -419,13 +417,12 @@ func (s *coordinator) streamEnumerate(
 	startCursor *string,
 	creds *enumeration.TaskCredentials,
 ) error {
-	ctx, span := s.tracer.Start(ctx, "enumeration.streamEnumerate")
+	ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.stream_enumerate",
+		trace.WithAttributes(
+			attribute.String("session_id", state.SessionID()),
+			attribute.String("source_type", state.SourceType()),
+		))
 	defer span.End()
-
-	span.SetAttributes(
-		attribute.String("session_id", state.SessionID()),
-		attribute.String("source_type", state.SourceType()),
-	)
 
 	batchCh := make(chan EnumerateBatch, 1)
 	var wg sync.WaitGroup
@@ -435,12 +432,12 @@ func (s *coordinator) streamEnumerate(
 	go func() {
 		defer wg.Done()
 		for batch := range batchCh {
-			batchCtx, batchSpan := s.tracer.Start(ctx, "enumeration.processBatch")
-			batchSpan.SetAttributes(
-				attribute.String("session_id", state.SessionID()),
-				attribute.Int("batch_size", len(batch.Targets)),
-				attribute.String("next_cursor", batch.NextCursor),
-			)
+			batchCtx, batchSpan := s.tracer.Start(ctx, "coordinator.enumeration.process_batch",
+				trace.WithAttributes(
+					attribute.String("session_id", state.SessionID()),
+					attribute.Int("batch_size", len(batch.Targets)),
+					attribute.String("next_cursor", batch.NextCursor),
+				))
 			batchSpan.AddEvent("Starting batch processing")
 
 			var checkpoint *enumeration.Checkpoint
@@ -531,22 +528,22 @@ func (s *coordinator) publishTasks(
 	sessionID string,
 	creds *enumeration.TaskCredentials,
 ) error {
-	ctx, span := s.tracer.Start(ctx, "enumeration.publishTasks")
+	ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.publish_tasks",
+		trace.WithAttributes(
+			attribute.String("session_id", sessionID),
+			attribute.Int("num_targets", len(targets)),
+		))
 	defer span.End()
 
-	span.SetAttributes(
-		attribute.String("session_id", sessionID),
-		attribute.Int("num_targets", len(targets)),
-	)
 	span.AddEvent("Starting task publication")
 
 	var totalTasks int
 	for _, t := range targets {
-		taskCtx, taskSpan := s.tracer.Start(ctx, "enumeration.processTarget")
-		taskSpan.SetAttributes(
-			attribute.String("resource_uri", t.ResourceURI),
-			attribute.String("source_type", t.SourceType),
-		)
+		taskCtx, taskSpan := s.tracer.Start(ctx, "coordinator.enumeration.process_target",
+			trace.WithAttributes(
+				attribute.String("resource_uri", t.ResourceURI),
+				attribute.String("source_type", t.SourceType),
+			))
 
 		task := enumeration.NewTask(
 			shared.SourceType(t.SourceType),
