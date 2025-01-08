@@ -194,6 +194,7 @@ func (s *ScannerService) workerLoop(ctx context.Context, workerID int) {
 
 // handleScanTask executes an individual scanning task.
 // TODO: Implement task state management through the repository.
+// TODO: Create |TaskStartedEvent| and then begin tracking progress (|TaskProgressedEvent|)
 func (s *ScannerService) handleScanTask(ctx context.Context, req *dtos.ScanRequest) error {
 	ctx, span := s.tracer.Start(ctx, "scanner_service.scanning.handle_scan_task",
 		trace.WithAttributes(
