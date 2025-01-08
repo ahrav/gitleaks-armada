@@ -156,6 +156,7 @@ func main() {
 		},
 		Probability: prob,
 		ResourceAttributes: map[string]string{
+			"library.language": "go",
 			"k8s.pod.name":     os.Getenv("POD_NAME"),
 			"k8s.namespace":    os.Getenv("POD_NAMESPACE"),
 			"k8s.container.id": hostname,

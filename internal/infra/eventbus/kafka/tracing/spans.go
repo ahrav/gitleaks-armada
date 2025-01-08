@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/IBM/sarama"
-	"go.opentelemetry.io/otel/attribute"
+	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -12,9 +12,9 @@ import (
 func StartProducerSpan(ctx context.Context, topic string, tracer trace.Tracer) (context.Context, trace.Span) {
 	return tracer.Start(ctx, "kafka.produce",
 		trace.WithAttributes(
-			attribute.String("messaging.system", "kafka"),
-			attribute.String("messaging.destination", topic),
-			attribute.String("messaging.operation", "publish"),
+			semconv.MessagingSystemKafka,
+			semconv.MessagingDestinationName(topic),
+			semconv.MessagingOperationPublish,
 		),
 	)
 }
@@ -23,11 +23,11 @@ func StartProducerSpan(ctx context.Context, topic string, tracer trace.Tracer) (
 func StartConsumerSpan(ctx context.Context, msg *sarama.ConsumerMessage, tracer trace.Tracer) (context.Context, trace.Span) {
 	return tracer.Start(ctx, "kafka.consume",
 		trace.WithAttributes(
-			attribute.String("messaging.system", "kafka"),
-			attribute.String("messaging.destination", msg.Topic),
-			attribute.String("messaging.operation", "process"),
-			attribute.Int64("messaging.kafka.partition", int64(msg.Partition)),
-			attribute.Int64("messaging.kafka.offset", msg.Offset),
+			semconv.MessagingSystemKafka,
+			semconv.MessagingDestinationName(msg.Topic),
+			semconv.MessagingOperationReceive,
+			semconv.MessagingKafkaDestinationPartition(int(msg.Partition)),
+			semconv.MessagingKafkaMessageOffset(int(msg.Offset)),
 		),
 	)
 }
