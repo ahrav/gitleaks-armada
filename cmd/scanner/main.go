@@ -13,8 +13,9 @@ import (
 
 	"go.uber.org/automaxprocs/maxprocs"
 
+	"github.com/ahrav/gitleaks-armada/internal/app/scanning"
 	"github.com/ahrav/gitleaks-armada/internal/infra/eventbus/kafka"
-	"github.com/ahrav/gitleaks-armada/internal/scanner"
+	"github.com/ahrav/gitleaks-armada/internal/infra/scanner"
 	"github.com/ahrav/gitleaks-armada/internal/scanner/metrics"
 	"github.com/ahrav/gitleaks-armada/pkg/common"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
@@ -85,7 +86,12 @@ func main() {
 		}
 	}()
 
-	metricsCollector, err := metrics.New()
+	mp, err := otel.NewMeterProvider(svcName)
+	if err != nil {
+		log.Error(ctx, "failed to create metrics collector", "error", err)
+		os.Exit(1)
+	}
+	metricsCollector, err := metrics.New(mp)
 	if err != nil {
 		log.Error(ctx, "failed to create metrics collector", "error", err)
 		os.Exit(1)
@@ -108,7 +114,8 @@ func main() {
 
 	log.Info(ctx, "Scanner connected to Kafka")
 
-	scanner := scanner.NewScanner(ctx, hostname, broker, eventPublisher, metricsCollector, log, tracer)
+	scanner := scanner.NewGitLeaksScanner(ctx, eventPublisher, log, tracer)
+	scannerService := scanning.NewScannerService(hostname, broker, eventPublisher, scanner, log, metricsCollector, tracer)
 
 	ready.Store(true)
 
@@ -122,7 +129,7 @@ func main() {
 	}()
 
 	log.Info(ctx, "Starting scanner...")
-	if err := scanner.Run(ctx); err != nil {
+	if err := scannerService.Run(ctx); err != nil {
 		log.Error(ctx, "Scanner error", "error", err)
 	}
 

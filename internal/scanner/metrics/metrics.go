@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
@@ -63,8 +62,8 @@ type Scanner struct {
 const namespace = "scanner"
 
 // New creates a new Scanner metrics instance.
-func New() (*Scanner, error) {
-	meter := otel.GetMeterProvider().Meter(namespace, metric.WithInstrumentationVersion("v0.1.0"))
+func New(mp metric.MeterProvider) (*Scanner, error) {
+	meter := mp.Meter(namespace, metric.WithInstrumentationVersion("v0.1.0"))
 
 	s := new(Scanner)
 	var err error

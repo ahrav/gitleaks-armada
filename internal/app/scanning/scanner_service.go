@@ -52,7 +52,7 @@ func NewScannerService(
 	eb events.EventBus,
 	dp events.DomainEventPublisher,
 	secretScanner SecretScanner,
-	taskRepo scanning.TaskRepository,
+	// taskRepo scanning.TaskRepository,
 	logger *logger.Logger,
 	metrics metrics,
 	tracer trace.Tracer,
@@ -62,14 +62,14 @@ func NewScannerService(
 		eventBus:        eb,
 		domainPublisher: dp,
 		secretScanner:   secretScanner,
-		taskRepo:        taskRepo,
-		enumACL:         acl.EnumerationACL{},
-		logger:          logger,
-		metrics:         metrics,
-		tracer:          tracer,
-		workers:         runtime.NumCPU(),
-		stopCh:          make(chan struct{}),
-		taskEvent:       make(chan *dtos.ScanRequest, 1),
+		// taskRepo:        taskRepo,
+		enumACL:   acl.EnumerationACL{},
+		logger:    logger,
+		metrics:   metrics,
+		tracer:    tracer,
+		workers:   runtime.NumCPU(),
+		stopCh:    make(chan struct{}),
+		taskEvent: make(chan *dtos.ScanRequest, 1),
 	}
 }
 
@@ -85,7 +85,6 @@ func (s *ScannerService) Run(ctx context.Context) error {
 			attribute.String("scanner_id", s.id),
 			attribute.Int("num_workers", s.workers),
 		))
-	defer initSpan.End()
 
 	s.logger.Info(ctx, "Starting scanner service", "id", s.id, "workers", s.workers)
 
@@ -103,9 +102,11 @@ func (s *ScannerService) Run(ctx context.Context) error {
 	if err != nil {
 		initSpan.RecordError(err)
 		initSpan.SetStatus(codes.Error, "failed to subscribe to events")
+		initSpan.End()
 		return fmt.Errorf("scanner[%s]: failed to subscribe: %w", s.id, err)
 	}
 	initSpan.AddEvent("subscribed_to_events")
+	initSpan.End()
 
 	<-ctx.Done()
 	s.logger.Info(ctx, "Scanner service stopping", "id", s.id)
@@ -139,7 +140,12 @@ func (s *ScannerService) handleTaskEvent(ctx context.Context, evt events.EventEn
 		return fmt.Errorf("expected TaskCreatedEvent, got %T", evt.Payload)
 	}
 
-	span.SetAttributes(attribute.String("task_id", tce.Task.TaskID))
+	span.SetAttributes(
+		attribute.String("task_id", tce.Task.TaskID),
+		attribute.String("resource_uri", tce.Task.ResourceURI()),
+		attribute.String("source_type", string(tce.Task.SourceType)),
+		attribute.String("session_id", tce.Task.SessionID()),
+	)
 	span.AddEvent("routing_task")
 
 	select {

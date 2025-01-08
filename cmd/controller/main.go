@@ -171,7 +171,12 @@ func main() {
 	}
 	defer coord.Stop()
 
-	metricCollector, err := metrics.New()
+	mp, err := otel.NewMeterProvider(svcName)
+	if err != nil {
+		log.Error(ctx, "failed to create metrics collector", "error", err)
+		os.Exit(1)
+	}
+	metricCollector, err := metrics.New(mp)
 	if err != nil {
 		log.Error(ctx, "failed to create metrics collector", "error", err)
 		os.Exit(1)

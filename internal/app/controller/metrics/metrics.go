@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
@@ -71,8 +70,8 @@ type Controller struct {
 const namespace = "controller"
 
 // New creates a new Controller metrics instance.
-func New() (*Controller, error) {
-	meter := otel.GetMeterProvider().Meter(namespace, metric.WithInstrumentationVersion("v0.1.0"))
+func New(mp metric.MeterProvider) (*Controller, error) {
+	meter := mp.Meter(namespace, metric.WithInstrumentationVersion("v0.1.0"))
 
 	c := new(Controller)
 	var err error

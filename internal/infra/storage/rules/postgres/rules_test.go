@@ -11,6 +11,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/app/controller/metrics"
 	"github.com/ahrav/gitleaks-armada/internal/domain/rules"
 	"github.com/ahrav/gitleaks-armada/internal/infra/storage"
+	"github.com/ahrav/gitleaks-armada/pkg/common/otel"
 )
 
 func TestRulesStorage_SaveRule(t *testing.T) {
@@ -20,7 +21,9 @@ func TestRulesStorage_SaveRule(t *testing.T) {
 	defer cleanup()
 
 	// TODO: Replace this with a mock metrics implementation.
-	metricsCollector, err := metrics.New()
+	mp, err := otel.NewMeterProvider("test-service")
+	require.NoError(t, err)
+	metricsCollector, err := metrics.New(mp)
 	require.NoError(t, err)
 	rulesStorage := NewStore(dbConn, storage.NoOpTracer(), metricsCollector)
 
