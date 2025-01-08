@@ -47,14 +47,6 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	ready := &atomic.Bool{}
-	healthServer := common.NewHealthServer(ready)
-	defer func() {
-		if err := healthServer.Server().Shutdown(ctx); err != nil {
-			log.Error(ctx, "Error shutting down health server", "error", err)
-		}
-	}()
-
 	// Initialize telemetry.
 	prob, err := strconv.ParseFloat(os.Getenv("OTEL_SAMPLING_RATIO"), 64)
 	if err != nil {
@@ -84,6 +76,15 @@ func main() {
 	defer telemetryTeardown(ctx)
 
 	tracer := tp.Tracer(os.Getenv("OTEL_SERVICE_NAME"))
+
+	ready := &atomic.Bool{}
+	healthServer := common.NewHealthServer(ready)
+	defer func() {
+		if err := healthServer.Server().Shutdown(ctx); err != nil {
+			log.Error(ctx, "Error shutting down health server", "error", err)
+		}
+	}()
+
 	metricsCollector, err := metrics.New()
 	if err != nil {
 		log.Error(ctx, "failed to create metrics collector", "error", err)
