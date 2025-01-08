@@ -36,10 +36,10 @@ func (e TaskStartedEvent) OccurredAt() time.Time       { return e.occurredAt }
 // TaskProgressedEvent signals a new ScanProgress update was received.
 type TaskProgressedEvent struct {
 	occurredAt time.Time
-	Progress   ScanProgress
+	Progress   Progress
 }
 
-func NewTaskProgressedEvent(p ScanProgress) TaskProgressedEvent {
+func NewTaskProgressedEvent(p Progress) TaskProgressedEvent {
 	return TaskProgressedEvent{
 		occurredAt: time.Now(),
 		Progress:   p,

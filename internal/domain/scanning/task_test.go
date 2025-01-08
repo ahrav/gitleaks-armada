@@ -12,13 +12,13 @@ import (
 func TestScanTask_UpdateProgress(t *testing.T) {
 	tests := []struct {
 		name     string
-		task     *ScanTask
-		progress ScanProgress
-		want     *ScanTask
+		task     *Task
+		progress Progress
+		want     *Task
 	}{
 		{
 			name: "basic update",
-			task: &ScanTask{
+			task: &Task{
 				CoreTask: shared.CoreTask{
 					TaskID: "task1",
 				},
@@ -26,7 +26,7 @@ func TestScanTask_UpdateProgress(t *testing.T) {
 				lastSequenceNum: 0,
 				itemsProcessed:  0,
 			},
-			progress: ScanProgress{
+			progress: Progress{
 				TaskID:         "task1",
 				JobID:          "job1",
 				SequenceNum:    1,
@@ -34,7 +34,7 @@ func TestScanTask_UpdateProgress(t *testing.T) {
 				ItemsProcessed: 100,
 				Timestamp:      time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
 			},
-			want: &ScanTask{
+			want: &Task{
 				CoreTask: shared.CoreTask{
 					TaskID: "task1",
 				},
@@ -47,14 +47,14 @@ func TestScanTask_UpdateProgress(t *testing.T) {
 		},
 		{
 			name: "update with checkpoint",
-			task: &ScanTask{
+			task: &Task{
 				CoreTask: shared.CoreTask{
 					TaskID: "task1",
 				},
 				jobID:           "job1",
 				lastSequenceNum: 0,
 			},
-			progress: ScanProgress{
+			progress: Progress{
 				TaskID:      "task1",
 				JobID:       "job1",
 				SequenceNum: 1,
@@ -64,7 +64,7 @@ func TestScanTask_UpdateProgress(t *testing.T) {
 					ResumeToken: []byte("token"),
 				},
 			},
-			want: &ScanTask{
+			want: &Task{
 				CoreTask: shared.CoreTask{
 					TaskID: "task1",
 				},

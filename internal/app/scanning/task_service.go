@@ -16,10 +16,10 @@ import (
 type ScanTaskService interface {
 	// UpdateProgress processes a status update from an executing scanner.
 	// This maintains task state and enables progress monitoring.
-	UpdateProgress(ctx context.Context, progress domain.ScanProgress) error
+	UpdateProgress(ctx context.Context, progress domain.Progress) error
 
 	// GetTask retrieves the current state of a specific task."context"
-	GetTask(ctx context.Context, jobID, taskID string) (*domain.ScanTask, error)
+	GetTask(ctx context.Context, jobID, taskID string) (*domain.Task, error)
 
 	// MarkTaskStale flags a task that has stopped reporting progress.
 	// This enables detection of failed or hung tasks that require intervention.
@@ -64,7 +64,7 @@ func NewScanTaskServiceImpl(
 }
 
 // UpdateProgress orchestrates the domain calls + repo calls + concurrency
-func (s *ScanTaskServiceImpl) UpdateProgress(ctx context.Context, progress domain.ScanProgress) error {
+func (s *ScanTaskServiceImpl) UpdateProgress(ctx context.Context, progress domain.Progress) error {
 	if progress.JobID == "" || progress.TaskID == "" {
 		return errors.New("missing jobID or taskID")
 	}
@@ -92,7 +92,7 @@ func (s *ScanTaskServiceImpl) UpdateProgress(ctx context.Context, progress domai
 
 	// 2. Update the task in the domain
 	s.mu.Lock()
-	updated := job.UpdateTask(progress.TaskID, func(task *domain.ScanTask) {
+	updated := job.UpdateTask(progress.TaskID, func(task *domain.Task) {
 		// Instead of direct domain logic, we call the domain service method:
 		_ = s.taskDomainService.UpdateProgress(task, progress)
 		// ignoring out-of-order updates is a domain rule => in domain service
@@ -130,7 +130,7 @@ func (s *ScanTaskServiceImpl) UpdateProgress(ctx context.Context, progress domai
 	return nil
 }
 
-func (s *ScanTaskServiceImpl) GetTask(ctx context.Context, jobID, taskID string) (*domain.ScanTask, error) {
+func (s *ScanTaskServiceImpl) GetTask(ctx context.Context, jobID, taskID string) (*domain.Task, error) {
 	// purely orchestration logic
 	job, err := s.jobRepo.GetJob(ctx, jobID)
 	if err != nil {
@@ -139,8 +139,8 @@ func (s *ScanTaskServiceImpl) GetTask(ctx context.Context, jobID, taskID string)
 	if job == nil {
 		return nil, fmt.Errorf("job %s not found", jobID)
 	}
-	var found *domain.ScanTask
-	job.UpdateTask(taskID, func(t *domain.ScanTask) {
+	var found *domain.Task
+	job.UpdateTask(taskID, func(t *domain.Task) {
 		found = t
 	})
 	if found == nil {
@@ -158,8 +158,8 @@ func (s *ScanTaskServiceImpl) MarkTaskStale(ctx context.Context, jobID, taskID s
 		return fmt.Errorf("job %s not found", jobID)
 	}
 
-	var foundTask *domain.ScanTask
-	job.UpdateTask(taskID, func(task *domain.ScanTask) {
+	var foundTask *domain.Task
+	job.UpdateTask(taskID, func(task *domain.Task) {
 		// now we call domain logic, not do it ourselves
 		_ = s.taskDomainService.MarkTaskStale(task, reason)
 		foundTask = task
@@ -184,8 +184,8 @@ func (s *ScanTaskServiceImpl) RecoverTask(ctx context.Context, jobID, taskID str
 		return fmt.Errorf("job %s not found", jobID)
 	}
 
-	var foundTask *domain.ScanTask
-	job.UpdateTask(taskID, func(task *domain.ScanTask) {
+	var foundTask *domain.Task
+	job.UpdateTask(taskID, func(task *domain.Task) {
 		_ = s.taskDomainService.RecoverTask(task)
 		foundTask = task
 	})

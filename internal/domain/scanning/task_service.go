@@ -8,9 +8,9 @@ import (
 // TaskDomainService exposes domain-level behaviors for manipulating tasks.
 // It does not deal with repositories, concurrency, or caching—just rules.
 type TaskDomainService interface {
-	UpdateProgress(task *ScanTask, progress ScanProgress) error
-	MarkTaskStale(task *ScanTask, reason StallReason) error
-	RecoverTask(task *ScanTask) error
+	UpdateProgress(task *Task, progress Progress) error
+	MarkTaskStale(task *Task, reason StallReason) error
+	RecoverTask(task *Task) error
 }
 
 // TaskDomainServiceImpl is a concrete domain service that implements the business rules
@@ -23,7 +23,7 @@ func NewTaskDomainService() TaskDomainService {
 
 // UpdateProgress applies domain rules to update a task with new progress.
 // e.g., ignore out-of-order updates, set fields, etc.
-func (ds *TaskDomainServiceImpl) UpdateProgress(task *ScanTask, progress ScanProgress) error {
+func (ds *TaskDomainServiceImpl) UpdateProgress(task *Task, progress Progress) error {
 	if progress.SequenceNum <= task.GetLastSequenceNum() {
 		// Domain rule: ignore out-of-order
 		return nil
@@ -34,11 +34,11 @@ func (ds *TaskDomainServiceImpl) UpdateProgress(task *ScanTask, progress ScanPro
 
 // MarkTaskStale sets the task status to STALE, and applies any domain-level rules
 // (like storing the stall reason, last updated time).
-func (ds *TaskDomainServiceImpl) MarkTaskStale(task *ScanTask, reason StallReason) error {
+func (ds *TaskDomainServiceImpl) MarkTaskStale(task *Task, reason StallReason) error {
 	if task.GetStatus() == TaskStatusCompleted {
 		return fmt.Errorf("cannot mark a completed task as stale")
 	}
-	task.UpdateProgress(ScanProgress{
+	task.UpdateProgress(Progress{
 		Status:    TaskStatusStale,
 		Timestamp: time.Now(),
 	})
@@ -46,10 +46,10 @@ func (ds *TaskDomainServiceImpl) MarkTaskStale(task *ScanTask, reason StallReaso
 }
 
 // RecoverTask is a domain-level operation that modifies the task to resume scanning.
-func (ds *TaskDomainServiceImpl) RecoverTask(task *ScanTask) error {
+func (ds *TaskDomainServiceImpl) RecoverTask(task *Task) error {
 	// e.g., set status back to IN_PROGRESS if it was STALE
 	if task.GetStatus() == TaskStatusStale {
-		task.UpdateProgress(ScanProgress{
+		task.UpdateProgress(Progress{
 			Status:    TaskStatusInProgress,
 			Timestamp: time.Now(),
 		})

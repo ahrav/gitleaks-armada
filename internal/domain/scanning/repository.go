@@ -24,11 +24,11 @@ type JobRepository interface {
 // task state and progress data.
 type TaskRepository interface {
 	// SaveTask persists a new task's initial state.
-	SaveTask(ctx context.Context, task *ScanTask) error
+	SaveTask(ctx context.Context, task *Task) error
 
 	// GetTask retrieves a task's current state.
-	GetTask(ctx context.Context, jobID, taskID string) (*ScanTask, error)
+	GetTask(ctx context.Context, jobID, taskID string) (*Task, error)
 
 	// UpdateTask persists changes to an existing task's state.
-	UpdateTask(ctx context.Context, task *ScanTask) error
+	UpdateTask(ctx context.Context, task *Task) error
 }

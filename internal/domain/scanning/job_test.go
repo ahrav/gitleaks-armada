@@ -13,7 +13,7 @@ func TestScanJob_AddTask(t *testing.T) {
 	tests := []struct {
 		name string
 		job  *ScanJob
-		task *ScanTask
+		task *Task
 		want struct {
 			totalTasks     int
 			completedTasks int
@@ -24,7 +24,7 @@ func TestScanJob_AddTask(t *testing.T) {
 		{
 			name: "add first task",
 			job:  NewScanJob("job1"),
-			task: &ScanTask{
+			task: &Task{
 				CoreTask: shared.CoreTask{
 					TaskID: "task1",
 				},
@@ -47,9 +47,9 @@ func TestScanJob_AddTask(t *testing.T) {
 			name: "add completed task",
 			job: &ScanJob{
 				jobID: "job1",
-				tasks: make(map[string]*ScanTask),
+				tasks: make(map[string]*Task),
 			},
-			task: &ScanTask{
+			task: &Task{
 				CoreTask: shared.CoreTask{
 					TaskID: "task1",
 				},
@@ -91,7 +91,7 @@ func TestScanJob_UpdateTask(t *testing.T) {
 		name     string
 		job      *ScanJob
 		taskID   string
-		updateFn func(*ScanTask)
+		updateFn func(*Task)
 		want     struct {
 			updated        bool
 			totalTasks     int
@@ -104,11 +104,11 @@ func TestScanJob_UpdateTask(t *testing.T) {
 			name: "update non-existent task",
 			job: &ScanJob{
 				jobID:  "job1",
-				tasks:  make(map[string]*ScanTask),
+				tasks:  make(map[string]*Task),
 				status: JobStatusInitialized,
 			},
 			taskID:   "task1",
-			updateFn: func(task *ScanTask) {},
+			updateFn: func(task *Task) {},
 			want: struct {
 				updated        bool
 				totalTasks     int
@@ -127,7 +127,7 @@ func TestScanJob_UpdateTask(t *testing.T) {
 			name: "update existing task to completed",
 			job: &ScanJob{
 				jobID: "job1",
-				tasks: map[string]*ScanTask{
+				tasks: map[string]*Task{
 					"task1": {
 						CoreTask: shared.CoreTask{
 							TaskID: "task1",
@@ -138,7 +138,7 @@ func TestScanJob_UpdateTask(t *testing.T) {
 				totalTasks: 1,
 			},
 			taskID: "task1",
-			updateFn: func(task *ScanTask) {
+			updateFn: func(task *Task) {
 				task.status = TaskStatusCompleted
 			},
 			want: struct {
@@ -159,7 +159,7 @@ func TestScanJob_UpdateTask(t *testing.T) {
 			name: "update task to failed",
 			job: &ScanJob{
 				jobID: "job1",
-				tasks: map[string]*ScanTask{
+				tasks: map[string]*Task{
 					"task1": {
 						CoreTask: shared.CoreTask{
 							TaskID: "task1",
@@ -170,7 +170,7 @@ func TestScanJob_UpdateTask(t *testing.T) {
 				totalTasks: 1,
 			},
 			taskID: "task1",
-			updateFn: func(task *ScanTask) {
+			updateFn: func(task *Task) {
 				task.status = TaskStatusFailed
 			},
 			want: struct {

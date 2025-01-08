@@ -28,10 +28,10 @@ const (
 	TaskStatusStale TaskStatus = "STALE"
 )
 
-// ScanProgress represents a point-in-time status update from a scanner. It provides
+// Progress represents a point-in-time status update from a scanner. It provides
 // detailed metrics and state information to track scanning progress and enable
 // task recovery.
-type ScanProgress struct {
+type Progress struct {
 	TaskID          string          `json:"task_id"`
 	JobID           string          `json:"job_id"`
 	SequenceNum     int64           `json:"sequence_num"`
@@ -54,9 +54,9 @@ type Checkpoint struct {
 	Metadata    map[string]string `json:"metadata"`
 }
 
-// ScanTask tracks the full lifecycle and state of an individual scanning operation.
+// Task tracks the full lifecycle and state of an individual scanning operation.
 // It maintains historical progress data and enables task recovery and monitoring.
-type ScanTask struct {
+type Task struct {
 	shared.CoreTask
 	jobID           string
 	status          TaskStatus
@@ -70,8 +70,8 @@ type ScanTask struct {
 
 // NewScanTask creates a new ScanTask instance for tracking an individual scan operation.
 // It establishes the task's relationship to its parent job and initializes monitoring state.
-func NewScanTask(jobID, taskID string) *ScanTask {
-	return &ScanTask{
+func NewScanTask(jobID, taskID string) *Task {
+	return &Task{
 		CoreTask: shared.CoreTask{
 			TaskID: taskID,
 		},
@@ -83,7 +83,7 @@ func NewScanTask(jobID, taskID string) *ScanTask {
 
 // UpdateProgress applies a progress update to this task's state.
 // It updates all monitoring metrics and preserves any checkpoint data.
-func (t *ScanTask) UpdateProgress(progress ScanProgress) {
+func (t *Task) UpdateProgress(progress Progress) {
 	t.lastSequenceNum = progress.SequenceNum
 	t.status = progress.Status
 	t.lastUpdate = progress.Timestamp
@@ -95,26 +95,26 @@ func (t *ScanTask) UpdateProgress(progress ScanProgress) {
 }
 
 // GetJobID returns the identifier of the parent job containing this task.
-func (t *ScanTask) GetJobID() string { return t.jobID }
+func (t *Task) GetJobID() string { return t.jobID }
 
 // GetStatus returns the current execution status of the scan task.
-func (t *ScanTask) GetStatus() TaskStatus { return t.status }
+func (t *Task) GetStatus() TaskStatus { return t.status }
 
 // GetLastSequenceNum returns the sequence number of the most recent progress update.
-func (t *ScanTask) GetLastSequenceNum() int64 { return t.lastSequenceNum }
+func (t *Task) GetLastSequenceNum() int64 { return t.lastSequenceNum }
 
 // GetLastUpdateTime returns when this task last reported progress.
-func (t *ScanTask) GetLastUpdateTime() time.Time { return t.lastUpdate }
+func (t *Task) GetLastUpdateTime() time.Time { return t.lastUpdate }
 
 // GetItemsProcessed returns the total number of items scanned by this task.
-func (t *ScanTask) GetItemsProcessed() int64 { return t.itemsProcessed }
+func (t *Task) GetItemsProcessed() int64 { return t.itemsProcessed }
 
 // GetTaskID returns the unique identifier for this scan task.
-func (t *ScanTask) GetTaskID() string { return t.TaskID }
+func (t *Task) GetTaskID() string { return t.TaskID }
 
 // GetSummary returns a TaskSummary containing the key metrics and status
 // for this task's execution progress.
-func (t *ScanTask) GetSummary(duration time.Duration) TaskSummary {
+func (t *Task) GetSummary(duration time.Duration) TaskSummary {
 	return TaskSummary{
 		taskID:          t.TaskID,
 		status:          t.status,
@@ -154,7 +154,7 @@ type StalledTask struct {
 
 // ToStalledTask converts this task to a StalledTask representation.
 // This enables tracking of stalled tasks for monitoring and recovery.
-func (t *ScanTask) ToStalledTask(reason StallReason, stallTime time.Time) *StalledTask {
+func (t *Task) ToStalledTask(reason StallReason, stallTime time.Time) *StalledTask {
 	return &StalledTask{
 		JobID:           t.jobID,
 		TaskID:          t.TaskID,

@@ -27,7 +27,7 @@ type ScanJob struct {
 	status         JobStatus
 	startTime      time.Time
 	lastUpdateTime time.Time
-	tasks          map[string]*ScanTask
+	tasks          map[string]*Task
 	totalTasks     int
 	completedTasks int
 	failedTasks    int
@@ -40,7 +40,7 @@ func NewScanJob(jobID string) *ScanJob {
 		jobID:     jobID,
 		status:    JobStatusInitialized,
 		startTime: time.Now(),
-		tasks:     make(map[string]*ScanTask),
+		tasks:     make(map[string]*Task),
 	}
 }
 
@@ -61,7 +61,7 @@ func (j *ScanJob) GetStartTime() time.Time { return j.startTime }
 func (j *ScanJob) GetLastUpdateTime() time.Time { return j.lastUpdateTime }
 
 // AddTask registers a new scan task with this job and updates task counters.
-func (j *ScanJob) AddTask(task *ScanTask) {
+func (j *ScanJob) AddTask(task *Task) {
 	j.tasks[task.TaskID] = task
 	j.totalTasks = len(j.tasks)
 	j.updateStatusCounters()
@@ -70,7 +70,7 @@ func (j *ScanJob) AddTask(task *ScanTask) {
 
 // UpdateTask applies changes to a task's state via the provided update function.
 // It returns false if the task doesn't exist, true if the update was successful.
-func (j *ScanJob) UpdateTask(taskID string, updateFn func(*ScanTask)) bool {
+func (j *ScanJob) UpdateTask(taskID string, updateFn func(*Task)) bool {
 	task, exists := j.tasks[taskID]
 	if !exists {
 		return false

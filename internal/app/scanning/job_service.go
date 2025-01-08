@@ -16,7 +16,7 @@ type ScanJobService interface {
 
 	// AddTasksToJob associates one or more tasks with an existing job.
 	// This enables building up complex scan jobs from multiple discrete tasks.
-	AddTasksToJob(ctx context.Context, jobID string, tasks ...*domain.ScanTask) error
+	AddTasksToJob(ctx context.Context, jobID string, tasks ...*domain.Task) error
 
 	// StartJob begins execution of a job's tasks.
 	// This transitions the job to an in-progress state and initiates task distribution.
