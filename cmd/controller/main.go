@@ -216,7 +216,7 @@ func main() {
 	)
 
 	rulesService := rules.NewService(rulesStore.NewStore(pool, tracer, metricCollector))
-	ctrl := orchestration.NewController(
+	ctrl := orchestration.NewOrchestrator(
 		hostname,
 		coord,
 		broker,

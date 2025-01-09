@@ -17,11 +17,11 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
 
-// Controller coordinates work distribution across a cluster of workers. It manages
+// Orchestrator coordinates work distribution across a cluster of workers. It manages
 // leader election, rule processing, and target enumeration to ensure efficient
 // scanning across the cluster. Only one controller is active at a time to prevent
 // duplicate work.
-type Controller struct {
+type Orchestrator struct {
 	id string
 
 	coordinator    cluster.Coordinator
@@ -46,7 +46,7 @@ type Controller struct {
 	rulesMutex     sync.RWMutex
 }
 
-// NewController creates a Controller instance that coordinates work distribution
+// NewOrchestrator creates a Orchestrator instance that coordinates work distribution
 // using the provided coordinator for leader election and broker for task queuing.
 // It requires several dependencies to handle different aspects of the system:
 //   - coordinator: Manages leader election across the cluster
@@ -58,7 +58,7 @@ type Controller struct {
 //   - logger: Structured logging
 //   - metrics: Runtime metrics collection
 //   - tracer: Distributed tracing
-func NewController(
+func NewOrchestrator(
 	id string,
 	coord cluster.Coordinator,
 	queue events.EventBus,
@@ -69,8 +69,8 @@ func NewController(
 	logger *logger.Logger,
 	metrics ControllerMetrics,
 	tracer trace.Tracer,
-) *Controller {
-	return &Controller{
+) *Orchestrator {
+	return &Orchestrator{
 		id:                 id,
 		coordinator:        coord,
 		workQueue:          queue,
@@ -92,7 +92,7 @@ func NewController(
 //
 // It returns a channel that is closed when initialization is complete and any startup error.
 // The channel allows callers to wait for the controller to be ready before proceeding.
-func (c *Controller) Run(ctx context.Context) (<-chan struct{}, error) {
+func (c *Orchestrator) Run(ctx context.Context) (<-chan struct{}, error) {
 	ready := make(chan struct{})
 	leaderCh := make(chan bool, 1)
 
@@ -163,7 +163,7 @@ func (c *Controller) Run(ctx context.Context) (<-chan struct{}, error) {
 
 // Stop gracefully shuts down the controller if it is running.
 // It is safe to call multiple times.
-func (c *Controller) Stop(ctx context.Context) error {
+func (c *Orchestrator) Stop(ctx context.Context) error {
 	c.mu.Lock()
 	if !c.running {
 		c.mu.Unlock()
@@ -181,7 +181,7 @@ func (c *Controller) Stop(ctx context.Context) error {
 
 // handleRule processes incoming rule update events. It deduplicates rules based on their hash
 // to prevent unnecessary processing of duplicate rules within a short time window.
-func (c *Controller) handleRule(ctx context.Context, evt events.EventEnvelope) error {
+func (c *Orchestrator) handleRule(ctx context.Context, evt events.EventEnvelope) error {
 	ruleEvent, ok := evt.Payload.(rules.RuleUpdatedEvent)
 	if !ok {
 		return fmt.Errorf("handleRule: payload is not RuleUpdatedEvent, got %T", evt.Payload)
