@@ -14,7 +14,6 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/config"
 	"github.com/ahrav/gitleaks-armada/internal/config/credentials"
 	"github.com/ahrav/gitleaks-armada/internal/config/credentials/memory"
-	"github.com/ahrav/gitleaks-armada/internal/config/loaders"
 	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
@@ -25,16 +24,19 @@ import (
 // It coordinates the overall scanning process by managing enumeration state
 // and supporting resumable scans.
 type Coordinator interface {
-	// ExecuteEnumeration performs target enumeration by either resuming from
-	// existing state or starting fresh. It handles the full enumeration lifecycle
-	// including state management and task generation.
-	ExecuteEnumeration(ctx context.Context) error
+	// StartFreshEnumerations begins new enumeration sessions for all targets defined in the config.
+	// It creates new state records and initializes the scanning process for each target.
+	// Returns an error if the enumeration sessions cannot be started.
+	StartFreshEnumerations(ctx context.Context, cfg *config.Config) error
+
+	// ResumeEnumerations continues enumeration for previously interrupted sessions.
+	// It picks up from the last checkpoint for each provided session state.
+	// Returns an error if any session cannot be resumed.
+	ResumeEnumerations(ctx context.Context, states []*enumeration.SessionState) error
 }
 
 // metrics defines the interface for tracking enumeration-related metrics.
 type metrics interface {
-	IncConfigReloadErrors(ctx context.Context)
-	IncConfigReloads(ctx context.Context)
 	ObserveTargetProcessingTime(ctx context.Context, duration time.Duration)
 	IncTargetsProcessed(ctx context.Context)
 	TrackEnumeration(ctx context.Context, fn func() error) error
@@ -57,7 +59,6 @@ type coordinator struct {
 
 	// External dependencies.
 	eventPublisher events.DomainEventPublisher
-	configLoader   loaders.Loader
 
 	logger  *logger.Logger
 	metrics metrics
@@ -73,7 +74,6 @@ func NewCoordinator(
 	taskRepo enumeration.TaskRepository,
 	enumFactory EnumeratorFactory,
 	eventPublisher events.DomainEventPublisher,
-	cfgLoader loaders.Loader,
 	logger *logger.Logger,
 	metrics metrics,
 	tracer trace.Tracer,
@@ -84,66 +84,16 @@ func NewCoordinator(
 		taskRepo:       taskRepo,
 		enumFactory:    enumFactory,
 		eventPublisher: eventPublisher,
-		configLoader:   cfgLoader,
 		logger:         logger,
 		metrics:        metrics,
 		tracer:         tracer,
 	}
 }
 
-// ExecuteEnumeration performs target enumeration by either resuming from existing state
-// or starting fresh. It first checks for any active enumeration states - if none exist,
-// it loads the current configuration and starts new enumerations. Otherwise, it resumes
-// the existing enumeration sessions.
-func (s *coordinator) ExecuteEnumeration(ctx context.Context) error {
-	return s.metrics.TrackEnumeration(ctx, func() error {
-		ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.execute_enumeration",
-			trace.WithAttributes(
-				attribute.String("component", "coordinator"),
-				attribute.String("operation", "execute_enumeration"),
-			))
-		defer span.End()
-
-		span.AddEvent("checking_active_states")
-		activeStates, err := s.stateRepo.GetActiveStates(ctx)
-		if err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "failed to load active states")
-			return fmt.Errorf("failed to load active states: %w", err)
-		}
-		span.AddEvent("active_states_loaded", trace.WithAttributes(
-			attribute.Int("active_state_count", len(activeStates)),
-		))
-
-		if len(activeStates) == 0 {
-			span.AddEvent("starting_fresh_enumeration")
-			err := s.startFreshEnumerations(ctx)
-			if err != nil {
-				span.RecordError(err)
-				span.SetStatus(codes.Error, "fresh enumeration failed")
-				return err
-			}
-			return nil
-		}
-
-		span.AddEvent("resuming_enumeration", trace.WithAttributes(
-			attribute.Int("state_count", len(activeStates)),
-		))
-		err = s.resumeEnumerations(ctx, activeStates)
-		if err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "enumeration resume failed")
-			return err
-		}
-
-		span.SetStatus(codes.Ok, "enumeration completed successfully")
-		return nil
-	})
-}
-
-// startFreshEnumerations processes each target from the configuration, creating new
-// enumeration states and running the appropriate enumerator for each target type.
-func (s *coordinator) startFreshEnumerations(ctx context.Context) error {
+// StartFreshEnumerations begins new enumeration sessions for all targets defined in the config.
+// It creates new state records and initializes the scanning process for each target.
+// Returns an error if the enumeration sessions cannot be started.
+func (s *coordinator) StartFreshEnumerations(ctx context.Context, cfg *config.Config) error {
 	ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.start_fresh_enumerations",
 		trace.WithAttributes(
 			attribute.String("component", "coordinator"),
@@ -151,16 +101,7 @@ func (s *coordinator) startFreshEnumerations(ctx context.Context) error {
 		))
 	defer span.End()
 
-	cfg, err := s.configLoader.Load(ctx)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to load configuration")
-		s.metrics.IncConfigReloadErrors(ctx)
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-	s.metrics.IncConfigReloads(ctx)
-	span.AddEvent("configuration_loaded")
-
+	var err error
 	s.credStore, err = memory.NewCredentialStore(cfg.Auth)
 	if err != nil {
 		span.RecordError(err)
@@ -245,9 +186,9 @@ func (s *coordinator) marshalConfig(
 	return data
 }
 
-// resumeEnumerations attempts to continue enumeration from previously saved states.
+// ResumeEnumerations attempts to continue enumeration from previously saved states.
 // This allows recovery from interruptions and supports incremental scanning.
-func (s *coordinator) resumeEnumerations(ctx context.Context, states []*enumeration.SessionState) error {
+func (s *coordinator) ResumeEnumerations(ctx context.Context, states []*enumeration.SessionState) error {
 	ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.resume_enumerations",
 		trace.WithAttributes(attribute.Int("state_count", len(states))))
 	defer span.End()

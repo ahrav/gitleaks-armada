@@ -197,7 +197,6 @@ func main() {
 	}
 	log.Info(ctx, "Controller connected to Kafka")
 
-	configLoader := fileloader.NewFileLoader("/etc/scanner/config/config.yaml")
 	checkpointStorage := enumStore.NewCheckpointStore(pool, tracer)
 	enumStateStorage := enumStore.NewEnumerationSessionStateStore(pool, checkpointStorage, tracer)
 	eventPublisher := kafka.NewKafkaDomainEventPublisher(broker)
@@ -209,12 +208,12 @@ func main() {
 		enumTaskStorage,
 		enumFactory,
 		eventPublisher,
-		configLoader,
 		log,
 		metricCollector,
 		tracer,
 	)
 
+	configLoader := fileloader.NewFileLoader("/etc/scanner/config/config.yaml")
 	rulesService := rules.NewService(rulesStore.NewStore(pool, tracer, metricCollector))
 	ctrl := orchestration.NewOrchestrator(
 		hostname,
@@ -223,6 +222,7 @@ func main() {
 		eventPublisher,
 		enumService,
 		rulesService,
+		enumStateStorage,
 		configLoader,
 		log,
 		metricCollector,
