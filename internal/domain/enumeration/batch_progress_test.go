@@ -47,3 +47,17 @@ func TestBatchProgressJSONRoundTrip(t *testing.T) {
 	require.WithinDuration(t, original.StartedAt(), bp.StartedAt(), 1*time.Microsecond)
 	require.WithinDuration(t, original.CompletedAt(), bp.CompletedAt(), 1*time.Microsecond)
 }
+
+func TestNewPendingBatchProgress(t *testing.T) {
+	cp := NewTemporaryCheckpoint("test-target", nil)
+	expectedItems := 42
+	bp := NewPendingBatchProgress(expectedItems, cp)
+
+	require.NotEmpty(t, bp.BatchID())
+	require.Equal(t, BatchStatusPending, bp.Status())
+	require.Equal(t, 0, bp.ItemsProcessed(), "Pending batch should have 0 items processed")
+	require.Equal(t, cp, bp.Checkpoint())
+	require.WithinDuration(t, time.Now(), bp.StartedAt(), 2*time.Second)
+	require.True(t, bp.CompletedAt().IsZero(), "Pending batch should not have completion time")
+	require.Empty(t, bp.ErrorDetails(), "Pending batch should not have error details")
+}

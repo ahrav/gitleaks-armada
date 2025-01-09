@@ -14,7 +14,8 @@ CREATE TYPE enumeration_status AS ENUM (
 CREATE TYPE batch_status AS ENUM (
     'SUCCEEDED',
     'FAILED',
-    'PARTIALLY_COMPLETED'
+    'PARTIALLY_COMPLETED',
+    'PENDING'
 );
 
 -- Checkpoints Table

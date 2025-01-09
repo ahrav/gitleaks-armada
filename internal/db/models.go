@@ -17,6 +17,7 @@ const (
 	BatchStatusSUCCEEDED          BatchStatus = "SUCCEEDED"
 	BatchStatusFAILED             BatchStatus = "FAILED"
 	BatchStatusPARTIALLYCOMPLETED BatchStatus = "PARTIALLY_COMPLETED"
+	BatchStatusPENDING            BatchStatus = "PENDING"
 )
 
 func (e *BatchStatus) Scan(src interface{}) error {

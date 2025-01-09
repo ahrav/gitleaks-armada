@@ -21,6 +21,9 @@ const (
 
 	// BatchStatusPartial indicates the batch completed with some items failing.
 	BatchStatusPartial BatchStatus = "PARTIALLY_COMPLETED"
+
+	// BatchStatusPending indicates the batch is prepared but not yet processed.
+	BatchStatusPending BatchStatus = "PENDING"
 )
 
 // BatchProgress is a value object that captures the execution details and outcomes
@@ -68,6 +71,19 @@ func NewFailedBatchProgress(err error, checkpoint *Checkpoint) BatchProgress {
 		completedAt:  time.Now(),
 		errorDetails: err.Error(),
 		checkpoint:   checkpoint,
+	}
+}
+
+// NewPendingBatchProgress creates a BatchProgress record for a batch that is prepared
+// but not yet processed. This enables tracking of batch preparation before task publishing.
+func NewPendingBatchProgress(expectedItems int, checkpoint *Checkpoint) BatchProgress {
+	return BatchProgress{
+		batchID:        uuid.New().String(),
+		status:         BatchStatusPending,
+		startedAt:      time.Now(),
+		completedAt:    time.Time{}, // Zero time since not completed
+		itemsProcessed: 0,           // No items processed yet
+		checkpoint:     checkpoint,
 	}
 }
 

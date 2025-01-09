@@ -381,6 +381,7 @@ func (s *coordinator) streamEnumerate(
 				))
 			batchSpan.AddEvent("Starting batch processing")
 
+			// 1. Create checkpoint first
 			var checkpoint *enumeration.Checkpoint
 			if batch.NextCursor != "" {
 				checkpoint = enumeration.NewTemporaryCheckpoint(
@@ -393,9 +394,28 @@ func (s *coordinator) streamEnumerate(
 				batchSpan.AddEvent("Created empty checkpoint")
 			}
 
-			var batchProgress enumeration.BatchProgress
+			// 2. Create and record batch progress (but don't publish tasks yet)
+			batchProgress := enumeration.NewPendingBatchProgress(len(batch.Targets), checkpoint)
+			if err := state.RecordBatchProgress(batchProgress); err != nil {
+				batchSpan.RecordError(err)
+				batchSpan.AddEvent("Failed to update progress", trace.WithAttributes(
+					attribute.String("error", err.Error()),
+				))
+				batchSpan.End()
+				return
+			}
 
-			// TODO: Handle partial failures once |publishTasks| can handle them.
+			// 3. Save state with pending progress
+			if err := s.stateRepo.Save(batchCtx, state); err != nil {
+				batchSpan.RecordError(err)
+				batchSpan.AddEvent("Failed to save state", trace.WithAttributes(
+					attribute.String("error", err.Error()),
+				))
+				batchSpan.End()
+				return
+			}
+
+			// 4. Now publish tasks
 			if err := s.publishTasks(batchCtx, batch.Targets, state.SessionID(), creds); err != nil {
 				batchSpan.RecordError(err)
 				batchProgress = enumeration.NewFailedBatchProgress(err, checkpoint)
@@ -408,9 +428,10 @@ func (s *coordinator) streamEnumerate(
 				batchSpan.AddEvent("Successfully published batch")
 			}
 
+			// 5. Update and save final progress state
 			if err := state.RecordBatchProgress(batchProgress); err != nil {
 				batchSpan.RecordError(err)
-				batchSpan.AddEvent("Failed to update progress", trace.WithAttributes(
+				batchSpan.AddEvent("Failed to update final progress", trace.WithAttributes(
 					attribute.String("error", err.Error()),
 					attribute.String("batch_status", string(batchProgress.Status())),
 				))
@@ -420,7 +441,7 @@ func (s *coordinator) streamEnumerate(
 
 			if err := s.stateRepo.Save(batchCtx, state); err != nil {
 				batchSpan.RecordError(err)
-				batchSpan.AddEvent("Failed to save state", trace.WithAttributes(
+				batchSpan.AddEvent("Failed to save final state", trace.WithAttributes(
 					attribute.String("error", err.Error()),
 				))
 			}
