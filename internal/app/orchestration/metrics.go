@@ -1,4 +1,4 @@
-package metrics
+package orchestration
 
 import (
 	"context"
@@ -35,7 +35,7 @@ type ControllerMetrics interface {
 }
 
 // Controller implements ControllerMetrics
-type Controller struct {
+type controllerMetrics struct {
 	// Broker metrics.
 	messagesPublished metric.Int64Counter
 	messagesConsumed  metric.Int64Counter
@@ -69,11 +69,11 @@ type Controller struct {
 
 const namespace = "controller"
 
-// New creates a new Controller metrics instance.
-func New(mp metric.MeterProvider) (*Controller, error) {
+// NewControllerMetrics creates a new Controller metrics instance.
+func NewControllerMetrics(mp metric.MeterProvider) (*controllerMetrics, error) {
 	meter := mp.Meter(namespace, metric.WithInstrumentationVersion("v0.1.0"))
 
-	c := new(Controller)
+	c := new(controllerMetrics)
 	var err error
 
 	if c.messagesPublished, err = meter.Int64Counter(
@@ -192,44 +192,44 @@ func New(mp metric.MeterProvider) (*Controller, error) {
 }
 
 // Interface implementation methods.
-func (c *Controller) IncMessagePublished(ctx context.Context, topic string) {
+func (c *controllerMetrics) IncMessagePublished(ctx context.Context, topic string) {
 	c.messagesPublished.Add(ctx, 1, metric.WithAttributes(attribute.String("topic", topic)))
 }
-func (c *Controller) IncMessageConsumed(ctx context.Context, topic string) {
+func (c *controllerMetrics) IncMessageConsumed(ctx context.Context, topic string) {
 	c.messagesConsumed.Add(ctx, 1, metric.WithAttributes(attribute.String("topic", topic)))
 }
-func (c *Controller) IncPublishError(ctx context.Context, topic string) {
+func (c *controllerMetrics) IncPublishError(ctx context.Context, topic string) {
 	c.publishErrors.Add(ctx, 1, metric.WithAttributes(attribute.String("topic", topic)))
 }
-func (c *Controller) IncConsumeError(ctx context.Context, topic string) {
+func (c *controllerMetrics) IncConsumeError(ctx context.Context, topic string) {
 	c.consumeErrors.Add(ctx, 1, metric.WithAttributes(attribute.String("topic", topic)))
 }
-func (c *Controller) IncTasksEnqueued(ctx context.Context) {
+func (c *controllerMetrics) IncTasksEnqueued(ctx context.Context) {
 	c.tasksEnqueued.Add(ctx, 1)
 }
-func (c *Controller) IncTasksRetried(ctx context.Context) {
+func (c *controllerMetrics) IncTasksRetried(ctx context.Context) {
 	c.tasksRetried.Add(ctx, 1)
 }
-func (c *Controller) IncTasksFailedToEnqueue(ctx context.Context) {
+func (c *controllerMetrics) IncTasksFailedToEnqueue(ctx context.Context) {
 	c.tasksFailedToEnqueue.Add(ctx, 1)
 }
-func (c *Controller) IncTargetsProcessed(ctx context.Context) {
+func (c *controllerMetrics) IncTargetsProcessed(ctx context.Context) {
 	c.targetsProcessed.Add(ctx, 1)
 }
-func (c *Controller) IncConfigReloads(ctx context.Context) {
+func (c *controllerMetrics) IncConfigReloads(ctx context.Context) {
 	c.configReloads.Add(ctx, 1)
 }
-func (c *Controller) IncConfigReloadErrors(ctx context.Context) {
+func (c *controllerMetrics) IncConfigReloadErrors(ctx context.Context) {
 	c.configReloadErrors.Add(ctx, 1)
 }
-func (c *Controller) IncRulesSaved(ctx context.Context) {
+func (c *controllerMetrics) IncRulesSaved(ctx context.Context) {
 	c.rulesSaved.Add(ctx, 1)
 }
-func (c *Controller) IncRuleSaveErrors(ctx context.Context) {
+func (c *controllerMetrics) IncRuleSaveErrors(ctx context.Context) {
 	c.ruleSaveErrors.Add(ctx, 1)
 }
 
-func (c *Controller) SetLeaderStatus(ctx context.Context, isLeader bool) {
+func (c *controllerMetrics) SetLeaderStatus(ctx context.Context, isLeader bool) {
 	if isLeader {
 		c.leaderStatus.Add(ctx, 1)
 	} else {
@@ -237,11 +237,11 @@ func (c *Controller) SetLeaderStatus(ctx context.Context, isLeader bool) {
 	}
 }
 
-func (c *Controller) ObserveTargetProcessingTime(ctx context.Context, duration time.Duration) {
+func (c *controllerMetrics) ObserveTargetProcessingTime(ctx context.Context, duration time.Duration) {
 	c.targetProcessingTime.Record(ctx, duration.Seconds())
 }
 
-func (c *Controller) TrackEnumeration(ctx context.Context, f func() error) error {
+func (c *controllerMetrics) TrackEnumeration(ctx context.Context, f func() error) error {
 	c.activeEnumeration.Add(ctx, 1)
 	defer c.activeEnumeration.Add(ctx, -1)
 

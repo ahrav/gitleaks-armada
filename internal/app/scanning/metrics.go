@@ -1,4 +1,4 @@
-package metrics
+package scanning
 
 import (
 	"context"
@@ -32,8 +32,8 @@ type ScannerMetrics interface {
 	IncWorkerErrors(ctx context.Context)
 }
 
-// Scanner implements ScannerMetrics
-type Scanner struct {
+// scannerMetrics implements ScannerMetrics
+type scannerMetrics struct {
 	// Messaging metrics
 	messagesPublished metric.Int64Counter
 	messagesConsumed  metric.Int64Counter
@@ -61,11 +61,11 @@ type Scanner struct {
 
 const namespace = "scanner"
 
-// New creates a new Scanner metrics instance.
-func New(mp metric.MeterProvider) (*Scanner, error) {
+// NewScannerMetrics creates a new Scanner metrics instance.
+func NewScannerMetrics(mp metric.MeterProvider) (*scannerMetrics, error) {
 	meter := mp.Meter(namespace, metric.WithInstrumentationVersion("v0.1.0"))
 
-	s := new(Scanner)
+	s := new(scannerMetrics)
 	var err error
 
 	// Initialize messaging metrics
@@ -168,15 +168,15 @@ func New(mp metric.MeterProvider) (*Scanner, error) {
 }
 
 // Task metrics implementations
-func (m *Scanner) IncTasksProcessed(ctx context.Context) {
+func (m *scannerMetrics) IncTasksProcessed(ctx context.Context) {
 	m.tasksProcessed.Add(ctx, 1)
 }
 
-func (m *Scanner) IncTaskErrors(ctx context.Context) {
+func (m *scannerMetrics) IncTaskErrors(ctx context.Context) {
 	m.taskErrors.Add(ctx, 1)
 }
 
-func (m *Scanner) TrackTask(ctx context.Context, f func() error) error {
+func (m *scannerMetrics) TrackTask(ctx context.Context, f func() error) error {
 	m.activeTasks.Add(ctx, 1)
 	defer m.activeTasks.Add(ctx, -1)
 
@@ -187,43 +187,43 @@ func (m *Scanner) TrackTask(ctx context.Context, f func() error) error {
 }
 
 // Git operations metrics implementations
-func (m *Scanner) ObserveCloneTime(ctx context.Context, duration time.Duration) {
+func (m *scannerMetrics) ObserveCloneTime(ctx context.Context, duration time.Duration) {
 	m.cloneTime.Record(ctx, duration.Seconds())
 }
 
-func (m *Scanner) IncCloneErrors(ctx context.Context) {
+func (m *scannerMetrics) IncCloneErrors(ctx context.Context) {
 	m.cloneErrors.Add(ctx, 1)
 }
 
 // Finding metrics implementations
-func (m *Scanner) ObserveFindings(ctx context.Context, count int) {
+func (m *scannerMetrics) ObserveFindings(ctx context.Context, count int) {
 	m.findingsPerTask.Record(ctx, float64(count))
 }
 
 // Worker metrics implementations
-func (m *Scanner) SetActiveWorkers(ctx context.Context, count int) {
+func (m *scannerMetrics) SetActiveWorkers(ctx context.Context, count int) {
 	// Since we can't directly set the value, we need to calculate the difference
 	// This is a basic implementation and might need refinement based on requirements
 	m.activeWorkers.Add(ctx, int64(count))
 }
 
-func (m *Scanner) IncWorkerErrors(ctx context.Context) {
+func (m *scannerMetrics) IncWorkerErrors(ctx context.Context) {
 	m.workerErrors.Add(ctx, 1)
 }
 
 // Kafka BrokerMetrics implementations
-func (m *Scanner) IncMessagePublished(ctx context.Context, topic string) {
+func (m *scannerMetrics) IncMessagePublished(ctx context.Context, topic string) {
 	m.messagesPublished.Add(ctx, 1, metric.WithAttributes(attribute.String("topic", topic)))
 }
 
-func (m *Scanner) IncMessageConsumed(ctx context.Context, topic string) {
+func (m *scannerMetrics) IncMessageConsumed(ctx context.Context, topic string) {
 	m.messagesConsumed.Add(ctx, 1, metric.WithAttributes(attribute.String("topic", topic)))
 }
 
-func (m *Scanner) IncPublishError(ctx context.Context, topic string) {
+func (m *scannerMetrics) IncPublishError(ctx context.Context, topic string) {
 	m.publishErrors.Add(ctx, 1, metric.WithAttributes(attribute.String("topic", topic)))
 }
 
-func (m *Scanner) IncConsumeError(ctx context.Context, topic string) {
+func (m *scannerMetrics) IncConsumeError(ctx context.Context, topic string) {
 	m.consumeErrors.Add(ctx, 1, metric.WithAttributes(attribute.String("topic", topic)))
 }

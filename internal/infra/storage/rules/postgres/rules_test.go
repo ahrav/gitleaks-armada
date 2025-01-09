@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ahrav/gitleaks-armada/internal/app/controller/metrics"
+	"github.com/ahrav/gitleaks-armada/internal/app/orchestration"
 	"github.com/ahrav/gitleaks-armada/internal/domain/rules"
 	"github.com/ahrav/gitleaks-armada/internal/infra/storage"
 	"github.com/ahrav/gitleaks-armada/pkg/common/otel"
@@ -23,7 +23,7 @@ func TestRulesStorage_SaveRule(t *testing.T) {
 	// TODO: Replace this with a mock metrics implementation.
 	mp, err := otel.NewMeterProvider("test-service")
 	require.NoError(t, err)
-	metricsCollector, err := metrics.New(mp)
+	metricsCollector, err := orchestration.NewControllerMetrics(mp)
 	require.NoError(t, err)
 	rulesStorage := NewStore(dbConn, storage.NoOpTracer(), metricsCollector)
 

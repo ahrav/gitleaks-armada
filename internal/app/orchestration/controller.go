@@ -1,4 +1,4 @@
-package controller
+package orchestration
 
 import (
 	"context"
@@ -9,7 +9,6 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/ahrav/gitleaks-armada/internal/app/cluster"
-	"github.com/ahrav/gitleaks-armada/internal/app/controller/metrics"
 	"github.com/ahrav/gitleaks-armada/internal/app/enumeration"
 	rulessvc "github.com/ahrav/gitleaks-armada/internal/app/rules"
 	"github.com/ahrav/gitleaks-armada/internal/config/loaders"
@@ -38,7 +37,7 @@ type Controller struct {
 	cancelFn context.CancelFunc
 
 	logger  *logger.Logger
-	metrics metrics.ControllerMetrics
+	metrics ControllerMetrics
 
 	tracer trace.Tracer
 
@@ -68,7 +67,7 @@ func NewController(
 	rulesService rulessvc.Service,
 	configLoader loaders.Loader,
 	logger *logger.Logger,
-	metrics metrics.ControllerMetrics,
+	metrics ControllerMetrics,
 	tracer trace.Tracer,
 ) *Controller {
 	return &Controller{

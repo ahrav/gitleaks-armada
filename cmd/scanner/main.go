@@ -16,7 +16,6 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/app/scanning"
 	"github.com/ahrav/gitleaks-armada/internal/infra/eventbus/kafka"
 	"github.com/ahrav/gitleaks-armada/internal/infra/scanner"
-	"github.com/ahrav/gitleaks-armada/internal/scanner/metrics"
 	"github.com/ahrav/gitleaks-armada/pkg/common"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/common/otel"
@@ -91,7 +90,7 @@ func main() {
 		log.Error(ctx, "failed to create metrics collector", "error", err)
 		os.Exit(1)
 	}
-	metricsCollector, err := metrics.New(mp)
+	metricsCollector, err := scanning.NewScannerMetrics(mp)
 	if err != nil {
 		log.Error(ctx, "failed to create metrics collector", "error", err)
 		os.Exit(1)

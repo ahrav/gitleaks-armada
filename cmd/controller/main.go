@@ -20,9 +20,8 @@ import (
 	"github.com/jackc/pgx/v5/stdlib"
 	"go.uber.org/automaxprocs/maxprocs"
 
-	"github.com/ahrav/gitleaks-armada/internal/app/controller"
-	"github.com/ahrav/gitleaks-armada/internal/app/controller/metrics"
 	"github.com/ahrav/gitleaks-armada/internal/app/enumeration"
+	"github.com/ahrav/gitleaks-armada/internal/app/orchestration"
 	"github.com/ahrav/gitleaks-armada/internal/app/rules"
 	"github.com/ahrav/gitleaks-armada/internal/config/loaders/fileloader"
 	"github.com/ahrav/gitleaks-armada/internal/infra/cluster/kubernetes"
@@ -176,7 +175,7 @@ func main() {
 		log.Error(ctx, "failed to create metrics collector", "error", err)
 		os.Exit(1)
 	}
-	metricCollector, err := metrics.New(mp)
+	metricCollector, err := orchestration.NewControllerMetrics(mp)
 	if err != nil {
 		log.Error(ctx, "failed to create metrics collector", "error", err)
 		os.Exit(1)
@@ -217,7 +216,7 @@ func main() {
 	)
 
 	rulesService := rules.NewService(rulesStore.NewStore(pool, tracer, metricCollector))
-	ctrl := controller.NewController(
+	ctrl := orchestration.NewController(
 		hostname,
 		coord,
 		broker,
