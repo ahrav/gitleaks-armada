@@ -63,6 +63,7 @@ type Orchestrator struct {
 //   - eventPublisher: Broadcasts domain events
 //   - enumerationService: Handles target scanning logic
 //   - rulesService: Manages scanning rules
+//   - stateRepo: Manages enumeration state
 //   - configLoader: Loads system configuration
 //   - logger: Structured logging
 //   - metrics: Runtime metrics collection

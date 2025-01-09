@@ -21,11 +21,11 @@ import (
 )
 
 // Coordinator defines the core domain operations for target enumeration.
-// It coordinates the overall scanning process by managing enumeration state
-// and supporting resumable scans.
+// It coordinates the overall enumeration process by managing enumeration state
+// and supporting resumable enumeration.
 type Coordinator interface {
 	// StartFreshEnumerations begins new enumeration sessions for all targets defined in the config.
-	// It creates new state records and initializes the scanning process for each target.
+	// It creates new state records and initializes the enumeration process for each target.
 	// Returns an error if the enumeration sessions cannot be started.
 	StartFreshEnumerations(ctx context.Context, cfg *config.Config) error
 
@@ -46,7 +46,7 @@ type metrics interface {
 
 // Orchestrator implements target enumeration by orchestrating domain logic, repository calls,
 // and event publishing. It manages the lifecycle of enumeration sessions and coordinates
-// the overall scanning process.
+// the overall enumeration process.
 type coordinator struct {
 	// Domain repositories.
 	stateRepo      enumeration.StateRepository
@@ -91,7 +91,7 @@ func NewCoordinator(
 }
 
 // StartFreshEnumerations begins new enumeration sessions for all targets defined in the config.
-// It creates new state records and initializes the scanning process for each target.
+// It creates new state records and initializes the enumeration process for each target.
 // Returns an error if the enumeration sessions cannot be started.
 func (s *coordinator) StartFreshEnumerations(ctx context.Context, cfg *config.Config) error {
 	ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.start_fresh_enumerations",
@@ -187,7 +187,7 @@ func (s *coordinator) marshalConfig(
 }
 
 // ResumeEnumerations attempts to continue enumeration from previously saved states.
-// This allows recovery from interruptions and supports incremental scanning.
+// This allows recovery from interruptions and supports incremental enumeration.
 func (s *coordinator) ResumeEnumerations(ctx context.Context, states []*enumeration.SessionState) error {
 	ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.resume_enumerations",
 		trace.WithAttributes(attribute.Int("state_count", len(states))))
