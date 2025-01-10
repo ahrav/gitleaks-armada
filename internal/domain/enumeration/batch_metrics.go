@@ -33,38 +33,6 @@ func ReconstructBatchMetrics(
 	}
 }
 
-// MarkSuccessful updates the number of processed items. It returns an error if
-// the number of processed items exceeds the expected count.
-func (bm *BatchMetrics) MarkSuccessful(itemsProcessed int) error {
-	if itemsProcessed > bm.expectedItems {
-		return fmt.Errorf("processed items (%d) exceeds expected items (%d)",
-			itemsProcessed, bm.expectedItems)
-	}
-	bm.itemsProcessed = itemsProcessed
-	return nil
-}
-
-// MarkFailed records the error details for a failed batch.
-func (bm *BatchMetrics) MarkFailed(err error) {
-	if err != nil {
-		bm.errorDetails = err.Error()
-	}
-}
-
-// CompletionPercentage calculates the percentage of items processed.
-// Returns 0 if no items were expected.
-func (bm *BatchMetrics) CompletionPercentage() float64 {
-	if bm.expectedItems == 0 {
-		return 0
-	}
-	return float64(bm.itemsProcessed) / float64(bm.expectedItems) * 100
-}
-
-// HasError returns true if error details are present.
-func (bm *BatchMetrics) HasError() bool {
-	return bm.errorDetails != ""
-}
-
 // Getters
 func (bm *BatchMetrics) ExpectedItems() int   { return bm.expectedItems }
 func (bm *BatchMetrics) ItemsProcessed() int  { return bm.itemsProcessed }
@@ -100,4 +68,36 @@ func (bm *BatchMetrics) UnmarshalJSON(data []byte) error {
 	bm.errorDetails = aux.ErrorDetails
 
 	return nil
+}
+
+// MarkSuccessful updates the number of processed items. It returns an error if
+// the number of processed items exceeds the expected count.
+func (bm *BatchMetrics) MarkSuccessful(itemsProcessed int) error {
+	if itemsProcessed > bm.expectedItems {
+		return fmt.Errorf("processed items (%d) exceeds expected items (%d)",
+			itemsProcessed, bm.expectedItems)
+	}
+	bm.itemsProcessed = itemsProcessed
+	return nil
+}
+
+// MarkFailed records the error details for a failed batch.
+func (bm *BatchMetrics) MarkFailed(err error) {
+	if err != nil {
+		bm.errorDetails = err.Error()
+	}
+}
+
+// CompletionPercentage calculates the percentage of items processed.
+// Returns 0 if no items were expected.
+func (bm *BatchMetrics) CompletionPercentage() float64 {
+	if bm.expectedItems == 0 {
+		return 0
+	}
+	return float64(bm.itemsProcessed) / float64(bm.expectedItems) * 100
+}
+
+// HasError returns true if error details are present.
+func (bm *BatchMetrics) HasError() bool {
+	return bm.errorDetails != ""
 }

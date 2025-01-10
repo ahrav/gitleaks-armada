@@ -80,34 +80,6 @@ func ReconstructBatch(
 	}
 }
 
-// MarkSuccessful transitions the batch to successful state and updates its metrics.
-func (b *Batch) MarkSuccessful(itemsProcessed int) error {
-	if b.status != BatchStatusInProgress {
-		return fmt.Errorf("cannot mark successful: invalid state transition from %s",
-			b.status)
-	}
-
-	if err := b.metrics.MarkSuccessful(itemsProcessed); err != nil {
-		return err
-	}
-
-	b.status = BatchStatusSucceeded
-	b.timeline.MarkCompleted()
-	return nil
-}
-
-// MarkFailed transitions the batch to failed state and records the error.
-func (b *Batch) MarkFailed(err error) error {
-	if b.status != BatchStatusInProgress {
-		return fmt.Errorf("cannot mark failed: invalid state transition from %s", b.status)
-	}
-
-	b.metrics.MarkFailed(err)
-	b.status = BatchStatusFailed
-	b.timeline.MarkCompleted()
-	return nil
-}
-
 // Getters
 func (b *Batch) BatchID() string         { return b.batchID }
 func (b *Batch) SessionID() string       { return b.sessionID }
@@ -157,5 +129,33 @@ func (b *Batch) UnmarshalJSON(data []byte) error {
 	b.metrics = aux.Metrics
 	b.checkpoint = aux.Checkpoint
 
+	return nil
+}
+
+// MarkSuccessful transitions the batch to successful state and updates its metrics.
+func (b *Batch) MarkSuccessful(itemsProcessed int) error {
+	if b.status != BatchStatusInProgress {
+		return fmt.Errorf("cannot mark successful: invalid state transition from %s",
+			b.status)
+	}
+
+	if err := b.metrics.MarkSuccessful(itemsProcessed); err != nil {
+		return err
+	}
+
+	b.status = BatchStatusSucceeded
+	b.timeline.MarkCompleted()
+	return nil
+}
+
+// MarkFailed transitions the batch to failed state and records the error.
+func (b *Batch) MarkFailed(err error) error {
+	if b.status != BatchStatusInProgress {
+		return fmt.Errorf("cannot mark failed: invalid state transition from %s", b.status)
+	}
+
+	b.metrics.MarkFailed(err)
+	b.status = BatchStatusFailed
+	b.timeline.MarkCompleted()
 	return nil
 }
