@@ -13,7 +13,7 @@ var taskSourceTypeToProto = map[shared.SourceType]pb.SourceType{
 	shared.SourceTypeS3:     pb.SourceType_SOURCE_TYPE_S3,
 }
 
-// TaskToProto converts a domain Task to its protobuf representation (pb.ScanTask).
+// TaskToProto converts a domain Task to its protobuf representation (pb.EnumerationTask).
 func TaskToProto(t *enumeration.Task) *pb.EnumerationTask {
 	tsk := &pb.EnumerationTask{
 		TaskId:      t.TaskID.String(),
@@ -36,7 +36,7 @@ var protoSourceTypeToTaskSourceType = map[pb.SourceType]shared.SourceType{
 	pb.SourceType_SOURCE_TYPE_S3:     shared.SourceTypeS3,
 }
 
-// ProtoToTask converts a protobuf ScanTask to a domain Task.
+// ProtoToTask converts a protobuf EnumerationTask to a domain Task.
 func ProtoToTask(pt *pb.EnumerationTask) *enumeration.Task {
 	var creds *enumeration.TaskCredentials
 	if pt.Credentials != nil {
@@ -54,7 +54,6 @@ func ProtoToTask(pt *pb.EnumerationTask) *enumeration.Task {
 }
 
 // ToProtoCredentials converts domain.TaskCredentials -> pb.TaskCredentials.
-// (Already provided in your snippet, but included here for completeness.)
 func ToProtoCredentials(c *enumeration.TaskCredentials) *pb.TaskCredentials {
 	if c == nil {
 		return nil
