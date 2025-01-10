@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.opentelemetry.io/otel/attribute"
@@ -43,8 +44,8 @@ func NewBatchStore(
 func (s *batchStore) Save(ctx context.Context, batch *enumeration.Batch) error {
 	dbAttrs := append(
 		defaultDBAttributes,
-		attribute.String("batch_id", batch.BatchID()),
-		attribute.String("session_id", batch.SessionID()),
+		attribute.String("batch_id", batch.BatchID().String()),
+		attribute.String("session_id", batch.SessionID().String()),
 		attribute.String("status", string(batch.Status())),
 		attribute.Bool("has_checkpoint", batch.Checkpoint() != nil),
 	)
@@ -70,8 +71,8 @@ func (s *batchStore) Save(ctx context.Context, batch *enumeration.Batch) error {
 		errorDetails := batch.Metrics().ErrorDetails()
 
 		err := s.q.UpsertBatch(ctx, db.UpsertBatchParams{
-			BatchID:        batch.BatchID(),
-			SessionID:      batch.SessionID(),
+			BatchID:        pgtype.UUID{Bytes: batch.BatchID(), Valid: true},
+			SessionID:      pgtype.UUID{Bytes: batch.SessionID(), Valid: true},
 			Status:         db.BatchStatus(batch.Status()), // Convert domain to DB enum
 			CheckpointID:   pgtype.Int8{Int64: checkpointID, Valid: checkpointID != 0},
 			StartedAt:      pgtype.Timestamptz{Time: startedAt, Valid: true},
@@ -90,17 +91,17 @@ func (s *batchStore) Save(ctx context.Context, batch *enumeration.Batch) error {
 }
 
 // FindBySessionID returns all batches for a given session, ordered by started_at ASC.
-func (s *batchStore) FindBySessionID(ctx context.Context, sessionID string) ([]*enumeration.Batch, error) {
+func (s *batchStore) FindBySessionID(ctx context.Context, sessionID uuid.UUID) ([]*enumeration.Batch, error) {
 	dbAttrs := append(
 		defaultDBAttributes,
-		attribute.String("session_id", sessionID),
+		attribute.String("session_id", sessionID.String()),
 	)
 
 	var batches []*enumeration.Batch
 	err := storage.ExecuteAndTrace(ctx, s.tracer, "postgres.enumeration.get_batches_for_session", dbAttrs, func(ctx context.Context) error {
-		rows, err := s.q.GetBatchesForSession(ctx, sessionID)
+		rows, err := s.q.GetBatchesForSession(ctx, pgtype.UUID{Bytes: sessionID, Valid: true})
 		if err != nil {
-			return fmt.Errorf("failed to get batches for session %s: %w", sessionID, err)
+			return fmt.Errorf("failed to get batches for session %s: %w", sessionID.String(), err)
 		}
 
 		for _, r := range rows {
@@ -124,7 +125,7 @@ func (s *batchStore) FindBySessionID(ctx context.Context, sessionID string) ([]*
 // Since the "GetBatchesForSession" query orders by started_at ASC, we can simply
 // fetch all and return the last element (if any exist). Alternatively, you could
 // add a dedicated "GetLastBatchForSession" query sorted DESC LIMIT 1.
-func (s *batchStore) FindLastBySessionID(ctx context.Context, sessionID string) (*enumeration.Batch, error) {
+func (s *batchStore) FindLastBySessionID(ctx context.Context, sessionID uuid.UUID) (*enumeration.Batch, error) {
 	batches, err := s.FindBySessionID(ctx, sessionID)
 	if err != nil {
 		return nil, err
@@ -136,10 +137,10 @@ func (s *batchStore) FindLastBySessionID(ctx context.Context, sessionID string) 
 }
 
 // FindByID retrieves a batch by its unique batchID.
-func (s *batchStore) FindByID(ctx context.Context, batchID string) (*enumeration.Batch, error) {
+func (s *batchStore) FindByID(ctx context.Context, batchID uuid.UUID) (*enumeration.Batch, error) {
 	dbAttrs := append(
 		defaultDBAttributes,
-		attribute.String("batch_id", batchID),
+		attribute.String("batch_id", batchID.String()),
 	)
 
 	var batchEntity *enumeration.Batch
@@ -149,9 +150,9 @@ func (s *batchStore) FindByID(ctx context.Context, batchID string) (*enumeration
 		"postgres.enumeration.get_batch_by_id",
 		dbAttrs,
 		func(ctx context.Context) error {
-			r, err := s.q.GetBatch(ctx, batchID)
+			r, err := s.q.GetBatch(ctx, pgtype.UUID{Bytes: batchID, Valid: true})
 			if err != nil {
-				return fmt.Errorf("failed to get batch %s: %w", batchID, err)
+				return fmt.Errorf("failed to get batch %s: %w", batchID.String(), err)
 			}
 
 			batchEntity, err = s.toDomainBatch(ctx, &r)
@@ -191,8 +192,8 @@ func (s *batchStore) toDomainBatch(ctx context.Context, row *db.EnumerationBatch
 	}
 
 	return enumeration.ReconstructBatch(
-		row.BatchID,
-		row.SessionID,
+		row.BatchID.Bytes,
+		row.SessionID.Bytes,
 		enumeration.BatchStatus(row.Status),
 		timeline,
 		metrics,

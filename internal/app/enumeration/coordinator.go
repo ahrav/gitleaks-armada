@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -201,7 +202,7 @@ func (s *coordinator) ResumeEnumerations(ctx context.Context, states []*enumerat
 	for _, st := range states {
 		stateCtx, stateSpan := s.tracer.Start(ctx, "coordinator.enumeration.process_state",
 			trace.WithAttributes(
-				attribute.String("session_id", st.SessionID()),
+				attribute.String("session_id", st.SessionID().String()),
 				attribute.String("source_type", string(st.SourceType())),
 			),
 		)
@@ -266,7 +267,7 @@ func (s *coordinator) processTargetEnumeration(
 	ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.process_target_enumeration",
 		trace.WithAttributes(
 			attribute.String("source_type", string(target.SourceType)),
-			attribute.String("session_id", state.SessionID()),
+			attribute.String("session_id", state.SessionID().String()),
 		))
 	defer span.End()
 
@@ -360,7 +361,7 @@ func (s *coordinator) streamEnumerate(
 ) error {
 	ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.stream_enumerate",
 		trace.WithAttributes(
-			attribute.String("session_id", state.SessionID()),
+			attribute.String("session_id", state.SessionID().String()),
 			attribute.String("source_type", state.SourceType()),
 		))
 	defer span.End()
@@ -375,7 +376,7 @@ func (s *coordinator) streamEnumerate(
 		for batch := range batchCh {
 			batchCtx, batchSpan := s.tracer.Start(ctx, "coordinator.enumeration.process_batch",
 				trace.WithAttributes(
-					attribute.String("session_id", state.SessionID()),
+					attribute.String("session_id", state.SessionID().String()),
 					attribute.Int("batch_size", len(batch.Targets)),
 					attribute.String("next_cursor", batch.NextCursor),
 				))
@@ -520,12 +521,12 @@ func (s *coordinator) processBatch(
 func (s *coordinator) publishTasks(
 	ctx context.Context,
 	targets []*TargetInfo,
-	sessionID string,
+	sessionID uuid.UUID,
 	creds *enumeration.TaskCredentials,
 ) error {
 	ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.publish_tasks",
 		trace.WithAttributes(
-			attribute.String("session_id", sessionID),
+			attribute.String("session_id", sessionID.String()),
 			attribute.Int("num_targets", len(targets)),
 		))
 	defer span.End()
@@ -548,13 +549,13 @@ func (s *coordinator) publishTasks(
 			creds,
 		)
 		taskSpan.AddEvent("Created task", trace.WithAttributes(
-			attribute.String("task_id", task.TaskID),
+			attribute.String("task_id", task.TaskID.String()),
 		))
 
 		err := s.eventPublisher.PublishDomainEvent(
 			taskCtx,
 			enumeration.NewTaskCreatedEvent(task),
-			events.WithKey(sessionID),
+			events.WithKey(sessionID.String()),
 		)
 		if err != nil {
 			taskSpan.RecordError(err)

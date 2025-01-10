@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
@@ -20,15 +21,15 @@ func TestScanTask_UpdateProgress(t *testing.T) {
 			name: "basic update",
 			task: &Task{
 				CoreTask: shared.CoreTask{
-					TaskID: "task1",
+					TaskID: uuid.New(),
 				},
-				jobID:           "job1",
+				jobID:           uuid.New(),
 				lastSequenceNum: 0,
 				itemsProcessed:  0,
 			},
 			progress: Progress{
-				TaskID:         "task1",
-				JobID:          "job1",
+				TaskID:         uuid.New(),
+				JobID:          uuid.New(),
 				SequenceNum:    1,
 				Status:         TaskStatusInProgress,
 				ItemsProcessed: 100,
@@ -36,9 +37,9 @@ func TestScanTask_UpdateProgress(t *testing.T) {
 			},
 			want: &Task{
 				CoreTask: shared.CoreTask{
-					TaskID: "task1",
+					TaskID: uuid.New(),
 				},
-				jobID:           "job1",
+				jobID:           uuid.New(),
 				lastSequenceNum: 1,
 				status:          TaskStatusInProgress,
 				itemsProcessed:  100,
@@ -49,30 +50,30 @@ func TestScanTask_UpdateProgress(t *testing.T) {
 			name: "update with checkpoint",
 			task: &Task{
 				CoreTask: shared.CoreTask{
-					TaskID: "task1",
+					TaskID: uuid.New(),
 				},
-				jobID:           "job1",
+				jobID:           uuid.New(),
 				lastSequenceNum: 0,
 			},
 			progress: Progress{
-				TaskID:      "task1",
-				JobID:       "job1",
+				TaskID:      uuid.New(),
+				JobID:       uuid.New(),
 				SequenceNum: 1,
 				Checkpoint: &Checkpoint{
-					TaskID:      "task1",
-					JobID:       "job1",
+					TaskID:      uuid.New(),
+					JobID:       uuid.New(),
 					ResumeToken: []byte("token"),
 				},
 			},
 			want: &Task{
 				CoreTask: shared.CoreTask{
-					TaskID: "task1",
+					TaskID: uuid.New(),
 				},
-				jobID:           "job1",
+				jobID:           uuid.New(),
 				lastSequenceNum: 1,
 				lastCheckpoint: &Checkpoint{
-					TaskID:      "task1",
-					JobID:       "job1",
+					TaskID:      uuid.New(),
+					JobID:       uuid.New(),
 					ResumeToken: []byte("token"),
 				},
 			},

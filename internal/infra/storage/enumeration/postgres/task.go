@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -35,8 +37,8 @@ func NewTaskStore(dbConn *pgxpool.Pool, tracer trace.Tracer) *taskStore {
 func (t *taskStore) Save(ctx context.Context, task *enumeration.Task) error {
 	dbAttrs := append(
 		defaultDBAttributes,
-		attribute.String("task_id", task.TaskID),
-		attribute.String("session_id", task.SessionID()),
+		attribute.String("task_id", task.TaskID.String()),
+		attribute.String("session_id", task.SessionID().String()),
 		attribute.String("resource_uri", task.ResourceURI()),
 	)
 	return storage.ExecuteAndTrace(ctx, t.tracer, "postgres.enumeration.save_task", dbAttrs, func(ctx context.Context) error {
@@ -46,9 +48,9 @@ func (t *taskStore) Save(ctx context.Context, task *enumeration.Task) error {
 		}
 
 		err = t.q.CreateTask(ctx, db.CreateTaskParams{
-			TaskID:      task.TaskID,
+			TaskID:      pgtype.UUID{Bytes: task.TaskID, Valid: true},
 			SourceType:  string(task.SourceType),
-			SessionID:   task.SessionID(),
+			SessionID:   pgtype.UUID{Bytes: task.SessionID(), Valid: true},
 			ResourceUri: task.ResourceURI(),
 			Metadata:    metadata,
 		})
@@ -61,14 +63,14 @@ func (t *taskStore) Save(ctx context.Context, task *enumeration.Task) error {
 }
 
 // GetByID retrieves a task by its unique identifier.
-func (t *taskStore) GetByID(ctx context.Context, taskID string) (*enumeration.Task, error) {
+func (t *taskStore) GetByID(ctx context.Context, taskID uuid.UUID) (*enumeration.Task, error) {
 	var task *enumeration.Task
 	dbAttrs := append(
 		defaultDBAttributes,
-		attribute.String("task_id", taskID),
+		attribute.String("task_id", taskID.String()),
 	)
 	err := storage.ExecuteAndTrace(ctx, t.tracer, "postgres.enumeration.get_task", dbAttrs, func(ctx context.Context) error {
-		dbTask, err := t.q.GetTaskByID(ctx, taskID)
+		dbTask, err := t.q.GetTaskByID(ctx, pgtype.UUID{Bytes: taskID, Valid: true})
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return nil
@@ -82,9 +84,9 @@ func (t *taskStore) GetByID(ctx context.Context, taskID string) (*enumeration.Ta
 		}
 
 		task = enumeration.ReconstructTask(
-			dbTask.TaskID,
+			dbTask.TaskID.Bytes,
 			shared.SourceType(dbTask.SourceType),
-			dbTask.SessionID,
+			dbTask.SessionID.Bytes,
 			dbTask.ResourceUri,
 			metadata,
 			nil, // TODO: Add credentials

@@ -31,7 +31,7 @@ func TestMemoryEnumerationStateStorage_SaveAndLoad(t *testing.T) {
 	err = store.Save(ctx, state)
 	require.NoError(t, err)
 
-	loaded, err := store.Load(ctx, state.SessionID())
+	loaded, err := store.Load(ctx, state.SessionID().String())
 	require.NoError(t, err)
 	require.NotNil(t, loaded, "Loaded session should not be nil")
 
@@ -63,7 +63,7 @@ func TestMemoryEnumerationStateStorage_Update(t *testing.T) {
 	err = store.Save(ctx, state)
 	require.NoError(t, err)
 
-	loaded, err := store.Load(ctx, state.SessionID())
+	loaded, err := store.Load(ctx, state.SessionID().String())
 	require.NoError(t, err)
 	require.NotNil(t, loaded)
 
@@ -84,7 +84,7 @@ func TestMemoryEnumerationStateStorage_ConcurrentOperations(t *testing.T) {
 			err := store.Save(ctx, state)
 			require.NoError(t, err)
 
-			_, err = store.Load(ctx, state.SessionID())
+			_, err = store.Load(ctx, state.SessionID().String())
 			require.NoError(t, err)
 
 			done <- true

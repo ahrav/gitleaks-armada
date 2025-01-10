@@ -1,6 +1,8 @@
 package protobuf
 
 import (
+	"github.com/google/uuid"
+
 	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	pb "github.com/ahrav/gitleaks-armada/proto/scanner"
@@ -13,24 +15,20 @@ var taskSourceTypeToProto = map[shared.SourceType]pb.SourceType{
 
 // TaskToProto converts a domain Task to its protobuf representation (pb.ScanTask).
 func TaskToProto(t *enumeration.Task) *pb.EnumerationTask {
-	if t.Credentials() == nil {
-		// If no credentials, we can pass a nil or an empty TaskCredentials
-		return &pb.EnumerationTask{
-			TaskId:      t.TaskID,
-			SourceType:  taskSourceTypeToProto[t.SourceType],
-			ResourceUri: t.ResourceURI(),
-			Metadata:    t.Metadata(),
-			// Credentials: nil,
-		}
-	}
-
-	return &pb.EnumerationTask{
-		TaskId:      t.TaskID,
+	tsk := &pb.EnumerationTask{
+		TaskId:      t.TaskID.String(),
 		SourceType:  taskSourceTypeToProto[t.SourceType],
+		SessionId:   t.SessionID().String(),
 		ResourceUri: t.ResourceURI(),
 		Metadata:    t.Metadata(),
-		Credentials: ToProtoCredentials(t.Credentials()),
 	}
+	if t.Credentials() == nil {
+		// If no credentials, we can pass a nil or an empty TaskCredentials
+		return tsk
+	}
+
+	tsk.Credentials = ToProtoCredentials(t.Credentials())
+	return tsk
 }
 
 var protoSourceTypeToTaskSourceType = map[pb.SourceType]shared.SourceType{
@@ -46,10 +44,10 @@ func ProtoToTask(pt *pb.EnumerationTask) *enumeration.Task {
 	}
 
 	return enumeration.ReconstructTask(
-		pt.TaskId,
+		uuid.MustParse(pt.TaskId),
 		protoSourceTypeToTaskSourceType[pt.SourceType],
+		uuid.MustParse(pt.SessionId),
 		pt.ResourceUri,
-		"", // TODO: Add session ID
 		pt.Metadata,
 		creds,
 	)

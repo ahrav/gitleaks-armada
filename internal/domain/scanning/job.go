@@ -1,6 +1,10 @@
 package scanning
 
-import "time"
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
 
 // JobStatus represents the current state of a scan job. It enables tracking of
 // job lifecycle from initialization through completion or failure.
@@ -23,11 +27,11 @@ const (
 // ScanJob coordinates and tracks a collection of related scanning tasks.
 // It provides aggregated status and progress tracking across all child tasks.
 type ScanJob struct {
-	jobID          string
+	jobID          uuid.UUID
 	status         JobStatus
 	startTime      time.Time
 	lastUpdateTime time.Time
-	tasks          map[string]*Task
+	tasks          map[uuid.UUID]*Task
 	totalTasks     int
 	completedTasks int
 	failedTasks    int
@@ -35,18 +39,18 @@ type ScanJob struct {
 
 // NewScanJob creates a new ScanJob instance with initialized state tracking.
 // It ensures proper initialization of internal maps and timestamps for job monitoring.
-func NewScanJob(jobID string) *ScanJob {
+func NewScanJob() *ScanJob {
 	return &ScanJob{
-		jobID:     jobID,
+		jobID:     uuid.New(),
 		status:    JobStatusInitialized,
 		startTime: time.Now(),
-		tasks:     make(map[string]*Task),
+		tasks:     make(map[uuid.UUID]*Task),
 	}
 }
 
 // GetJobID returns the unique identifier for this scan job.
 // Access is synchronized to ensure thread-safe reads.
-func (j *ScanJob) GetJobID() string { return j.jobID }
+func (j *ScanJob) GetJobID() uuid.UUID { return j.jobID }
 
 // GetStatus returns the current execution status of the scan job.
 // Access is synchronized to ensure thread-safe reads.
@@ -70,7 +74,7 @@ func (j *ScanJob) AddTask(task *Task) {
 
 // UpdateTask applies changes to a task's state via the provided update function.
 // It returns false if the task doesn't exist, true if the update was successful.
-func (j *ScanJob) UpdateTask(taskID string, updateFn func(*Task)) bool {
+func (j *ScanJob) UpdateTask(taskID uuid.UUID, updateFn func(*Task)) bool {
 	task, exists := j.tasks[taskID]
 	if !exists {
 		return false

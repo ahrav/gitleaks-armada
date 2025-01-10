@@ -7,6 +7,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+
 	domain "github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 )
 
@@ -65,16 +67,16 @@ func NewScanTaskServiceImpl(
 
 // UpdateProgress orchestrates the domain calls + repo calls + concurrency
 func (s *ScanTaskServiceImpl) UpdateProgress(ctx context.Context, progress domain.Progress) error {
-	if progress.JobID == "" || progress.TaskID == "" {
+	if progress.JobID == uuid.Nil || progress.TaskID == uuid.Nil {
 		return errors.New("missing jobID or taskID")
 	}
 
 	// 1. Load job from in-memory or repo
 	s.mu.RLock()
-	job, inCache := s.jobsCache[progress.JobID]
+	job, inCache := s.jobsCache[progress.JobID.String()]
 	s.mu.RUnlock()
 	if !inCache {
-		loadedJob, err := s.jobRepo.GetJob(ctx, progress.JobID)
+		loadedJob, err := s.jobRepo.GetJob(ctx, progress.JobID.String())
 		if err != nil {
 			return err
 		}
@@ -82,10 +84,10 @@ func (s *ScanTaskServiceImpl) UpdateProgress(ctx context.Context, progress domai
 			return fmt.Errorf("job %s not found", progress.JobID)
 		}
 		s.mu.Lock()
-		job, inCache = s.jobsCache[progress.JobID]
+		job, inCache = s.jobsCache[progress.JobID.String()]
 		if !inCache {
 			job = loadedJob
-			s.jobsCache[progress.JobID] = job
+			s.jobsCache[progress.JobID.String()] = job
 		}
 		s.mu.Unlock()
 	}
@@ -130,9 +132,9 @@ func (s *ScanTaskServiceImpl) UpdateProgress(ctx context.Context, progress domai
 	return nil
 }
 
-func (s *ScanTaskServiceImpl) GetTask(ctx context.Context, jobID, taskID string) (*domain.Task, error) {
+func (s *ScanTaskServiceImpl) GetTask(ctx context.Context, jobID uuid.UUID, taskID uuid.UUID) (*domain.Task, error) {
 	// purely orchestration logic
-	job, err := s.jobRepo.GetJob(ctx, jobID)
+	job, err := s.jobRepo.GetJob(ctx, jobID.String())
 	if err != nil {
 		return nil, err
 	}
@@ -149,8 +151,8 @@ func (s *ScanTaskServiceImpl) GetTask(ctx context.Context, jobID, taskID string)
 	return found, nil
 }
 
-func (s *ScanTaskServiceImpl) MarkTaskStale(ctx context.Context, jobID, taskID string, reason domain.StallReason) error {
-	job, err := s.jobRepo.GetJob(ctx, jobID)
+func (s *ScanTaskServiceImpl) MarkTaskStale(ctx context.Context, jobID uuid.UUID, taskID uuid.UUID, reason domain.StallReason) error {
+	job, err := s.jobRepo.GetJob(ctx, jobID.String())
 	if err != nil {
 		return err
 	}
@@ -175,8 +177,8 @@ func (s *ScanTaskServiceImpl) MarkTaskStale(ctx context.Context, jobID, taskID s
 	return nil
 }
 
-func (s *ScanTaskServiceImpl) RecoverTask(ctx context.Context, jobID, taskID string) error {
-	job, err := s.jobRepo.GetJob(ctx, jobID)
+func (s *ScanTaskServiceImpl) RecoverTask(ctx context.Context, jobID uuid.UUID, taskID uuid.UUID) error {
+	job, err := s.jobRepo.GetJob(ctx, jobID.String())
 	if err != nil {
 		return err
 	}

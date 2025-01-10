@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
@@ -23,8 +24,8 @@ func TestPublishAndSubscribeTasks(t *testing.T) {
 
 	expectedTask := enumeration.NewTask(
 		shared.SourceTypeGitHub,
+		uuid.New(),
 		"test-uri",
-		"test-session",
 		map[string]string{},
 		nil,
 	)
@@ -53,7 +54,7 @@ func TestMultipleSubscribers(t *testing.T) {
 
 	tsk := enumeration.NewTask(
 		shared.SourceTypeGitHub,
-		"test-session",
+		uuid.New(),
 		"test-uri",
 		map[string]string{},
 		nil,
@@ -83,7 +84,7 @@ func TestHandlerError(t *testing.T) {
 
 	tsk := enumeration.NewTask(
 		shared.SourceTypeGitHub,
-		"test-session",
+		uuid.New(),
 		"test-uri",
 		map[string]string{},
 		nil,
@@ -121,7 +122,7 @@ func TestConcurrentPublishSubscribe(t *testing.T) {
 		go func(id int) {
 			task := enumeration.NewTask(
 				shared.SourceTypeGitHub,
-				"test-session",
+				uuid.New(),
 				"test-uri",
 				map[string]string{},
 				nil,
@@ -152,7 +153,7 @@ func TestPublishBatchWithError(t *testing.T) {
 
 	// Subscribe with a handler that fails on specific task.
 	err := broker.SubscribeTasks(ctx, func(task enumeration.Task) error {
-		if task.TaskID == "fail-task" {
+		if task.TaskID == uuid.MustParse("fail-task") {
 			return expectedErr
 		}
 		return nil
@@ -160,9 +161,9 @@ func TestPublishBatchWithError(t *testing.T) {
 	assert.NoError(t, err)
 
 	tasks := []enumeration.Task{
-		{CoreTask: shared.CoreTask{TaskID: "task-1"}},
-		{CoreTask: shared.CoreTask{TaskID: "fail-task"}},
-		{CoreTask: shared.CoreTask{TaskID: "task-3"}}, // This should not be processed due to previous error
+		{CoreTask: shared.CoreTask{TaskID: uuid.MustParse("task-1")}},
+		{CoreTask: shared.CoreTask{TaskID: uuid.MustParse("fail-task")}},
+		{CoreTask: shared.CoreTask{TaskID: uuid.MustParse("task-3")}}, // This should not be processed due to previous error
 	}
 
 	err = broker.PublishTasks(ctx, tasks)
@@ -175,7 +176,7 @@ func TestContextCancellation(t *testing.T) {
 
 	tsk := enumeration.NewTask(
 		shared.SourceTypeGitHub,
-		"test-session",
+		uuid.New(),
 		"test-uri",
 		map[string]string{},
 		nil,

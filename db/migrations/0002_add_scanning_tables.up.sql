@@ -41,6 +41,7 @@ CREATE TYPE scan_job_status AS ENUM (
 -- Scan Jobs Table
 CREATE TABLE scan_jobs (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    job_id UUID NOT NULL UNIQUE,
     scan_target_id BIGINT NOT NULL REFERENCES scan_targets (id),
     status scan_job_status NOT NULL,
     start_time TIMESTAMPTZ,

@@ -14,7 +14,7 @@ import (
 // around its child entities and value objects.
 type Task struct {
 	shared.CoreTask
-	sessionID   string            // ID of the session this task belongs to
+	sessionID   uuid.UUID         // ID of the session this task belongs to
 	resourceURI string            // Location of the resource to scan
 	metadata    map[string]string // Additional context for task processing
 	credentials *TaskCredentials  // Authentication credentials for the resource
@@ -23,14 +23,14 @@ type Task struct {
 // NewTask creates a new Task instance.
 func NewTask(
 	sourceType shared.SourceType,
-	sessionID string,
+	sessionID uuid.UUID,
 	resourceURI string,
 	metadata map[string]string,
 	credentials *TaskCredentials,
 ) *Task {
 	return &Task{
 		CoreTask: shared.CoreTask{
-			TaskID:     generateTaskID(),
+			TaskID:     uuid.New(),
 			SourceType: sourceType,
 		},
 		sessionID:   sessionID,
@@ -42,9 +42,9 @@ func NewTask(
 
 // ReconstructTask creates a Task instance from persisted data.
 func ReconstructTask(
-	taskID string,
+	taskID uuid.UUID,
 	sourceType shared.SourceType,
-	sessionID string,
+	sessionID uuid.UUID,
 	resourceURI string,
 	metadata map[string]string,
 	credentials *TaskCredentials,
@@ -61,12 +61,8 @@ func ReconstructTask(
 	}
 }
 
-// generateTaskID creates a unique identifier for each scan task.
-// This allows tracking individual tasks through the processing pipeline.
-func generateTaskID() string { return uuid.New().String() }
-
 // Getter methods.
-func (t *Task) SessionID() string             { return t.sessionID }
+func (t *Task) SessionID() uuid.UUID          { return t.sessionID }
 func (t *Task) ResourceURI() string           { return t.resourceURI }
 func (t *Task) Metadata() map[string]string   { return t.metadata }
 func (t *Task) Credentials() *TaskCredentials { return t.credentials }

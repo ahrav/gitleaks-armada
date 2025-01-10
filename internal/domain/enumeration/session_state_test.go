@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -39,10 +40,10 @@ func TestReconstructState(t *testing.T) {
 	metrics.IncrementFailedBatches()
 
 	timeline := NewTimeline(&mockTimeProvider{current: now})
-	checkpoint := NewCheckpoint(1, "my-target", nil)
+	checkpoint := NewCheckpoint(1, uuid.New(), nil)
 
 	s := ReconstructState(
-		"session-abc",
+		uuid.New(),
 		"github",
 		json.RawMessage(`{"foo":"bar"}`),
 		StatusInProgress,
@@ -94,7 +95,7 @@ func TestIsStalled(t *testing.T) {
 			name: "state becomes stalled after threshold",
 			setupState: func(s *SessionState, tp *mockTimeProvider) {
 				require.NoError(t, s.MarkInProgress())
-				batch := NewBatch(s.SessionID(), 5, NewTemporaryCheckpoint("test", nil), WithTimeProvider(tp))
+				batch := NewBatch(s.SessionID(), 5, NewTemporaryCheckpoint(uuid.New(), nil), WithTimeProvider(tp))
 				require.NoError(t, batch.MarkSuccessful(5))
 				require.NoError(t, s.ProcessCompletedBatch(batch))
 			},
@@ -116,7 +117,7 @@ func TestIsStalled(t *testing.T) {
 			name: "exactly at threshold is not stalled",
 			setupState: func(s *SessionState, tp *mockTimeProvider) {
 				require.NoError(t, s.MarkInProgress())
-				batch := NewBatch(s.SessionID(), 5, NewTemporaryCheckpoint("test", nil), WithTimeProvider(tp))
+				batch := NewBatch(s.SessionID(), 5, NewTemporaryCheckpoint(uuid.New(), nil), WithTimeProvider(tp))
 				require.NoError(t, batch.MarkSuccessful(5))
 				require.NoError(t, s.ProcessCompletedBatch(batch))
 			},
@@ -147,7 +148,7 @@ func TestSessionStateJSONMarshaling(t *testing.T) {
 	require.NoError(t, state.MarkInProgress())
 
 	// Create and process a batch with a checkpoint
-	cp := NewTemporaryCheckpoint("checkpoint-target", map[string]any{"cursor": "xyz"})
+	cp := NewTemporaryCheckpoint(uuid.New(), map[string]any{"cursor": "xyz"})
 	batch := NewBatch(state.SessionID(), 3, cp, WithTimeProvider(tp))
 	require.NoError(t, batch.MarkSuccessful(3))
 	require.NoError(t, state.ProcessCompletedBatch(batch))
@@ -274,7 +275,7 @@ func TestProcessCompletedBatch(t *testing.T) {
 		s := NewState("github", nil, WithSessionTimeProvider(tp))
 		require.NoError(t, s.MarkInProgress())
 
-		batch := NewBatch(s.SessionID(), 10, NewTemporaryCheckpoint("test-target", nil), WithTimeProvider(tp))
+		batch := NewBatch(s.SessionID(), 10, NewTemporaryCheckpoint(uuid.New(), nil), WithTimeProvider(tp))
 		require.NoError(t, batch.MarkSuccessful(10))
 
 		err := s.ProcessCompletedBatch(batch)
@@ -291,7 +292,7 @@ func TestProcessCompletedBatch(t *testing.T) {
 		s := NewState("github", nil, WithSessionTimeProvider(tp))
 		require.NoError(t, s.MarkInProgress())
 
-		batch := NewBatch(s.SessionID(), 10, NewTemporaryCheckpoint("test-target", nil), WithTimeProvider(tp))
+		batch := NewBatch(s.SessionID(), 10, NewTemporaryCheckpoint(uuid.New(), nil), WithTimeProvider(tp))
 		require.NoError(t, batch.MarkFailed(errors.New("test error")))
 
 		err := s.ProcessCompletedBatch(batch)
@@ -307,11 +308,11 @@ func TestProcessCompletedBatch(t *testing.T) {
 		s := NewState("github", nil, WithSessionTimeProvider(tp))
 		require.NoError(t, s.MarkInProgress())
 
-		batch1 := NewBatch(s.SessionID(), 10, NewTemporaryCheckpoint("test-target-1", nil), WithTimeProvider(tp))
+		batch1 := NewBatch(s.SessionID(), 10, NewTemporaryCheckpoint(uuid.New(), nil), WithTimeProvider(tp))
 		require.NoError(t, batch1.MarkSuccessful(10))
 		require.NoError(t, s.ProcessCompletedBatch(batch1))
 
-		batch2 := NewBatch(s.SessionID(), 10, NewTemporaryCheckpoint("test-target-2", nil), WithTimeProvider(tp))
+		batch2 := NewBatch(s.SessionID(), 10, NewTemporaryCheckpoint(uuid.New(), nil), WithTimeProvider(tp))
 		require.NoError(t, batch2.MarkFailed(errors.New("test error")))
 		require.NoError(t, s.ProcessCompletedBatch(batch2))
 
@@ -325,7 +326,7 @@ func TestProcessCompletedBatch(t *testing.T) {
 	t.Run("cannot process batch when not in progress", func(t *testing.T) {
 		tp := &mockTimeProvider{current: baseTime}
 		s := NewState("github", nil, WithSessionTimeProvider(tp))
-		batch := NewBatch(s.SessionID(), 10, NewTemporaryCheckpoint("test-target", nil), WithTimeProvider(tp))
+		batch := NewBatch(s.SessionID(), 10, NewTemporaryCheckpoint(uuid.New(), nil), WithTimeProvider(tp))
 
 		err := s.ProcessCompletedBatch(batch)
 		require.Error(t, err)
@@ -340,7 +341,7 @@ func TestProcessCompletedBatch(t *testing.T) {
 
 		mockTime.Advance(15 * time.Second)
 
-		batch := NewBatch(s.SessionID(), 10, NewTemporaryCheckpoint("test-target", nil), WithTimeProvider(mockTime))
+		batch := NewBatch(s.SessionID(), 10, NewTemporaryCheckpoint(uuid.New(), nil), WithTimeProvider(mockTime))
 		require.NoError(t, batch.MarkSuccessful(10))
 
 		err := s.ProcessCompletedBatch(batch)

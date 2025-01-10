@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 )
 
@@ -32,8 +34,8 @@ const (
 // detailed metrics and state information to track scanning progress and enable
 // task recovery.
 type Progress struct {
-	TaskID          string          `json:"task_id"`
-	JobID           string          `json:"job_id"`
+	TaskID          uuid.UUID       `json:"task_id"`
+	JobID           uuid.UUID       `json:"job_id"`
 	SequenceNum     int64           `json:"sequence_num"`
 	Timestamp       time.Time       `json:"timestamp"`
 	Status          TaskStatus      `json:"status"`
@@ -47,8 +49,8 @@ type Progress struct {
 // Checkpoint contains the state needed to resume a scan after interruption.
 // This enables fault tolerance by preserving progress markers and context.
 type Checkpoint struct {
-	TaskID      string            `json:"task_id"`
-	JobID       string            `json:"job_id"`
+	TaskID      uuid.UUID         `json:"task_id"`
+	JobID       uuid.UUID         `json:"job_id"`
 	Timestamp   time.Time         `json:"timestamp"`
 	ResumeToken []byte            `json:"resume_token"`
 	Metadata    map[string]string `json:"metadata"`
@@ -58,7 +60,7 @@ type Checkpoint struct {
 // It maintains historical progress data and enables task recovery and monitoring.
 type Task struct {
 	shared.CoreTask
-	jobID           string
+	jobID           uuid.UUID
 	status          TaskStatus
 	lastSequenceNum int64
 	startTime       time.Time
@@ -70,7 +72,7 @@ type Task struct {
 
 // NewScanTask creates a new ScanTask instance for tracking an individual scan operation.
 // It establishes the task's relationship to its parent job and initializes monitoring state.
-func NewScanTask(jobID, taskID string) *Task {
+func NewScanTask(jobID uuid.UUID, taskID uuid.UUID) *Task {
 	return &Task{
 		CoreTask: shared.CoreTask{
 			TaskID: taskID,
@@ -95,7 +97,7 @@ func (t *Task) UpdateProgress(progress Progress) {
 }
 
 // GetJobID returns the identifier of the parent job containing this task.
-func (t *Task) GetJobID() string { return t.jobID }
+func (t *Task) GetJobID() uuid.UUID { return t.jobID }
 
 // GetStatus returns the current execution status of the scan task.
 func (t *Task) GetStatus() TaskStatus { return t.status }
@@ -110,7 +112,7 @@ func (t *Task) GetLastUpdateTime() time.Time { return t.lastUpdate }
 func (t *Task) GetItemsProcessed() int64 { return t.itemsProcessed }
 
 // GetTaskID returns the unique identifier for this scan task.
-func (t *Task) GetTaskID() string { return t.TaskID }
+func (t *Task) GetTaskID() uuid.UUID { return t.TaskID }
 
 // GetSummary returns a TaskSummary containing the key metrics and status
 // for this task's execution progress.
@@ -142,8 +144,8 @@ const (
 // StalledTask encapsulates a stalled scanning task and its recovery context. It provides
 // the necessary information to diagnose issues and implement appropriate recovery mechanisms.
 type StalledTask struct {
-	JobID            string
-	TaskID           string
+	JobID            uuid.UUID
+	TaskID           uuid.UUID
 	StallReason      StallReason
 	StalledDuration  time.Duration
 	RecoveryAttempts int
@@ -169,7 +171,7 @@ func (t *Task) ToStalledTask(reason StallReason, stallTime time.Time) *StalledTa
 // TaskSummary provides a concise view of task execution progress.
 // It contains the key metrics needed for monitoring task health and completion.
 type TaskSummary struct {
-	taskID          string
+	taskID          uuid.UUID
 	status          TaskStatus
 	itemsProcessed  int64
 	duration        time.Duration
@@ -178,7 +180,7 @@ type TaskSummary struct {
 }
 
 // GetTaskID returns the unique identifier for this scan task.
-func (s TaskSummary) GetTaskID() string { return s.taskID }
+func (s TaskSummary) GetTaskID() uuid.UUID { return s.taskID }
 
 // GetStatus returns the current execution status of the scan task.
 func (s TaskSummary) GetStatus() TaskStatus { return s.status }

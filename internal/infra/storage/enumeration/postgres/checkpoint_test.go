@@ -6,6 +6,7 @@ import (
 	"time"
 
 	_ "github.com/golang-migrate/migrate/v4/source/file"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -29,7 +30,7 @@ func TestPGCheckpointStorage_SaveAndLoad(t *testing.T) {
 	ctx, store, cleanup := setupCheckpointTest(t)
 	defer cleanup()
 
-	checkpoint := enumeration.NewTemporaryCheckpoint("test-target", map[string]any{
+	checkpoint := enumeration.NewTemporaryCheckpoint(uuid.MustParse("test-target"), map[string]any{
 		"cursor": "abc123",
 		"page":   42,
 	})
@@ -53,7 +54,7 @@ func TestPGCheckpointStorage_LoadNonExistent(t *testing.T) {
 	ctx, store, cleanup := setupCheckpointTest(t)
 	defer cleanup()
 
-	loaded, err := store.Load(ctx, "non-existent")
+	loaded, err := store.Load(ctx, uuid.MustParse("non-existent"))
 	require.NoError(t, err)
 	assert.Nil(t, loaded)
 }
@@ -64,7 +65,7 @@ func TestPGCheckpointStorage_Delete(t *testing.T) {
 	ctx, store, cleanup := setupCheckpointTest(t)
 	defer cleanup()
 
-	checkpoint := enumeration.NewTemporaryCheckpoint("test-target", map[string]any{
+	checkpoint := enumeration.NewTemporaryCheckpoint(uuid.MustParse("test-target"), map[string]any{
 		"cursor": "abc123",
 	})
 
@@ -85,7 +86,7 @@ func TestPGCheckpointStorage_DeleteNonExistent(t *testing.T) {
 	ctx, store, cleanup := setupCheckpointTest(t)
 	defer cleanup()
 
-	err := store.Delete(ctx, "non-existent")
+	err := store.Delete(ctx, uuid.MustParse("non-existent"))
 	require.NoError(t, err)
 }
 
@@ -95,7 +96,7 @@ func TestPGCheckpointStorage_Update(t *testing.T) {
 	ctx, store, cleanup := setupCheckpointTest(t)
 	defer cleanup()
 
-	checkpoint := enumeration.NewTemporaryCheckpoint("test-target", map[string]any{
+	checkpoint := enumeration.NewTemporaryCheckpoint(uuid.MustParse("test-target"), map[string]any{
 		"cursor": "abc123",
 	})
 
@@ -133,7 +134,7 @@ func TestPGCheckpointStorage_ConcurrentOperations(t *testing.T) {
 
 	for i := 0; i < goroutines; i++ {
 		go func(id int) {
-			checkpoint := enumeration.NewTemporaryCheckpoint("concurrent-target", map[string]any{
+			checkpoint := enumeration.NewTemporaryCheckpoint(uuid.MustParse("concurrent-target"), map[string]any{
 				"value": id,
 			})
 
@@ -151,7 +152,7 @@ func TestPGCheckpointStorage_ConcurrentOperations(t *testing.T) {
 		<-done
 	}
 
-	loaded, err := store.Load(ctx, "concurrent-target")
+	loaded, err := store.Load(ctx, uuid.MustParse("concurrent-target"))
 	require.NoError(t, err)
 	require.NotNil(t, loaded)
 	assert.NotNil(t, loaded.Data()["value"])
@@ -163,7 +164,7 @@ func TestPGCheckpointStorage_Mutability(t *testing.T) {
 	ctx, store, cleanup := setupCheckpointTest(t)
 	defer cleanup()
 
-	original := enumeration.NewTemporaryCheckpoint("test-target", map[string]any{
+	original := enumeration.NewTemporaryCheckpoint(uuid.MustParse("test-target"), map[string]any{
 		"cursor": "abc123",
 		"nested": map[string]any{
 			"key": "value",
@@ -198,7 +199,7 @@ func TestPGCheckpointStorage_LoadByID(t *testing.T) {
 	ctx, store, cleanup := setupCheckpointTest(t)
 	defer cleanup()
 
-	checkpoint := enumeration.NewTemporaryCheckpoint("test-target", map[string]any{
+	checkpoint := enumeration.NewTemporaryCheckpoint(uuid.MustParse("test-target"), map[string]any{
 		"cursor": "abc123",
 		"nested": map[string]any{
 			"key": "value",

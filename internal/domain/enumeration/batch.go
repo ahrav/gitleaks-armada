@@ -35,8 +35,8 @@ func WithTimeProvider(tp TimeProvider) BatchOption {
 // It coordinates the timeline, metrics, and checkpoint data for a specific batch of work,
 // acting as a consistency boundary for batch-level operations.
 type Batch struct {
-	batchID    string
-	sessionID  string // Back-reference to parent session <aggregate-root>
+	batchID    uuid.UUID
+	sessionID  uuid.UUID // Back-reference to parent session <aggregate-root>
 	status     BatchStatus
 	timeline   *Timeline
 	metrics    *BatchMetrics
@@ -45,9 +45,9 @@ type Batch struct {
 
 // NewBatch creates a new Batch instance to track the execution of an enumeration batch.
 // It initializes the batch with a unique ID and creates its timeline and metrics value objects.
-func NewBatch(sessionID string, expectedItems int, checkpoint *Checkpoint, opts ...BatchOption) *Batch {
+func NewBatch(sessionID uuid.UUID, expectedItems int, checkpoint *Checkpoint, opts ...BatchOption) *Batch {
 	batch := &Batch{
-		batchID:    uuid.New().String(),
+		batchID:    uuid.New(),
 		sessionID:  sessionID,
 		status:     BatchStatusInProgress,
 		timeline:   NewTimeline(new(realTimeProvider)),
@@ -64,8 +64,8 @@ func NewBatch(sessionID string, expectedItems int, checkpoint *Checkpoint, opts 
 
 // ReconstructBatch creates a Batch instance from persisted data.
 func ReconstructBatch(
-	batchID string,
-	sessionID string,
+	batchID uuid.UUID,
+	sessionID uuid.UUID,
 	status BatchStatus,
 	timeline *Timeline,
 	metrics *BatchMetrics,
@@ -82,8 +82,8 @@ func ReconstructBatch(
 }
 
 // Getters
-func (b *Batch) BatchID() string         { return b.batchID }
-func (b *Batch) SessionID() string       { return b.sessionID }
+func (b *Batch) BatchID() uuid.UUID      { return b.batchID }
+func (b *Batch) SessionID() uuid.UUID    { return b.sessionID }
 func (b *Batch) Status() BatchStatus     { return b.status }
 func (b *Batch) Timeline() *Timeline     { return b.timeline }
 func (b *Batch) Metrics() *BatchMetrics  { return b.metrics }
@@ -99,8 +99,8 @@ func (b *Batch) MarshalJSON() ([]byte, error) {
 		Metrics    *BatchMetrics `json:"metrics"`
 		Checkpoint *Checkpoint   `json:"checkpoint"`
 	}{
-		BatchID:    b.batchID,
-		SessionID:  b.sessionID,
+		BatchID:    b.batchID.String(),
+		SessionID:  b.sessionID.String(),
 		Status:     b.status,
 		Timeline:   b.timeline,
 		Metrics:    b.metrics,
@@ -123,8 +123,8 @@ func (b *Batch) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	b.batchID = aux.BatchID
-	b.sessionID = aux.SessionID
+	b.batchID = uuid.MustParse(aux.BatchID)
+	b.sessionID = uuid.MustParse(aux.SessionID)
 	b.status = aux.Status
 	b.timeline = aux.Timeline
 	b.metrics = aux.Metrics

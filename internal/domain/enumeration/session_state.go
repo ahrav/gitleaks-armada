@@ -132,7 +132,7 @@ const (
 // coordinating changes to its child entities (Checkpoint) and value objects (Timeline, SessionMetrics).
 type SessionState struct {
 	// Identity
-	sessionID  string
+	sessionID  uuid.UUID
 	sourceType string
 
 	// Configuration
@@ -160,7 +160,7 @@ func WithSessionTimeProvider(tp TimeProvider) StateOption {
 // It enforces domain invariants by generating a unique session ID and setting the initial status.
 func NewState(sourceType string, config json.RawMessage, opts ...StateOption) *SessionState {
 	state := &SessionState{
-		sessionID:  uuid.New().String(),
+		sessionID:  uuid.New(),
 		sourceType: sourceType,
 		config:     config,
 		status:     StatusInitialized,
@@ -179,7 +179,7 @@ func NewState(sourceType string, config json.RawMessage, opts ...StateOption) *S
 // new identities or enforcing creation-time invariants.
 // This should only be used by repositories when reconstructing from storage.
 func ReconstructState(
-	sessionID string,
+	sessionID uuid.UUID,
 	sourceType string,
 	config json.RawMessage,
 	status Status,
@@ -201,7 +201,7 @@ func ReconstructState(
 }
 
 // Getters for the SessionState.
-func (s *SessionState) SessionID() string           { return s.sessionID }
+func (s *SessionState) SessionID() uuid.UUID        { return s.sessionID }
 func (s *SessionState) SourceType() string          { return s.sourceType }
 func (s *SessionState) Status() Status              { return s.status }
 func (s *SessionState) Timeline() *Timeline         { return s.timeline }
@@ -222,7 +222,7 @@ func (s *SessionState) MarshalJSON() ([]byte, error) {
 		Timeline       *Timeline       `json:"timeline"`
 		Metrics        *SessionMetrics `json:"metrics"`
 	}{
-		SessionID:      s.sessionID,
+		SessionID:      s.sessionID.String(),
 		SourceType:     s.sourceType,
 		Config:         s.config,
 		Status:         s.status,
@@ -250,7 +250,7 @@ func (s *SessionState) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	s.sessionID = aux.SessionID
+	s.sessionID = uuid.MustParse(aux.SessionID)
 	s.sourceType = aux.SourceType
 	s.config = aux.Config
 	s.status = aux.Status
@@ -266,7 +266,7 @@ func (s *SessionState) UnmarshalJSON(data []byte) error {
 func (s *SessionState) CreateTask(resourceURI string, metadata map[string]string) *Task {
 	return &Task{
 		CoreTask: shared.CoreTask{
-			TaskID:     uuid.New().String(),
+			TaskID:     uuid.New(),
 			SourceType: shared.SourceType(s.sourceType),
 		},
 		sessionID:   s.sessionID,

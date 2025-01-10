@@ -23,7 +23,7 @@ func (cs *CheckpointStorage) Save(ctx context.Context, checkpoint *enumeration.C
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 
-	cs.checkpoints[checkpoint.TargetID()] = checkpoint
+	cs.checkpoints[checkpoint.TargetID().String()] = checkpoint
 	return nil
 }
 

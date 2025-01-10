@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -14,7 +15,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/infra/storage"
 )
 
-func createTestCheckpoint(t *testing.T, ctx context.Context, store *checkpointStore, targetID string, data map[string]any) *enumeration.Checkpoint {
+func createTestCheckpoint(t *testing.T, ctx context.Context, store *checkpointStore, targetID uuid.UUID, data map[string]any) *enumeration.Checkpoint {
 	t.Helper()
 	checkpoint := enumeration.NewTemporaryCheckpoint(targetID, data)
 	err := store.Save(ctx, checkpoint)
@@ -36,7 +37,7 @@ func setupEnumerationTest(t *testing.T) (context.Context, *enumerationSessionSta
 	return ctx, store, checkpointStore, cleanup
 }
 
-func setupTestState(t *testing.T, ctx context.Context, checkpointStore *checkpointStore, targetID string) *enumeration.SessionState {
+func setupTestState(t *testing.T, ctx context.Context, checkpointStore *checkpointStore, targetID uuid.UUID) *enumeration.SessionState {
 	t.Helper()
 	// mockTime := &mockTimeProvider{current: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)}
 	state := enumeration.NewState(
@@ -48,7 +49,7 @@ func setupTestState(t *testing.T, ctx context.Context, checkpointStore *checkpoi
 	err := state.MarkInProgress()
 	require.NoError(t, err)
 
-	if targetID != "" {
+	if targetID != uuid.Nil {
 		cp := createTestCheckpoint(t, ctx, checkpointStore, targetID, map[string]any{
 			"cursor": "abc123",
 			"nested": map[string]any{
@@ -73,9 +74,9 @@ func TestPGEnumerationStateStorage_SaveAndLoad(t *testing.T) {
 	ctx, store, checkpointStore, cleanup := setupEnumerationTest(t)
 	defer cleanup()
 
-	state := setupTestState(t, ctx, checkpointStore, "test-target")
+	state := setupTestState(t, ctx, checkpointStore, uuid.MustParse("test-target"))
 
-	cp := createTestCheckpoint(t, ctx, checkpointStore, "test-target", map[string]any{
+	cp := createTestCheckpoint(t, ctx, checkpointStore, uuid.MustParse("test-target"), map[string]any{
 		"cursor": "abc123",
 	})
 	batch := enumeration.NewBatch(
@@ -123,7 +124,7 @@ func TestPGEnumerationStateStorage_LoadEmpty(t *testing.T) {
 	ctx, store, _, cleanup := setupEnumerationTest(t)
 	defer cleanup()
 
-	loaded, err := store.Load(ctx, "non-existent-session")
+	loaded, err := store.Load(ctx, uuid.MustParse("non-existent-session"))
 	require.NoError(t, err)
 	assert.Nil(t, loaded)
 }
@@ -134,7 +135,7 @@ func TestPGEnumerationStateStorage_Update(t *testing.T) {
 	ctx, store, checkpointStore, cleanup := setupEnumerationTest(t)
 	defer cleanup()
 
-	state := setupTestState(t, ctx, checkpointStore, "test-target")
+	state := setupTestState(t, ctx, checkpointStore, uuid.MustParse("test-target"))
 	initialLastUpdate := state.Timeline().LastUpdate()
 
 	err := store.Save(ctx, state)
@@ -168,7 +169,7 @@ func TestPGEnumerationStateStorage_Mutability(t *testing.T) {
 	ctx, store, checkpointStore, cleanup := setupEnumerationTest(t)
 	defer cleanup()
 
-	state := setupTestState(t, ctx, checkpointStore, "test-target")
+	state := setupTestState(t, ctx, checkpointStore, uuid.MustParse("test-target"))
 
 	err := store.Save(ctx, state)
 	require.NoError(t, err)
@@ -205,7 +206,7 @@ func TestPGEnumerationStateStorage_ConcurrentOperations(t *testing.T) {
 
 	for i := 0; i < goroutines; i++ {
 		go func(id int) {
-			state := setupTestState(t, ctx, checkpointStore, fmt.Sprintf("test-target-%d", id))
+			state := setupTestState(t, ctx, checkpointStore, uuid.MustParse(fmt.Sprintf("test-target-%d", id)))
 
 			err := store.Save(ctx, state)
 			require.NoError(t, err)

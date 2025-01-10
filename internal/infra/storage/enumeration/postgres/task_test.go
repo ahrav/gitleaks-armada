@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -82,7 +83,7 @@ func TestPGTaskStorage_GetNonExistent(t *testing.T) {
 	ctx, store, _, cleanup := setupTaskTest(t)
 	defer cleanup()
 
-	loaded, err := store.GetByID(ctx, "non-existent-task")
+	loaded, err := store.GetByID(ctx, uuid.MustParse("non-existent-task"))
 	require.NoError(t, err)
 	assert.Nil(t, loaded)
 }

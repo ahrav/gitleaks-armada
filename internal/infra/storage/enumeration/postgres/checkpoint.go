@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -38,7 +40,7 @@ func NewCheckpointStore(dbConn *pgxpool.Pool, tracer trace.Tracer) *checkpointSt
 func (p *checkpointStore) Save(ctx context.Context, cp *enumeration.Checkpoint) error {
 	dbAttrs := append(
 		defaultDBAttributes,
-		attribute.String("target_id", cp.TargetID()),
+		attribute.String("target_id", cp.TargetID().String()),
 		attribute.Int("data_size", len(cp.Data())),
 	)
 	return storage.ExecuteAndTrace(ctx, p.tracer, "postgres.enumeration.save_checkpoint", dbAttrs, func(ctx context.Context) error {
@@ -48,7 +50,7 @@ func (p *checkpointStore) Save(ctx context.Context, cp *enumeration.Checkpoint) 
 		}
 
 		id, err := p.q.UpsertCheckpoint(ctx, db.UpsertCheckpointParams{
-			TargetID: cp.TargetID(),
+			TargetID: pgtype.UUID{Bytes: cp.TargetID(), Valid: true},
 			Data:     dataBytes,
 		})
 		if err != nil {
@@ -64,14 +66,14 @@ func (p *checkpointStore) Save(ctx context.Context, cp *enumeration.Checkpoint) 
 // Load retrieves a checkpoint by target ID. Returns nil if no checkpoint exists
 // for the given target. The stored JSON data is deserialized into the checkpoint's
 // Data field.
-func (p *checkpointStore) Load(ctx context.Context, targetID string) (*enumeration.Checkpoint, error) {
+func (p *checkpointStore) Load(ctx context.Context, targetID uuid.UUID) (*enumeration.Checkpoint, error) {
 	var checkpoint *enumeration.Checkpoint
 	dbAttrs := append(
 		defaultDBAttributes,
-		attribute.String("target_id", targetID),
+		attribute.String("target_id", targetID.String()),
 	)
 	err := storage.ExecuteAndTrace(ctx, p.tracer, "postgres.enumeration.load_checkpoint", dbAttrs, func(ctx context.Context) error {
-		dbCp, err := p.q.GetCheckpoint(ctx, targetID)
+		dbCp, err := p.q.GetCheckpoint(ctx, pgtype.UUID{Bytes: targetID, Valid: true})
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return nil
@@ -83,7 +85,7 @@ func (p *checkpointStore) Load(ctx context.Context, targetID string) (*enumerati
 		if err := json.Unmarshal(dbCp.Data, &data); err != nil {
 			return fmt.Errorf("failed to unmarshal checkpoint data: %w", err)
 		}
-		checkpoint = enumeration.NewCheckpoint(dbCp.ID, dbCp.TargetID, data)
+		checkpoint = enumeration.NewCheckpoint(dbCp.ID, dbCp.TargetID.Bytes, data)
 
 		return nil
 	})
@@ -110,7 +112,7 @@ func (p *checkpointStore) LoadByID(ctx context.Context, id int64) (*enumeration.
 		if err := json.Unmarshal(dbCp.Data, &data); err != nil {
 			return fmt.Errorf("failed to unmarshal checkpoint data: %w", err)
 		}
-		checkpoint = enumeration.NewCheckpoint(dbCp.ID, dbCp.TargetID, data)
+		checkpoint = enumeration.NewCheckpoint(dbCp.ID, dbCp.TargetID.Bytes, data)
 
 		return nil
 	})
@@ -119,13 +121,13 @@ func (p *checkpointStore) LoadByID(ctx context.Context, id int64) (*enumeration.
 
 // Delete removes a checkpoint for the given target ID. It is not an error if
 // the checkpoint does not exist.
-func (p *checkpointStore) Delete(ctx context.Context, targetID string) error {
+func (p *checkpointStore) Delete(ctx context.Context, targetID uuid.UUID) error {
 	dbAttrs := append(
 		defaultDBAttributes,
-		attribute.String("target_id", targetID),
+		attribute.String("target_id", targetID.String()),
 	)
 	return storage.ExecuteAndTrace(ctx, p.tracer, "postgres.enumeration.delete_checkpoint", dbAttrs, func(ctx context.Context) error {
-		if err := p.q.DeleteCheckpoint(ctx, targetID); err != nil {
+		if err := p.q.DeleteCheckpoint(ctx, pgtype.UUID{Bytes: targetID, Valid: true}); err != nil {
 			return fmt.Errorf("failed to delete checkpoint: %w", err)
 		}
 		return nil

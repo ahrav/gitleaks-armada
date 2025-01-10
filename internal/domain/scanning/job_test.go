@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
@@ -23,12 +24,12 @@ func TestScanJob_AddTask(t *testing.T) {
 	}{
 		{
 			name: "add first task",
-			job:  NewScanJob("job1"),
+			job:  NewScanJob(),
 			task: &Task{
 				CoreTask: shared.CoreTask{
-					TaskID: "task1",
+					TaskID: uuid.New(),
 				},
-				jobID:  "job1",
+				jobID:  uuid.New(),
 				status: TaskStatusInitialized,
 			},
 			want: struct {
@@ -46,14 +47,14 @@ func TestScanJob_AddTask(t *testing.T) {
 		{
 			name: "add completed task",
 			job: &ScanJob{
-				jobID: "job1",
-				tasks: make(map[string]*Task),
+				jobID: uuid.New(),
+				tasks: make(map[uuid.UUID]*Task),
 			},
 			task: &Task{
 				CoreTask: shared.CoreTask{
-					TaskID: "task1",
+					TaskID: uuid.New(),
 				},
-				jobID:  "job1",
+				jobID:  uuid.New(),
 				status: TaskStatusCompleted,
 			},
 			want: struct {
@@ -90,7 +91,7 @@ func TestScanJob_UpdateTask(t *testing.T) {
 	tests := []struct {
 		name     string
 		job      *ScanJob
-		taskID   string
+		taskID   uuid.UUID
 		updateFn func(*Task)
 		want     struct {
 			updated        bool
@@ -103,11 +104,11 @@ func TestScanJob_UpdateTask(t *testing.T) {
 		{
 			name: "update non-existent task",
 			job: &ScanJob{
-				jobID:  "job1",
-				tasks:  make(map[string]*Task),
+				jobID:  uuid.New(),
+				tasks:  make(map[uuid.UUID]*Task),
 				status: JobStatusInitialized,
 			},
-			taskID:   "task1",
+			taskID:   uuid.New(),
 			updateFn: func(task *Task) {},
 			want: struct {
 				updated        bool
@@ -126,18 +127,18 @@ func TestScanJob_UpdateTask(t *testing.T) {
 		{
 			name: "update existing task to completed",
 			job: &ScanJob{
-				jobID: "job1",
-				tasks: map[string]*Task{
-					"task1": {
+				jobID: uuid.New(),
+				tasks: map[uuid.UUID]*Task{
+					uuid.New(): {
 						CoreTask: shared.CoreTask{
-							TaskID: "task1",
+							TaskID: uuid.New(),
 						},
 						status: TaskStatusInProgress,
 					},
 				},
 				totalTasks: 1,
 			},
-			taskID: "task1",
+			taskID: uuid.New(),
 			updateFn: func(task *Task) {
 				task.status = TaskStatusCompleted
 			},
@@ -158,18 +159,18 @@ func TestScanJob_UpdateTask(t *testing.T) {
 		{
 			name: "update task to failed",
 			job: &ScanJob{
-				jobID: "job1",
-				tasks: map[string]*Task{
-					"task1": {
+				jobID: uuid.New(),
+				tasks: map[uuid.UUID]*Task{
+					uuid.New(): {
 						CoreTask: shared.CoreTask{
-							TaskID: "task1",
+							TaskID: uuid.New(),
 						},
 						status: TaskStatusInProgress,
 					},
 				},
 				totalTasks: 1,
 			},
-			taskID: "task1",
+			taskID: uuid.New(),
 			updateFn: func(task *Task) {
 				task.status = TaskStatusFailed
 			},

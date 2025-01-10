@@ -6,12 +6,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestNewBatch(t *testing.T) {
-	sessionID := "test-session"
+	sessionID := uuid.New()
 	expectedItems := 10
 	checkpoint := &Checkpoint{}
 	tp := &mockTimeProvider{current: time.Now()}
@@ -56,7 +57,7 @@ func TestBatch_MarkSuccessful(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tp := &mockTimeProvider{current: time.Now()}
-			batch := NewBatch("test-session", 10, nil, WithTimeProvider(tp))
+			batch := NewBatch(uuid.New(), 10, nil, WithTimeProvider(tp))
 			batch.status = tt.initialStatus
 
 			err := batch.MarkSuccessful(tt.itemsProcessed)
@@ -98,7 +99,7 @@ func TestBatch_MarkFailed(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tp := &mockTimeProvider{current: time.Now()}
-			batch := NewBatch("test-session", 10, nil, WithTimeProvider(tp))
+			batch := NewBatch(uuid.New(), 10, nil, WithTimeProvider(tp))
 			batch.status = tt.initialStatus
 			testErr := errors.New("test error")
 
@@ -117,7 +118,7 @@ func TestBatch_MarkFailed(t *testing.T) {
 
 func TestBatch_JSON(t *testing.T) {
 	tp := &mockTimeProvider{current: time.Now()}
-	originalBatch := NewBatch("test-session", 10, &Checkpoint{}, WithTimeProvider(tp))
+	originalBatch := NewBatch(uuid.New(), 10, &Checkpoint{}, WithTimeProvider(tp))
 
 	data, err := json.Marshal(originalBatch)
 	require.NoError(t, err)

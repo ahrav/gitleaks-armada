@@ -1,6 +1,8 @@
 // Package dtos provides data transfer objects for the scanning service.
 package dtos
 
+import "github.com/google/uuid"
+
 // SourceType identifies the external system containing resources to be scanned.
 // This determines how authentication and access will be handled.
 type SourceType string
@@ -40,11 +42,11 @@ type ScanCredentials struct {
 // It acts as a data transfer object between the API layer and scanning service.
 type ScanRequest struct {
 	// TaskID uniquely identifies this scan operation.
-	TaskID string
+	TaskID uuid.UUID
 	// SourceType determines which external system contains the target resource.
 	SourceType SourceType
 	// SessionID groups related scan tasks together.
-	SessionID string
+	SessionID uuid.UUID
 	// ResourceURI is the location of the target to be scanned.
 	ResourceURI string
 	// Metadata provides additional context for scan processing.

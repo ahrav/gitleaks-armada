@@ -36,7 +36,7 @@ func (s *EnumerationStateStorage) Save(ctx context.Context, state *enumeration.S
 		}
 	}
 
-	s.states[state.SessionID()] = enumeration.ReconstructState(
+	s.states[state.SessionID().String()] = enumeration.ReconstructState(
 		state.SessionID(),
 		state.SourceType(),
 		state.Config(),

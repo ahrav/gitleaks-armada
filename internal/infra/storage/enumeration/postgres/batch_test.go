@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -35,7 +36,7 @@ func setupBatchTest(t *testing.T) (context.Context, *batchStore, *checkpointStor
 	return ctx, batchStore, checkpointStore, sessionStore, cleanup
 }
 
-func createTestBatch(t *testing.T, sessionID string, checkpoint *enumeration.Checkpoint) *enumeration.Batch {
+func createTestBatch(t *testing.T, sessionID uuid.UUID, checkpoint *enumeration.Checkpoint) *enumeration.Batch {
 	t.Helper()
 	return enumeration.NewBatch(sessionID, 5, checkpoint)
 }
@@ -48,7 +49,7 @@ func TestBatchStore_SaveAndFindByID(t *testing.T) {
 	// First create a session
 	session := setupTestSession(t, ctx, sessionStore)
 
-	cp := createTestCheckpoint(t, ctx, checkpointStore, "test-target", map[string]any{
+	cp := createTestCheckpoint(t, ctx, checkpointStore, uuid.MustParse("test-target"), map[string]any{
 		"cursor": "abc123",
 	})
 	batch := createTestBatch(t, session.SessionID(), cp)
@@ -84,7 +85,7 @@ func TestBatchStore_FindBySessionID(t *testing.T) {
 	// Create multiple batches for the same session
 	batches := make([]*enumeration.Batch, 3)
 	for i := range batches {
-		cp := createTestCheckpoint(t, ctx, checkpointStore, "test-target", map[string]any{
+		cp := createTestCheckpoint(t, ctx, checkpointStore, uuid.MustParse("test-target"), map[string]any{
 			"cursor": "abc123",
 		})
 		batch := createTestBatch(t, sessionID, cp)
@@ -115,7 +116,7 @@ func TestBatchStore_UpdateExisting(t *testing.T) {
 
 	session := setupTestSession(t, ctx, sessionStore)
 
-	cp := createTestCheckpoint(t, ctx, checkpointStore, "test-target", map[string]any{
+	cp := createTestCheckpoint(t, ctx, checkpointStore, uuid.MustParse("test-target"), map[string]any{
 		"cursor": "abc123",
 	})
 	batch := createTestBatch(t, session.SessionID(), cp)
@@ -139,15 +140,15 @@ func TestBatchStore_NonExistentBatch(t *testing.T) {
 	ctx, store, _, _, cleanup := setupBatchTest(t)
 	defer cleanup()
 
-	found, err := store.FindByID(ctx, "non-existent-batch")
+	found, err := store.FindByID(ctx, uuid.MustParse("non-existent-batch"))
 	require.Error(t, err)
 	assert.Nil(t, found)
 
-	batches, err := store.FindBySessionID(ctx, "non-existent-session")
+	batches, err := store.FindBySessionID(ctx, uuid.MustParse("non-existent-session"))
 	require.NoError(t, err)
 	assert.Empty(t, batches)
 
-	last, err := store.FindLastBySessionID(ctx, "non-existent-session")
+	last, err := store.FindLastBySessionID(ctx, uuid.MustParse("non-existent-session"))
 	require.NoError(t, err)
 	assert.Nil(t, last)
 }
@@ -165,7 +166,7 @@ func TestBatchStore_ConcurrentOperations(t *testing.T) {
 
 	for i := 0; i < goroutines; i++ {
 		go func(id int) {
-			cp := createTestCheckpoint(t, ctx, checkpointStore, "test-target", map[string]any{
+			cp := createTestCheckpoint(t, ctx, checkpointStore, uuid.MustParse("test-target"), map[string]any{
 				"cursor": "abc123",
 			})
 			batch := createTestBatch(t, sessionID, cp)

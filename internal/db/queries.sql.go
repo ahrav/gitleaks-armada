@@ -69,9 +69,9 @@ INSERT INTO enumeration_tasks (
 `
 
 type CreateTaskParams struct {
-	TaskID      string
+	TaskID      pgtype.UUID
 	SourceType  string
-	SessionID   string
+	SessionID   pgtype.UUID
 	ResourceUri string
 	Metadata    []byte
 }
@@ -143,7 +143,7 @@ DELETE FROM checkpoints
 WHERE target_id = $1
 `
 
-func (q *Queries) DeleteCheckpoint(ctx context.Context, targetID string) error {
+func (q *Queries) DeleteCheckpoint(ctx context.Context, targetID pgtype.UUID) error {
 	_, err := q.db.Exec(ctx, deleteCheckpoint, targetID)
 	return err
 }
@@ -153,7 +153,7 @@ DELETE FROM enumeration_session_states
 WHERE session_id = $1
 `
 
-func (q *Queries) DeleteEnumerationSessionState(ctx context.Context, sessionID string) error {
+func (q *Queries) DeleteEnumerationSessionState(ctx context.Context, sessionID pgtype.UUID) error {
 	_, err := q.db.Exec(ctx, deleteEnumerationSessionState, sessionID)
 	return err
 }
@@ -168,7 +168,7 @@ ORDER BY created_at DESC
 
 type GetActiveEnumerationSessionStatesRow struct {
 	ID               int64
-	SessionID        string
+	SessionID        pgtype.UUID
 	SourceType       string
 	Config           []byte
 	LastCheckpointID pgtype.Int8
@@ -213,7 +213,7 @@ SELECT id, batch_id, session_id, status, checkpoint_id, started_at, completed_at
 WHERE batch_id = $1
 `
 
-func (q *Queries) GetBatch(ctx context.Context, batchID string) (EnumerationBatch, error) {
+func (q *Queries) GetBatch(ctx context.Context, batchID pgtype.UUID) (EnumerationBatch, error) {
 	row := q.db.QueryRow(ctx, getBatch, batchID)
 	var i EnumerationBatch
 	err := row.Scan(
@@ -241,7 +241,7 @@ WHERE session_id = $1
 ORDER BY started_at ASC
 `
 
-func (q *Queries) GetBatchesForSession(ctx context.Context, sessionID string) ([]EnumerationBatch, error) {
+func (q *Queries) GetBatchesForSession(ctx context.Context, sessionID pgtype.UUID) ([]EnumerationBatch, error) {
 	rows, err := q.db.Query(ctx, getBatchesForSession, sessionID)
 	if err != nil {
 		return nil, err
@@ -281,7 +281,7 @@ FROM checkpoints
 WHERE target_id = $1
 `
 
-func (q *Queries) GetCheckpoint(ctx context.Context, targetID string) (Checkpoint, error) {
+func (q *Queries) GetCheckpoint(ctx context.Context, targetID pgtype.UUID) (Checkpoint, error) {
 	row := q.db.QueryRow(ctx, getCheckpoint, targetID)
 	var i Checkpoint
 	err := row.Scan(
@@ -318,7 +318,7 @@ SELECT id, session_id, source_type, config, last_checkpoint_id, status, failure_
 WHERE session_id = $1
 `
 
-func (q *Queries) GetEnumerationSessionState(ctx context.Context, sessionID string) (EnumerationSessionState, error) {
+func (q *Queries) GetEnumerationSessionState(ctx context.Context, sessionID pgtype.UUID) (EnumerationSessionState, error) {
 	row := q.db.QueryRow(ctx, getEnumerationSessionState, sessionID)
 	var i EnumerationSessionState
 	err := row.Scan(
@@ -343,7 +343,7 @@ SELECT id, session_id, total_batches, failed_batches, items_found, items_process
 WHERE session_id = $1
 `
 
-func (q *Queries) GetSessionMetrics(ctx context.Context, sessionID string) (EnumerationSessionMetric, error) {
+func (q *Queries) GetSessionMetrics(ctx context.Context, sessionID pgtype.UUID) (EnumerationSessionMetric, error) {
 	row := q.db.QueryRow(ctx, getSessionMetrics, sessionID)
 	var i EnumerationSessionMetric
 	err := row.Scan(
@@ -364,7 +364,7 @@ SELECT id, session_id, source_type, config, last_checkpoint_id, status, failure_
 WHERE session_id = $1
 `
 
-func (q *Queries) GetSessionState(ctx context.Context, sessionID string) (EnumerationSessionState, error) {
+func (q *Queries) GetSessionState(ctx context.Context, sessionID pgtype.UUID) (EnumerationSessionState, error) {
 	row := q.db.QueryRow(ctx, getSessionState, sessionID)
 	var i EnumerationSessionState
 	err := row.Scan(
@@ -399,16 +399,16 @@ WHERE t.task_id = $1
 `
 
 type GetTaskByIDRow struct {
-	TaskID      string
+	TaskID      pgtype.UUID
 	SourceType  string
-	SessionID   string
+	SessionID   pgtype.UUID
 	ResourceUri string
 	Metadata    []byte
 	CreatedAt   pgtype.Timestamptz
 	UpdatedAt   pgtype.Timestamptz
 }
 
-func (q *Queries) GetTaskByID(ctx context.Context, taskID string) (GetTaskByIDRow, error) {
+func (q *Queries) GetTaskByID(ctx context.Context, taskID pgtype.UUID) (GetTaskByIDRow, error) {
 	row := q.db.QueryRow(ctx, getTaskByID, taskID)
 	var i GetTaskByIDRow
 	err := row.Scan(
@@ -433,7 +433,7 @@ LIMIT $1
 
 type ListEnumerationSessionStatesRow struct {
 	ID               int64
-	SessionID        string
+	SessionID        pgtype.UUID
 	SourceType       string
 	Config           []byte
 	LastCheckpointID pgtype.Int8
@@ -533,8 +533,8 @@ ON CONFLICT (batch_id) DO UPDATE SET
 `
 
 type UpsertBatchParams struct {
-	BatchID        string
-	SessionID      string
+	BatchID        pgtype.UUID
+	SessionID      pgtype.UUID
 	Status         BatchStatus
 	CheckpointID   pgtype.Int8
 	StartedAt      pgtype.Timestamptz
@@ -575,7 +575,7 @@ RETURNING id
 `
 
 type UpsertCheckpointParams struct {
-	TargetID string
+	TargetID pgtype.UUID
 	Data     []byte
 }
 
@@ -606,7 +606,7 @@ SET source_type = EXCLUDED.source_type,
 `
 
 type UpsertEnumerationSessionStateParams struct {
-	SessionID        string
+	SessionID        pgtype.UUID
 	SourceType       string
 	Config           []byte
 	LastCheckpointID pgtype.Int8
@@ -696,7 +696,7 @@ ON CONFLICT (session_id) DO UPDATE SET
 `
 
 type UpsertSessionMetricsParams struct {
-	SessionID      string
+	SessionID      pgtype.UUID
 	TotalBatches   int32
 	FailedBatches  int32
 	ItemsFound     int32
@@ -738,7 +738,7 @@ ON CONFLICT (session_id) DO UPDATE SET
 `
 
 type UpsertSessionStateParams struct {
-	SessionID        string
+	SessionID        pgtype.UUID
 	SourceType       string
 	Config           []byte
 	Status           EnumerationStatus

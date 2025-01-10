@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -49,7 +50,7 @@ var defaultDBAttributes = []attribute.KeyValue{
 func (s *enumerationSessionStateStore) Save(ctx context.Context, state *enumeration.SessionState) error {
 	dbAttrs := append(
 		defaultDBAttributes,
-		attribute.String("session_id", state.SessionID()),
+		attribute.String("session_id", state.SessionID().String()),
 		attribute.String("source_type", state.SourceType()),
 		attribute.String("status", string(state.Status())),
 		attribute.Bool("has_checkpoint", state.LastCheckpoint() != nil),
@@ -69,7 +70,7 @@ func (s *enumerationSessionStateStore) Save(ctx context.Context, state *enumerat
 
 		// Save session state with timeline.
 		err := s.q.UpsertSessionState(ctx, db.UpsertSessionStateParams{
-			SessionID:        state.SessionID(),
+			SessionID:        pgtype.UUID{Bytes: state.SessionID(), Valid: true},
 			SourceType:       state.SourceType(),
 			Config:           state.Config(),
 			Status:           db.EnumerationStatus(state.Status()),
@@ -85,7 +86,7 @@ func (s *enumerationSessionStateStore) Save(ctx context.Context, state *enumerat
 
 		// Save session metrics.
 		err = s.q.UpsertSessionMetrics(ctx, db.UpsertSessionMetricsParams{
-			SessionID:      state.SessionID(),
+			SessionID:      pgtype.UUID{Bytes: state.SessionID(), Valid: true},
 			TotalBatches:   int32(state.Metrics().TotalBatches()),
 			FailedBatches:  int32(state.Metrics().FailedBatches()),
 			ItemsFound:     int32(state.Metrics().ItemsFound()),
@@ -101,14 +102,14 @@ func (s *enumerationSessionStateStore) Save(ctx context.Context, state *enumerat
 
 // Load retrieves the current enumeration state and its associated checkpoint.
 // Returns nil if no state exists.
-func (s *enumerationSessionStateStore) Load(ctx context.Context, sessionID string) (*enumeration.SessionState, error) {
+func (s *enumerationSessionStateStore) Load(ctx context.Context, sessionID uuid.UUID) (*enumeration.SessionState, error) {
 	dbAttrs := append(
 		defaultDBAttributes,
-		attribute.String("session_id", sessionID),
+		attribute.String("session_id", sessionID.String()),
 	)
 	var state *enumeration.SessionState
 	err := storage.ExecuteAndTrace(ctx, s.tracer, "postgres.enumeration.load_state", dbAttrs, func(ctx context.Context) error {
-		dbState, err := s.q.GetEnumerationSessionState(ctx, sessionID)
+		dbState, err := s.q.GetEnumerationSessionState(ctx, pgtype.UUID{Bytes: sessionID, Valid: true})
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return nil
@@ -177,7 +178,7 @@ func (s *enumerationSessionStateStore) convertDBStateToEnumState(
 	ctx context.Context,
 	dbState any,
 ) (*enumeration.SessionState, error) {
-	var sessionID string
+	var sessionID uuid.UUID
 	var sourceType string
 	var config json.RawMessage
 	var status db.EnumerationStatus
@@ -189,7 +190,7 @@ func (s *enumerationSessionStateStore) convertDBStateToEnumState(
 
 	switch v := dbState.(type) {
 	case db.EnumerationSessionState:
-		sessionID = v.SessionID
+		sessionID = v.SessionID.Bytes
 		sourceType = v.SourceType
 		config = v.Config
 		status = v.Status
@@ -199,14 +200,14 @@ func (s *enumerationSessionStateStore) convertDBStateToEnumState(
 		completedAt = v.CompletedAt
 		lastUpdate = v.LastUpdate.Time
 	case db.GetActiveEnumerationSessionStatesRow:
-		sessionID = v.SessionID
+		sessionID = v.SessionID.Bytes
 		sourceType = v.SourceType
 		config = v.Config
 		status = v.Status
 		failureReason = v.FailureReason
 		lastCheckpointID = v.LastCheckpointID
 	case db.ListEnumerationSessionStatesRow:
-		sessionID = v.SessionID
+		sessionID = v.SessionID.Bytes
 		sourceType = v.SourceType
 		config = v.Config
 		status = v.Status
@@ -218,7 +219,7 @@ func (s *enumerationSessionStateStore) convertDBStateToEnumState(
 
 	var state *enumeration.SessionState
 	err := storage.ExecuteAndTrace(ctx, s.tracer, "postgres.enumeration.convert_state", []attribute.KeyValue{
-		attribute.String("session_id", sessionID),
+		attribute.String("session_id", sessionID.String()),
 		attribute.Bool("has_checkpoint", lastCheckpointID.Valid),
 	}, func(ctx context.Context) error {
 		var sessionCheckpoint *enumeration.Checkpoint
@@ -230,7 +231,7 @@ func (s *enumerationSessionStateStore) convertDBStateToEnumState(
 			sessionCheckpoint = cp
 		}
 
-		metricsRow, err := s.q.GetSessionMetrics(ctx, sessionID)
+		metricsRow, err := s.q.GetSessionMetrics(ctx, pgtype.UUID{Bytes: sessionID, Valid: true})
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("failed to load metrics for session %s: %w", sessionID, err)
 		}

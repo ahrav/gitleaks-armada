@@ -84,14 +84,14 @@ CREATE INDEX idx_enumeration_batches_status ON enumeration_batches(status);
 
 -- Tasks Table
 CREATE TABLE tasks (
-    id UUID GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     task_id UUID NOT NULL UNIQUE,
     source_type VARCHAR NOT NULL
 );
 
 -- Enumeration Tasks Table
 CREATE TABLE enumeration_tasks (
-    id UUID GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     task_id UUID NOT NULL UNIQUE,
     session_id UUID NOT NULL REFERENCES enumeration_session_states(session_id),
     resource_uri VARCHAR NOT NULL,
@@ -141,6 +141,7 @@ CREATE TYPE scan_job_status AS ENUM (
 -- Scan Jobs Table
 CREATE TABLE scan_jobs (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    job_id UUID NOT NULL UNIQUE,
     scan_target_id BIGINT NOT NULL REFERENCES scan_targets (id),
     status scan_job_status NOT NULL,
     start_time TIMESTAMPTZ,

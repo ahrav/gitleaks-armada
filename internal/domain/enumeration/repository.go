@@ -9,6 +9,8 @@ package enumeration
 
 import (
 	"context"
+
+	"github.com/google/uuid"
 )
 
 // BatchRepository provides persistent storage and retrieval of Batch entities.
@@ -20,14 +22,14 @@ type BatchRepository interface {
 
 	// FindBySessionID retrieves all batches associated with a given session.
 	// This allows analyzing the complete history of an enumeration session.
-	FindBySessionID(ctx context.Context, sessionID string) ([]*Batch, error)
+	FindBySessionID(ctx context.Context, sessionID uuid.UUID) ([]*Batch, error)
 
 	// FindLastBySessionID retrieves the most recent batch for a session.
 	// This is used to determine the current progress of an enumeration.
-	FindLastBySessionID(ctx context.Context, sessionID string) (*Batch, error)
+	FindLastBySessionID(ctx context.Context, sessionID uuid.UUID) (*Batch, error)
 
 	// FindByID retrieves a specific batch by its unique identifier.
-	FindByID(ctx context.Context, batchID string) (*Batch, error)
+	FindByID(ctx context.Context, batchID uuid.UUID) (*Batch, error)
 }
 
 // StateRepository provides persistent storage for enumeration session state.
@@ -39,7 +41,7 @@ type StateRepository interface {
 
 	// Load retrieves an enumeration session state by session ID.
 	// Returns nil if no matching session exists.
-	Load(ctx context.Context, sessionID string) (*SessionState, error)
+	Load(ctx context.Context, sessionID uuid.UUID) (*SessionState, error)
 
 	// GetActiveStates returns all enumeration states that are initialized or in progress.
 	// This enables monitoring and management of ongoing enumeration sessions.
@@ -58,14 +60,14 @@ type CheckpointRepository interface {
 	Save(ctx context.Context, checkpoint *Checkpoint) error
 
 	// Load retrieves the most recent checkpoint for a target.
-	Load(ctx context.Context, targetID string) (*Checkpoint, error)
+	Load(ctx context.Context, targetID uuid.UUID) (*Checkpoint, error)
 
 	// LoadByID retrieves a checkpoint by its unique identifier.
 	LoadByID(ctx context.Context, id int64) (*Checkpoint, error)
 
 	// Delete removes a checkpoint for the given target.
 	// It is not an error if the checkpoint does not exist.
-	Delete(ctx context.Context, targetID string) error
+	Delete(ctx context.Context, targetID uuid.UUID) error
 }
 
 // TaskRepository provides persistent storage for enumeration tasks. It enables
@@ -77,5 +79,5 @@ type TaskRepository interface {
 	Save(ctx context.Context, task *Task) error
 
 	// GetByID retrieves a task by its unique identifier.
-	GetByID(ctx context.Context, taskID string) (*Task, error)
+	GetByID(ctx context.Context, taskID uuid.UUID) (*Task, error)
 }

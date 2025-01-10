@@ -185,7 +185,7 @@ type AllowlistStopword struct {
 
 type Checkpoint struct {
 	ID        int64
-	TargetID  string
+	TargetID  pgtype.UUID
 	Data      []byte
 	CreatedAt pgtype.Timestamptz
 	UpdatedAt pgtype.Timestamptz
@@ -193,8 +193,8 @@ type Checkpoint struct {
 
 type EnumerationBatch struct {
 	ID             int64
-	BatchID        string
-	SessionID      string
+	BatchID        pgtype.UUID
+	SessionID      pgtype.UUID
 	Status         BatchStatus
 	CheckpointID   pgtype.Int8
 	StartedAt      pgtype.Timestamptz
@@ -209,7 +209,7 @@ type EnumerationBatch struct {
 
 type EnumerationSessionMetric struct {
 	ID             int64
-	SessionID      string
+	SessionID      pgtype.UUID
 	TotalBatches   int32
 	FailedBatches  int32
 	ItemsFound     int32
@@ -220,7 +220,7 @@ type EnumerationSessionMetric struct {
 
 type EnumerationSessionState struct {
 	ID               int64
-	SessionID        string
+	SessionID        pgtype.UUID
 	SourceType       string
 	Config           []byte
 	LastCheckpointID pgtype.Int8
@@ -234,8 +234,9 @@ type EnumerationSessionState struct {
 }
 
 type EnumerationTask struct {
-	TaskID      string
-	SessionID   string
+	ID          int64
+	TaskID      pgtype.UUID
+	SessionID   pgtype.UUID
 	ResourceUri string
 	Metadata    []byte
 	CreatedAt   pgtype.Timestamptz
@@ -283,6 +284,7 @@ type Rule struct {
 
 type ScanJob struct {
 	ID           int64
+	JobID        pgtype.UUID
 	ScanTargetID int64
 	Status       ScanJobStatus
 	StartTime    pgtype.Timestamptz
@@ -304,6 +306,7 @@ type ScanTarget struct {
 }
 
 type Task struct {
-	TaskID     string
+	ID         int64
+	TaskID     pgtype.UUID
 	SourceType string
 }

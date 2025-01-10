@@ -141,10 +141,10 @@ func (s *ScannerService) handleTaskEvent(ctx context.Context, evt events.EventEn
 	}
 
 	span.SetAttributes(
-		attribute.String("task_id", tce.Task.TaskID),
+		attribute.String("task_id", tce.Task.TaskID.String()),
 		attribute.String("resource_uri", tce.Task.ResourceURI()),
 		attribute.String("source_type", string(tce.Task.SourceType)),
-		attribute.String("session_id", tce.Task.SessionID()),
+		attribute.String("session_id", tce.Task.SessionID().String()),
 	)
 	span.AddEvent("routing_task")
 
@@ -180,7 +180,7 @@ func (s *ScannerService) workerLoop(ctx context.Context, workerID int) {
 			taskCtx, span := s.tracer.Start(ctx, "scanner_service.worker.process_task",
 				trace.WithAttributes(
 					attribute.Int("worker_id", workerID),
-					attribute.String("task_id", task.TaskID),
+					attribute.String("task_id", task.TaskID.String()),
 					attribute.String("resource_uri", task.ResourceURI),
 				))
 
