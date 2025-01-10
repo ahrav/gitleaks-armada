@@ -31,11 +31,12 @@ func WithTimeProvider(tp TimeProvider) BatchOption {
 	return func(b *Batch) { b.timeline = NewTimeline(tp) }
 }
 
-// Batch is an entity that represents a batch of targets to be enumerated.
-// It coordinates the timeline, metrics, and checkpoint data for a specific batch of work.
+// Batch is an aggregate that represents a batch of targets to be enumerated.
+// It coordinates the timeline, metrics, and checkpoint data for a specific batch of work,
+// acting as a consistency boundary for batch-level operations.
 type Batch struct {
 	batchID    string
-	sessionID  string // Back-reference to aggregate
+	sessionID  string // Back-reference to parent session <aggregate-root>
 	status     BatchStatus
 	timeline   *Timeline
 	metrics    *BatchMetrics
