@@ -221,7 +221,6 @@ func (s *enumerationSessionStateStore) convertDBStateToEnumState(
 		attribute.String("session_id", sessionID),
 		attribute.Bool("has_checkpoint", lastCheckpointID.Valid),
 	}, func(ctx context.Context) error {
-		// Load the session's checkpoint if present
 		var sessionCheckpoint *enumeration.Checkpoint
 		if lastCheckpointID.Valid {
 			cp, err := s.checkpointStore.LoadByID(ctx, lastCheckpointID.Int64)
@@ -231,20 +230,17 @@ func (s *enumerationSessionStateStore) convertDBStateToEnumState(
 			sessionCheckpoint = cp
 		}
 
-		// Load the session metrics
 		metricsRow, err := s.q.GetSessionMetrics(ctx, sessionID)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("failed to load metrics for session %s: %w", sessionID, err)
 		}
 
-		// Reconstruct Timeline
 		timeline := enumeration.ReconstructTimeline(
 			startedAt,
 			completedAt.Time,
 			lastUpdate,
 		)
 
-		// Reconstruct SessionMetrics
 		metrics := enumeration.ReconstructSessionMetrics(
 			int(metricsRow.TotalBatches),
 			int(metricsRow.FailedBatches),
