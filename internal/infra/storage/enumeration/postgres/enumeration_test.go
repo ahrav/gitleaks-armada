@@ -37,7 +37,12 @@ func setupEnumerationTest(t *testing.T) (context.Context, *enumerationSessionSta
 
 func setupTestState(t *testing.T, ctx context.Context, checkpointStore *checkpointStore, targetID string) *enumeration.SessionState {
 	t.Helper()
-	state := enumeration.NewState("github", json.RawMessage(`{"org": "test-org"}`))
+	// mockTime := &mockTimeProvider{current: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)}
+	state := enumeration.NewState(
+		"github",
+		json.RawMessage(`{"org": "test-org"}`),
+		// enumeration.WithSessionTimeProvider(mockTime),
+	)
 
 	err := state.MarkInProgress()
 	require.NoError(t, err)
@@ -50,17 +55,20 @@ func setupTestState(t *testing.T, ctx context.Context, checkpointStore *checkpoi
 			},
 		})
 
-		batchProgress := enumeration.NewSuccessfulBatchProgress(5, cp)
-		err = state.RecordBatchProgress(batchProgress)
-		require.NoError(t, err)
+		batch := enumeration.NewBatch(
+			state.SessionID(),
+			5,
+			cp,
+			// enumeration.WithTimeProvider(mockTime),
+		)
+		require.NoError(t, batch.MarkSuccessful(5))
+		require.NoError(t, state.ProcessCompletedBatch(batch))
 	}
-
 	return state
 }
 
 func TestPGEnumerationStateStorage_SaveAndLoad(t *testing.T) {
 	t.Parallel()
-
 	ctx, store, checkpointStore, cleanup := setupEnumerationTest(t)
 	defer cleanup()
 
@@ -69,26 +77,40 @@ func TestPGEnumerationStateStorage_SaveAndLoad(t *testing.T) {
 	cp := createTestCheckpoint(t, ctx, checkpointStore, "test-target", map[string]any{
 		"cursor": "abc123",
 	})
+	batch := enumeration.NewBatch(
+		state.SessionID(),
+		5,
+		cp,
+	)
+	require.NoError(t, batch.MarkSuccessful(5))
+	require.NoError(t, state.ProcessCompletedBatch(batch))
 
-	batchProgress := enumeration.NewSuccessfulBatchProgress(5, cp)
-
-	err := state.RecordBatchProgress(batchProgress)
-	require.NoError(t, err)
-
-	err = store.Save(ctx, state)
+	err := store.Save(ctx, state)
 	require.NoError(t, err)
 
 	loaded, err := store.Load(ctx, state.SessionID())
 	require.NoError(t, err)
 	require.NotNil(t, loaded, "Loaded session should not be nil")
 
+	// Verify core state.
 	assert.Equal(t, state.SessionID(), loaded.SessionID())
 	assert.Equal(t, state.SourceType(), loaded.SourceType())
 	assert.Equal(t, state.Config(), loaded.Config())
 	assert.Equal(t, state.Status(), loaded.Status())
-	assert.False(t, loaded.LastUpdated().IsZero(), "LastUpdated should be set")
 
-	//  Verify checkpoint was saved and linked correctly.
+	// Verify timeline.
+	require.NotNil(t, loaded.Timeline(), "Timeline should not be nil")
+	assert.True(t, loaded.Timeline().StartedAt().Equal(state.Timeline().StartedAt()))
+	assert.True(t, loaded.Timeline().LastUpdate().Equal(state.Timeline().LastUpdate()))
+
+	// Verify metrics.
+	require.NotNil(t, loaded.Metrics(), "Metrics should not be nil")
+	assert.Equal(t, state.Metrics().TotalBatches(), loaded.Metrics().TotalBatches())
+	assert.Equal(t, state.Metrics().FailedBatches(), loaded.Metrics().FailedBatches())
+	assert.Equal(t, state.Metrics().ItemsProcessed(), loaded.Metrics().ItemsProcessed())
+	assert.Equal(t, state.Metrics().ItemsFound(), loaded.Metrics().ItemsFound())
+
+	// Verify checkpoint
 	require.NotNil(t, loaded.LastCheckpoint(), "Loaded session should have a checkpoint")
 	assert.Equal(t, "test-target", loaded.LastCheckpoint().TargetID())
 	assert.Equal(t, "abc123", loaded.LastCheckpoint().Data()["cursor"])
@@ -112,6 +134,7 @@ func TestPGEnumerationStateStorage_Update(t *testing.T) {
 	defer cleanup()
 
 	state := setupTestState(t, ctx, checkpointStore, "test-target")
+	initialLastUpdate := state.Timeline().LastUpdate()
 
 	err := store.Save(ctx, state)
 	require.NoError(t, err)
@@ -120,9 +143,22 @@ func TestPGEnumerationStateStorage_Update(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, loaded)
 
-	assert.Equal(t, enumeration.StatusInProgress, loaded.Status())
-	assert.True(t, loaded.LastUpdated().After(state.LastUpdated()),
-		"LastUpdated should be later than initial save")
+	// Make a state change.
+	err = loaded.MarkCompleted()
+	require.NoError(t, err)
+
+	// Save the updated state
+	err = store.Save(ctx, loaded)
+	require.NoError(t, err)
+
+	// Load again and verify.
+	reloaded, err := store.Load(ctx, state.SessionID())
+	require.NoError(t, err)
+	require.NotNil(t, reloaded)
+
+	assert.Equal(t, enumeration.StatusCompleted, reloaded.Status())
+	assert.True(t, reloaded.Timeline().LastUpdate().After(initialLastUpdate),
+		"LastUpdate should be later after making changes and saving again")
 }
 
 func TestPGEnumerationStateStorage_Mutability(t *testing.T) {

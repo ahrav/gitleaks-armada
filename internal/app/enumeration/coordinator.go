@@ -70,7 +70,7 @@ type coordinator struct {
 // It wires together all required dependencies including repositories, domain services,
 // and external integrations needed for the enumeration workflow.
 func NewCoordinator(
-	batchRepo enumeration.BatchRepository,
+	// batchRepo enumeration.BatchRepository,
 	stateRepo enumeration.StateRepository,
 	checkpointRepo enumeration.CheckpointRepository,
 	taskRepo enumeration.TaskRepository,
@@ -81,7 +81,7 @@ func NewCoordinator(
 	tracer trace.Tracer,
 ) Coordinator {
 	return &coordinator{
-		batchRepo:      batchRepo,
+		// batchRepo:      batchRepo,
 		stateRepo:      stateRepo,
 		checkpointRepo: checkpointRepo,
 		taskRepo:       taskRepo,

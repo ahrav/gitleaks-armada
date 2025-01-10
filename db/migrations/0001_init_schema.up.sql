@@ -1,6 +1,6 @@
 -- 000001_init_schema.up.sql
 
--- 1. Define the enumeration_status enum
+-- Enumeration Status Enum
 CREATE TYPE enumeration_status AS ENUM (
     'INITIALIZED',
     'IN_PROGRESS',
@@ -10,7 +10,7 @@ CREATE TYPE enumeration_status AS ENUM (
     'PARTIALLY_COMPLETED'
 );
 
--- 2. Create batch_status enum
+-- Batch Status Enum
 CREATE TYPE batch_status AS ENUM (
     'SUCCEEDED',
     'FAILED',
@@ -18,7 +18,7 @@ CREATE TYPE batch_status AS ENUM (
     'IN_PROGRESS'
 );
 
--- 3. Create checkpoints table
+-- Checkpoints Table
 CREATE TABLE checkpoints (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     target_id VARCHAR(512) NOT NULL UNIQUE,
@@ -78,6 +78,9 @@ CREATE TABLE enumeration_batches (
     CONSTRAINT unique_batch_id UNIQUE (batch_id)
 );
 
+CREATE INDEX idx_enumeration_batches_session_id ON enumeration_batches(session_id);
+CREATE INDEX idx_enumeration_batches_status ON enumeration_batches(status);
+
 -- Tasks Table
 CREATE TABLE tasks (
     task_id VARCHAR PRIMARY KEY,
@@ -93,7 +96,3 @@ CREATE TABLE enumeration_tasks (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-
--- Indexes
-CREATE INDEX idx_batches_session_id ON enumeration_batches(session_id);
-CREATE INDEX idx_batch_progress_status ON batch_progress(status);

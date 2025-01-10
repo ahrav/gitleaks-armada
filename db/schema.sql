@@ -78,6 +78,10 @@ CREATE TABLE enumeration_batches (
     CONSTRAINT unique_batch_id UNIQUE (batch_id)
 );
 
+-- Indexes
+CREATE INDEX idx_enumeration_batches_session_id ON enumeration_batches(session_id);
+CREATE INDEX idx_enumeration_batches_status ON enumeration_batches(status);
+
 -- Tasks Table
 CREATE TABLE tasks (
     task_id VARCHAR PRIMARY KEY,
@@ -93,10 +97,6 @@ CREATE TABLE enumeration_tasks (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-
--- Indexes
-CREATE INDEX idx_batches_session_id ON enumeration_batches(session_id);
-CREATE INDEX idx_batch_progress_status ON batch_progress(status);
 
 -- Github Repositories Table
 CREATE TABLE github_repositories (

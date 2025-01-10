@@ -41,10 +41,19 @@ func (s *EnumerationStateStorage) Save(ctx context.Context, state *enumeration.S
 		state.SourceType(),
 		state.Config(),
 		state.Status(),
-		state.LastUpdated(),
+		enumeration.ReconstructTimeline(
+			state.Timeline().StartedAt(),
+			state.Timeline().CompletedAt(),
+			state.Timeline().LastUpdate(),
+		),
 		state.FailureReason(),
 		deepCopyCheckpoint(state.LastCheckpoint()),
-		state.Progress(),
+		enumeration.ReconstructSessionMetrics(
+			state.Metrics().TotalBatches(),
+			state.Metrics().FailedBatches(),
+			state.Metrics().ItemsFound(),
+			state.Metrics().ItemsProcessed(),
+		),
 	)
 
 	return nil
@@ -65,10 +74,19 @@ func (s *EnumerationStateStorage) Load(ctx context.Context, sessionID string) (*
 		state.SourceType(),
 		state.Config(),
 		state.Status(),
-		state.LastUpdated(),
+		enumeration.ReconstructTimeline(
+			state.Timeline().StartedAt(),
+			state.Timeline().CompletedAt(),
+			state.Timeline().LastUpdate(),
+		),
 		state.FailureReason(),
 		deepCopyCheckpoint(state.LastCheckpoint()),
-		state.Progress(),
+		enumeration.ReconstructSessionMetrics(
+			state.Metrics().TotalBatches(),
+			state.Metrics().FailedBatches(),
+			state.Metrics().ItemsFound(),
+			state.Metrics().ItemsProcessed(),
+		),
 	), nil
 }
 
@@ -80,16 +98,24 @@ func (s *EnumerationStateStorage) GetActiveStates(ctx context.Context) ([]*enume
 	var active []*enumeration.SessionState
 	for _, state := range s.states {
 		if state.Status() == enumeration.StatusInitialized || state.Status() == enumeration.StatusInProgress {
-			// Use ReconstructState to create a new copy
 			active = append(active, enumeration.ReconstructState(
 				state.SessionID(),
 				state.SourceType(),
 				state.Config(),
 				state.Status(),
-				state.LastUpdated(),
+				enumeration.ReconstructTimeline(
+					state.Timeline().StartedAt(),
+					state.Timeline().CompletedAt(),
+					state.Timeline().LastUpdate(),
+				),
 				state.FailureReason(),
 				deepCopyCheckpoint(state.LastCheckpoint()),
-				state.Progress(),
+				enumeration.ReconstructSessionMetrics(
+					state.Metrics().TotalBatches(),
+					state.Metrics().FailedBatches(),
+					state.Metrics().ItemsFound(),
+					state.Metrics().ItemsProcessed(),
+				),
 			))
 		}
 	}
@@ -108,15 +134,24 @@ func (s *EnumerationStateStorage) List(ctx context.Context, limit int) ([]*enume
 			state.SourceType(),
 			state.Config(),
 			state.Status(),
-			state.LastUpdated(),
+			enumeration.ReconstructTimeline(
+				state.Timeline().StartedAt(),
+				state.Timeline().CompletedAt(),
+				state.Timeline().LastUpdate(),
+			),
 			state.FailureReason(),
 			deepCopyCheckpoint(state.LastCheckpoint()),
-			state.Progress(),
+			enumeration.ReconstructSessionMetrics(
+				state.Metrics().TotalBatches(),
+				state.Metrics().FailedBatches(),
+				state.Metrics().ItemsFound(),
+				state.Metrics().ItemsProcessed(),
+			),
 		))
 	}
 
 	sort.Slice(states, func(i, j int) bool {
-		return states[i].LastUpdated().After(states[j].LastUpdated())
+		return states[i].Timeline().LastUpdate().After(states[j].Timeline().LastUpdate())
 	})
 
 	if limit > len(states) {
