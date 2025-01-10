@@ -70,7 +70,7 @@ type coordinator struct {
 // It wires together all required dependencies including repositories, domain services,
 // and external integrations needed for the enumeration workflow.
 func NewCoordinator(
-	// batchRepo enumeration.BatchRepository,
+	batchRepo enumeration.BatchRepository,
 	stateRepo enumeration.StateRepository,
 	checkpointRepo enumeration.CheckpointRepository,
 	taskRepo enumeration.TaskRepository,
@@ -81,7 +81,7 @@ func NewCoordinator(
 	tracer trace.Tracer,
 ) Coordinator {
 	return &coordinator{
-		// batchRepo:      batchRepo,
+		batchRepo:      batchRepo,
 		stateRepo:      stateRepo,
 		checkpointRepo: checkpointRepo,
 		taskRepo:       taskRepo,
@@ -221,11 +221,8 @@ func (s *coordinator) ResumeEnumerations(ctx context.Context, states []*enumerat
 			continue
 		}
 
-		stateSpan.AddEvent("config_unmarshaled")
-
 		if s.credStore == nil {
 			credSpan := trace.SpanFromContext(stateCtx)
-			credSpan.AddEvent("initializing_credential_store")
 
 			var err error
 			s.credStore, err = memory.NewCredentialStore(map[string]config.AuthConfig{
@@ -409,7 +406,9 @@ func (s *coordinator) streamEnumerate(
 		if err := s.stateRepo.Save(ctx, state); err != nil {
 			span.RecordError(err)
 			s.logger.Error(ctx, "Failed to save enumeration state", "error", err)
+			return err
 		}
+		span.AddEvent("State saved successfully in repository")
 		return err
 	}
 
@@ -427,6 +426,8 @@ func (s *coordinator) streamEnumerate(
 	return nil
 }
 
+// processBatch handles the processing of a batch of enumerated targets.
+// It creates a batch entity, saves it to the repository, and publishes tasks.
 func (s *coordinator) processBatch(
 	ctx context.Context,
 	batch EnumerateBatch,
@@ -457,7 +458,6 @@ func (s *coordinator) processBatch(
 	)
 	batchSpan.AddEvent("Created batch entity")
 
-	batchSpan.AddEvent("Saving batch to repository")
 	if err := s.batchRepo.Save(ctx, domainBatch); err != nil {
 		batchSpan.RecordError(err)
 		batchSpan.AddEvent("Failed to save batch", trace.WithAttributes(
@@ -483,7 +483,6 @@ func (s *coordinator) processBatch(
 		batchSpan.AddEvent("Successfully published batch")
 	}
 
-	batchSpan.AddEvent("Updating batch progress in repository")
 	if err := s.batchRepo.Save(ctx, domainBatch); err != nil {
 		batchSpan.RecordError(err)
 		batchSpan.AddEvent("Failed to update batch progress", trace.WithAttributes(
@@ -509,6 +508,7 @@ func (s *coordinator) processBatch(
 		))
 		return err
 	}
+	batchSpan.AddEvent("State saved successfully in repository")
 
 	return nil
 }

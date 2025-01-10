@@ -202,7 +202,9 @@ func main() {
 	eventPublisher := kafka.NewKafkaDomainEventPublisher(broker)
 	enumFactory := enumeration.NewEnumerationFactory(http.DefaultClient, tracer)
 	enumTaskStorage := enumStore.NewTaskStore(pool, tracer)
+	batchStorage := enumStore.NewBatchStore(pool, checkpointStorage, tracer)
 	enumService := enumeration.NewCoordinator(
+		batchStorage,
 		enumStateStorage,
 		checkpointStorage,
 		enumTaskStorage,
