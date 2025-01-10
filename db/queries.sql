@@ -98,47 +98,92 @@ FROM tasks t
 JOIN enumeration_tasks et ON t.task_id = et.task_id
 WHERE t.task_id = $1;
 
-
 -- ============================================
--- Progress Tracking
+-- Session State and Metrics operations
 -- ============================================
--- name: UpsertEnumerationProgress :exec
-INSERT INTO enumeration_progress (
-    session_id, started_at, items_found, items_processed, failed_batches, total_batches
+-- name: UpsertSessionState :exec
+INSERT INTO enumeration_session_states (
+   session_id,
+   source_type,
+   config,
+   status,
+   failure_reason,
+   last_checkpoint_id,
+   started_at,
+   completed_at,
+   last_update
 ) VALUES (
-    $1, $2, $3, $4, $5, $6
+   $1, $2, $3, $4, $5, $6, $7, $8, $9
 )
 ON CONFLICT (session_id) DO UPDATE SET
-    items_found = EXCLUDED.items_found,
-    items_processed = EXCLUDED.items_processed,
-    failed_batches = EXCLUDED.failed_batches,
-    total_batches = EXCLUDED.total_batches,
-    updated_at = NOW();
+   status = EXCLUDED.status,
+   failure_reason = EXCLUDED.failure_reason,
+   last_checkpoint_id = EXCLUDED.last_checkpoint_id,
+   completed_at = EXCLUDED.completed_at,
+   last_update = EXCLUDED.last_update,
+   updated_at = NOW();
 
--- name: GetEnumerationProgressForSession :one
-SELECT * FROM enumeration_progress
+-- name: UpsertSessionMetrics :exec
+INSERT INTO enumeration_session_metrics (
+   session_id,
+   total_batches,
+   failed_batches,
+   items_found,
+   items_processed
+) VALUES (
+   $1, $2, $3, $4, $5
+)
+ON CONFLICT (session_id) DO UPDATE SET
+   total_batches = EXCLUDED.total_batches,
+   failed_batches = EXCLUDED.failed_batches,
+   items_found = EXCLUDED.items_found,
+   items_processed = EXCLUDED.items_processed,
+   updated_at = NOW();
+
+-- name: GetSessionState :one
+SELECT * FROM enumeration_session_states
 WHERE session_id = $1;
 
--- name: GetEnumerationBatchProgressForSession :many
-SELECT * FROM enumeration_batch_progress
-WHERE session_id = $1
-ORDER BY started_at ASC;
+-- name: GetSessionMetrics :one
+SELECT * FROM enumeration_session_metrics
+WHERE session_id = $1;
 
--- name: UpsertEnumerationBatchProgress :one
-INSERT INTO enumeration_batch_progress (
-    batch_id, session_id, status, started_at, completed_at,
-    items_processed, error_details, checkpoint_id
+-- ============================================
+-- Batch (Entity) operations
+-- ============================================
+-- name: UpsertBatch :exec
+INSERT INTO enumeration_batches (
+   batch_id,
+   session_id,
+   status,
+   checkpoint_id,
+   started_at,
+   completed_at,
+   last_update,
+   items_processed,
+   expected_items,
+   error_details
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8
+   $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
 )
 ON CONFLICT (batch_id) DO UPDATE SET
-    status = EXCLUDED.status,
-    completed_at = EXCLUDED.completed_at,
-    items_processed = EXCLUDED.items_processed,
-    error_details = EXCLUDED.error_details,
-    checkpoint_id = EXCLUDED.checkpoint_id,
-    updated_at = NOW()
-RETURNING id;
+   status = EXCLUDED.status,
+   checkpoint_id = EXCLUDED.checkpoint_id,
+   completed_at = EXCLUDED.completed_at,
+   last_update = EXCLUDED.last_update,
+   items_processed = EXCLUDED.items_processed,
+   error_details = EXCLUDED.error_details,
+   updated_at = NOW();
+
+-- name: GetBatch :one
+SELECT * FROM enumeration_batches
+WHERE batch_id = $1;
+
+-- name: GetBatchesForSession :many
+SELECT *
+FROM enumeration_batches
+WHERE session_id = $1
+ORDER BY started_at ASC;
 
 -- ============================================
 -- Rules

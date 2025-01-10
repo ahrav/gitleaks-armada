@@ -11,6 +11,25 @@ import (
 	"context"
 )
 
+// BatchRepository provides persistent storage and retrieval of Batch entities.
+// It enables tracking the progress and history of enumeration batches, which is
+// essential for monitoring scan progress and supporting resumable operations.
+type BatchRepository interface {
+	// Save persists a Batch entity and its associated timeline and metrics.
+	Save(ctx context.Context, batch *Batch) error
+
+	// FindBySessionID retrieves all batches associated with a given session.
+	// This allows analyzing the complete history of an enumeration session.
+	FindBySessionID(ctx context.Context, sessionID string) ([]*Batch, error)
+
+	// FindLastBySessionID retrieves the most recent batch for a session.
+	// This is used to determine the current progress of an enumeration.
+	FindLastBySessionID(ctx context.Context, sessionID string) (*Batch, error)
+
+	// FindByID retrieves a specific batch by its unique identifier.
+	FindByID(ctx context.Context, batchID string) (*Batch, error)
+}
+
 // StateRepository provides persistent storage for enumeration session state.
 // This enables resumable scanning across process restarts by maintaining the lifecycle
 // state and progress of enumeration sessions.

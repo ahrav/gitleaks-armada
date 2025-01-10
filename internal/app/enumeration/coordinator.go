@@ -49,6 +49,7 @@ type metrics interface {
 // the overall enumeration process.
 type coordinator struct {
 	// Domain repositories.
+	batchRepo      enumeration.BatchRepository
 	stateRepo      enumeration.StateRepository
 	checkpointRepo enumeration.CheckpointRepository
 	taskRepo       enumeration.TaskRepository
@@ -69,6 +70,7 @@ type coordinator struct {
 // It wires together all required dependencies including repositories, domain services,
 // and external integrations needed for the enumeration workflow.
 func NewCoordinator(
+	batchRepo enumeration.BatchRepository,
 	stateRepo enumeration.StateRepository,
 	checkpointRepo enumeration.CheckpointRepository,
 	taskRepo enumeration.TaskRepository,
@@ -79,6 +81,7 @@ func NewCoordinator(
 	tracer trace.Tracer,
 ) Coordinator {
 	return &coordinator{
+		batchRepo:      batchRepo,
 		stateRepo:      stateRepo,
 		checkpointRepo: checkpointRepo,
 		taskRepo:       taskRepo,
@@ -379,67 +382,16 @@ func (s *coordinator) streamEnumerate(
 					attribute.Int("batch_size", len(batch.Targets)),
 					attribute.String("next_cursor", batch.NextCursor),
 				))
-			batchSpan.AddEvent("Starting batch processing")
 
-			var checkpoint *enumeration.Checkpoint
-			if batch.NextCursor != "" {
-				checkpoint = enumeration.NewTemporaryCheckpoint(
-					state.SessionID(),
-					map[string]any{"endCursor": batch.NextCursor},
-				)
-				batchSpan.AddEvent("Created checkpoint")
-			} else {
-				checkpoint = enumeration.NewTemporaryCheckpoint(state.SessionID(), nil)
-				batchSpan.AddEvent("Created empty checkpoint")
-			}
-
-			batchProgress := enumeration.NewPendingBatchProgress(len(batch.Targets), checkpoint)
-			if err := state.RecordBatchProgress(batchProgress); err != nil {
+			if err := s.processBatch(batchCtx, batch, state, creds); err != nil {
 				batchSpan.RecordError(err)
-				batchSpan.AddEvent("Failed to update progress", trace.WithAttributes(
-					attribute.String("error", err.Error()),
-				))
+				batchSpan.SetStatus(codes.Error, "failed to process batch")
 				batchSpan.End()
-				return
+				continue
 			}
 
-			if err := s.stateRepo.Save(batchCtx, state); err != nil {
-				batchSpan.RecordError(err)
-				batchSpan.AddEvent("Failed to save state", trace.WithAttributes(
-					attribute.String("error", err.Error()),
-				))
-				batchSpan.End()
-				return
-			}
-
-			if err := s.publishTasks(batchCtx, batch.Targets, state.SessionID(), creds); err != nil {
-				batchSpan.RecordError(err)
-				batchProgress = enumeration.NewFailedBatchProgress(err, checkpoint)
-				batchSpan.AddEvent("Failed to publish tasks", trace.WithAttributes(
-					attribute.String("error", err.Error()),
-					attribute.Int("failed_targets", len(batch.Targets)),
-				))
-			} else {
-				batchProgress = enumeration.NewSuccessfulBatchProgress(len(batch.Targets), checkpoint)
-				batchSpan.AddEvent("Successfully published batch")
-			}
-
-			if err := state.RecordBatchProgress(batchProgress); err != nil {
-				batchSpan.RecordError(err)
-				batchSpan.AddEvent("Failed to update final progress", trace.WithAttributes(
-					attribute.String("error", err.Error()),
-					attribute.String("batch_status", string(batchProgress.Status())),
-				))
-				batchSpan.End()
-				return
-			}
-
-			if err := s.stateRepo.Save(batchCtx, state); err != nil {
-				batchSpan.RecordError(err)
-				batchSpan.AddEvent("Failed to save final state", trace.WithAttributes(
-					attribute.String("error", err.Error()),
-				))
-			}
+			batchSpan.AddEvent("batch_processed")
+			batchSpan.SetStatus(codes.Ok, "batch processed successfully")
 			batchSpan.End()
 		}
 	}()
@@ -472,6 +424,92 @@ func (s *coordinator) streamEnumerate(
 		span.RecordError(err)
 		s.logger.Error(ctx, "Failed to save enumeration state", "error", err)
 	}
+	return nil
+}
+
+func (s *coordinator) processBatch(
+	ctx context.Context,
+	batch EnumerateBatch,
+	state *enumeration.SessionState,
+	creds *enumeration.TaskCredentials,
+) error {
+	batchSpan := trace.SpanFromContext(ctx)
+	defer batchSpan.End()
+
+	batchSpan.AddEvent("Starting batch processing")
+
+	var checkpoint *enumeration.Checkpoint
+	if batch.NextCursor != "" {
+		checkpoint = enumeration.NewTemporaryCheckpoint(
+			state.SessionID(),
+			map[string]any{"endCursor": batch.NextCursor},
+		)
+		batchSpan.AddEvent("Created checkpoint")
+	} else {
+		checkpoint = enumeration.NewTemporaryCheckpoint(state.SessionID(), nil)
+		batchSpan.AddEvent("Created empty checkpoint")
+	}
+
+	domainBatch := enumeration.NewBatch(
+		state.SessionID(),
+		len(batch.Targets),
+		checkpoint,
+	)
+	batchSpan.AddEvent("Created batch entity")
+
+	batchSpan.AddEvent("Saving batch to repository")
+	if err := s.batchRepo.Save(ctx, domainBatch); err != nil {
+		batchSpan.RecordError(err)
+		batchSpan.AddEvent("Failed to save batch", trace.WithAttributes(
+			attribute.String("error", err.Error()),
+		))
+		return err
+	}
+	batchSpan.AddEvent("Batch saved successfully")
+
+	if err := s.publishTasks(ctx, batch.Targets, state.SessionID(), creds); err != nil {
+		batchSpan.RecordError(err)
+		if markErr := domainBatch.MarkFailed(err); markErr != nil {
+			batchSpan.RecordError(markErr)
+		}
+		batchSpan.AddEvent("Failed to publish tasks", trace.WithAttributes(
+			attribute.String("error", err.Error()),
+			attribute.Int("failed_targets", len(batch.Targets)),
+		))
+	} else {
+		if markErr := domainBatch.MarkSuccessful(len(batch.Targets)); markErr != nil {
+			batchSpan.RecordError(markErr)
+		}
+		batchSpan.AddEvent("Successfully published batch")
+	}
+
+	batchSpan.AddEvent("Updating batch progress in repository")
+	if err := s.batchRepo.Save(ctx, domainBatch); err != nil {
+		batchSpan.RecordError(err)
+		batchSpan.AddEvent("Failed to update batch progress", trace.WithAttributes(
+			attribute.String("error", err.Error()),
+		))
+		return err
+	}
+	batchSpan.AddEvent("Batch progress updated successfully in repository")
+
+	if err := state.ProcessCompletedBatch(domainBatch); err != nil {
+		batchSpan.RecordError(err)
+		batchSpan.AddEvent("Failed to complete batch progress update", trace.WithAttributes(
+			attribute.String("error", err.Error()),
+		))
+		return err
+	}
+	batchSpan.AddEvent("Session state updated successfully with batch progress")
+
+	if err := s.stateRepo.Save(ctx, state); err != nil {
+		batchSpan.RecordError(err)
+		batchSpan.AddEvent("Failed to save state", trace.WithAttributes(
+			attribute.String("error", err.Error()),
+		))
+		return err
+	}
+
 	return nil
 }
 

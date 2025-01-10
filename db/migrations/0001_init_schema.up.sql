@@ -15,7 +15,7 @@ CREATE TYPE batch_status AS ENUM (
     'SUCCEEDED',
     'FAILED',
     'PARTIALLY_COMPLETED',
-    'PENDING'
+    'IN_PROGRESS'
 );
 
 -- 3. Create checkpoints table
@@ -27,7 +27,7 @@ CREATE TABLE checkpoints (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 4. Create enumeration_session_states table
+-- Enumeration Session States Table (Aggregate Root)
 CREATE TABLE enumeration_session_states (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     session_id VARCHAR(64) NOT NULL,
@@ -36,18 +36,55 @@ CREATE TABLE enumeration_session_states (
     last_checkpoint_id BIGINT REFERENCES checkpoints(id),
     status enumeration_status NOT NULL,
     failure_reason TEXT,
+    -- Timeline fields
+    started_at TIMESTAMPTZ NOT NULL,
+    completed_at TIMESTAMPTZ,
+    last_update TIMESTAMPTZ NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT unique_enumeration_session_id UNIQUE (session_id)
 );
 
--- 5. Tasks Table
+-- Session Metrics (Value Object)
+CREATE TABLE enumeration_session_metrics (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    session_id VARCHAR(64) NOT NULL REFERENCES enumeration_session_states(session_id),
+    total_batches INTEGER NOT NULL DEFAULT 0,
+    failed_batches INTEGER NOT NULL DEFAULT 0,
+    items_found INTEGER NOT NULL DEFAULT 0,
+    items_processed INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT unique_session_metrics UNIQUE (session_id)
+);
+
+-- Enumeration Batches Table (Entity)
+CREATE TABLE enumeration_batches (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    batch_id VARCHAR(64) NOT NULL UNIQUE,
+    session_id VARCHAR(64) NOT NULL REFERENCES enumeration_session_states(session_id),
+    status batch_status NOT NULL,
+    checkpoint_id BIGINT REFERENCES checkpoints(id),
+    -- Timeline fields
+    started_at TIMESTAMPTZ NOT NULL,
+    completed_at TIMESTAMPTZ,
+    last_update TIMESTAMPTZ NOT NULL,
+    -- Metrics fields
+    items_processed INTEGER NOT NULL DEFAULT 0,
+    expected_items INTEGER NOT NULL DEFAULT 0,
+    error_details TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT unique_batch_id UNIQUE (batch_id)
+);
+
+-- Tasks Table
 CREATE TABLE tasks (
     task_id VARCHAR PRIMARY KEY,
     source_type VARCHAR NOT NULL
 );
 
--- 6. Enumeration Tasks Table
+-- Enumeration Tasks Table
 CREATE TABLE enumeration_tasks (
     task_id VARCHAR PRIMARY KEY REFERENCES tasks(task_id),
     session_id VARCHAR(64) NOT NULL REFERENCES enumeration_session_states(session_id),
@@ -57,34 +94,6 @@ CREATE TABLE enumeration_tasks (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 7. Add new progress tables
-CREATE TABLE enumeration_progress (
-    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    session_id VARCHAR(64) NOT NULL REFERENCES enumeration_session_states(session_id),
-    started_at TIMESTAMPTZ NOT NULL,
-    items_found INTEGER NOT NULL DEFAULT 0,
-    items_processed INTEGER NOT NULL DEFAULT 0,
-    failed_batches INTEGER NOT NULL DEFAULT 0,
-    total_batches INTEGER NOT NULL DEFAULT 0,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT unique_session_progress UNIQUE (session_id)
-);
-
-CREATE TABLE enumeration_batch_progress (
-    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    batch_id VARCHAR(64) NOT NULL UNIQUE,
-    session_id VARCHAR(64) NOT NULL REFERENCES enumeration_session_states(session_id),
-    status batch_status NOT NULL,
-    started_at TIMESTAMPTZ NOT NULL,
-    completed_at TIMESTAMPTZ NOT NULL,
-    items_processed INTEGER NOT NULL DEFAULT 0,
-    error_details TEXT,
-    checkpoint_id BIGINT REFERENCES checkpoints(id),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- 8. Add indexes
-CREATE INDEX idx_batch_progress_session_id ON enumeration_batch_progress(session_id);
-CREATE INDEX idx_batch_progress_status ON enumeration_batch_progress(status);
+-- Indexes
+CREATE INDEX idx_batches_session_id ON enumeration_batches(session_id);
+CREATE INDEX idx_batch_progress_status ON batch_progress(status);

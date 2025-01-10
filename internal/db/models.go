@@ -17,7 +17,7 @@ const (
 	BatchStatusSUCCEEDED          BatchStatus = "SUCCEEDED"
 	BatchStatusFAILED             BatchStatus = "FAILED"
 	BatchStatusPARTIALLYCOMPLETED BatchStatus = "PARTIALLY_COMPLETED"
-	BatchStatusPENDING            BatchStatus = "PENDING"
+	BatchStatusINPROGRESS         BatchStatus = "IN_PROGRESS"
 )
 
 func (e *BatchStatus) Scan(src interface{}) error {
@@ -191,28 +191,29 @@ type Checkpoint struct {
 	UpdatedAt pgtype.Timestamptz
 }
 
-type EnumerationBatchProgress struct {
+type EnumerationBatch struct {
 	ID             int64
 	BatchID        string
 	SessionID      string
 	Status         BatchStatus
+	CheckpointID   pgtype.Int8
 	StartedAt      pgtype.Timestamptz
 	CompletedAt    pgtype.Timestamptz
+	LastUpdate     pgtype.Timestamptz
 	ItemsProcessed int32
+	ExpectedItems  int32
 	ErrorDetails   pgtype.Text
-	CheckpointID   pgtype.Int8
 	CreatedAt      pgtype.Timestamptz
 	UpdatedAt      pgtype.Timestamptz
 }
 
-type EnumerationProgress struct {
+type EnumerationSessionMetric struct {
 	ID             int64
 	SessionID      string
-	StartedAt      pgtype.Timestamptz
+	TotalBatches   int32
+	FailedBatches  int32
 	ItemsFound     int32
 	ItemsProcessed int32
-	FailedBatches  int32
-	TotalBatches   int32
 	CreatedAt      pgtype.Timestamptz
 	UpdatedAt      pgtype.Timestamptz
 }
@@ -225,6 +226,9 @@ type EnumerationSessionState struct {
 	LastCheckpointID pgtype.Int8
 	Status           EnumerationStatus
 	FailureReason    pgtype.Text
+	StartedAt        pgtype.Timestamptz
+	CompletedAt      pgtype.Timestamptz
+	LastUpdate       pgtype.Timestamptz
 	CreatedAt        pgtype.Timestamptz
 	UpdatedAt        pgtype.Timestamptz
 }

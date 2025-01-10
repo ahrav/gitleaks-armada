@@ -129,41 +129,50 @@ const (
 
 // SessionState is an aggregate root that tracks the progress and status of a target enumeration session.
 // As an aggregate, it encapsulates the lifecycle and consistency boundaries of the enumeration process,
-// coordinating changes to its child entities (Checkpoint) and value objects (EnumerationStatus).
-// It maintains configuration, checkpoints, and status to enable resumable scanning of large data sources
-// while ensuring business rules and invariants are preserved.
+// coordinating changes to its child entities (Checkpoint) and value objects (Timeline, SessionMetrics).
 type SessionState struct {
-	// Identity.
+	// Identity
 	sessionID  string
 	sourceType string
 
-	// Configuration.
+	// Configuration
 	config json.RawMessage
 
-	// Current state.
+	// State
 	status        Status
-	lastUpdated   time.Time
 	failureReason string
 
-	// Progress tracking.
+	// Domain objects
+	timeline       *Timeline
+	metrics        *SessionMetrics
 	lastCheckpoint *Checkpoint
-	progress       *Progress
+}
 
-	timeProvider TimeProvider
+// StateOption defines functional options for configuring a new SessionState.
+type StateOption func(*SessionState)
+
+// WithSessionTimeProvider sets a custom time provider for the session.
+func WithSessionTimeProvider(tp TimeProvider) StateOption {
+	return func(s *SessionState) { s.timeline = NewTimeline(tp) }
 }
 
 // NewState creates a new enumeration State aggregate root with the provided source type and configuration.
 // It enforces domain invariants by generating a unique session ID and setting the initial status.
-// The domain owns identity generation to maintain aggregate consistency.
-func NewState(sourceType string, config json.RawMessage) *SessionState {
-	return &SessionState{
-		sessionID:    uuid.New().String(),
-		sourceType:   sourceType,
-		config:       config,
-		status:       StatusInitialized,
-		lastUpdated:  time.Now(),
-		timeProvider: &realTimeProvider{},
+func NewState(sourceType string, config json.RawMessage, opts ...StateOption) *SessionState {
+	state := &SessionState{
+		sessionID:  uuid.New().String(),
+		sourceType: sourceType,
+		config:     config,
+		status:     StatusInitialized,
+		timeline:   NewTimeline(new(realTimeProvider)),
+		metrics:    NewSessionMetrics(),
 	}
+
+	for _, opt := range opts {
+		opt(state)
+	}
+
+	return state
 }
 
 // ReconstructState creates a State instance from persisted data without generating
@@ -174,36 +183,83 @@ func ReconstructState(
 	sourceType string,
 	config json.RawMessage,
 	status Status,
-	lastUpdated time.Time,
+	timeline *Timeline,
 	failureReason string,
 	lastCheckpoint *Checkpoint,
-	progress *Progress,
+	metrics *SessionMetrics,
 ) *SessionState {
 	return &SessionState{
 		sessionID:      sessionID,
 		sourceType:     sourceType,
 		config:         config,
 		status:         status,
-		lastUpdated:    lastUpdated,
+		timeline:       timeline,
 		failureReason:  failureReason,
 		lastCheckpoint: lastCheckpoint,
-		progress:       progress,
+		metrics:        metrics,
 	}
 }
 
-// Getters for SessionState.
+// Getters for the SessionState.
 func (s *SessionState) SessionID() string           { return s.sessionID }
 func (s *SessionState) SourceType() string          { return s.sourceType }
 func (s *SessionState) Status() Status              { return s.status }
-func (s *SessionState) Progress() *Progress         { return s.progress }
+func (s *SessionState) Timeline() *Timeline         { return s.timeline }
 func (s *SessionState) LastCheckpoint() *Checkpoint { return s.lastCheckpoint }
 func (s *SessionState) FailureReason() string       { return s.failureReason }
 func (s *SessionState) Config() json.RawMessage     { return s.config }
-func (s *SessionState) LastUpdated() time.Time      { return s.lastUpdated }
+func (s *SessionState) Metrics() *SessionMetrics    { return s.metrics }
 
-// HasFailedBatches returns true if any batches failed during enumeration.
-func (s *SessionState) HasFailedBatches() bool {
-	return s.progress != nil && s.progress.failedBatches > 0
+// MarshalJSON serializes the State object into a JSON byte array.
+func (s *SessionState) MarshalJSON() ([]byte, error) {
+	return json.Marshal(&struct {
+		SessionID      string          `json:"session_id"`
+		SourceType     string          `json:"source_type"`
+		Config         json.RawMessage `json:"config"`
+		Status         Status          `json:"status"`
+		FailureReason  string          `json:"failure_reason,omitempty"`
+		LastCheckpoint *Checkpoint     `json:"last_checkpoint"`
+		Timeline       *Timeline       `json:"timeline"`
+		Metrics        *SessionMetrics `json:"metrics"`
+	}{
+		SessionID:      s.sessionID,
+		SourceType:     s.sourceType,
+		Config:         s.config,
+		Status:         s.status,
+		FailureReason:  s.failureReason,
+		LastCheckpoint: s.lastCheckpoint,
+		Timeline:       s.timeline,
+		Metrics:        s.metrics,
+	})
+}
+
+// UnmarshalJSON deserializes JSON data into a State object.
+func (s *SessionState) UnmarshalJSON(data []byte) error {
+	aux := &struct {
+		SessionID      string          `json:"session_id"`
+		SourceType     string          `json:"source_type"`
+		Config         json.RawMessage `json:"config"`
+		Status         Status          `json:"status"`
+		FailureReason  string          `json:"failure_reason,omitempty"`
+		LastCheckpoint *Checkpoint     `json:"last_checkpoint"`
+		Timeline       *Timeline       `json:"timeline"`
+		Metrics        *SessionMetrics `json:"metrics"`
+	}{}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	s.sessionID = aux.SessionID
+	s.sourceType = aux.SourceType
+	s.config = aux.Config
+	s.status = aux.Status
+	s.failureReason = aux.FailureReason
+	s.lastCheckpoint = aux.LastCheckpoint
+	s.timeline = aux.Timeline
+	s.metrics = aux.Metrics
+
+	return nil
 }
 
 // CreateTask creates a new task for this session.
@@ -221,17 +277,14 @@ func (s *SessionState) CreateTask(resourceURI string, metadata map[string]string
 
 // MarkInProgress transitions an enumeration to the in-progress state. It initializes
 // progress tracking if not already present.
+
 func (s *SessionState) MarkInProgress() error {
 	if !s.CanTransitionTo(StatusInProgress) {
 		return newInvalidStateTransitionError(s.Status(), StatusInProgress)
 	}
 
 	s.setStatus(StatusInProgress)
-	s.updateLastUpdated()
-
-	if s.Progress() == nil {
-		s.initializeProgress()
-	}
+	s.timeline.UpdateLastUpdate()
 	return nil
 }
 
@@ -242,7 +295,7 @@ func (s *SessionState) MarkCompleted() error {
 	}
 
 	s.setStatus(StatusCompleted)
-	s.updateLastUpdated()
+	s.timeline.MarkCompleted()
 	return nil
 }
 
@@ -254,7 +307,7 @@ func (s *SessionState) MarkFailed(reason string) error {
 
 	s.setStatus(StatusFailed)
 	s.setFailureReason(reason)
-	s.updateLastUpdated()
+	s.timeline.MarkCompleted()
 	return nil
 }
 
@@ -262,56 +315,63 @@ func (s *SessionState) MarkFailed(reason string) error {
 // This could open up the ability to set different thresholds for different sessions.
 const defaultStallThreshold = 10 * time.Second
 
-// RecordBatchProgress updates the enumeration state with progress from a batch.
-func (s *SessionState) RecordBatchProgress(batch BatchProgress) error {
+// ProcessCompletedBatch updates the session state based on a completed batch's outcome.
+// It maintains aggregate-level metrics and updates the session status based on batch results.
+func (s *SessionState) ProcessCompletedBatch(batch *Batch) error {
 	if s.Status() != StatusInProgress {
-		return newInvalidProgressError("can only update progress when in progress")
+		return newInvalidProgressError("can only process batches when session is in progress")
 	}
 
-	if batch.Checkpoint() == nil {
-		return newMissingCheckpointError()
-	}
-
-	if batch.ItemsProcessed() < 0 {
-		return newInvalidItemCountError()
-	}
-
-	// Check for stall before updating progress.
 	if s.IsStalled(defaultStallThreshold) {
 		s.setStatus(StatusStalled)
 		return nil
 	}
 
-	s.addBatchProgress(batch)
-	s.attachCheckpoint(batch.Checkpoint())
+	// Update metrics
+	s.metrics.IncrementTotalBatches()
+	if err := s.metrics.AddProcessedItems(batch.Metrics().ItemsProcessed()); err != nil {
+		return err
+	}
 
-	// Check for partial completion.
-	if s.HasFailedBatches() && s.Progress().ItemsProcessed() > 0 {
+	if batch.Status() == BatchStatusFailed {
+		s.metrics.IncrementFailedBatches()
+	}
+
+	// Update session status if we have partial completion
+	if s.metrics.HasFailedBatches() && s.metrics.ItemsProcessed() > 0 {
 		s.setStatus(StatusPartiallyCompleted)
 	}
+
+	// Update checkpoint and timeline
+	if batch.Checkpoint() != nil {
+		s.attachCheckpoint(batch.Checkpoint())
+	}
+	s.timeline.UpdateLastUpdate()
 
 	return nil
 }
 
+func (s *SessionState) attachCheckpoint(cp *Checkpoint) { s.lastCheckpoint = cp }
+
 // IsStalled determines if an enumeration has exceeded the staleness threshold.
 func (s *SessionState) IsStalled(threshold time.Duration) bool {
-	if s.Progress() == nil || s.Status() != StatusInProgress {
+	if s.Status() != StatusInProgress {
 		return false
 	}
 
-	timeSinceLastUpdate := s.timeProvider.Now().Sub(s.Progress().LastUpdate())
-	return timeSinceLastUpdate > threshold
+	return s.timeline.Since(s.timeline.LastUpdate()) > threshold
 }
 
 // validTransitions defines the allowed state transitions for enumerations.
 // Empty slices indicate terminal states with no allowed transitions.
 // TODO: revist this.
 var validTransitions = map[Status][]Status{
-	StatusInitialized: {StatusInProgress, StatusFailed},
-	StatusInProgress:  {StatusCompleted, StatusFailed, StatusStalled},
-	StatusStalled:     {StatusInProgress, StatusFailed, StatusCompleted},
-	StatusFailed:      {}, // Terminal state
-	StatusCompleted:   {}, // Terminal state
+	StatusInitialized:        {StatusInProgress, StatusFailed},
+	StatusInProgress:         {StatusCompleted, StatusFailed, StatusStalled, StatusPartiallyCompleted},
+	StatusStalled:            {StatusInProgress, StatusFailed, StatusCompleted},
+	StatusFailed:             {}, // Terminal state
+	StatusCompleted:          {}, // Terminal state
+	StatusPartiallyCompleted: {},
 }
 
 // CanTransitionTo validates if a state transition is allowed.
@@ -329,111 +389,10 @@ func (s *SessionState) CanTransitionTo(targetStatus Status) bool {
 	return false
 }
 
-// MarshalJSON serializes the State object into a JSON byte array.
-func (s *SessionState) MarshalJSON() ([]byte, error) {
-	return json.Marshal(&struct {
-		SessionID      string          `json:"session_id"`
-		SourceType     string          `json:"source_type"`
-		Config         json.RawMessage `json:"config"`
-		Status         Status          `json:"status"`
-		LastUpdated    time.Time       `json:"last_updated"`
-		FailureReason  string          `json:"failure_reason,omitempty"`
-		LastCheckpoint *Checkpoint     `json:"last_checkpoint"`
-		Progress       *Progress       `json:"progress,omitempty"`
-	}{
-		SessionID:      s.sessionID,
-		SourceType:     s.sourceType,
-		Config:         s.config,
-		Status:         s.status,
-		LastUpdated:    s.lastUpdated,
-		FailureReason:  s.failureReason,
-		LastCheckpoint: s.lastCheckpoint,
-		Progress:       s.progress,
-	})
-}
-
-// UnmarshalJSON deserializes JSON data into a State object.
-func (s *SessionState) UnmarshalJSON(data []byte) error {
-	aux := &struct {
-		SessionID      string          `json:"session_id"`
-		SourceType     string          `json:"source_type"`
-		Config         json.RawMessage `json:"config"`
-		Status         Status          `json:"status"`
-		LastUpdated    time.Time       `json:"last_updated"`
-		FailureReason  string          `json:"failure_reason,omitempty"`
-		LastCheckpoint *Checkpoint     `json:"last_checkpoint"`
-		Progress       *Progress       `json:"progress,omitempty"`
-	}{
-		SessionID:      s.sessionID,
-		SourceType:     s.sourceType,
-		Config:         s.config,
-		Status:         s.status,
-		LastUpdated:    s.lastUpdated,
-		FailureReason:  s.failureReason,
-		LastCheckpoint: s.lastCheckpoint,
-		Progress:       s.progress,
-	}
-
-	if err := json.Unmarshal(data, &aux); err != nil {
-		return err
-	}
-
-	s.sessionID = aux.SessionID
-	s.sourceType = aux.SourceType
-	s.config = aux.Config
-	s.status = aux.Status
-	s.lastUpdated = aux.LastUpdated
-	s.failureReason = aux.FailureReason
-	s.lastCheckpoint = aux.LastCheckpoint
-	s.progress = aux.Progress
-
-	return nil
-}
-
 // SessionState methods for internal modifications.
 func (s *SessionState) setStatus(status Status) {
 	s.status = status
-	s.updateLastUpdated()
+	s.timeline.UpdateLastUpdate()
 }
 
 func (s *SessionState) setFailureReason(reason string) { s.failureReason = reason }
-
-func (s *SessionState) updateLastUpdated() { s.lastUpdated = s.timeProvider.Now() }
-
-func (s *SessionState) initializeProgress() {
-	now := s.timeProvider.Now()
-	s.progress = &Progress{
-		startedAt:    now,
-		lastUpdate:   now,
-		timeProvider: s.timeProvider,
-	}
-}
-
-func (s *SessionState) attachCheckpoint(cp *Checkpoint) {
-	s.lastCheckpoint = cp
-	s.lastUpdated = time.Now()
-}
-
-// addBatchProgress updates the enumeration state with results from a completed batch.
-// It maintains aggregate progress metrics and ensures the state reflects the latest
-// batch outcomes for monitoring and resumption.
-func (s *SessionState) addBatchProgress(batch BatchProgress) {
-	if s.progress == nil {
-		s.initializeProgress()
-	}
-
-	s.progress.batches = append(s.progress.batches, batch)
-	s.progress.totalBatches++
-	s.progress.lastUpdate = s.timeProvider.Now()
-
-	if batch.status == BatchStatusFailed {
-		s.progress.failedBatches++
-	}
-
-	s.progress.itemsProcessed += batch.itemsProcessed
-}
-
-func (s *SessionState) withTimeProvider(tp TimeProvider) *SessionState {
-	s.timeProvider = tp
-	return s
-}
