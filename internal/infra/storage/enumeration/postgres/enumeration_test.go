@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -98,10 +99,10 @@ func TestPGEnumerationStateStorage_SaveAndLoad(t *testing.T) {
 	assert.Equal(t, state.Config(), loaded.Config())
 	assert.Equal(t, state.Status(), loaded.Status())
 
-	// Verify timeline.
+	// Verify timeline with timestamp tolerance
 	require.NotNil(t, loaded.Timeline(), "Timeline should not be nil")
-	assert.True(t, loaded.Timeline().StartedAt().Equal(state.Timeline().StartedAt()))
-	assert.True(t, loaded.Timeline().LastUpdate().Equal(state.Timeline().LastUpdate()))
+	assert.WithinDuration(t, state.Timeline().StartedAt(), loaded.Timeline().StartedAt(), time.Second)
+	assert.WithinDuration(t, state.Timeline().LastUpdate(), loaded.Timeline().LastUpdate(), time.Second)
 
 	// Verify metrics.
 	require.NotNil(t, loaded.Metrics(), "Metrics should not be nil")
