@@ -1,4 +1,4 @@
--- 000001_init_schema.up.sql
+-- 0001_init_enumeration_schemas.up.sql
 
 -- Enumeration Status Enum
 CREATE TYPE enumeration_status AS ENUM (
@@ -78,6 +78,7 @@ CREATE TABLE enumeration_batches (
     CONSTRAINT unique_batch_id UNIQUE (batch_id)
 );
 
+-- Indexes
 CREATE INDEX idx_enumeration_batches_session_id ON enumeration_batches(session_id);
 CREATE INDEX idx_enumeration_batches_status ON enumeration_batches(status);
 
