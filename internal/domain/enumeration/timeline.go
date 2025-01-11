@@ -36,7 +36,7 @@ func ReconstructTimeline(
 		startedAt:    startedAt,
 		completedAt:  completedAt,
 		lastUpdate:   lastUpdate,
-		timeProvider: &realTimeProvider{}, // Use default provider for reconstructed timelines
+		timeProvider: new(realTimeProvider),
 	}
 }
 

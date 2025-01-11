@@ -30,6 +30,20 @@ func NewTimeline(timeProvider TimeProvider) *Timeline {
 	}
 }
 
+// ReconstructTimeline creates a Timeline instance from persisted timestamp data.
+func ReconstructTimeline(
+	startedAt time.Time,
+	completedAt time.Time,
+	lastUpdate time.Time,
+) *Timeline {
+	return &Timeline{
+		startedAt:    startedAt,
+		completedAt:  completedAt,
+		lastUpdate:   lastUpdate,
+		timeProvider: new(realTimeProvider),
+	}
+}
+
 // StartedAt returns the time the scan job started.
 func (t *Timeline) StartedAt() time.Time { return t.startedAt }
 

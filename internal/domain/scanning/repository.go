@@ -11,8 +11,8 @@ import "context"
 type GithubRepository interface {
 	// Create persists a brand-new GitHubRepo into the data store. This is typically called
 	// after constructing a new domain.GitHubRepo via NewGitHubRepo, ensuring any creation-time
-	// invariants are already satisfied. The repository then assigns a unique identity (id).
-	Create(ctx context.Context, repo *GitHubRepo) error
+	// invariants are already satisfied.
+	Create(ctx context.Context, repo *GitHubRepo) (int64, error)
 
 	// Update applies changes to an existing GitHubRepo in the data store. This method expects
 	// the repo has already passed any domain-level checks (e.g., calling Deactivate()).
