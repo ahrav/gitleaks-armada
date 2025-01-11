@@ -11,6 +11,8 @@ import (
 )
 
 func TestScanJob_AddTask(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name string
 		job  *ScanJob
@@ -93,6 +95,8 @@ func TestScanJob_AddTask(t *testing.T) {
 }
 
 func TestScanJob_UpdateTask(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name     string
 		job      *ScanJob

@@ -11,6 +11,8 @@ import (
 )
 
 func TestScanTask_UpdateProgress(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name     string
 		task     *Task
@@ -106,7 +108,9 @@ func TestScanTask_UpdateProgress(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Sync the IDs across task, progress, and want
+			t.Parallel()
+
+			// Sync the IDs across task, progress, and want.
 			tt.progress.TaskID = tt.task.TaskID
 			tt.progress.JobID = tt.task.jobID
 			tt.want.TaskID = tt.task.TaskID
