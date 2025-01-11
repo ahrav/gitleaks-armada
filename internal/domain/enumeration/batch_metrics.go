@@ -33,9 +33,13 @@ func ReconstructBatchMetrics(
 	}
 }
 
-// Getters
-func (bm *BatchMetrics) ExpectedItems() int   { return bm.expectedItems }
-func (bm *BatchMetrics) ItemsProcessed() int  { return bm.itemsProcessed }
+// ExpectedItems returns the number of expected items in the batch.
+func (bm *BatchMetrics) ExpectedItems() int { return bm.expectedItems }
+
+// ItemsProcessed returns the number of items processed in the batch.
+func (bm *BatchMetrics) ItemsProcessed() int { return bm.itemsProcessed }
+
+// ErrorDetails returns the error details for the batch.
 func (bm *BatchMetrics) ErrorDetails() string { return bm.errorDetails }
 
 // MarshalJSON serializes BatchMetrics to JSON.

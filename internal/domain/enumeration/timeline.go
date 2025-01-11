@@ -40,12 +40,16 @@ func ReconstructTimeline(
 	}
 }
 
-// Getters
-func (t *Timeline) StartedAt() time.Time   { return t.startedAt }
-func (t *Timeline) CompletedAt() time.Time { return t.completedAt }
-func (t *Timeline) LastUpdate() time.Time  { return t.lastUpdate }
+// StartedAt returns the time the scan job started.
+func (t *Timeline) StartedAt() time.Time { return t.startedAt }
 
-// MarshalJSON serializes Timeline to JSON
+// CompletedAt returns the time the scan job completed.
+func (t *Timeline) CompletedAt() time.Time { return t.completedAt }
+
+// LastUpdate returns the time the scan job was last updated.
+func (t *Timeline) LastUpdate() time.Time { return t.lastUpdate }
+
+// MarshalJSON serializes Timeline to JSON.
 func (t *Timeline) MarshalJSON() ([]byte, error) {
 	return json.Marshal(&struct {
 		StartedAt   time.Time `json:"started_at"`
@@ -58,7 +62,7 @@ func (t *Timeline) MarshalJSON() ([]byte, error) {
 	})
 }
 
-// UnmarshalJSON deserializes JSON into Timeline
+// UnmarshalJSON deserializes JSON into Timeline.
 func (t *Timeline) UnmarshalJSON(data []byte) error {
 	aux := &struct {
 		StartedAt   time.Time `json:"started_at"`
