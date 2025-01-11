@@ -12,10 +12,10 @@ type JobStatus string
 
 const (
 	// JobStatusInitialized indicates a job has been created but not yet started.
-	JobStatusInitialized JobStatus = "INITIALIZED"
+	JobStatusQueued JobStatus = "QUEUED"
 
 	// JobStatusInProgress indicates a job is actively processing tasks.
-	JobStatusInProgress JobStatus = "IN_PROGRESS"
+	JobStatusRunning JobStatus = "RUNNING"
 
 	// JobStatusCompleted indicates all job tasks finished successfully.
 	JobStatusCompleted JobStatus = "COMPLETED"
@@ -42,7 +42,7 @@ type ScanJob struct {
 func NewScanJob() *ScanJob {
 	return &ScanJob{
 		jobID:     uuid.New(),
-		status:    JobStatusInitialized,
+		status:    JobStatusQueued,
 		startTime: time.Now(),
 		tasks:     make(map[uuid.UUID]*Task),
 	}
@@ -115,9 +115,9 @@ func (j *ScanJob) updateStatusCounters() {
 			j.status = JobStatusCompleted
 		}
 	case inProgress > 0 || completed > 0 || failed > 0:
-		j.status = JobStatusInProgress
+		j.status = JobStatusRunning
 	default:
-		j.status = JobStatusInitialized
+		j.status = JobStatusQueued
 	}
 }
 

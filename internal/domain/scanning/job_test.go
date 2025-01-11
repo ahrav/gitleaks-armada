@@ -41,7 +41,7 @@ func TestScanJob_AddTask(t *testing.T) {
 				totalTasks:     1,
 				completedTasks: 0,
 				failedTasks:    0,
-				status:         JobStatusInitialized,
+				status:         JobStatusQueued,
 			},
 		},
 		{
@@ -106,7 +106,7 @@ func TestScanJob_UpdateTask(t *testing.T) {
 			job: &ScanJob{
 				jobID:  uuid.New(),
 				tasks:  make(map[uuid.UUID]*Task),
-				status: JobStatusInitialized,
+				status: JobStatusQueued,
 			},
 			taskID:   uuid.New(),
 			updateFn: func(task *Task) {},
@@ -121,7 +121,7 @@ func TestScanJob_UpdateTask(t *testing.T) {
 				totalTasks:     0,
 				completedTasks: 0,
 				failedTasks:    0,
-				status:         JobStatusInitialized,
+				status:         JobStatusQueued,
 			},
 		},
 		{
