@@ -101,50 +101,6 @@ func (ns NullEnumerationStatus) Value() (driver.Value, error) {
 	return string(ns.EnumerationStatus), nil
 }
 
-type ScanJobStatus string
-
-const (
-	ScanJobStatusQUEUED    ScanJobStatus = "QUEUED"
-	ScanJobStatusRUNNING   ScanJobStatus = "RUNNING"
-	ScanJobStatusCOMPLETED ScanJobStatus = "COMPLETED"
-	ScanJobStatusFAILED    ScanJobStatus = "FAILED"
-)
-
-func (e *ScanJobStatus) Scan(src interface{}) error {
-	switch s := src.(type) {
-	case []byte:
-		*e = ScanJobStatus(s)
-	case string:
-		*e = ScanJobStatus(s)
-	default:
-		return fmt.Errorf("unsupported scan type for ScanJobStatus: %T", src)
-	}
-	return nil
-}
-
-type NullScanJobStatus struct {
-	ScanJobStatus ScanJobStatus
-	Valid         bool // Valid is true if ScanJobStatus is not NULL
-}
-
-// Scan implements the Scanner interface.
-func (ns *NullScanJobStatus) Scan(value interface{}) error {
-	if value == nil {
-		ns.ScanJobStatus, ns.Valid = "", false
-		return nil
-	}
-	ns.Valid = true
-	return ns.ScanJobStatus.Scan(value)
-}
-
-// Value implements the driver Valuer interface.
-func (ns NullScanJobStatus) Value() (driver.Value, error) {
-	if !ns.Valid {
-		return nil, nil
-	}
-	return string(ns.ScanJobStatus), nil
-}
-
 type Allowlist struct {
 	ID             int64
 	RuleID         int64
@@ -258,16 +214,6 @@ type Finding struct {
 	CreatedAt    pgtype.Timestamptz
 }
 
-type GithubRepository struct {
-	ID        int64
-	Name      string
-	Url       string
-	IsActive  bool
-	Metadata  []byte
-	CreatedAt pgtype.Timestamptz
-	UpdatedAt pgtype.Timestamptz
-}
-
 type Rule struct {
 	ID          int64
 	RuleID      string
@@ -280,28 +226,6 @@ type Rule struct {
 	Keywords    []string
 	CreatedAt   pgtype.Timestamptz
 	UpdatedAt   pgtype.Timestamptz
-}
-
-type ScanJob struct {
-	ID           int64
-	JobID        pgtype.UUID
-	ScanTargetID int64
-	Status       ScanJobStatus
-	StartTime    pgtype.Timestamptz
-	EndTime      pgtype.Timestamptz
-	CreatedAt    pgtype.Timestamptz
-	UpdatedAt    pgtype.Timestamptz
-}
-
-type ScanTarget struct {
-	ID           int64
-	Name         string
-	TargetType   string
-	TargetID     int64
-	LastScanTime pgtype.Timestamptz
-	Metadata     []byte
-	CreatedAt    pgtype.Timestamptz
-	UpdatedAt    pgtype.Timestamptz
 }
 
 type Task struct {
