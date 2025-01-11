@@ -47,8 +47,11 @@ func TestScanJob_AddTask(t *testing.T) {
 		{
 			name: "add completed task",
 			job: &ScanJob{
-				jobID: uuid.New(),
-				tasks: make(map[uuid.UUID]*Task),
+				jobID:    uuid.New(),
+				tasks:    make(map[uuid.UUID]*Task),
+				metrics:  NewJobMetrics(),
+				timeline: NewTimeline(new(realTimeProvider)),
+				status:   JobStatusQueued,
 			},
 			task: &Task{
 				CoreTask: shared.CoreTask{
@@ -73,16 +76,18 @@ func TestScanJob_AddTask(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			beforeAdd := time.Now()
 			tt.job.AddTask(tt.task)
 			afterAdd := time.Now()
 
-			assert.Equal(t, tt.want.totalTasks, tt.job.totalTasks)
-			assert.Equal(t, tt.want.completedTasks, tt.job.completedTasks)
-			assert.Equal(t, tt.want.failedTasks, tt.job.failedTasks)
+			assert.Equal(t, tt.want.totalTasks, tt.job.metrics.TotalTasks())
+			assert.Equal(t, tt.want.completedTasks, tt.job.metrics.CompletedTasks())
+			assert.Equal(t, tt.want.failedTasks, tt.job.metrics.FailedTasks())
 			assert.Equal(t, tt.want.status, tt.job.status)
-			assert.True(t, tt.job.lastUpdateTime.After(beforeAdd) || tt.job.lastUpdateTime.Equal(beforeAdd))
-			assert.True(t, tt.job.lastUpdateTime.Before(afterAdd) || tt.job.lastUpdateTime.Equal(afterAdd))
+			assert.True(t, tt.job.timeline.LastUpdate().After(beforeAdd) || tt.job.timeline.LastUpdate().Equal(beforeAdd))
+			assert.True(t, tt.job.timeline.LastUpdate().Before(afterAdd) || tt.job.timeline.LastUpdate().Equal(afterAdd))
 		})
 	}
 }
@@ -104,9 +109,11 @@ func TestScanJob_UpdateTask(t *testing.T) {
 		{
 			name: "update non-existent task",
 			job: &ScanJob{
-				jobID:  uuid.New(),
-				tasks:  make(map[uuid.UUID]*Task),
-				status: JobStatusQueued,
+				jobID:    uuid.New(),
+				timeline: NewTimeline(new(realTimeProvider)),
+				metrics:  NewJobMetrics(),
+				tasks:    make(map[uuid.UUID]*Task),
+				status:   JobStatusQueued,
 			},
 			taskID:   uuid.New(),
 			updateFn: func(task *Task) {},
@@ -128,7 +135,7 @@ func TestScanJob_UpdateTask(t *testing.T) {
 			name: "update existing task to completed",
 			job: func() *ScanJob {
 				taskID := uuid.New()
-				return &ScanJob{
+				job := &ScanJob{
 					jobID: uuid.New(),
 					tasks: map[uuid.UUID]*Task{
 						taskID: {
@@ -138,8 +145,11 @@ func TestScanJob_UpdateTask(t *testing.T) {
 							status: TaskStatusInProgress,
 						},
 					},
-					totalTasks: 1,
+					metrics:  NewJobMetrics(),
+					timeline: NewTimeline(new(realTimeProvider)),
 				}
+				job.metrics.SetTotalTasks(len(job.tasks))
+				return job
 			}(),
 			taskID: uuid.New(),
 			updateFn: func(task *Task) {
@@ -163,7 +173,7 @@ func TestScanJob_UpdateTask(t *testing.T) {
 			name: "update task to failed",
 			job: func() *ScanJob {
 				taskID := uuid.New()
-				return &ScanJob{
+				job := &ScanJob{
 					jobID: uuid.New(),
 					tasks: map[uuid.UUID]*Task{
 						taskID: {
@@ -173,8 +183,11 @@ func TestScanJob_UpdateTask(t *testing.T) {
 							status: TaskStatusInProgress,
 						},
 					},
-					totalTasks: 1,
+					metrics:  NewJobMetrics(),
+					timeline: NewTimeline(new(realTimeProvider)),
 				}
+				job.metrics.SetTotalTasks(len(job.tasks))
+				return job
 			}(),
 			taskID: uuid.New(),
 			updateFn: func(task *Task) {
@@ -198,6 +211,8 @@ func TestScanJob_UpdateTask(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			if len(tt.job.tasks) > 0 {
 				for k := range tt.job.tasks {
 					tt.taskID = k
@@ -210,14 +225,14 @@ func TestScanJob_UpdateTask(t *testing.T) {
 			afterUpdate := time.Now()
 
 			assert.Equal(t, tt.want.updated, updated)
-			assert.Equal(t, tt.want.totalTasks, tt.job.totalTasks)
-			assert.Equal(t, tt.want.completedTasks, tt.job.completedTasks)
-			assert.Equal(t, tt.want.failedTasks, tt.job.failedTasks)
+			assert.Equal(t, tt.want.totalTasks, tt.job.metrics.TotalTasks())
+			assert.Equal(t, tt.want.completedTasks, tt.job.metrics.CompletedTasks())
+			assert.Equal(t, tt.want.failedTasks, tt.job.metrics.FailedTasks())
 			assert.Equal(t, tt.want.status, tt.job.status)
 
 			if updated {
-				assert.True(t, tt.job.lastUpdateTime.After(beforeUpdate) || tt.job.lastUpdateTime.Equal(beforeUpdate))
-				assert.True(t, tt.job.lastUpdateTime.Before(afterUpdate) || tt.job.lastUpdateTime.Equal(afterUpdate))
+				assert.True(t, tt.job.timeline.LastUpdate().After(beforeUpdate) || tt.job.timeline.LastUpdate().Equal(beforeUpdate))
+				assert.True(t, tt.job.timeline.LastUpdate().Before(afterUpdate) || tt.job.timeline.LastUpdate().Equal(afterUpdate))
 			}
 		})
 	}

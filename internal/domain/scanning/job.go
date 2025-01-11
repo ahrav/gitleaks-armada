@@ -27,24 +27,23 @@ const (
 // ScanJob coordinates and tracks a collection of related scanning tasks.
 // It provides aggregated status and progress tracking across all child tasks.
 type ScanJob struct {
-	jobID          uuid.UUID
-	status         JobStatus
-	startTime      time.Time
-	lastUpdateTime time.Time
-	tasks          map[uuid.UUID]*Task
-	totalTasks     int
-	completedTasks int
-	failedTasks    int
+	jobID        uuid.UUID
+	scanTargetID int64
+	status       JobStatus
+	timeline     *Timeline
+	metrics      *JobMetrics
+	tasks        map[uuid.UUID]*Task
 }
 
 // NewScanJob creates a new ScanJob instance with initialized state tracking.
 // It ensures proper initialization of internal maps and timestamps for job monitoring.
 func NewScanJob() *ScanJob {
 	return &ScanJob{
-		jobID:     uuid.New(),
-		status:    JobStatusQueued,
-		startTime: time.Now(),
-		tasks:     make(map[uuid.UUID]*Task),
+		jobID:    uuid.New(),
+		status:   JobStatusQueued,
+		timeline: NewTimeline(new(realTimeProvider)),
+		metrics:  NewJobMetrics(),
+		tasks:    make(map[uuid.UUID]*Task),
 	}
 }
 
@@ -58,18 +57,18 @@ func (j *ScanJob) GetStatus() JobStatus { return j.status }
 
 // GetStartTime returns when this scan job was initialized.
 // Access is synchronized to ensure thread-safe reads.
-func (j *ScanJob) GetStartTime() time.Time { return j.startTime }
+func (j *ScanJob) GetStartTime() time.Time { return j.timeline.StartedAt() }
 
 // GetLastUpdateTime returns when this job's state was last modified.
 // Access is synchronized to ensure thread-safe reads.
-func (j *ScanJob) GetLastUpdateTime() time.Time { return j.lastUpdateTime }
+func (j *ScanJob) GetLastUpdateTime() time.Time { return j.timeline.LastUpdate() }
 
 // AddTask registers a new scan task with this job and updates task counters.
 func (j *ScanJob) AddTask(task *Task) {
 	j.tasks[task.TaskID] = task
-	j.totalTasks = len(j.tasks)
+	j.metrics.SetTotalTasks(len(j.tasks))
 	j.updateStatusCounters()
-	j.lastUpdateTime = time.Now()
+	j.timeline.UpdateLastUpdate()
 }
 
 // UpdateTask applies changes to a task's state via the provided update function.
@@ -82,7 +81,7 @@ func (j *ScanJob) UpdateTask(taskID uuid.UUID, updateFn func(*Task)) bool {
 
 	updateFn(task)
 	j.updateStatusCounters()
-	j.lastUpdateTime = time.Now()
+	j.timeline.UpdateLastUpdate()
 	return true
 }
 
@@ -104,15 +103,16 @@ func (j *ScanJob) updateStatusCounters() {
 		}
 	}
 
-	j.completedTasks = completed
-	j.failedTasks = failed
+	j.metrics.UpdateTaskCounts(completed, failed)
 
 	switch {
 	case completed+failed == len(j.tasks) && len(j.tasks) > 0:
 		if failed == len(j.tasks) {
 			j.status = JobStatusFailed
+			j.timeline.MarkCompleted()
 		} else {
 			j.status = JobStatusCompleted
+			j.timeline.MarkCompleted()
 		}
 	case inProgress > 0 || completed > 0 || failed > 0:
 		j.status = JobStatusRunning
@@ -123,7 +123,7 @@ func (j *ScanJob) updateStatusCounters() {
 
 // GetAllTaskSummaries returns summaries for all tasks in this job.
 func (j *ScanJob) GetAllTaskSummaries() []TaskSummary {
-	duration := time.Since(j.startTime)
+	duration := time.Since(j.timeline.StartedAt())
 	summaries := make([]TaskSummary, 0, len(j.tasks))
 	for _, task := range j.tasks {
 		summaries = append(summaries, task.GetSummary(duration))
