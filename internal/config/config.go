@@ -23,6 +23,7 @@ type Config struct {
 
 // TargetSpec is a generic wrapper for different source types.
 type TargetSpec struct {
+	Name       string        `yaml:"name"`
 	SourceType SourceType    `yaml:"source_type"`
 	AuthRef    string        `yaml:"auth_ref"`
 	GitHub     *GitHubTarget `yaml:"github,omitempty"`

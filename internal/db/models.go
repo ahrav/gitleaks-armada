@@ -289,14 +289,13 @@ type ScanJob struct {
 	Status       ScanJobStatus
 	StartTime    pgtype.Timestamptz
 	EndTime      pgtype.Timestamptz
-	CommitHash   pgtype.Text
-	KafkaOffset  pgtype.Int8
 	CreatedAt    pgtype.Timestamptz
 	UpdatedAt    pgtype.Timestamptz
 }
 
 type ScanTarget struct {
 	ID           int64
+	Name         string
 	TargetType   string
 	TargetID     int64
 	LastScanTime pgtype.Timestamptz

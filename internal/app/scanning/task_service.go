@@ -118,7 +118,7 @@ func (s *ScanTaskServiceImpl) UpdateProgress(ctx context.Context, progress domai
 
 	// 4. Persist changes if needed
 	if persistNow {
-		if err := s.jobRepo.SaveJob(ctx, job); err != nil {
+		if err := s.jobRepo.UpdateJob(ctx, job); err != nil {
 			return err
 		}
 		// If tasks live in a separate table, we might do:
@@ -171,7 +171,7 @@ func (s *ScanTaskServiceImpl) MarkTaskStale(ctx context.Context, jobID uuid.UUID
 	}
 
 	// persist
-	if err := s.jobRepo.SaveJob(ctx, job); err != nil {
+	if err := s.jobRepo.UpdateJob(ctx, job); err != nil {
 		return err
 	}
 	return nil
@@ -197,7 +197,7 @@ func (s *ScanTaskServiceImpl) RecoverTask(ctx context.Context, jobID uuid.UUID, 
 
 	// maybe re-publish the task, or reassign it
 	// ...
-	if err := s.jobRepo.SaveJob(ctx, job); err != nil {
+	if err := s.jobRepo.UpdateJob(ctx, job); err != nil {
 		return err
 	}
 	return nil
