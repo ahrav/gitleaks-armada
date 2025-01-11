@@ -24,8 +24,7 @@ type GitHubRepo struct {
 	metadata map[string]any
 
 	// Audit timestamps for tracking entity lifecycle.
-	createdAt time.Time
-	updatedAt time.Time
+	timeline *Timeline
 }
 
 // NewGitHubRepo creates a new active repository entity with the given attributes.
@@ -36,14 +35,12 @@ func NewGitHubRepo(name, url string, metadata map[string]any) (*GitHubRepo, erro
 		return nil, errors.New("both name and url are required to create a GitHubRepo")
 	}
 
-	now := time.Now()
 	return &GitHubRepo{
-		name:      name,
-		url:       url,
-		isActive:  true,
-		metadata:  metadata,
-		createdAt: now,
-		updatedAt: now,
+		name:     name,
+		url:      url,
+		isActive: true,
+		metadata: metadata,
+		timeline: NewTimeline(new(realTimeProvider)),
 	}, nil
 }
 
@@ -56,16 +53,15 @@ func ReconstructGitHubRepo(
 	url string,
 	isActive bool,
 	metadata map[string]any,
-	createdAt, updatedAt time.Time,
+	timeline *Timeline,
 ) *GitHubRepo {
 	return &GitHubRepo{
-		id:        id,
-		name:      name,
-		url:       url,
-		isActive:  isActive,
-		metadata:  metadata,
-		createdAt: createdAt,
-		updatedAt: updatedAt,
+		id:       id,
+		name:     name,
+		url:      url,
+		isActive: isActive,
+		metadata: metadata,
+		timeline: timeline,
 	}
 }
 
@@ -85,15 +81,15 @@ func (r *GitHubRepo) IsActive() bool { return r.isActive }
 func (r *GitHubRepo) Metadata() map[string]any { return r.metadata }
 
 // CreatedAt returns when the repository was first created in our system.
-func (r *GitHubRepo) CreatedAt() time.Time { return r.createdAt }
+func (r *GitHubRepo) CreatedAt() time.Time { return r.timeline.StartedAt() }
 
 // UpdatedAt returns when the repository was last modified.
-func (r *GitHubRepo) UpdatedAt() time.Time { return r.updatedAt }
+func (r *GitHubRepo) UpdatedAt() time.Time { return r.timeline.LastUpdate() }
 
 // Deactivate marks the repository as inactive, preventing further scanning operations.
 func (r *GitHubRepo) Deactivate() {
 	r.isActive = false
-	r.touch()
+	r.timeline.UpdateLastUpdate()
 }
 
 // Rename updates the repository's name while ensuring it's not empty.
@@ -103,9 +99,6 @@ func (r *GitHubRepo) Rename(newName string) error {
 		return errors.New("newName cannot be empty")
 	}
 	r.name = newName
-	r.touch()
+	r.timeline.UpdateLastUpdate()
 	return nil
 }
-
-// touch updates the modification timestamp when the entity changes.
-func (r *GitHubRepo) touch() { r.updatedAt = time.Now() }

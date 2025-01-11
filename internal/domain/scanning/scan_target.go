@@ -10,16 +10,14 @@ import (
 // through type and ID fields. This abstraction allows for scanning different types of resources
 // (repositories, organizations, etc.) in a uniform way.
 type ScanTarget struct {
-	id           int64
-	name         string
-	targetType   string    // Identifies the type of resource (e.g., "github_repo", "org")
-	targetID     int64     // References the actual resource in its respective domain
+	id         int64
+	name       string
+	targetType string // Identifies the type of resource (e.g., "github_repo", "org")
+	targetID   int64  // References the actual resource in its respective domain
+	metadata   map[string]any
 	lastScanTime *time.Time // Tracks the most recent successful scan completion
-	metadata     map[string]any
 
-	// Audit timestamps
-	createdAt time.Time
-	updatedAt time.Time
+	timeline   *Timeline
 }
 
 // NewScanTarget creates a new scanning target with the specified attributes.
@@ -35,14 +33,12 @@ func NewScanTarget(
 		return nil, errors.New("name, targetType, and targetID must be provided")
 	}
 
-	now := time.Now()
 	return &ScanTarget{
 		name:       name,
 		targetType: targetType,
 		targetID:   targetID,
 		metadata:   metadata,
-		createdAt:  now,
-		updatedAt:  now,
+		timeline:   NewTimeline(new(realTimeProvider)),
 	}, nil
 }
 
@@ -56,7 +52,7 @@ func ReconstructScanTarget(
 	targetID int64,
 	lastScanTime *time.Time,
 	metadata map[string]interface{},
-	createdAt, updatedAt time.Time,
+	timeline *Timeline,
 ) *ScanTarget {
 	return &ScanTarget{
 		id:           id,
@@ -65,8 +61,7 @@ func ReconstructScanTarget(
 		targetID:     targetID,
 		lastScanTime: lastScanTime,
 		metadata:     metadata,
-		createdAt:    createdAt,
-		updatedAt:    updatedAt,
+		timeline:     timeline,
 	}
 }
 
@@ -89,16 +84,13 @@ func (t *ScanTarget) LastScanTime() *time.Time { return t.lastScanTime }
 func (t *ScanTarget) Metadata() map[string]any { return t.metadata }
 
 // CreatedAt returns when this scan target was first created.
-func (t *ScanTarget) CreatedAt() time.Time { return t.createdAt }
+func (t *ScanTarget) CreatedAt() time.Time { return t.timeline.StartedAt() }
 
 // UpdatedAt returns when this scan target was last modified.
-func (t *ScanTarget) UpdatedAt() time.Time { return t.updatedAt }
+func (t *ScanTarget) UpdatedAt() time.Time { return t.timeline.LastUpdate() }
 
 // UpdateLastScanTime records when the most recent scan completed successfully.
 func (t *ScanTarget) UpdateLastScanTime(ts time.Time) {
 	t.lastScanTime = &ts
-	t.touch()
+	t.timeline.UpdateLastUpdate()
 }
-
-// touch updates the modification timestamp when the entity changes.
-func (t *ScanTarget) touch() { t.updatedAt = time.Now() }

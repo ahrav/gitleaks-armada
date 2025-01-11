@@ -5,10 +5,10 @@ package scanning
 
 import "context"
 
-// GitHubRepoRepository provides an abstraction for storing and retrieving GitHubRepo
+// GithubRepository provides an abstraction for storing and retrieving GitHubRepo
 // aggregates from a persistence mechanism (e.g., PostgreSQL). By depending on this interface,
 // the rest of the application remains insulated from database concerns, preserving domain integrity.
-type GitHubRepoRepository interface {
+type GithubRepository interface {
 	// Create persists a brand-new GitHubRepo into the data store. This is typically called
 	// after constructing a new domain.GitHubRepo via NewGitHubRepo, ensuring any creation-time
 	// invariants are already satisfied. The repository then assigns a unique identity (id).

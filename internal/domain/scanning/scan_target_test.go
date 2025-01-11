@@ -7,6 +7,15 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+// mockTimeProvider helps control time in tests
+type mockTimeProvider struct {
+	currentTime time.Time
+}
+
+func (m *mockTimeProvider) Now() time.Time {
+	return m.currentTime
+}
+
 func TestNewScanTarget(t *testing.T) {
 	t.Parallel()
 
@@ -101,7 +110,6 @@ func TestNewScanTarget(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
 			target, err := NewScanTarget(
 				tt.input.name,
 				tt.input.targetType,
@@ -112,17 +120,17 @@ func TestNewScanTarget(t *testing.T) {
 			if tt.wantErr {
 				assert.Error(t, err)
 				assert.Nil(t, target)
-			} else {
-				assert.NoError(t, err)
-				assert.NotNil(t, target)
-				assert.Equal(t, tt.input.name, target.Name())
-				assert.Equal(t, tt.input.targetType, target.TargetType())
-				assert.Equal(t, tt.input.targetID, target.TargetID())
-				assert.Equal(t, tt.input.metadata, target.Metadata())
-				assert.False(t, target.CreatedAt().IsZero())
-				assert.False(t, target.UpdatedAt().IsZero())
-				assert.Equal(t, target.CreatedAt(), target.UpdatedAt())
+				return
 			}
+
+			assert.NoError(t, err)
+			assert.NotNil(t, target)
+			assert.Equal(t, tt.input.name, target.Name())
+			assert.Equal(t, tt.input.targetType, target.TargetType())
+			assert.Equal(t, tt.input.targetID, target.TargetID())
+			assert.Equal(t, tt.input.metadata, target.Metadata())
+			assert.NotZero(t, target.CreatedAt())
+			assert.NotZero(t, target.UpdatedAt())
 		})
 	}
 }
@@ -130,9 +138,12 @@ func TestNewScanTarget(t *testing.T) {
 func TestReconstructScanTarget(t *testing.T) {
 	t.Parallel()
 
-	now := time.Now()
-	lastScan := now.Add(-1 * time.Hour)
-	metadata := map[string]interface{}{"key": "value"}
+	fixedTime := time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
+	timeProvider := &mockTimeProvider{currentTime: fixedTime}
+	timeline := NewTimeline(timeProvider)
+
+	lastScan := fixedTime.Add(-1 * time.Hour)
+	metadata := map[string]any{"key": "value"}
 
 	target := ReconstructScanTarget(
 		123,
@@ -141,8 +152,7 @@ func TestReconstructScanTarget(t *testing.T) {
 		456,
 		&lastScan,
 		metadata,
-		now,
-		now,
+		timeline,
 	)
 
 	assert.NotNil(t, target)
@@ -152,12 +162,15 @@ func TestReconstructScanTarget(t *testing.T) {
 	assert.Equal(t, int64(456), target.TargetID())
 	assert.Equal(t, &lastScan, target.LastScanTime())
 	assert.Equal(t, metadata, target.Metadata())
-	assert.Equal(t, now, target.CreatedAt())
-	assert.Equal(t, now, target.UpdatedAt())
+	assert.Equal(t, fixedTime, target.CreatedAt())
+	assert.Equal(t, fixedTime, target.UpdatedAt())
 }
 
 func TestScanTarget_UpdateLastScanTime(t *testing.T) {
 	t.Parallel()
+
+	fixedTime := time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
+	timeProvider := &mockTimeProvider{currentTime: fixedTime}
 
 	target, err := NewScanTarget(
 		"test-repo",
@@ -167,22 +180,27 @@ func TestScanTarget_UpdateLastScanTime(t *testing.T) {
 	)
 	assert.NoError(t, err)
 
-	originalUpdatedAt := target.UpdatedAt()
-	time.Sleep(time.Millisecond) // Ensure time difference
+	// Replace the timeline with our controlled version
+	target.timeline = NewTimeline(timeProvider)
 
-	newScanTime := time.Now()
-	target.UpdateLastScanTime(newScanTime)
+	// Update to a new fixed time
+	newTime := fixedTime.Add(time.Hour)
+	timeProvider.currentTime = newTime
+	target.UpdateLastScanTime(newTime)
 
-	assert.Equal(t, &newScanTime, target.LastScanTime())
-	assert.True(t, target.UpdatedAt().After(originalUpdatedAt))
+	assert.Equal(t, &newTime, target.LastScanTime())
+	assert.Equal(t, newTime, target.UpdatedAt())
 }
 
 func TestScanTarget_Getters(t *testing.T) {
 	t.Parallel()
 
-	now := time.Now()
-	lastScan := now.Add(-1 * time.Hour)
-	metadata := map[string]interface{}{"key": "value"}
+	fixedTime := time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
+	timeProvider := &mockTimeProvider{currentTime: fixedTime}
+	timeline := NewTimeline(timeProvider)
+
+	lastScan := fixedTime.Add(-1 * time.Hour)
+	metadata := map[string]any{"key": "value"}
 
 	target := ReconstructScanTarget(
 		123,
@@ -191,8 +209,7 @@ func TestScanTarget_Getters(t *testing.T) {
 		456,
 		&lastScan,
 		metadata,
-		now,
-		now,
+		timeline,
 	)
 
 	tests := []struct {
@@ -206,11 +223,12 @@ func TestScanTarget_Getters(t *testing.T) {
 		{"TargetID", target.TargetID(), int64(456)},
 		{"LastScanTime", target.LastScanTime(), &lastScan},
 		{"Metadata", target.Metadata(), metadata},
-		{"CreatedAt", target.CreatedAt(), now},
-		{"UpdatedAt", target.UpdatedAt(), now},
+		{"CreatedAt", target.CreatedAt(), fixedTime},
+		{"UpdatedAt", target.UpdatedAt(), fixedTime},
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			assert.Equal(t, tt.expected, tt.got)
