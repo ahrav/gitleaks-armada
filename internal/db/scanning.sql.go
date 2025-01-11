@@ -157,7 +157,7 @@ func (q *Queries) ListGitHubRepos(ctx context.Context, arg ListGitHubReposParams
 	return items, nil
 }
 
-const updateGitHubRepo = `-- name: UpdateGitHubRepo :exec
+const updateGitHubRepo = `-- name: UpdateGitHubRepo :execrows
 UPDATE github_repositories
 SET
     name = $2,
@@ -177,8 +177,8 @@ type UpdateGitHubRepoParams struct {
 	UpdatedAt pgtype.Timestamptz
 }
 
-func (q *Queries) UpdateGitHubRepo(ctx context.Context, arg UpdateGitHubRepoParams) error {
-	_, err := q.db.Exec(ctx, updateGitHubRepo,
+func (q *Queries) UpdateGitHubRepo(ctx context.Context, arg UpdateGitHubRepoParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateGitHubRepo,
 		arg.ID,
 		arg.Name,
 		arg.Url,
@@ -186,5 +186,8 @@ func (q *Queries) UpdateGitHubRepo(ctx context.Context, arg UpdateGitHubRepoPara
 		arg.Metadata,
 		arg.UpdatedAt,
 	)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

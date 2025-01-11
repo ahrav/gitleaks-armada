@@ -17,7 +17,7 @@ INSERT INTO github_repositories (
 )
 RETURNING id;
 
--- name: UpdateGitHubRepo :exec
+-- name: UpdateGitHubRepo :execrows
 UPDATE github_repositories
 SET
     name = $2,

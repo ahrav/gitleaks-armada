@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -60,10 +61,12 @@ func (s *githubRepositoryStore) Create(ctx context.Context, repo *scanning.GitHu
 		}
 
 		insertParams := db.CreateGitHubRepoParams{
-			Name:     repo.Name(),
-			Url:      repo.URL(),
-			IsActive: repo.IsActive(),
-			Metadata: metadata,
+			Name:      repo.Name(),
+			Url:       repo.URL(),
+			IsActive:  repo.IsActive(),
+			Metadata:  metadata,
+			CreatedAt: pgtype.Timestamptz{Time: repo.CreatedAt(), Valid: true},
+			UpdatedAt: pgtype.Timestamptz{Time: repo.UpdatedAt(), Valid: true},
 		}
 
 		id, err = s.q.CreateGitHubRepo(ctx, insertParams)
@@ -91,26 +94,37 @@ func (s *githubRepositoryStore) Update(ctx context.Context, repo *scanning.GitHu
 	}
 	dbAttrs = append(dbAttrs, defaultDBAttributes...)
 
-	return storage.ExecuteAndTrace(ctx, s.tracer, "postgres.githubrepo.update", dbAttrs, func(ctx context.Context) error {
+	err := storage.ExecuteAndTrace(ctx, s.tracer, "postgres.githubrepo.update", dbAttrs, func(ctx context.Context) error {
 		metadata, err := json.Marshal(repo.Metadata())
 		if err != nil {
 			return fmt.Errorf("failed to marshal metadata: %w", err)
 		}
 
 		updateParams := db.UpdateGitHubRepoParams{
-			ID:       repo.ID(),
-			Name:     repo.Name(),
-			Url:      repo.URL(),
-			IsActive: repo.IsActive(),
-			Metadata: metadata,
+			ID:        repo.ID(),
+			Name:      repo.Name(),
+			Url:       repo.URL(),
+			IsActive:  repo.IsActive(),
+			Metadata:  metadata,
+			UpdatedAt: pgtype.Timestamptz{Time: repo.UpdatedAt(), Valid: true},
 		}
 
-		err = s.q.UpdateGitHubRepo(ctx, updateParams)
+		var rowsAff int64
+		rowsAff, err = s.q.UpdateGitHubRepo(ctx, updateParams)
 		if err != nil {
 			return fmt.Errorf("githubRepositoryStore.Update: update error: %w", err)
 		}
+		if rowsAff == 0 {
+			return fmt.Errorf("githubRepositoryStore.Update: no rows affected")
+		}
+
 		return nil
 	})
+	if err != nil {
+		return fmt.Errorf("githubRepositoryStore.Update: %w", err)
+	}
+
+	return nil
 }
 
 // GetByID retrieves a GitHubRepo by its primary key from PostgreSQL.
