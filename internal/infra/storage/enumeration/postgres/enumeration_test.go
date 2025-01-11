@@ -3,7 +3,6 @@ package postgres
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"testing"
 	"time"
 
@@ -74,9 +73,10 @@ func TestPGEnumerationStateStorage_SaveAndLoad(t *testing.T) {
 	ctx, store, checkpointStore, cleanup := setupEnumerationTest(t)
 	defer cleanup()
 
-	state := setupTestState(t, ctx, checkpointStore, uuid.MustParse("test-target"))
+	id := uuid.New()
+	state := setupTestState(t, ctx, checkpointStore, id)
 
-	cp := createTestCheckpoint(t, ctx, checkpointStore, uuid.MustParse("test-target"), map[string]any{
+	cp := createTestCheckpoint(t, ctx, checkpointStore, id, map[string]any{
 		"cursor": "abc123",
 	})
 	batch := enumeration.NewBatch(
@@ -114,7 +114,7 @@ func TestPGEnumerationStateStorage_SaveAndLoad(t *testing.T) {
 
 	// Verify checkpoint
 	require.NotNil(t, loaded.LastCheckpoint(), "Loaded session should have a checkpoint")
-	assert.Equal(t, "test-target", loaded.LastCheckpoint().TargetID())
+	assert.Equal(t, id, loaded.LastCheckpoint().TargetID())
 	assert.Equal(t, "abc123", loaded.LastCheckpoint().Data()["cursor"])
 }
 
@@ -124,7 +124,8 @@ func TestPGEnumerationStateStorage_LoadEmpty(t *testing.T) {
 	ctx, store, _, cleanup := setupEnumerationTest(t)
 	defer cleanup()
 
-	loaded, err := store.Load(ctx, uuid.MustParse("non-existent-session"))
+	id := uuid.New()
+	loaded, err := store.Load(ctx, id)
 	require.NoError(t, err)
 	assert.Nil(t, loaded)
 }
@@ -135,7 +136,8 @@ func TestPGEnumerationStateStorage_Update(t *testing.T) {
 	ctx, store, checkpointStore, cleanup := setupEnumerationTest(t)
 	defer cleanup()
 
-	state := setupTestState(t, ctx, checkpointStore, uuid.MustParse("test-target"))
+	id := uuid.New()
+	state := setupTestState(t, ctx, checkpointStore, id)
 	initialLastUpdate := state.Timeline().LastUpdate()
 
 	err := store.Save(ctx, state)
@@ -169,7 +171,8 @@ func TestPGEnumerationStateStorage_Mutability(t *testing.T) {
 	ctx, store, checkpointStore, cleanup := setupEnumerationTest(t)
 	defer cleanup()
 
-	state := setupTestState(t, ctx, checkpointStore, uuid.MustParse("test-target"))
+	id := uuid.New()
+	state := setupTestState(t, ctx, checkpointStore, id)
 
 	err := store.Save(ctx, state)
 	require.NoError(t, err)
@@ -205,8 +208,9 @@ func TestPGEnumerationStateStorage_ConcurrentOperations(t *testing.T) {
 	done := make(chan bool)
 
 	for i := 0; i < goroutines; i++ {
-		go func(id int) {
-			state := setupTestState(t, ctx, checkpointStore, uuid.MustParse(fmt.Sprintf("test-target-%d", id)))
+		go func() {
+			id := uuid.New()
+			state := setupTestState(t, ctx, checkpointStore, id)
 
 			err := store.Save(ctx, state)
 			require.NoError(t, err)
@@ -215,7 +219,7 @@ func TestPGEnumerationStateStorage_ConcurrentOperations(t *testing.T) {
 			require.NoError(t, err)
 
 			done <- true
-		}(i)
+		}()
 	}
 
 	for i := 0; i < goroutines; i++ {

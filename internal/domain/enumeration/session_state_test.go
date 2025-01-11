@@ -39,11 +39,12 @@ func TestReconstructState(t *testing.T) {
 	metrics.IncrementTotalBatches()
 	metrics.IncrementFailedBatches()
 
+	id := uuid.New()
 	timeline := NewTimeline(&mockTimeProvider{current: now})
-	checkpoint := NewCheckpoint(1, uuid.New(), nil)
+	checkpoint := NewCheckpoint(1, id, nil)
 
 	s := ReconstructState(
-		uuid.New(),
+		id,
 		"github",
 		json.RawMessage(`{"foo":"bar"}`),
 		StatusInProgress,
@@ -53,7 +54,7 @@ func TestReconstructState(t *testing.T) {
 		metrics,
 	)
 
-	require.Equal(t, "session-abc", s.SessionID())
+	require.Equal(t, id, s.SessionID())
 	require.Equal(t, "github", s.SourceType())
 	require.Equal(t, StatusInProgress, s.Status())
 	require.Equal(t, "some error", s.FailureReason())

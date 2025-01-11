@@ -83,7 +83,7 @@ func TestPGTaskStorage_GetNonExistent(t *testing.T) {
 	ctx, store, _, cleanup := setupTaskTest(t)
 	defer cleanup()
 
-	loaded, err := store.GetByID(ctx, uuid.MustParse("non-existent-task"))
+	loaded, err := store.GetByID(ctx, uuid.New())
 	require.NoError(t, err)
 	assert.Nil(t, loaded)
 }

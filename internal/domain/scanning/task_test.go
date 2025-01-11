@@ -19,69 +19,106 @@ func TestScanTask_UpdateProgress(t *testing.T) {
 	}{
 		{
 			name: "basic update",
-			task: &Task{
-				CoreTask: shared.CoreTask{
-					TaskID: uuid.New(),
-				},
-				jobID:           uuid.New(),
-				lastSequenceNum: 0,
-				itemsProcessed:  0,
-			},
-			progress: Progress{
-				TaskID:         uuid.New(),
-				JobID:          uuid.New(),
-				SequenceNum:    1,
-				Status:         TaskStatusInProgress,
-				ItemsProcessed: 100,
-				Timestamp:      time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-			},
-			want: &Task{
-				CoreTask: shared.CoreTask{
-					TaskID: uuid.New(),
-				},
-				jobID:           uuid.New(),
-				lastSequenceNum: 1,
-				status:          TaskStatusInProgress,
-				itemsProcessed:  100,
-				lastUpdate:      time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-			},
+			task: func() *Task {
+				taskID := uuid.New()
+				jobID := uuid.New()
+				return &Task{
+					CoreTask: shared.CoreTask{
+						TaskID: taskID,
+					},
+					jobID:           jobID,
+					lastSequenceNum: 0,
+					itemsProcessed:  0,
+				}
+			}(),
+			progress: func() Progress {
+				taskID := uuid.New() // Will be overwritten in test
+				jobID := uuid.New()  // Will be overwritten in test
+				return Progress{
+					TaskID:         taskID,
+					JobID:          jobID,
+					SequenceNum:    1,
+					Status:         TaskStatusInProgress,
+					ItemsProcessed: 100,
+					Timestamp:      time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+				}
+			}(),
+			want: func() *Task {
+				taskID := uuid.New() // Will be overwritten in test
+				jobID := uuid.New()  // Will be overwritten in test
+				return &Task{
+					CoreTask: shared.CoreTask{
+						TaskID: taskID,
+					},
+					jobID:           jobID,
+					lastSequenceNum: 1,
+					status:          TaskStatusInProgress,
+					itemsProcessed:  100,
+					lastUpdate:      time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+				}
+			}(),
 		},
 		{
 			name: "update with checkpoint",
-			task: &Task{
-				CoreTask: shared.CoreTask{
-					TaskID: uuid.New(),
-				},
-				jobID:           uuid.New(),
-				lastSequenceNum: 0,
-			},
-			progress: Progress{
-				TaskID:      uuid.New(),
-				JobID:       uuid.New(),
-				SequenceNum: 1,
-				Checkpoint: &Checkpoint{
-					TaskID:      uuid.New(),
-					JobID:       uuid.New(),
-					ResumeToken: []byte("token"),
-				},
-			},
-			want: &Task{
-				CoreTask: shared.CoreTask{
-					TaskID: uuid.New(),
-				},
-				jobID:           uuid.New(),
-				lastSequenceNum: 1,
-				lastCheckpoint: &Checkpoint{
-					TaskID:      uuid.New(),
-					JobID:       uuid.New(),
-					ResumeToken: []byte("token"),
-				},
-			},
+			task: func() *Task {
+				taskID := uuid.New()
+				jobID := uuid.New()
+				return &Task{
+					CoreTask: shared.CoreTask{
+						TaskID: taskID,
+					},
+					jobID:           jobID,
+					lastSequenceNum: 0,
+				}
+			}(),
+			progress: func() Progress {
+				taskID := uuid.New() // Will be overwritten in test
+				jobID := uuid.New()  // Will be overwritten in test
+				return Progress{
+					TaskID:      taskID,
+					JobID:       jobID,
+					SequenceNum: 1,
+					Checkpoint: &Checkpoint{
+						TaskID:      taskID,
+						JobID:       jobID,
+						ResumeToken: []byte("token"),
+					},
+				}
+			}(),
+			want: func() *Task {
+				taskID := uuid.New() // Will be overwritten in test
+				jobID := uuid.New()  // Will be overwritten in test
+				return &Task{
+					CoreTask: shared.CoreTask{
+						TaskID: taskID,
+					},
+					jobID:           jobID,
+					lastSequenceNum: 1,
+					lastCheckpoint: &Checkpoint{
+						TaskID:      taskID,
+						JobID:       jobID,
+						ResumeToken: []byte("token"),
+					},
+				}
+			}(),
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Sync the IDs across task, progress, and want
+			tt.progress.TaskID = tt.task.TaskID
+			tt.progress.JobID = tt.task.jobID
+			tt.want.TaskID = tt.task.TaskID
+			tt.want.jobID = tt.task.jobID
+
+			if tt.progress.Checkpoint != nil {
+				tt.progress.Checkpoint.TaskID = tt.task.TaskID
+				tt.progress.Checkpoint.JobID = tt.task.jobID
+				tt.want.lastCheckpoint.TaskID = tt.task.TaskID
+				tt.want.lastCheckpoint.JobID = tt.task.jobID
+			}
+
 			tt.task.UpdateProgress(tt.progress)
 			assert.Equal(t, tt.want.lastSequenceNum, tt.task.lastSequenceNum)
 			assert.Equal(t, tt.want.status, tt.task.status)

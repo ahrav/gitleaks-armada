@@ -126,18 +126,21 @@ func TestScanJob_UpdateTask(t *testing.T) {
 		},
 		{
 			name: "update existing task to completed",
-			job: &ScanJob{
-				jobID: uuid.New(),
-				tasks: map[uuid.UUID]*Task{
-					uuid.New(): {
-						CoreTask: shared.CoreTask{
-							TaskID: uuid.New(),
+			job: func() *ScanJob {
+				taskID := uuid.New()
+				return &ScanJob{
+					jobID: uuid.New(),
+					tasks: map[uuid.UUID]*Task{
+						taskID: {
+							CoreTask: shared.CoreTask{
+								TaskID: taskID,
+							},
+							status: TaskStatusInProgress,
 						},
-						status: TaskStatusInProgress,
 					},
-				},
-				totalTasks: 1,
-			},
+					totalTasks: 1,
+				}
+			}(),
 			taskID: uuid.New(),
 			updateFn: func(task *Task) {
 				task.status = TaskStatusCompleted
@@ -158,18 +161,21 @@ func TestScanJob_UpdateTask(t *testing.T) {
 		},
 		{
 			name: "update task to failed",
-			job: &ScanJob{
-				jobID: uuid.New(),
-				tasks: map[uuid.UUID]*Task{
-					uuid.New(): {
-						CoreTask: shared.CoreTask{
-							TaskID: uuid.New(),
+			job: func() *ScanJob {
+				taskID := uuid.New()
+				return &ScanJob{
+					jobID: uuid.New(),
+					tasks: map[uuid.UUID]*Task{
+						taskID: {
+							CoreTask: shared.CoreTask{
+								TaskID: taskID,
+							},
+							status: TaskStatusInProgress,
 						},
-						status: TaskStatusInProgress,
 					},
-				},
-				totalTasks: 1,
-			},
+					totalTasks: 1,
+				}
+			}(),
 			taskID: uuid.New(),
 			updateFn: func(task *Task) {
 				task.status = TaskStatusFailed
@@ -192,6 +198,13 @@ func TestScanJob_UpdateTask(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			if len(tt.job.tasks) > 0 {
+				for k := range tt.job.tasks {
+					tt.taskID = k
+					break
+				}
+			}
+
 			beforeUpdate := time.Now()
 			updated := tt.job.UpdateTask(tt.taskID, tt.updateFn)
 			afterUpdate := time.Now()

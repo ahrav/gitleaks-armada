@@ -11,18 +11,20 @@ import (
 
 // TestNewCheckpoint verifies that a checkpoint with a given ID is properly created.
 func TestNewCheckpoint(t *testing.T) {
-	cp := NewCheckpoint(123, uuid.New(), map[string]any{"foo": "bar"})
+	id := uuid.New()
+	cp := NewCheckpoint(123, id, map[string]any{"foo": "bar"})
 	require.Equal(t, int64(123), cp.ID())
-	require.Equal(t, uuid.New(), cp.TargetID())
+	require.Equal(t, id, cp.TargetID())
 	require.Equal(t, "bar", cp.Data()["foo"])
 	require.False(t, cp.IsTemporary(), "Checkpoint with ID != 0 should not be temporary")
 }
 
 // TestNewTemporaryCheckpoint verifies that a checkpoint without ID is considered temporary.
 func TestNewTemporaryCheckpoint(t *testing.T) {
-	cp := NewTemporaryCheckpoint(uuid.New(), map[string]any{"hello": "world"})
+	id := uuid.New()
+	cp := NewTemporaryCheckpoint(id, map[string]any{"hello": "world"})
 	require.Equal(t, int64(0), cp.ID())
-	require.Equal(t, uuid.New(), cp.TargetID())
+	require.Equal(t, id, cp.TargetID())
 	require.True(t, cp.IsTemporary(), "Checkpoint with ID == 0 should be temporary")
 }
 
@@ -50,7 +52,8 @@ func TestCheckpointSetID(t *testing.T) {
 
 // TestCheckpointJSONMarshaling verifies MarshalJSON and UnmarshalJSON round-trip.
 func TestCheckpointJSONMarshaling(t *testing.T) {
-	original := NewCheckpoint(10, uuid.New(), map[string]any{"key": "value"})
+	id := uuid.New()
+	original := NewCheckpoint(10, id, map[string]any{"key": "value"})
 	originalBytes, err := json.Marshal(original)
 	require.NoError(t, err)
 
@@ -58,7 +61,7 @@ func TestCheckpointJSONMarshaling(t *testing.T) {
 	require.NoError(t, json.Unmarshal(originalBytes, &cp))
 
 	require.Equal(t, int64(10), cp.ID())
-	require.Equal(t, uuid.New(), cp.TargetID())
+	require.Equal(t, id, cp.TargetID())
 	require.Equal(t, "value", cp.Data()["key"])
 	require.WithinDuration(t, time.Now(), cp.UpdatedAt(), 2*time.Second)
 }
