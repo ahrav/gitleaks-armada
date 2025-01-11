@@ -102,6 +102,4 @@ func (bm *BatchMetrics) CompletionPercentage() float64 {
 }
 
 // HasError returns true if error details are present.
-func (bm *BatchMetrics) HasError() bool {
-	return bm.errorDetails != ""
-}
+func (bm *BatchMetrics) HasError() bool { return bm.errorDetails != "" }
