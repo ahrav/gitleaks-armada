@@ -16,6 +16,7 @@ import (
 // BatchRepository provides persistent storage and retrieval of Batch entities.
 // It enables tracking the progress and history of enumeration batches, which is
 // essential for monitoring scan progress and supporting resumable operations.
+// TODO: Refactor to split Save -> Create and Update.
 type BatchRepository interface {
 	// Save persists a Batch entity and its associated timeline and metrics.
 	Save(ctx context.Context, batch *Batch) error
@@ -35,6 +36,7 @@ type BatchRepository interface {
 // StateRepository provides persistent storage for enumeration session state.
 // This enables resumable scanning across process restarts by maintaining the lifecycle
 // state and progress of enumeration sessions.
+// TODO: Refactor to split Save -> Create and Update.
 type StateRepository interface {
 	// Save persists the current state of an enumeration session.
 	Save(ctx context.Context, state *SessionState) error
@@ -55,6 +57,7 @@ type StateRepository interface {
 // CheckpointRepository provides persistent storage for enumeration checkpoints.
 // It enables resumable scanning by maintaining progress markers that allow
 // enumeration to continue from the last successful position.
+// TODO: Refactor to split Save -> Create and Update.
 type CheckpointRepository interface {
 	// Save persists a checkpoint for later retrieval.
 	Save(ctx context.Context, checkpoint *Checkpoint) error
@@ -73,6 +76,7 @@ type CheckpointRepository interface {
 // TaskRepository provides persistent storage for enumeration tasks. It enables
 // tracking and retrieval of individual tasks generated during the enumeration process,
 // which is essential for monitoring scan progress and debugging issues.
+// TODO: Refactor to split Save -> Create and Update. (Update isn't used yet)
 type TaskRepository interface {
 	// Save persists a new enumeration task to storage. This ensures tasks are
 	// durably recorded before being processed by downstream consumers.
