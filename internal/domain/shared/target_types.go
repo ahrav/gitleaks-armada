@@ -12,7 +12,7 @@ type TargetType string
 const (
 	// TargetTypeGitHubRepo represents GitHub repositories as a target type.
 	// Tasks with this target type will use GitHub-specific authentication and API access.
-	TargetTypeGitHubRepo TargetType = "github_repository"
+	TargetTypeGitHubRepo TargetType = "github_repositories"
 )
 
 // TargetTypeError is an error type that indicates an invalid target type.
