@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
+	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	"github.com/ahrav/gitleaks-armada/internal/infra/storage"
 )
 
@@ -22,7 +23,7 @@ func setupScanTargetTest(t *testing.T) (context.Context, *scanTargetRepository, 
 	t.Helper()
 
 	db, cleanup := storage.SetupTestContainer(t)
-	repo := NewScanTargetRepository(db, storage.NoOpTracer())
+	repo := NewScanTargetStore(db, storage.NoOpTracer())
 	ctx := context.Background()
 
 	return ctx, repo, cleanup
@@ -32,7 +33,7 @@ func createTestScanTarget(name string) *enumeration.ScanTarget {
 	return enumeration.ReconstructScanTarget(
 		0, // ID will be assigned by database
 		name,
-		"github_repositories",
+		shared.TargetTypeGitHubRepo,
 		123,
 		nil, // no last scan time initially
 		map[string]any{
@@ -78,7 +79,7 @@ func TestScanTargetRepository_Find(t *testing.T) {
 	_, err := repo.Create(ctx, target)
 	require.NoError(t, err)
 
-	found, err := repo.Find(ctx, target.TargetType(), target.TargetID())
+	found, err := repo.Find(ctx, target.TargetType().String(), target.TargetID())
 	require.NoError(t, err)
 	require.NotNil(t, found)
 

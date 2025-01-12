@@ -45,15 +45,56 @@ type metrics interface {
 	IncTasksFailedToEnqueue(ctx context.Context)
 }
 
+// ResourceEntry represents a discovered resource during enumeration that needs to be persisted.
+// It contains the core identifying information and metadata needed to create or update
+// the corresponding domain entity (e.g. GitHubRepo). The ResourceType field helps the
+// coordinator route the entry to the appropriate resourcePersister implementation.
+type ResourceEntry struct {
+	ResourceType shared.TargetType // Type of resource (e.g. "github_repository") for routing
+	Name         string            // Display name of the resource
+	URL          string            // Unique URL/identifier for the resource
+	Metadata     map[string]any    // Additional resource-specific metadata
+}
+
+// ResourceUpsertResult contains the outcome of persisting a ResourceEntry via a resourcePersister.
+// It provides the necessary information to create a ScanTarget and generate enumeration tasks.
+// The TargetType and ResourceID fields together uniquely identify the persisted domain entity
+// (e.g. a GitHubRepo) that will be the subject of future scanning operations.
+type ResourceUpsertResult struct {
+	ResourceID int64             // Primary key of the persisted domain entity
+	TargetType shared.TargetType // Domain entity type (e.g. "github_repositories")
+	Name       string            // Resource name for display/logging
+	Metadata   map[string]any    // Final metadata after any merging/processing
+}
+
+// EmptyResourceUpsertResult provides a zero-value result for error cases.
+// This is returned when persistence fails or no changes were needed,
+// allowing callers to distinguish between successful and failed operations.
+var EmptyResourceUpsertResult = ResourceUpsertResult{}
+
+// resourcePersister defines the interface for persisting discovered resources.
+// Implementations (like gitHubRepoPersistence) handle the domain-specific logic
+// of creating or updating the appropriate aggregate (e.g. GitHubRepo) based on
+// the ResourceEntry data. This abstraction allows the coordinator to handle
+// different resource types uniformly while preserving domain invariants.
+type resourcePersister interface {
+	persist(ctx context.Context, item ResourceEntry) (ResourceUpsertResult, error)
+}
+
 // Orchestrator implements target enumeration by orchestrating domain logic, repository calls,
 // and event publishing. It manages the lifecycle of enumeration sessions and coordinates
 // the overall enumeration process.
 type coordinator struct {
 	// Domain repositories.
+	scanTargetRepo enumeration.ScanTargetRepository
+	githubRepo     enumeration.GithubRepository
 	batchRepo      enumeration.BatchRepository
 	stateRepo      enumeration.StateRepository
 	checkpointRepo enumeration.CheckpointRepository
 	taskRepo       enumeration.TaskRepository
+
+	// Persistence handlers for different resource types.
+	enumeratorHandlers map[shared.TargetType]resourcePersister
 
 	// Creates enumerators for different target types.
 	enumFactory EnumeratorFactory
@@ -71,6 +112,8 @@ type coordinator struct {
 // It wires together all required dependencies including repositories, domain services,
 // and external integrations needed for the enumeration workflow.
 func NewCoordinator(
+	scanTargetRepo enumeration.ScanTargetRepository,
+	githubRepo enumeration.GithubRepository,
 	batchRepo enumeration.BatchRepository,
 	stateRepo enumeration.StateRepository,
 	checkpointRepo enumeration.CheckpointRepository,
@@ -82,10 +125,15 @@ func NewCoordinator(
 	tracer trace.Tracer,
 ) Coordinator {
 	return &coordinator{
+		scanTargetRepo: scanTargetRepo,
+		githubRepo:     githubRepo,
 		batchRepo:      batchRepo,
 		stateRepo:      stateRepo,
 		checkpointRepo: checkpointRepo,
 		taskRepo:       taskRepo,
+		enumeratorHandlers: map[shared.TargetType]resourcePersister{
+			shared.TargetTypeGitHubRepo: NewGitHubRepoPersistence(githubRepo, logger, tracer),
+		},
 		enumFactory:    enumFactory,
 		eventPublisher: eventPublisher,
 		logger:         logger,
@@ -428,7 +476,7 @@ func (s *coordinator) streamEnumerate(
 }
 
 // processBatch handles the processing of a batch of enumerated targets.
-// It creates a batch entity, saves it to the repository, and publishes tasks.
+// It creates a batch entity, saves it to the repository, and processes individual targets.
 func (s *coordinator) processBatch(
 	ctx context.Context,
 	batch EnumerateBatch,
@@ -446,11 +494,12 @@ func (s *coordinator) processBatch(
 			state.SessionID(),
 			map[string]any{"endCursor": batch.NextCursor},
 		)
-		batchSpan.AddEvent("Created checkpoint")
 	} else {
 		checkpoint = enumeration.NewTemporaryCheckpoint(state.SessionID(), nil)
-		batchSpan.AddEvent("Created empty checkpoint")
 	}
+	batchSpan.AddEvent("Checkpoint created", trace.WithAttributes(
+		attribute.String("end_cursor", batch.NextCursor),
+	))
 
 	domainBatch := enumeration.NewBatch(
 		state.SessionID(),
@@ -468,123 +517,190 @@ func (s *coordinator) processBatch(
 	}
 	batchSpan.AddEvent("Batch saved successfully")
 
-	if err := s.publishTasks(ctx, batch.Targets, state.SessionID(), creds); err != nil {
-		batchSpan.RecordError(err)
-		if markErr := domainBatch.MarkFailed(err); markErr != nil {
+	// Process each target individually
+	var processedCount int
+	var lastError error
+	for _, target := range batch.Targets {
+		if err := s.processTarget(ctx, target, state.SessionID(), creds); err != nil {
+			batchSpan.RecordError(err)
+			lastError = err
+			s.metrics.IncTasksFailedToEnqueue(ctx)
+			continue
+		}
+		processedCount++
+		s.metrics.IncTasksEnqueued(ctx)
+	}
+
+	if lastError != nil {
+		if markErr := domainBatch.MarkFailed(lastError); markErr != nil {
 			batchSpan.RecordError(markErr)
 		}
-		batchSpan.AddEvent("Failed to publish tasks", trace.WithAttributes(
-			attribute.String("error", err.Error()),
-			attribute.Int("failed_targets", len(batch.Targets)),
+		batchSpan.AddEvent("Batch processing partially failed", trace.WithAttributes(
+			attribute.Int("processed", processedCount),
+			attribute.Int("total", len(batch.Targets)),
 		))
 	} else {
-		if markErr := domainBatch.MarkSuccessful(len(batch.Targets)); markErr != nil {
+		if markErr := domainBatch.MarkSuccessful(processedCount); markErr != nil {
 			batchSpan.RecordError(markErr)
 		}
-		batchSpan.AddEvent("Successfully published batch")
+		batchSpan.AddEvent("Batch processing completed successfully")
 	}
 
 	if err := s.batchRepo.Save(ctx, domainBatch); err != nil {
 		batchSpan.RecordError(err)
-		batchSpan.AddEvent("Failed to update batch progress", trace.WithAttributes(
-			attribute.String("error", err.Error()),
-		))
-		return err
+		return fmt.Errorf("failed to update batch progress: %w", err)
 	}
-	batchSpan.AddEvent("Batch progress updated successfully in repository")
 
 	if err := state.ProcessCompletedBatch(domainBatch); err != nil {
 		batchSpan.RecordError(err)
-		batchSpan.AddEvent("Failed to complete batch progress update", trace.WithAttributes(
-			attribute.String("error", err.Error()),
-		))
-		return err
+		return fmt.Errorf("failed to process completed batch: %w", err)
 	}
-	batchSpan.AddEvent("Session state updated successfully with batch progress")
 
 	if err := s.stateRepo.Save(ctx, state); err != nil {
 		batchSpan.RecordError(err)
-		batchSpan.AddEvent("Failed to save state", trace.WithAttributes(
-			attribute.String("error", err.Error()),
-		))
-		return err
+		return fmt.Errorf("failed to save state: %w", err)
 	}
-	batchSpan.AddEvent("State saved successfully in repository")
 
-	return nil
+	return lastError
 }
 
-// publishTasks publishes task creation events for a batch of enumerated tasks.
-// It ensures tasks are durably recorded and can be processed by downstream consumers.
-// The session ID is used for correlation and tracking task lineage.
-// TODO: Handle partial failures.
-func (s *coordinator) publishTasks(
+// processTarget handles the processing of a single target, including persisting
+// the resource, creating a scan target, and publishing the task.
+func (s *coordinator) processTarget(
 	ctx context.Context,
-	targets []*TargetInfo,
+	target *TargetInfo,
 	sessionID uuid.UUID,
 	creds *enumeration.TaskCredentials,
 ) error {
-	ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.publish_tasks",
+	ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.process_target",
 		trace.WithAttributes(
-			attribute.String("session_id", sessionID.String()),
-			attribute.Int("num_targets", len(targets)),
+			attribute.String("resource_uri", target.ResourceURI),
+			attribute.String("target_type", target.TargetType.String()),
 		))
 	defer span.End()
 
-	span.AddEvent("Starting task publication")
-
-	var totalTasks int
-	for _, t := range targets {
-		taskCtx, taskSpan := s.tracer.Start(ctx, "coordinator.enumeration.process_target",
-			trace.WithAttributes(
-				attribute.String("resource_uri", t.ResourceURI),
-				attribute.String("source_type", t.SourceType),
-			))
-
-		task := enumeration.NewTask(
-			shared.SourceType(t.SourceType),
-			sessionID,
-			t.ResourceURI,
-			t.Metadata,
-			creds,
-		)
-		taskSpan.AddEvent("Created task", trace.WithAttributes(
-			attribute.String("task_id", task.TaskID.String()),
-		))
-
-		err := s.eventPublisher.PublishDomainEvent(
-			taskCtx,
-			enumeration.NewTaskCreatedEvent(task),
-			events.WithKey(sessionID.String()),
-		)
-		if err != nil {
-			taskSpan.RecordError(err)
-			taskSpan.AddEvent("Failed to publish task event", trace.WithAttributes(
-				attribute.String("error", err.Error()),
-			))
-			s.metrics.IncTasksFailedToEnqueue(ctx)
-			taskSpan.End()
-			return err
-		}
-		taskSpan.AddEvent("Published task event")
-		totalTasks++
-
-		s.metrics.IncTasksEnqueued(ctx)
-
-		if err := s.taskRepo.Save(taskCtx, task); err != nil {
-			taskSpan.RecordError(err)
-			taskSpan.AddEvent("Failed to save task", trace.WithAttributes(
-				attribute.String("error", err.Error()),
-			))
-			taskSpan.End()
-			return err
-		}
-		taskSpan.AddEvent("Successfully saved task")
-		taskSpan.End()
+	persister, ok := s.enumeratorHandlers[target.TargetType]
+	if !ok {
+		err := fmt.Errorf("no persister found for target type: %s", target.TargetType)
+		span.RecordError(err)
+		return err
 	}
 
-	span.SetAttributes(attribute.Int("total_tasks_published", totalTasks))
-	span.AddEvent("Completed task publication")
+	resourceEntry := ResourceEntry{
+		ResourceType: target.TargetType,
+		Name:         target.ResourceURI,
+		URL:          target.ResourceURI,
+	}
+
+	span.SetAttributes(
+		attribute.String("resource_entry_name", resourceEntry.Name),
+		attribute.String("resource_entry_url", resourceEntry.URL),
+	)
+
+	result, err := persister.persist(ctx, resourceEntry)
+	if err != nil {
+		span.RecordError(err)
+		return fmt.Errorf("failed to persist resource: %w", err)
+	}
+	span.AddEvent("Resource persisted successfully")
+
+	_, err = s.createScanTarget(
+		ctx,
+		result.Name,
+		result.TargetType,
+		result.ResourceID,
+		result.Metadata,
+	)
+	if err != nil {
+		span.RecordError(err)
+		return fmt.Errorf("failed to create scan target: %w", err)
+	}
+
+	if err := s.publishTask(ctx, target, sessionID, creds); err != nil {
+		span.RecordError(err)
+		return fmt.Errorf("failed to publish task: %w", err)
+	}
+
+	span.SetStatus(codes.Ok, "Target processed successfully")
+	return nil
+}
+
+// createScanTarget constructs a ScanTarget domain object and inserts it
+// into the scan_targets table. We do this after we have a resource's ID
+// and target type from ResourceUpsertResult.
+func (s *coordinator) createScanTarget(
+	ctx context.Context,
+	name string,
+	targetType shared.TargetType,
+	targetID int64,
+	metadata map[string]any,
+) (int64, error) {
+	ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.create_scan_target",
+		trace.WithAttributes(
+			attribute.String("name", name),
+			attribute.String("target_type", string(targetType)),
+			attribute.Int64("target_id", targetID),
+		))
+	defer span.End()
+
+	st, err := enumeration.NewScanTarget(name, targetType, targetID, metadata)
+	if err != nil {
+		span.RecordError(err)
+		return 0, fmt.Errorf("failed to create scan target domain object: %w", err)
+	}
+
+	_, err = s.scanTargetRepo.Create(ctx, st)
+	if err != nil {
+		span.RecordError(err)
+		return 0, fmt.Errorf("failed to create scan target: %w", err)
+	}
+	span.AddEvent("Scan target created successfully", trace.WithAttributes(
+		attribute.Int64("scan_target_id", st.ID()),
+	))
+
+	return st.ID(), nil
+}
+
+// publishTask publishes a single task creation event and saves the task record.
+// It ensures tasks are durably recorded and can be processed by downstream consumers.
+// The session ID is used for correlation and tracking task lineage.
+// TODO: Handle partial failures.
+func (s *coordinator) publishTask(
+	ctx context.Context,
+	target *TargetInfo,
+	sessionID uuid.UUID,
+	creds *enumeration.TaskCredentials,
+) error {
+	ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.publish_task",
+		trace.WithAttributes(
+			attribute.String("resource_uri", target.ResourceURI),
+			attribute.String("target_type", target.TargetType.String()),
+		))
+	defer span.End()
+
+	task := enumeration.NewTask(
+		target.TargetType.ToSourceType(),
+		sessionID,
+		target.ResourceURI,
+		target.Metadata,
+		creds,
+	)
+
+	if err := s.eventPublisher.PublishDomainEvent(
+		ctx,
+		enumeration.NewTaskCreatedEvent(task),
+		events.WithKey(sessionID.String()),
+	); err != nil {
+		span.RecordError(err)
+		return fmt.Errorf("failed to publish task event: %w", err)
+	}
+	span.AddEvent("Task published successfully")
+
+	if err := s.taskRepo.Save(ctx, task); err != nil {
+		span.RecordError(err)
+		return fmt.Errorf("failed to save task: %w", err)
+	}
+	span.AddEvent("Task saved successfully")
 
 	return nil
 }

@@ -6,6 +6,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 )
 
 func TestNewScanTarget(t *testing.T) {
@@ -15,7 +17,7 @@ func TestNewScanTarget(t *testing.T) {
 		name  string
 		input struct {
 			name       string
-			targetType string
+			targetType shared.TargetType
 			targetID   int64
 			metadata   map[string]any
 		}
@@ -25,12 +27,12 @@ func TestNewScanTarget(t *testing.T) {
 			name: "valid scan target",
 			input: struct {
 				name       string
-				targetType string
+				targetType shared.TargetType
 				targetID   int64
 				metadata   map[string]any
 			}{
 				name:       "test-repo",
-				targetType: "github_repo",
+				targetType: shared.TargetTypeGitHubRepo,
 				targetID:   123,
 				metadata: map[string]any{
 					"owner": "test-owner",
@@ -42,12 +44,12 @@ func TestNewScanTarget(t *testing.T) {
 			name: "empty name",
 			input: struct {
 				name       string
-				targetType string
+				targetType shared.TargetType
 				targetID   int64
 				metadata   map[string]any
 			}{
 				name:       "",
-				targetType: "github_repo",
+				targetType: shared.TargetTypeGitHubRepo,
 				targetID:   123,
 				metadata:   nil,
 			},
@@ -57,7 +59,7 @@ func TestNewScanTarget(t *testing.T) {
 			name: "empty target type",
 			input: struct {
 				name       string
-				targetType string
+				targetType shared.TargetType
 				targetID   int64
 				metadata   map[string]any
 			}{
@@ -72,12 +74,12 @@ func TestNewScanTarget(t *testing.T) {
 			name: "zero target ID",
 			input: struct {
 				name       string
-				targetType string
+				targetType shared.TargetType
 				targetID   int64
 				metadata   map[string]any
 			}{
 				name:       "test-repo",
-				targetType: "github_repo",
+				targetType: shared.TargetTypeGitHubRepo,
 				targetID:   0,
 				metadata:   nil,
 			},
@@ -87,12 +89,12 @@ func TestNewScanTarget(t *testing.T) {
 			name: "nil metadata is valid",
 			input: struct {
 				name       string
-				targetType string
+				targetType shared.TargetType
 				targetID   int64
 				metadata   map[string]any
 			}{
 				name:       "test-repo",
-				targetType: "github_repo",
+				targetType: shared.TargetTypeGitHubRepo,
 				targetID:   123,
 				metadata:   nil,
 			},
@@ -139,7 +141,7 @@ func TestReconstructScanTarget(t *testing.T) {
 	target := ReconstructScanTarget(
 		123,
 		"test-repo",
-		"github_repo",
+		shared.TargetTypeGitHubRepo,
 		456,
 		&lastScan,
 		metadata,
@@ -149,7 +151,7 @@ func TestReconstructScanTarget(t *testing.T) {
 	assert.NotNil(t, target)
 	assert.Equal(t, int64(123), target.ID())
 	assert.Equal(t, "test-repo", target.Name())
-	assert.Equal(t, "github_repo", target.TargetType())
+	assert.Equal(t, shared.TargetTypeGitHubRepo, target.TargetType())
 	assert.Equal(t, int64(456), target.TargetID())
 	assert.Equal(t, &lastScan, target.LastScanTime())
 	assert.Equal(t, metadata, target.Metadata())
@@ -167,7 +169,7 @@ func TestScanTarget_UpdateLastScanTime(t *testing.T) {
 
 	target, err := NewScanTarget(
 		"test-repo",
-		"github_repo",
+		shared.TargetTypeGitHubRepo,
 		123,
 		nil,
 	)
@@ -201,7 +203,7 @@ func TestScanTarget_Getters(t *testing.T) {
 	target := ReconstructScanTarget(
 		123,
 		"test-repo",
-		"github_repo",
+		shared.TargetTypeGitHubRepo,
 		456,
 		&lastScan,
 		metadata,
@@ -215,7 +217,7 @@ func TestScanTarget_Getters(t *testing.T) {
 	}{
 		{"ID", target.ID(), int64(123)},
 		{"Name", target.Name(), "test-repo"},
-		{"TargetType", target.TargetType(), "github_repo"},
+		{"TargetType", target.TargetType(), shared.TargetTypeGitHubRepo},
 		{"TargetID", target.TargetID(), int64(456)},
 		{"LastScanTime", target.LastScanTime(), &lastScan},
 		{"Metadata", target.Metadata(), metadata},

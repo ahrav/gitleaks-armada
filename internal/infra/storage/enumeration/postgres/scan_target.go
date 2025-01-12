@@ -15,6 +15,7 @@ import (
 
 	"github.com/ahrav/gitleaks-armada/internal/db"
 	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
+	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	"github.com/ahrav/gitleaks-armada/internal/infra/storage"
 )
 
@@ -29,10 +30,10 @@ type scanTargetRepository struct {
 	tracer trace.Tracer
 }
 
-// NewScanTargetRepository creates a new PostgreSQL-backed scan target repository.
+// NewScanTargetStore creates a new PostgreSQL-backed scan target repository.
 // It requires a connection pool and tracer for observability. The repository
 // provides CRUD operations for scan targets with automatic tracing.
-func NewScanTargetRepository(pool *pgxpool.Pool, tracer trace.Tracer) *scanTargetRepository {
+func NewScanTargetStore(pool *pgxpool.Pool, tracer trace.Tracer) *scanTargetRepository {
 	return &scanTargetRepository{
 		q:      db.New(pool),
 		tracer: tracer,
@@ -47,7 +48,7 @@ func (r *scanTargetRepository) Create(ctx context.Context, target *enumeration.S
 		attribute.String("repository", "ScanTargetRepository"),
 		attribute.String("method", "Create"),
 		attribute.String("target_name", target.Name()),
-		attribute.String("target_type", target.TargetType()),
+		attribute.String("target_type", target.TargetType().String()),
 	}
 
 	var id int64
@@ -61,7 +62,7 @@ func (r *scanTargetRepository) Create(ctx context.Context, target *enumeration.S
 		var createErr error
 		id, createErr = r.q.CreateScanTarget(ctx, db.CreateScanTargetParams{
 			Name:       target.Name(),
-			TargetType: target.TargetType(),
+			TargetType: target.TargetType().String(),
 			TargetID:   target.TargetID(),
 			Metadata:   metadataBytes,
 		})
@@ -144,10 +145,15 @@ func (r *scanTargetRepository) GetByID(ctx context.Context, id int64) (*enumerat
 			lst = &row.LastScanTime.Time
 		}
 
+		targetType, err := shared.NewTargetType(row.TargetType)
+		if err != nil {
+			return fmt.Errorf("failed to parse target type: %w", err)
+		}
+
 		foundTarget = enumeration.ReconstructScanTarget(
 			row.ID,
 			row.Name,
-			row.TargetType,
+			targetType,
 			row.TargetID,
 			lst,
 			metadata,
@@ -195,10 +201,15 @@ func (r *scanTargetRepository) Find(ctx context.Context, targetType string, targ
 			lst = &row.LastScanTime.Time
 		}
 
+		targetType, err := shared.NewTargetType(row.TargetType)
+		if err != nil {
+			return fmt.Errorf("failed to parse target type: %w", err)
+		}
+
 		foundTarget = enumeration.ReconstructScanTarget(
 			row.ID,
 			row.Name,
-			row.TargetType,
+			targetType,
 			row.TargetID,
 			lst,
 			metadata,
@@ -244,10 +255,15 @@ func (r *scanTargetRepository) List(ctx context.Context, limit, offset int32) ([
 				lst = &row.LastScanTime.Time
 			}
 
+			targetType, err := shared.NewTargetType(row.TargetType)
+			if err != nil {
+				return fmt.Errorf("failed to parse target type: %w", err)
+			}
+
 			tmp = append(tmp, enumeration.ReconstructScanTarget(
 				row.ID,
 				row.Name,
-				row.TargetType,
+				targetType,
 				row.TargetID,
 				lst,
 				metadata,

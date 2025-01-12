@@ -15,6 +15,7 @@ import (
 
 	"github.com/ahrav/gitleaks-armada/internal/config"
 	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
+	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	"github.com/ahrav/gitleaks-armada/pkg/common"
 )
 
@@ -43,8 +44,8 @@ type TargetEnumerator interface {
 // It provides the minimal information needed to create a scan task while
 // keeping the enumeration layer decoupled from domain specifics.
 type TargetInfo struct {
-	// SourceType identifies the type of system being scanned (e.g., "github", "s3").
-	SourceType string
+	// TargetType identifies the type of target being scanned (e.g., "github_repo").
+	TargetType shared.TargetType
 
 	// ResourceURI is the unique location identifier for the target.
 	ResourceURI string
@@ -87,8 +88,6 @@ func NewGitHubEnumerator(
 	}
 }
 
-const githubSourceType = "github"
-
 // Enumerate fetches all repositories from a GitHub organization and creates scan tasks.
 // It uses GraphQL for efficient pagination and maintains checkpoints for resumability.
 // The method streams batches of tasks through the provided channel and updates progress
@@ -112,7 +111,7 @@ func (e *GitHubEnumerator) Enumerate(ctx context.Context, startCursor *string, b
 		targets := make([]*TargetInfo, 0, len(e.ghConfig.RepoList))
 		for _, repoURL := range e.ghConfig.RepoList {
 			targets = append(targets, &TargetInfo{
-				SourceType:  githubSourceType,
+				TargetType:  shared.TargetTypeGitHubRepo,
 				ResourceURI: repoURL,
 				Metadata:    e.ghConfig.Metadata,
 			})
@@ -140,7 +139,7 @@ func (e *GitHubEnumerator) Enumerate(ctx context.Context, startCursor *string, b
 		targets := make([]*TargetInfo, 0, len(respData.Data.Organization.Repositories.Nodes))
 		for _, node := range respData.Data.Organization.Repositories.Nodes {
 			targets = append(targets, &TargetInfo{
-				SourceType:  githubSourceType,
+				TargetType:  shared.TargetTypeGitHubRepo,
 				ResourceURI: buildGithubResourceURI(e.ghConfig.Org, node.Name),
 				Metadata:    e.ghConfig.Metadata,
 			})

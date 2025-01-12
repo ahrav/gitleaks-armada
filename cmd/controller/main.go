@@ -197,6 +197,8 @@ func main() {
 	}
 	log.Info(ctx, "Controller connected to Kafka")
 
+	scanTargetRepo := enumStore.NewScanTargetStore(pool, tracer)
+	githubRepo := enumStore.NewGithubRepositoryStore(pool, tracer)
 	checkpointStorage := enumStore.NewCheckpointStore(pool, tracer)
 	enumStateStorage := enumStore.NewEnumerationSessionStateStore(pool, checkpointStorage, tracer)
 	eventPublisher := kafka.NewKafkaDomainEventPublisher(broker)
@@ -204,6 +206,8 @@ func main() {
 	enumTaskStorage := enumStore.NewTaskStore(pool, tracer)
 	batchStorage := enumStore.NewBatchStore(pool, checkpointStorage, tracer)
 	enumService := enumeration.NewCoordinator(
+		scanTargetRepo,
+		githubRepo,
 		batchStorage,
 		enumStateStorage,
 		checkpointStorage,

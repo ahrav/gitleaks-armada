@@ -3,6 +3,8 @@ package enumeration
 import (
 	"errors"
 	"time"
+
+	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 )
 
 // ScanTarget represents a resource that needs security scanning. It acts as an aggregate root
@@ -12,8 +14,8 @@ import (
 type ScanTarget struct {
 	id           int64
 	name         string
-	targetType   string // Identifies the type of resource (e.g., "github_repo", "org")
-	targetID     int64  // References the actual resource in its respective domain
+	targetType   shared.TargetType // Identifies the type of resource (e.g., "github_repo", "org")
+	targetID     int64             // References the actual resource in its respective domain
 	metadata     map[string]any
 	lastScanTime *time.Time // Tracks the most recent successful scan completion
 
@@ -25,7 +27,7 @@ type ScanTarget struct {
 // Returns an error if any required fields are missing.
 func NewScanTarget(
 	name string,
-	targetType string,
+	targetType shared.TargetType,
 	targetID int64,
 	metadata map[string]any,
 ) (*ScanTarget, error) {
@@ -48,7 +50,7 @@ func NewScanTarget(
 func ReconstructScanTarget(
 	id int64,
 	name string,
-	targetType string,
+	targetType shared.TargetType,
 	targetID int64,
 	lastScanTime *time.Time,
 	metadata map[string]any,
@@ -72,7 +74,7 @@ func (t *ScanTarget) ID() int64 { return t.id }
 func (t *ScanTarget) Name() string { return t.name }
 
 // TargetType returns the type of resource this target represents.
-func (t *ScanTarget) TargetType() string { return t.targetType }
+func (t *ScanTarget) TargetType() shared.TargetType { return t.targetType }
 
 // TargetID returns the identifier of the underlying resource.
 func (t *ScanTarget) TargetID() int64 { return t.targetID }
