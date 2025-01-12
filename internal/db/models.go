@@ -207,7 +207,6 @@ type EnumerationBatch struct {
 }
 
 type EnumerationSessionMetric struct {
-	ID             int64
 	SessionID      pgtype.UUID
 	TotalBatches   int32
 	FailedBatches  int32
@@ -218,7 +217,6 @@ type EnumerationSessionMetric struct {
 }
 
 type EnumerationSessionState struct {
-	ID               int64
 	SessionID        pgtype.UUID
 	SourceType       string
 	Config           []byte

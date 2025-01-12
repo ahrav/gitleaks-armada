@@ -29,8 +29,7 @@ CREATE TABLE checkpoints (
 
 -- Enumeration Session States Table (Aggregate Root)
 CREATE TABLE enumeration_session_states (
-    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    session_id UUID NOT NULL,
+    session_id UUID PRIMARY KEY,
     source_type VARCHAR(32) NOT NULL,
     config JSONB NOT NULL,
     last_checkpoint_id BIGINT REFERENCES checkpoints(id),
@@ -47,8 +46,7 @@ CREATE TABLE enumeration_session_states (
 
 -- Session Metrics (Value Object)
 CREATE TABLE enumeration_session_metrics (
-    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    session_id UUID NOT NULL REFERENCES enumeration_session_states(session_id),
+    session_id UUID PRIMARY KEY,
     total_batches INTEGER NOT NULL DEFAULT 0,
     failed_batches INTEGER NOT NULL DEFAULT 0,
     items_found INTEGER NOT NULL DEFAULT 0,

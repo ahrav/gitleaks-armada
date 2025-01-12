@@ -186,7 +186,7 @@ func (q *Queries) FindScanTarget(ctx context.Context, arg FindScanTargetParams) 
 }
 
 const getActiveEnumerationSessionStates = `-- name: GetActiveEnumerationSessionStates :many
-SELECT id, session_id, source_type, config, last_checkpoint_id, failure_reason,
+SELECT session_id, source_type, config, last_checkpoint_id, failure_reason,
        status, created_at, updated_at
 FROM enumeration_session_states
 WHERE status IN ('INITIALIZED', 'IN_PROGRESS')
@@ -194,7 +194,6 @@ ORDER BY created_at DESC
 `
 
 type GetActiveEnumerationSessionStatesRow struct {
-	ID               int64
 	SessionID        pgtype.UUID
 	SourceType       string
 	Config           []byte
@@ -215,7 +214,6 @@ func (q *Queries) GetActiveEnumerationSessionStates(ctx context.Context) ([]GetA
 	for rows.Next() {
 		var i GetActiveEnumerationSessionStatesRow
 		if err := rows.Scan(
-			&i.ID,
 			&i.SessionID,
 			&i.SourceType,
 			&i.Config,
@@ -339,7 +337,7 @@ func (q *Queries) GetCheckpointByID(ctx context.Context, id int64) (Checkpoint, 
 }
 
 const getEnumerationSessionState = `-- name: GetEnumerationSessionState :one
-SELECT id, session_id, source_type, config, last_checkpoint_id, status, failure_reason, started_at, completed_at, last_update, created_at, updated_at FROM enumeration_session_states
+SELECT session_id, source_type, config, last_checkpoint_id, status, failure_reason, started_at, completed_at, last_update, created_at, updated_at FROM enumeration_session_states
 WHERE session_id = $1
 `
 
@@ -347,7 +345,6 @@ func (q *Queries) GetEnumerationSessionState(ctx context.Context, sessionID pgty
 	row := q.db.QueryRow(ctx, getEnumerationSessionState, sessionID)
 	var i EnumerationSessionState
 	err := row.Scan(
-		&i.ID,
 		&i.SessionID,
 		&i.SourceType,
 		&i.Config,
@@ -450,7 +447,7 @@ func (q *Queries) GetScanTargetByID(ctx context.Context, id int64) (ScanTarget, 
 }
 
 const getSessionMetrics = `-- name: GetSessionMetrics :one
-SELECT id, session_id, total_batches, failed_batches, items_found, items_processed, created_at, updated_at FROM enumeration_session_metrics
+SELECT session_id, total_batches, failed_batches, items_found, items_processed, created_at, updated_at FROM enumeration_session_metrics
 WHERE session_id = $1
 `
 
@@ -458,7 +455,6 @@ func (q *Queries) GetSessionMetrics(ctx context.Context, sessionID pgtype.UUID) 
 	row := q.db.QueryRow(ctx, getSessionMetrics, sessionID)
 	var i EnumerationSessionMetric
 	err := row.Scan(
-		&i.ID,
 		&i.SessionID,
 		&i.TotalBatches,
 		&i.FailedBatches,
@@ -471,7 +467,7 @@ func (q *Queries) GetSessionMetrics(ctx context.Context, sessionID pgtype.UUID) 
 }
 
 const getSessionState = `-- name: GetSessionState :one
-SELECT id, session_id, source_type, config, last_checkpoint_id, status, failure_reason, started_at, completed_at, last_update, created_at, updated_at FROM enumeration_session_states
+SELECT session_id, source_type, config, last_checkpoint_id, status, failure_reason, started_at, completed_at, last_update, created_at, updated_at FROM enumeration_session_states
 WHERE session_id = $1
 `
 
@@ -479,7 +475,6 @@ func (q *Queries) GetSessionState(ctx context.Context, sessionID pgtype.UUID) (E
 	row := q.db.QueryRow(ctx, getSessionState, sessionID)
 	var i EnumerationSessionState
 	err := row.Scan(
-		&i.ID,
 		&i.SessionID,
 		&i.SourceType,
 		&i.Config,
@@ -535,7 +530,7 @@ func (q *Queries) GetTaskByID(ctx context.Context, taskID pgtype.UUID) (GetTaskB
 }
 
 const listEnumerationSessionStates = `-- name: ListEnumerationSessionStates :many
-SELECT id, session_id, source_type, config, last_checkpoint_id, failure_reason,
+SELECT session_id, source_type, config, last_checkpoint_id, failure_reason,
        status, created_at, updated_at
 FROM enumeration_session_states
 ORDER BY created_at DESC
@@ -543,7 +538,6 @@ LIMIT $1
 `
 
 type ListEnumerationSessionStatesRow struct {
-	ID               int64
 	SessionID        pgtype.UUID
 	SourceType       string
 	Config           []byte
@@ -564,7 +558,6 @@ func (q *Queries) ListEnumerationSessionStates(ctx context.Context, limit int32)
 	for rows.Next() {
 		var i ListEnumerationSessionStatesRow
 		if err := rows.Scan(
-			&i.ID,
 			&i.SessionID,
 			&i.SourceType,
 			&i.Config,
