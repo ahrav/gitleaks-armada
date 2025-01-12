@@ -21,19 +21,28 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
 
+// ScanTargetCallback is a callback interface for notifying listeners of scan targets discovered.
+type ScanTargetCallback interface {
+	OnScanTargetsDiscovered(ctx context.Context, targetIDs []uuid.UUID)
+}
+
 // Coordinator defines the core domain operations for target enumeration.
 // It coordinates the overall enumeration process by managing enumeration state
 // and supporting resumable enumeration.
 type Coordinator interface {
 	// StartFreshEnumerations begins new enumeration sessions for all targets defined in the config.
 	// It creates new state records and initializes the enumeration process for each target.
+	// The callback is invoked when scan targets are discovered during enumeration to allow
+	// downstream consumers to begin processing them immediately.
 	// Returns an error if the enumeration sessions cannot be started.
-	StartFreshEnumerations(ctx context.Context, cfg *config.Config) error
+	StartFreshEnumerations(ctx context.Context, cfg *config.Config, cb ScanTargetCallback) error
 
 	// ResumeEnumerations continues enumeration for previously interrupted sessions.
 	// It picks up from the last checkpoint for each provided session state.
+	// The callback is invoked when scan targets are discovered during enumeration to allow
+	// downstream consumers to begin processing them immediately.
 	// Returns an error if any session cannot be resumed.
-	ResumeEnumerations(ctx context.Context, states []*enumeration.SessionState) error
+	ResumeEnumerations(ctx context.Context, states []*enumeration.SessionState, cb ScanTargetCallback) error
 }
 
 // metrics defines the interface for tracking enumeration-related metrics.
@@ -147,7 +156,7 @@ func NewCoordinator(
 // StartFreshEnumerations begins new enumeration sessions for all targets defined in the config.
 // It creates new state records and initializes the enumeration process for each target.
 // Returns an error if the enumeration sessions cannot be started.
-func (s *coordinator) StartFreshEnumerations(ctx context.Context, cfg *config.Config) error {
+func (s *coordinator) StartFreshEnumerations(ctx context.Context, cfg *config.Config, cb ScanTargetCallback) error {
 	ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.start_fresh_enumerations",
 		trace.WithAttributes(
 			attribute.String("component", "coordinator"),
@@ -242,7 +251,11 @@ func (s *coordinator) marshalConfig(
 
 // ResumeEnumerations attempts to continue enumeration from previously saved states.
 // This allows recovery from interruptions and supports incremental enumeration.
-func (s *coordinator) ResumeEnumerations(ctx context.Context, states []*enumeration.SessionState) error {
+func (s *coordinator) ResumeEnumerations(
+	ctx context.Context,
+	states []*enumeration.SessionState,
+	cb ScanTargetCallback,
+) error {
 	ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.resume_enumerations",
 		trace.WithAttributes(attribute.Int("state_count", len(states))))
 	defer span.End()

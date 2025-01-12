@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -226,6 +227,22 @@ func (o *Orchestrator) Run(ctx context.Context) (<-chan struct{}, error) {
 	return ready, nil
 }
 
+var _ enumCoordinator.ScanTargetCallback = (*orchestratorCallback)(nil)
+
+// orchestratorCallback is a callback implementation for the orchestrator.
+// It is used to notify the orchestrator when scan targets are discovered.
+type orchestratorCallback struct {
+	jobID  uuid.UUID
+	jobSvc scanning.ScanJobService
+}
+
+func (oc *orchestratorCallback) OnScanTargetsDiscovered(ctx context.Context, targetIDs []uuid.UUID) {
+	// for _, tid := range targetIDs {
+	// TODO: Associate target with job
+	// oc.jobSvc.AssociateTargetWithJob(ctx, oc.jobID, tid)
+	// }
+}
+
 // Enumerate starts a new enumeration session or resumes an existing one. It coordinates
 // the scanning process by first checking for any active enumeration states. If none exist,
 // it starts a fresh enumeration by loading the configuration and creating new scanning records.
@@ -238,6 +255,11 @@ func (o *Orchestrator) Enumerate(ctx context.Context) error {
 			attribute.String("operation", "enumerate"),
 		))
 	defer span.End()
+
+	// TODO: Create a job.
+	cb := &orchestratorCallback{
+		jobSvc: o.scanningSvc,
+	}
 
 	span.AddEvent("checking_active_states")
 	activeStates, err := o.stateRepo.GetActiveStates(ctx)
@@ -269,7 +291,7 @@ func (o *Orchestrator) Enumerate(ctx context.Context) error {
 		span.AddEvent("scanning_records_created")
 
 		span.AddEvent("starting_fresh_enumeration")
-		if err := o.enumerationService.StartFreshEnumerations(ctx, cfg); err != nil {
+		if err := o.enumerationService.StartFreshEnumerations(ctx, cfg, cb); err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "failed to start fresh enumerations")
 			return fmt.Errorf("failed to start fresh enumerations: %w", err)
@@ -280,7 +302,7 @@ func (o *Orchestrator) Enumerate(ctx context.Context) error {
 	span.AddEvent("resuming_enumeration", trace.WithAttributes(
 		attribute.Int("state_count", len(activeStates)),
 	))
-	if err := o.enumerationService.ResumeEnumerations(ctx, activeStates); err != nil {
+	if err := o.enumerationService.ResumeEnumerations(ctx, activeStates, cb); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to resume enumerations")
 		return fmt.Errorf("failed to resume enumerations: %w", err)
