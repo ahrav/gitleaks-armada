@@ -68,6 +68,8 @@ func (s *githubRepositoryStore) Create(ctx context.Context, repo *enumeration.Gi
 		if err != nil {
 			return fmt.Errorf("githubRepositoryStore.Create: insert error: %w", err)
 		}
+		repo.SetID(id)
+
 		return nil
 	})
 	if err != nil {

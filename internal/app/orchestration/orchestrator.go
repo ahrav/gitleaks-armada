@@ -106,25 +106,29 @@ func NewOrchestrator(
 // It returns a channel that is closed when initialization is complete and any startup error.
 // The channel allows callers to wait for the controller to be ready before proceeding.
 func (o *Orchestrator) Run(ctx context.Context) (<-chan struct{}, error) {
-	ctx, initSpan := o.tracer.Start(ctx, "orchestrator.run_init",
+	// Create a new context with a long-lived span for the entire Run lifecycle
+	runCtx, runSpan := o.tracer.Start(ctx, "orchestrator.run",
 		trace.WithAttributes(
 			attribute.String("component", "orchestrator"),
 			attribute.String("orchestrator_id", o.id),
 		))
+
+	initCtx, initSpan := o.tracer.Start(runCtx, "orchestrator.init")
 	defer initSpan.End()
 
 	ready := make(chan struct{})
 	leaderCh := make(chan bool, 1)
 
-	if err := o.workQueue.Subscribe(ctx, []events.EventType{rules.EventTypeRuleUpdated}, o.handleRule); err != nil {
+	if err := o.workQueue.Subscribe(initCtx, []events.EventType{rules.EventTypeRuleUpdated}, o.handleRule); err != nil {
 		initSpan.RecordError(err)
 		initSpan.SetStatus(codes.Error, "failed to subscribe to rules")
+		runSpan.End() // End the parent span on error
 		return nil, fmt.Errorf("orchestrator[%s]: failed to subscribe to rules: %v", o.id, err)
 	}
 	initSpan.AddEvent("subscribed_to_rules")
 
 	o.coordinator.OnLeadershipChange(func(isLeader bool) {
-		leaderCtx, leaderSpan := o.tracer.Start(ctx, "orchestrator.leadership_change",
+		leaderCtx, leaderSpan := o.tracer.Start(runCtx, "orchestrator.leadership_change",
 			trace.WithAttributes(
 				attribute.String("orchestrator_id", o.id),
 				attribute.Bool("is_leader", isLeader),
@@ -153,15 +157,14 @@ func (o *Orchestrator) Run(ctx context.Context) (<-chan struct{}, error) {
 	})
 
 	go func() {
+		defer runSpan.End() // Ensure the parent span ends when the goroutine exits
 		readyClosed := false
-		o.logger.Info(ctx, "Waiting for leadership signal...", "orchestrator_id", o.id)
+		o.logger.Info(runCtx, "Waiting for leadership signal...", "orchestrator_id", o.id)
 
 		for {
 			select {
 			case isLeader := <-leaderCh:
-				// Short-lived span for handling leadership status, this prevents the parent span
-				// from being too long.
-				loopCtx, loopSpan := o.tracer.Start(ctx, "orchestrator.handle_leadership",
+				loopCtx, loopSpan := o.tracer.Start(runCtx, "orchestrator.handle_leadership",
 					trace.WithAttributes(
 						attribute.Bool("is_leader", isLeader),
 					))
@@ -173,9 +176,9 @@ func (o *Orchestrator) Run(ctx context.Context) (<-chan struct{}, error) {
 				}
 
 				o.logger.Info(loopCtx, "Leadership acquired, processing targets...", "orchestrator_id", o.id)
-				loopSpan.End() // End initial leadership handling span
+				loopSpan.End()
 
-				enumCtx, enumSpan := o.tracer.Start(ctx, "orchestrator.track_enumeration")
+				enumCtx, enumSpan := o.tracer.Start(runCtx, "orchestrator.track_enumeration")
 				err := o.metrics.TrackEnumeration(enumCtx, func() error {
 					return o.Enumerate(enumCtx)
 				})
@@ -187,7 +190,7 @@ func (o *Orchestrator) Run(ctx context.Context) (<-chan struct{}, error) {
 				enumSpan.End()
 
 				if !readyClosed {
-					_, readySpan := o.tracer.Start(ctx, "orchestrator.mark_ready")
+					_, readySpan := o.tracer.Start(runCtx, "orchestrator.mark_ready")
 					close(ready)
 					readyClosed = true
 					readySpan.AddEvent("ready_channel_closed")
@@ -195,7 +198,7 @@ func (o *Orchestrator) Run(ctx context.Context) (<-chan struct{}, error) {
 				}
 
 			case <-ctx.Done():
-				shutdownCtx, shutdownSpan := o.tracer.Start(ctx, "orchestrator.shutdown")
+				shutdownCtx, shutdownSpan := o.tracer.Start(runCtx, "orchestrator.shutdown")
 				o.logger.Info(shutdownCtx, "Context cancelled, shutting down", "orchestrator_id", o.id)
 				if !readyClosed {
 					close(ready)
@@ -207,13 +210,14 @@ func (o *Orchestrator) Run(ctx context.Context) (<-chan struct{}, error) {
 		}
 	}()
 
-	// Short span for coordinator startup
-	startCtx, startSpan := o.tracer.Start(ctx, "orchestrator.start_coordinator")
+	// Start coordinator span as child of runSpan.
+	startCtx, startSpan := o.tracer.Start(runCtx, "orchestrator.start_coordinator")
 	o.logger.Info(startCtx, "Starting coordinator...", "orchestrator_id", o.id)
 	if err := o.coordinator.Start(startCtx); err != nil {
 		startSpan.RecordError(err)
 		startSpan.SetStatus(codes.Error, "failed to start coordinator")
 		startSpan.End()
+		runSpan.End() // End the parent span on error
 		return nil, fmt.Errorf("orchestrator[%s]: failed to start coordinator: %v", o.id, err)
 	}
 	startSpan.AddEvent("coordinator_started")

@@ -86,6 +86,10 @@ func (r *GitHubRepo) CreatedAt() time.Time { return r.timeline.StartedAt() }
 // UpdatedAt returns when the repository was last modified.
 func (r *GitHubRepo) UpdatedAt() time.Time { return r.timeline.LastUpdate() }
 
+// SetID sets the repository's ID.
+// This is used by the persistence layer to set the ID after the repository has been created.
+func (r *GitHubRepo) SetID(id int64) { r.id = id }
+
 // Deactivate marks the repository as inactive, preventing further scanning operations.
 func (r *GitHubRepo) Deactivate() {
 	r.isActive = false
