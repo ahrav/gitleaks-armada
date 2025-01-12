@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
+	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/infra/storage"
 )
 
@@ -23,8 +23,8 @@ func setupGitHubRepoTest(t *testing.T) (context.Context, *githubRepositoryStore,
 	return ctx, store, cleanup
 }
 
-func createTestRepo(name string) *scanning.GitHubRepo {
-	return scanning.ReconstructGitHubRepo(
+func createTestRepo(name string) *enumeration.GitHubRepo {
+	return enumeration.ReconstructGitHubRepo(
 		0, // ID will be assigned by database
 		name,
 		"https://github.com/org/"+name+".git",
@@ -33,7 +33,7 @@ func createTestRepo(name string) *scanning.GitHubRepo {
 			"language": "Go",
 			"stars":    100,
 		},
-		scanning.ReconstructTimeline(time.Now(), time.Now(), time.Time{}),
+		enumeration.ReconstructTimeline(time.Now(), time.Now(), time.Time{}),
 	)
 }
 
@@ -117,7 +117,7 @@ func TestGitHubRepositoryStore_List(t *testing.T) {
 	ctx, store, cleanup := setupGitHubRepoTest(t)
 	defer cleanup()
 
-	repos := []*scanning.GitHubRepo{
+	repos := []*enumeration.GitHubRepo{
 		createTestRepo("repo-1"),
 		createTestRepo("repo-2"),
 		createTestRepo("repo-3"),
@@ -203,13 +203,13 @@ func TestGitHubRepositoryStore_UpdateNonExistent(t *testing.T) {
 	repo := createTestRepo("test-repo")
 
 	// Set a non-existent ID.
-	nonExistentRepo := scanning.ReconstructGitHubRepo(
+	nonExistentRepo := enumeration.ReconstructGitHubRepo(
 		99999,
 		repo.Name(),
 		repo.URL(),
 		repo.IsActive(),
 		repo.Metadata(),
-		scanning.ReconstructTimeline(time.Now(), time.Now(), time.Time{}),
+		enumeration.ReconstructTimeline(time.Now(), time.Now(), time.Time{}),
 	)
 
 	err := store.Update(ctx, nonExistentRepo)

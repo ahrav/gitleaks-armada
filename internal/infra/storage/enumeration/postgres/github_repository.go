@@ -14,19 +14,14 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/ahrav/gitleaks-armada/internal/db"
-	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
+	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/infra/storage"
 )
 
-// defaultDBAttributes defines standard OpenTelemetry attributes for PostgreSQL operations.
-var defaultDBAttributes = []attribute.KeyValue{
-	attribute.String("db.system", "postgresql"),
-}
+// Ensure githubRepositoryStore satisfies enumeration.GithubRepository (compile-time check).
+var _ enumeration.GithubRepository = (*githubRepositoryStore)(nil)
 
-// Ensure githubRepositoryStore satisfies scanning.GithubRepository (compile-time check).
-var _ scanning.GithubRepository = (*githubRepositoryStore)(nil)
-
-// githubRepositoryStore implements scanning.GithubRepository using PostgreSQL.
+// githubRepositoryStore implements enumeration.GithubRepository using PostgreSQL.
 // It provides persistence for GitHub repository aggregates while maintaining
 // domain invariants and includes OpenTelemetry instrumentation.
 type githubRepositoryStore struct {
@@ -34,7 +29,7 @@ type githubRepositoryStore struct {
 	tracer trace.Tracer
 }
 
-// NewGithubRepositoryStore creates a PostgreSQL-backed implementation of scanning.GithubRepository.
+// NewGithubRepositoryStore creates a PostgreSQL-backed implementation of enumeration.GithubRepository.
 // It uses sqlc-generated queries to ensure type-safe database operations.
 func NewGithubRepositoryStore(pool *pgxpool.Pool, tracer trace.Tracer) *githubRepositoryStore {
 	return &githubRepositoryStore{
@@ -45,7 +40,7 @@ func NewGithubRepositoryStore(pool *pgxpool.Pool, tracer trace.Tracer) *githubRe
 
 // Create persists a new GitHubRepo aggregate to PostgreSQL and returns its assigned ID.
 // If the insert fails, it returns a wrapped error preserving the root cause.
-func (s *githubRepositoryStore) Create(ctx context.Context, repo *scanning.GitHubRepo) (int64, error) {
+func (s *githubRepositoryStore) Create(ctx context.Context, repo *enumeration.GitHubRepo) (int64, error) {
 	dbAttrs := append(
 		defaultDBAttributes,
 		attribute.String("method", "Create"),
@@ -85,7 +80,7 @@ func (s *githubRepositoryStore) Create(ctx context.Context, repo *scanning.GitHu
 // Update modifies an existing GitHubRepo in PostgreSQL.
 // It expects the repo has already passed domain validation.
 // Returns an error if the update fails or metadata serialization fails.
-func (s *githubRepositoryStore) Update(ctx context.Context, repo *scanning.GitHubRepo) error {
+func (s *githubRepositoryStore) Update(ctx context.Context, repo *enumeration.GitHubRepo) error {
 	dbAttrs := []attribute.KeyValue{
 		attribute.String("method", "Update"),
 		attribute.Int64("repo_id", repo.ID()),
@@ -130,14 +125,14 @@ func (s *githubRepositoryStore) Update(ctx context.Context, repo *scanning.GitHu
 // GetByID retrieves a GitHubRepo by its primary key from PostgreSQL.
 // Returns (nil, nil) if no matching record exists, allowing callers to
 // distinguish between missing records and errors.
-func (s *githubRepositoryStore) GetByID(ctx context.Context, id int64) (*scanning.GitHubRepo, error) {
+func (s *githubRepositoryStore) GetByID(ctx context.Context, id int64) (*enumeration.GitHubRepo, error) {
 	dbAttrs := append(
 		defaultDBAttributes,
 		attribute.String("method", "GetByID"),
 		attribute.Int64("repo_id", id),
 	)
 
-	var repo *scanning.GitHubRepo
+	var repo *enumeration.GitHubRepo
 	err := storage.ExecuteAndTrace(ctx, s.tracer, "postgres.githubrepo.get_by_id", dbAttrs, func(ctx context.Context) error {
 		dbRepo, err := s.q.GetGitHubRepoByID(ctx, id)
 		if err != nil {
@@ -153,13 +148,13 @@ func (s *githubRepositoryStore) GetByID(ctx context.Context, id int64) (*scannin
 		}
 
 		// TODO: Fix ReconstructTimeline so we don't have to pass in a zero time.
-		repo = scanning.ReconstructGitHubRepo(
+		repo = enumeration.ReconstructGitHubRepo(
 			dbRepo.ID,
 			dbRepo.Name,
 			dbRepo.Url,
 			dbRepo.IsActive,
 			metadata,
-			scanning.ReconstructTimeline(dbRepo.CreatedAt.Time, dbRepo.UpdatedAt.Time, time.Time{}),
+			enumeration.ReconstructTimeline(dbRepo.CreatedAt.Time, dbRepo.UpdatedAt.Time, time.Time{}),
 		)
 		return nil
 	})
@@ -172,14 +167,14 @@ func (s *githubRepositoryStore) GetByID(ctx context.Context, id int64) (*scannin
 // GetByURL retrieves a GitHubRepo by its unique URL from PostgreSQL.
 // Returns (nil, nil) if no matching record exists, allowing callers to
 // distinguish between missing records and errors.
-func (s *githubRepositoryStore) GetByURL(ctx context.Context, url string) (*scanning.GitHubRepo, error) {
+func (s *githubRepositoryStore) GetByURL(ctx context.Context, url string) (*enumeration.GitHubRepo, error) {
 	dbAttrs := append(
 		defaultDBAttributes,
 		attribute.String("method", "GetByURL"),
 		attribute.String("repo_url", url),
 	)
 
-	var repo *scanning.GitHubRepo
+	var repo *enumeration.GitHubRepo
 	err := storage.ExecuteAndTrace(ctx, s.tracer, "postgres.githubrepo.get_by_url", dbAttrs, func(ctx context.Context) error {
 		dbRepo, err := s.q.GetGitHubRepoByURL(ctx, url)
 		if err != nil {
@@ -194,13 +189,13 @@ func (s *githubRepositoryStore) GetByURL(ctx context.Context, url string) (*scan
 			return fmt.Errorf("failed to unmarshal metadata: %w", err)
 		}
 
-		repo = scanning.ReconstructGitHubRepo(
+		repo = enumeration.ReconstructGitHubRepo(
 			dbRepo.ID,
 			dbRepo.Name,
 			dbRepo.Url,
 			dbRepo.IsActive,
 			metadata,
-			scanning.ReconstructTimeline(dbRepo.CreatedAt.Time, dbRepo.UpdatedAt.Time, time.Time{}),
+			enumeration.ReconstructTimeline(dbRepo.CreatedAt.Time, dbRepo.UpdatedAt.Time, time.Time{}),
 		)
 		return nil
 	})
@@ -213,7 +208,7 @@ func (s *githubRepositoryStore) GetByURL(ctx context.Context, url string) (*scan
 // List retrieves a paginated slice of GitHubRepo aggregates from PostgreSQL.
 // Results are ordered by creation time (descending) and limited by the provided
 // limit and offset parameters to support efficient pagination through large result sets.
-func (s *githubRepositoryStore) List(ctx context.Context, limit, offset int32) ([]*scanning.GitHubRepo, error) {
+func (s *githubRepositoryStore) List(ctx context.Context, limit, offset int32) ([]*enumeration.GitHubRepo, error) {
 	dbAttrs := append(
 		defaultDBAttributes,
 		attribute.String("method", "List"),
@@ -221,7 +216,7 @@ func (s *githubRepositoryStore) List(ctx context.Context, limit, offset int32) (
 		attribute.Int64("offset", int64(offset)),
 	)
 
-	var repos []*scanning.GitHubRepo
+	var repos []*enumeration.GitHubRepo
 	err := storage.ExecuteAndTrace(ctx, s.tracer, "postgres.githubrepo.list", dbAttrs, func(ctx context.Context) error {
 		dbRows, err := s.q.ListGitHubRepos(ctx, db.ListGitHubReposParams{
 			Limit:  limit,
@@ -231,20 +226,20 @@ func (s *githubRepositoryStore) List(ctx context.Context, limit, offset int32) (
 			return fmt.Errorf("list error: %w", err)
 		}
 
-		tmp := make([]*scanning.GitHubRepo, 0, len(dbRows))
+		tmp := make([]*enumeration.GitHubRepo, 0, len(dbRows))
 		for _, row := range dbRows {
 			var metadata map[string]any
 			if err := json.Unmarshal(row.Metadata, &metadata); err != nil {
 				return fmt.Errorf("failed to unmarshal metadata: %w", err)
 			}
 
-			repo := scanning.ReconstructGitHubRepo(
+			repo := enumeration.ReconstructGitHubRepo(
 				row.ID,
 				row.Name,
 				row.Url,
 				row.IsActive,
 				metadata,
-				scanning.ReconstructTimeline(row.CreatedAt.Time, row.UpdatedAt.Time, time.Time{}),
+				enumeration.ReconstructTimeline(row.CreatedAt.Time, row.UpdatedAt.Time, time.Time{}),
 			)
 			tmp = append(tmp, repo)
 		}

@@ -1,4 +1,4 @@
-package scanning
+package enumeration
 
 import (
 	"errors"
@@ -10,14 +10,14 @@ import (
 // through type and ID fields. This abstraction allows for scanning different types of resources
 // (repositories, organizations, etc.) in a uniform way.
 type ScanTarget struct {
-	id         int64
-	name       string
-	targetType string // Identifies the type of resource (e.g., "github_repo", "org")
-	targetID   int64  // References the actual resource in its respective domain
-	metadata   map[string]any
+	id           int64
+	name         string
+	targetType   string // Identifies the type of resource (e.g., "github_repo", "org")
+	targetID     int64  // References the actual resource in its respective domain
+	metadata     map[string]any
 	lastScanTime *time.Time // Tracks the most recent successful scan completion
 
-	timeline   *Timeline
+	timeline *Timeline
 }
 
 // NewScanTarget creates a new scanning target with the specified attributes.

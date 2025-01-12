@@ -1,4 +1,4 @@
-package scanning
+package enumeration
 
 import (
 	"errors"

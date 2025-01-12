@@ -1,20 +1,12 @@
-package scanning
+package enumeration
 
 import (
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
-
-// mockTimeProvider helps control time in tests
-type mockTimeProvider struct {
-	currentTime time.Time
-}
-
-func (m *mockTimeProvider) Now() time.Time {
-	return m.currentTime
-}
 
 func TestNewScanTarget(t *testing.T) {
 	t.Parallel()
@@ -139,8 +131,7 @@ func TestReconstructScanTarget(t *testing.T) {
 	t.Parallel()
 
 	fixedTime := time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
-	timeProvider := &mockTimeProvider{currentTime: fixedTime}
-	timeline := NewTimeline(timeProvider)
+	timeline := NewTimeline(&mockTimeProvider{current: fixedTime})
 
 	lastScan := fixedTime.Add(-1 * time.Hour)
 	metadata := map[string]any{"key": "value"}
@@ -170,7 +161,9 @@ func TestScanTarget_UpdateLastScanTime(t *testing.T) {
 	t.Parallel()
 
 	fixedTime := time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
-	timeProvider := &mockTimeProvider{currentTime: fixedTime}
+	newTime := fixedTime.Add(time.Hour)
+
+	mockTimeProvider := &mockTimeProvider{current: fixedTime}
 
 	target, err := NewScanTarget(
 		"test-repo",
@@ -181,23 +174,26 @@ func TestScanTarget_UpdateLastScanTime(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Replace the timeline with our controlled version
-	target.timeline = NewTimeline(timeProvider)
+	target.timeline = NewTimeline(mockTimeProvider)
+
+	// Update the mock provider's time before updating last scan time
+	mockTimeProvider.current = newTime
 
 	// Update to a new fixed time
-	newTime := fixedTime.Add(time.Hour)
-	timeProvider.currentTime = newTime
 	target.UpdateLastScanTime(newTime)
 
-	assert.Equal(t, &newTime, target.LastScanTime())
-	assert.Equal(t, newTime, target.UpdatedAt())
+	require.NotNil(t, target.LastScanTime())
+	assert.True(t, target.LastScanTime().Equal(newTime),
+		"LastScanTime should equal newTime")
+	assert.True(t, target.UpdatedAt().Equal(newTime),
+		"UpdatedAt should equal newTime")
 }
 
 func TestScanTarget_Getters(t *testing.T) {
 	t.Parallel()
 
 	fixedTime := time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
-	timeProvider := &mockTimeProvider{currentTime: fixedTime}
-	timeline := NewTimeline(timeProvider)
+	timeline := NewTimeline(&mockTimeProvider{current: fixedTime})
 
 	lastScan := fixedTime.Add(-1 * time.Hour)
 	metadata := map[string]any{"key": "value"}

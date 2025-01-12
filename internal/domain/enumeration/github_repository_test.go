@@ -1,4 +1,4 @@
-package scanning
+package enumeration
 
 import (
 	"testing"
@@ -86,8 +86,7 @@ func TestReconstructGitHubRepo(t *testing.T) {
 	t.Parallel()
 
 	fixedTime := time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
-	timeProvider := &mockTimeProvider{currentTime: fixedTime}
-	timeline := NewTimeline(timeProvider)
+	timeline := NewTimeline(&mockTimeProvider{current: fixedTime})
 
 	metadata := map[string]any{"key": "value"}
 
