@@ -49,6 +49,8 @@ type metrics interface {
 // It contains the core identifying information and metadata needed to create or update
 // the corresponding domain entity (e.g. GitHubRepo). The ResourceType field helps the
 // coordinator route the entry to the appropriate resourcePersister implementation.
+// TODO: Refactor this to be more generic and allow for different resource types.
+// eg. ResourceType, Name + Metadata)
 type ResourceEntry struct {
 	ResourceType shared.TargetType // Type of resource (e.g. "github_repository") for routing
 	Name         string            // Display name of the resource
