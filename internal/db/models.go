@@ -192,7 +192,6 @@ type Checkpoint struct {
 }
 
 type EnumerationBatch struct {
-	ID             int64
 	BatchID        pgtype.UUID
 	SessionID      pgtype.UUID
 	Status         BatchStatus
@@ -234,7 +233,6 @@ type EnumerationSessionState struct {
 }
 
 type EnumerationTask struct {
-	ID          int64
 	TaskID      pgtype.UUID
 	SessionID   pgtype.UUID
 	ResourceUri string
@@ -283,14 +281,18 @@ type Rule struct {
 }
 
 type ScanJob struct {
-	ID           int64
-	JobID        pgtype.UUID
+	ID        int64
+	JobID     pgtype.UUID
+	Status    ScanJobStatus
+	StartTime pgtype.Timestamptz
+	EndTime   pgtype.Timestamptz
+	CreatedAt pgtype.Timestamptz
+	UpdatedAt pgtype.Timestamptz
+}
+
+type ScanJobTarget struct {
+	JobID        int64
 	ScanTargetID int64
-	Status       ScanJobStatus
-	StartTime    pgtype.Timestamptz
-	EndTime      pgtype.Timestamptz
-	CreatedAt    pgtype.Timestamptz
-	UpdatedAt    pgtype.Timestamptz
 }
 
 type ScanTarget struct {
@@ -305,7 +307,6 @@ type ScanTarget struct {
 }
 
 type Task struct {
-	ID         int64
 	TaskID     pgtype.UUID
 	SourceType string
 }

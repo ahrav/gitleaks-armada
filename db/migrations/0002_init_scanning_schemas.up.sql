@@ -12,7 +12,6 @@ CREATE TYPE scan_job_status AS ENUM (
 CREATE TABLE scan_jobs (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     job_id UUID NOT NULL UNIQUE,
-    scan_target_id BIGINT NOT NULL REFERENCES scan_targets (id),
     status scan_job_status NOT NULL,
     start_time TIMESTAMPTZ,
     end_time TIMESTAMPTZ,
@@ -21,5 +20,12 @@ CREATE TABLE scan_jobs (
 );
 
 -- Indexes
-CREATE INDEX idx_scan_jobs_scan_target_id ON scan_jobs (scan_target_id);
 CREATE INDEX idx_scan_jobs_status ON scan_jobs (status);
+
+
+-- Scan Job Targets Table (Associative table between scan jobs and scan targets)
+CREATE TABLE scan_job_targets (
+    job_id BIGINT NOT NULL REFERENCES scan_jobs (id),
+    scan_target_id BIGINT NOT NULL REFERENCES scan_targets (id),
+    PRIMARY KEY(job_id, scan_target_id)
+);

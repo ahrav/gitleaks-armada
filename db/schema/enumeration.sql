@@ -60,8 +60,7 @@ CREATE TABLE enumeration_session_metrics (
 
 -- Enumeration Batches Table (Entity)
 CREATE TABLE enumeration_batches (
-    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    batch_id UUID NOT NULL UNIQUE,
+    batch_id UUID PRIMARY KEY,
     session_id UUID NOT NULL REFERENCES enumeration_session_states(session_id),
     status batch_status NOT NULL,
     checkpoint_id BIGINT REFERENCES checkpoints(id),
@@ -84,15 +83,13 @@ CREATE INDEX idx_enumeration_batches_status ON enumeration_batches(status);
 
 -- Tasks Table
 CREATE TABLE tasks (
-    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    task_id UUID NOT NULL UNIQUE,
+    task_id UUID PRIMARY KEY,
     source_type VARCHAR NOT NULL
 );
 
 -- Enumeration Tasks Table
 CREATE TABLE enumeration_tasks (
-    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    task_id UUID NOT NULL UNIQUE,
+    task_id UUID PRIMARY KEY,
     session_id UUID NOT NULL REFERENCES enumeration_session_states(session_id),
     resource_uri VARCHAR NOT NULL,
     metadata JSONB,

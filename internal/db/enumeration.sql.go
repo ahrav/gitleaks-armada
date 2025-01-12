@@ -236,7 +236,7 @@ func (q *Queries) GetActiveEnumerationSessionStates(ctx context.Context) ([]GetA
 }
 
 const getBatch = `-- name: GetBatch :one
-SELECT id, batch_id, session_id, status, checkpoint_id, started_at, completed_at, last_update, items_processed, expected_items, error_details, created_at, updated_at FROM enumeration_batches
+SELECT batch_id, session_id, status, checkpoint_id, started_at, completed_at, last_update, items_processed, expected_items, error_details, created_at, updated_at FROM enumeration_batches
 WHERE batch_id = $1
 `
 
@@ -244,7 +244,6 @@ func (q *Queries) GetBatch(ctx context.Context, batchID pgtype.UUID) (Enumeratio
 	row := q.db.QueryRow(ctx, getBatch, batchID)
 	var i EnumerationBatch
 	err := row.Scan(
-		&i.ID,
 		&i.BatchID,
 		&i.SessionID,
 		&i.Status,
@@ -262,7 +261,7 @@ func (q *Queries) GetBatch(ctx context.Context, batchID pgtype.UUID) (Enumeratio
 }
 
 const getBatchesForSession = `-- name: GetBatchesForSession :many
-SELECT id, batch_id, session_id, status, checkpoint_id, started_at, completed_at, last_update, items_processed, expected_items, error_details, created_at, updated_at
+SELECT batch_id, session_id, status, checkpoint_id, started_at, completed_at, last_update, items_processed, expected_items, error_details, created_at, updated_at
 FROM enumeration_batches
 WHERE session_id = $1
 ORDER BY started_at ASC
@@ -278,7 +277,6 @@ func (q *Queries) GetBatchesForSession(ctx context.Context, sessionID pgtype.UUI
 	for rows.Next() {
 		var i EnumerationBatch
 		if err := rows.Scan(
-			&i.ID,
 			&i.BatchID,
 			&i.SessionID,
 			&i.Status,
