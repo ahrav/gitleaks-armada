@@ -3,7 +3,11 @@
 // track progress, and handle failure recovery.
 package scanning
 
-import "context"
+import (
+	"context"
+
+	"github.com/google/uuid"
+)
 
 // JobRepository defines the persistence operations for scan jobs.
 // It provides an abstraction layer over the storage mechanism used to maintain
@@ -14,6 +18,9 @@ type JobRepository interface {
 
 	// UpdateJob modifies an existing job’s fields (status, end_time, etc.).
 	UpdateJob(ctx context.Context, job *ScanJob) error
+
+	// AssociateTarget links a scan target with this job.
+	AssociateTarget(ctx context.Context, jobID, targetID uuid.UUID) error
 
 	// GetJob retrieves a job’s state (including associated tasks if needed).
 	GetJob(ctx context.Context, jobID string) (*ScanJob, error)

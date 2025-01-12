@@ -241,3 +241,13 @@ func TestScanJob_UpdateTask(t *testing.T) {
 		})
 	}
 }
+
+func TestScanJob_AssociateTarget(t *testing.T) {
+	t.Parallel()
+
+	job := NewScanJob()
+	targetID := uuid.New()
+	job.AssociateTarget(targetID)
+
+	assert.Equal(t, job.scanTargetID, targetID)
+}

@@ -28,7 +28,7 @@ const (
 // It provides aggregated status and progress tracking across all child tasks.
 type ScanJob struct {
 	jobID        uuid.UUID
-	scanTargetID int64
+	scanTargetID uuid.UUID
 	status       JobStatus
 	timeline     *Timeline
 	metrics      *JobMetrics
@@ -62,6 +62,9 @@ func (j *ScanJob) GetStartTime() time.Time { return j.timeline.StartedAt() }
 // GetLastUpdateTime returns when this job's state was last modified.
 // Access is synchronized to ensure thread-safe reads.
 func (j *ScanJob) GetLastUpdateTime() time.Time { return j.timeline.LastUpdate() }
+
+// AssociateTarget links a scan target with this job.
+func (j *ScanJob) AssociateTarget(targetID uuid.UUID) { j.scanTargetID = targetID }
 
 // AddTask registers a new scan task with this job and updates task counters.
 func (j *ScanJob) AddTask(task *Task) {
