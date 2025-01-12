@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -137,9 +138,10 @@ func TestReconstructScanTarget(t *testing.T) {
 
 	lastScan := fixedTime.Add(-1 * time.Hour)
 	metadata := map[string]any{"key": "value"}
+	id := uuid.New()
 
 	target := ReconstructScanTarget(
-		123,
+		id,
 		"test-repo",
 		shared.TargetTypeGitHubRepo,
 		456,
@@ -149,7 +151,7 @@ func TestReconstructScanTarget(t *testing.T) {
 	)
 
 	assert.NotNil(t, target)
-	assert.Equal(t, int64(123), target.ID())
+	assert.Equal(t, id, target.ID())
 	assert.Equal(t, "test-repo", target.Name())
 	assert.Equal(t, shared.TargetTypeGitHubRepo, target.TargetType())
 	assert.Equal(t, int64(456), target.TargetID())
@@ -199,9 +201,9 @@ func TestScanTarget_Getters(t *testing.T) {
 
 	lastScan := fixedTime.Add(-1 * time.Hour)
 	metadata := map[string]any{"key": "value"}
-
+	id := uuid.New()
 	target := ReconstructScanTarget(
-		123,
+		id,
 		"test-repo",
 		shared.TargetTypeGitHubRepo,
 		456,
@@ -215,7 +217,7 @@ func TestScanTarget_Getters(t *testing.T) {
 		got      interface{}
 		expected interface{}
 	}{
-		{"ID", target.ID(), int64(123)},
+		{"ID", target.ID(), id},
 		{"Name", target.Name(), "test-repo"},
 		{"TargetType", target.TargetType(), shared.TargetTypeGitHubRepo},
 		{"TargetID", target.TargetID(), int64(456)},

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -43,7 +44,7 @@ func NewScanTargetStore(pool *pgxpool.Pool, tracer trace.Tracer) *scanTargetRepo
 // Create persists a new scan target to the database. It automatically sets
 // created_at and updated_at timestamps. Returns an error if the target cannot
 // be created or if metadata serialization fails.
-func (r *scanTargetRepository) Create(ctx context.Context, target *enumeration.ScanTarget) (int64, error) {
+func (r *scanTargetRepository) Create(ctx context.Context, target *enumeration.ScanTarget) (uuid.UUID, error) {
 	dbAttrs := []attribute.KeyValue{
 		attribute.String("repository", "ScanTargetRepository"),
 		attribute.String("method", "Create"),
@@ -51,7 +52,7 @@ func (r *scanTargetRepository) Create(ctx context.Context, target *enumeration.S
 		attribute.String("target_type", target.TargetType().String()),
 	}
 
-	var id int64
+	var id pgtype.UUID
 	err := storage.ExecuteAndTrace(ctx, r.tracer, "postgres.scantarget.create", dbAttrs, func(ctx context.Context) error {
 		// Metadata must be JSON serialized for storage
 		metadataBytes, err := json.Marshal(target.Metadata())
@@ -61,6 +62,7 @@ func (r *scanTargetRepository) Create(ctx context.Context, target *enumeration.S
 
 		var createErr error
 		id, createErr = r.q.CreateScanTarget(ctx, db.CreateScanTargetParams{
+			ID:         pgtype.UUID{Bytes: target.ID(), Valid: true},
 			Name:       target.Name(),
 			TargetType: target.TargetType().String(),
 			TargetID:   target.TargetID(),
@@ -72,10 +74,10 @@ func (r *scanTargetRepository) Create(ctx context.Context, target *enumeration.S
 		return nil
 	})
 	if err != nil {
-		return 0, err
+		return uuid.Nil, err
 	}
 
-	return id, nil
+	return id.Bytes, nil
 }
 
 // Update modifies an existing scan target's scan time and metadata.
@@ -84,7 +86,7 @@ func (r *scanTargetRepository) Update(ctx context.Context, target *enumeration.S
 	dbAttrs := []attribute.KeyValue{
 		attribute.String("repository", "ScanTargetRepository"),
 		attribute.String("method", "Update"),
-		attribute.Int64("scan_target_id", target.ID()),
+		attribute.String("scan_target_id", target.ID().String()),
 	}
 
 	return storage.ExecuteAndTrace(ctx, r.tracer, "postgres.scantarget.update", dbAttrs, func(ctx context.Context) error {
@@ -101,7 +103,7 @@ func (r *scanTargetRepository) Update(ctx context.Context, target *enumeration.S
 		}
 
 		rowsAffected, err := r.q.UpdateScanTargetScanTime(ctx, db.UpdateScanTargetScanTimeParams{
-			ID:           target.ID(),
+			ID:           pgtype.UUID{Bytes: target.ID(), Valid: true},
 			LastScanTime: lastScan,
 			Metadata:     metadataBytes,
 		})
@@ -109,7 +111,7 @@ func (r *scanTargetRepository) Update(ctx context.Context, target *enumeration.S
 			return fmt.Errorf("update error: %w", err)
 		}
 		if rowsAffected == 0 {
-			return fmt.Errorf("no rows affected for ID=%d", target.ID())
+			return fmt.Errorf("no rows affected for ID=%s", target.ID().String())
 		}
 		return nil
 	})
@@ -118,16 +120,16 @@ func (r *scanTargetRepository) Update(ctx context.Context, target *enumeration.S
 // GetByID retrieves a scan target by its primary key. Returns nil if no target
 // is found with the given ID. The returned target includes all fields including
 // metadata and timestamps.
-func (r *scanTargetRepository) GetByID(ctx context.Context, id int64) (*enumeration.ScanTarget, error) {
+func (r *scanTargetRepository) GetByID(ctx context.Context, id uuid.UUID) (*enumeration.ScanTarget, error) {
 	dbAttrs := []attribute.KeyValue{
 		attribute.String("repository", "ScanTargetRepository"),
 		attribute.String("method", "GetByID"),
-		attribute.Int64("scan_target_id", id),
+		attribute.String("scan_target_id", id.String()),
 	}
 
 	var foundTarget *enumeration.ScanTarget
 	err := storage.ExecuteAndTrace(ctx, r.tracer, "postgres.scantarget.get_by_id", dbAttrs, func(ctx context.Context) error {
-		row, err := r.q.GetScanTargetByID(ctx, id)
+		row, err := r.q.GetScanTargetByID(ctx, pgtype.UUID{Bytes: id, Valid: true})
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return nil
@@ -151,7 +153,7 @@ func (r *scanTargetRepository) GetByID(ctx context.Context, id int64) (*enumerat
 		}
 
 		foundTarget = enumeration.ReconstructScanTarget(
-			row.ID,
+			row.ID.Bytes,
 			row.Name,
 			targetType,
 			row.TargetID,
@@ -207,7 +209,7 @@ func (r *scanTargetRepository) Find(ctx context.Context, targetType string, targ
 		}
 
 		foundTarget = enumeration.ReconstructScanTarget(
-			row.ID,
+			row.ID.Bytes,
 			row.Name,
 			targetType,
 			row.TargetID,
@@ -261,7 +263,7 @@ func (r *scanTargetRepository) List(ctx context.Context, limit, offset int32) ([
 			}
 
 			tmp = append(tmp, enumeration.ReconstructScanTarget(
-				row.ID,
+				row.ID.Bytes,
 				row.Name,
 				targetType,
 				row.TargetID,

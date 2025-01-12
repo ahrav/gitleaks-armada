@@ -44,14 +44,14 @@ type GithubRepository interface {
 type ScanTargetRepository interface {
 	// Create persists a new scan target.
 	// The target must be constructed via NewScanTarget to ensure initial validity.
-	Create(ctx context.Context, target *ScanTarget) (int64, error)
+	Create(ctx context.Context, target *ScanTarget) (uuid.UUID, error)
 
 	// Update modifies an existing scan target's metadata and timestamps.
 	// This is commonly used to track scan history and target state changes.
 	Update(ctx context.Context, target *ScanTarget) error
 
 	// GetByID retrieves a scan target by its unique identifier.
-	GetByID(ctx context.Context, id int64) (*ScanTarget, error)
+	GetByID(ctx context.Context, id uuid.UUID) (*ScanTarget, error)
 
 	// Find retrieves a scan target by its business identifiers.
 	// This allows looking up targets by their logical identity rather than database ID.

@@ -29,7 +29,7 @@ CREATE TABLE checkpoints (
 
 -- Enumeration Session States Table (Aggregate Root)
 CREATE TABLE enumeration_session_states (
-    session_id UUID PRIMARY KEY,
+    session_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     source_type VARCHAR(32) NOT NULL,
     config JSONB NOT NULL,
     last_checkpoint_id BIGINT REFERENCES checkpoints(id),
@@ -46,7 +46,7 @@ CREATE TABLE enumeration_session_states (
 
 -- Session Metrics (Value Object)
 CREATE TABLE enumeration_session_metrics (
-    session_id UUID PRIMARY KEY,
+    session_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     total_batches INTEGER NOT NULL DEFAULT 0,
     failed_batches INTEGER NOT NULL DEFAULT 0,
     items_found INTEGER NOT NULL DEFAULT 0,
@@ -58,7 +58,7 @@ CREATE TABLE enumeration_session_metrics (
 
 -- Enumeration Batches Table (Entity)
 CREATE TABLE enumeration_batches (
-    batch_id UUID PRIMARY KEY,
+    batch_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     session_id UUID NOT NULL REFERENCES enumeration_session_states(session_id),
     status batch_status NOT NULL,
     checkpoint_id BIGINT REFERENCES checkpoints(id),
@@ -81,13 +81,13 @@ CREATE INDEX idx_enumeration_batches_status ON enumeration_batches(status);
 
 -- Tasks Table
 CREATE TABLE tasks (
-    task_id UUID PRIMARY KEY,
+    task_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     source_type VARCHAR NOT NULL
 );
 
 -- Enumeration Tasks Table
 CREATE TABLE enumeration_tasks (
-    task_id UUID PRIMARY KEY,
+    task_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     session_id UUID NOT NULL REFERENCES enumeration_session_states(session_id),
     resource_uri VARCHAR NOT NULL,
     metadata JSONB,
@@ -112,7 +112,7 @@ CREATE INDEX idx_github_repositories_url ON github_repositories (url);
 
 -- Scan Targets Table
 CREATE TABLE scan_targets (
-    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name VARCHAR(255) NOT NULL,
     target_type VARCHAR(255) NOT NULL,  -- e.g. "github_repositories"
     target_id BIGINT NOT NULL,          -- references the row in that table

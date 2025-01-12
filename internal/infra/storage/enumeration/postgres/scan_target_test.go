@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -31,7 +32,7 @@ func setupScanTargetTest(t *testing.T) (context.Context, *scanTargetRepository, 
 
 func createTestScanTarget(name string) *enumeration.ScanTarget {
 	return enumeration.ReconstructScanTarget(
-		0, // ID will be assigned by database
+		uuid.New(), // ID will be assigned by database
 		name,
 		shared.TargetTypeGitHubRepo,
 		123,
@@ -175,7 +176,7 @@ func TestScanTargetRepository_GetNonExistent(t *testing.T) {
 	ctx, repo, cleanup := setupScanTargetTest(t)
 	defer cleanup()
 
-	target, err := repo.GetByID(ctx, 99999)
+	target, err := repo.GetByID(ctx, uuid.New())
 	require.NoError(t, err)
 	assert.Nil(t, target)
 
@@ -193,7 +194,7 @@ func TestScanTargetRepository_UpdateNonExistent(t *testing.T) {
 	target := createTestScanTarget("test-repo")
 	// Set a non-existent ID
 	nonExistentTarget := enumeration.ReconstructScanTarget(
-		99999,
+		uuid.New(),
 		target.Name(),
 		target.TargetType(),
 		target.TargetID(),

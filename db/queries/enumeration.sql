@@ -255,6 +255,7 @@ LIMIT $1 OFFSET $2;
 
 -- name: CreateScanTarget :one
 INSERT INTO scan_targets (
+    id,
     name,
     target_type,
     target_id,
@@ -262,7 +263,7 @@ INSERT INTO scan_targets (
     created_at,
     updated_at
 ) VALUES (
-    $1, $2, $3, $4, NOW(), NOW()
+    $1, $2, $3, $4, $5, NOW(), NOW()
 )
 RETURNING id;
 

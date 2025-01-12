@@ -606,14 +606,13 @@ func (s *coordinator) processTarget(
 	}
 	span.AddEvent("Resource persisted successfully")
 
-	_, err = s.createScanTarget(
+	if err := s.createScanTarget(
 		ctx,
 		result.Name,
 		result.TargetType,
 		result.ResourceID,
 		result.Metadata,
-	)
-	if err != nil {
+	); err != nil {
 		span.RecordError(err)
 		return fmt.Errorf("failed to create scan target: %w", err)
 	}
@@ -636,7 +635,7 @@ func (s *coordinator) createScanTarget(
 	targetType shared.TargetType,
 	targetID int64,
 	metadata map[string]any,
-) (int64, error) {
+) error {
 	ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.create_scan_target",
 		trace.WithAttributes(
 			attribute.String("name", name),
@@ -648,19 +647,19 @@ func (s *coordinator) createScanTarget(
 	st, err := enumeration.NewScanTarget(name, targetType, targetID, metadata)
 	if err != nil {
 		span.RecordError(err)
-		return 0, fmt.Errorf("failed to create scan target domain object: %w", err)
+		return fmt.Errorf("failed to create scan target domain object: %w", err)
 	}
 
 	_, err = s.scanTargetRepo.Create(ctx, st)
 	if err != nil {
 		span.RecordError(err)
-		return 0, fmt.Errorf("failed to create scan target: %w", err)
+		return fmt.Errorf("failed to create scan target: %w", err)
 	}
 	span.AddEvent("Scan target created successfully", trace.WithAttributes(
-		attribute.Int64("scan_target_id", st.ID()),
+		attribute.String("scan_target_id", st.ID().String()),
 	))
 
-	return st.ID(), nil
+	return nil
 }
 
 // publishTask publishes a single task creation event and saves the task record.

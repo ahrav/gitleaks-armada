@@ -83,10 +83,10 @@ CREATE UNIQUE INDEX idx_unique_stopwords_per_allowlist ON allowlist_stopwords (a
 
 -- Findings Table
 CREATE TABLE findings (
-    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    scan_job_id BIGINT NOT NULL REFERENCES scan_jobs (id),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    scan_job_id UUID NOT NULL REFERENCES scan_jobs (job_id),
     rule_id BIGINT NOT NULL REFERENCES rules (id),
-    scan_target_id BIGINT NOT NULL REFERENCES scan_targets (id),
+    scan_target_id UUID NOT NULL REFERENCES scan_targets (id),
 
     fingerprint VARCHAR(255) NOT NULL UNIQUE,  -- For deduping
     file_path VARCHAR(512),

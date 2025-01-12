@@ -240,10 +240,10 @@ type EnumerationTask struct {
 }
 
 type Finding struct {
-	ID           int64
-	ScanJobID    int64
+	ID           pgtype.UUID
+	ScanJobID    pgtype.UUID
 	RuleID       int64
-	ScanTargetID int64
+	ScanTargetID pgtype.UUID
 	Fingerprint  string
 	FilePath     pgtype.Text
 	LineNumber   pgtype.Int4
@@ -279,7 +279,7 @@ type Rule struct {
 }
 
 type ScanJob struct {
-	ID        int64
+	ID        pgtype.UUID
 	JobID     pgtype.UUID
 	Status    ScanJobStatus
 	StartTime pgtype.Timestamptz
@@ -289,12 +289,12 @@ type ScanJob struct {
 }
 
 type ScanJobTarget struct {
-	JobID        int64
-	ScanTargetID int64
+	JobID        pgtype.UUID
+	ScanTargetID pgtype.UUID
 }
 
 type ScanTarget struct {
-	ID           int64
+	ID           pgtype.UUID
 	Name         string
 	TargetType   string
 	TargetID     int64

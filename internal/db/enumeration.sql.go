@@ -55,6 +55,7 @@ func (q *Queries) CreateGitHubRepo(ctx context.Context, arg CreateGitHubRepoPara
 const createScanTarget = `-- name: CreateScanTarget :one
 
 INSERT INTO scan_targets (
+    id,
     name,
     target_type,
     target_id,
@@ -62,12 +63,13 @@ INSERT INTO scan_targets (
     created_at,
     updated_at
 ) VALUES (
-    $1, $2, $3, $4, NOW(), NOW()
+    $1, $2, $3, $4, $5, NOW(), NOW()
 )
 RETURNING id
 `
 
 type CreateScanTargetParams struct {
+	ID         pgtype.UUID
 	Name       string
 	TargetType string
 	TargetID   int64
@@ -77,14 +79,15 @@ type CreateScanTargetParams struct {
 // ============================================
 // Scan Targets
 // ============================================
-func (q *Queries) CreateScanTarget(ctx context.Context, arg CreateScanTargetParams) (int64, error) {
+func (q *Queries) CreateScanTarget(ctx context.Context, arg CreateScanTargetParams) (pgtype.UUID, error) {
 	row := q.db.QueryRow(ctx, createScanTarget,
+		arg.ID,
 		arg.Name,
 		arg.TargetType,
 		arg.TargetID,
 		arg.Metadata,
 	)
-	var id int64
+	var id pgtype.UUID
 	err := row.Scan(&id)
 	return id, err
 }
@@ -430,7 +433,7 @@ FROM scan_targets
 WHERE id = $1
 `
 
-func (q *Queries) GetScanTargetByID(ctx context.Context, id int64) (ScanTarget, error) {
+func (q *Queries) GetScanTargetByID(ctx context.Context, id pgtype.UUID) (ScanTarget, error) {
 	row := q.db.QueryRow(ctx, getScanTargetByID, id)
 	var i ScanTarget
 	err := row.Scan(
@@ -721,7 +724,7 @@ WHERE id = $1
 `
 
 type UpdateScanTargetParams struct {
-	ID           int64
+	ID           pgtype.UUID
 	Name         string
 	TargetType   string
 	TargetID     int64
@@ -754,7 +757,7 @@ WHERE id = $1
 `
 
 type UpdateScanTargetScanTimeParams struct {
-	ID           int64
+	ID           pgtype.UUID
 	LastScanTime pgtype.Timestamptz
 	Metadata     []byte
 }

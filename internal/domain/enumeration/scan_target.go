@@ -4,6 +4,8 @@ import (
 	"errors"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 )
 
@@ -12,7 +14,7 @@ import (
 // through type and ID fields. This abstraction allows for scanning different types of resources
 // (repositories, organizations, etc.) in a uniform way.
 type ScanTarget struct {
-	id           int64
+	id           uuid.UUID
 	name         string
 	targetType   shared.TargetType // Identifies the type of resource (e.g., "github_repo", "org")
 	targetID     int64             // References the actual resource in its respective domain
@@ -36,6 +38,7 @@ func NewScanTarget(
 	}
 
 	return &ScanTarget{
+		id:         uuid.New(),
 		name:       name,
 		targetType: targetType,
 		targetID:   targetID,
@@ -48,7 +51,7 @@ func NewScanTarget(
 // This method should only be used by repository implementations to rehydrate
 // stored entities.
 func ReconstructScanTarget(
-	id int64,
+	id uuid.UUID,
 	name string,
 	targetType shared.TargetType,
 	targetID int64,
@@ -68,7 +71,7 @@ func ReconstructScanTarget(
 }
 
 // ID returns the unique identifier for this scan target.
-func (t *ScanTarget) ID() int64 { return t.id }
+func (t *ScanTarget) ID() uuid.UUID { return t.id }
 
 // Name returns the human-readable identifier for this scan target.
 func (t *ScanTarget) Name() string { return t.name }
