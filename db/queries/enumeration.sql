@@ -248,3 +248,79 @@ SELECT
 FROM github_repositories
 ORDER BY created_at DESC
 LIMIT $1 OFFSET $2;
+
+-- ============================================
+-- Scan Targets
+-- ============================================
+
+-- name: CreateScanTarget :one
+INSERT INTO scan_targets (
+    name,
+    target_type,
+    target_id,
+    metadata,
+    created_at,
+    updated_at
+) VALUES (
+    $1, $2, $3, $4, NOW(), NOW()
+)
+RETURNING id;
+
+-- name: UpdateScanTarget :execrows
+UPDATE scan_targets
+SET
+    name = $2,
+    target_type = $3,
+    target_id = $4,
+    last_scan_time = $5,
+    metadata = $6,
+    updated_at = NOW()
+WHERE id = $1;
+
+-- name: GetScanTargetByID :one
+SELECT
+    id,
+    name,
+    target_type,
+    target_id,
+    last_scan_time,
+    metadata,
+    created_at,
+    updated_at
+FROM scan_targets
+WHERE id = $1;
+
+-- name: FindScanTarget :one
+SELECT
+    id,
+    name,
+    target_type,
+    target_id,
+    last_scan_time,
+    metadata,
+    created_at,
+    updated_at
+FROM scan_targets
+WHERE target_type = $1 AND target_id = $2;
+
+-- name: ListScanTargets :many
+SELECT
+    id,
+    name,
+    target_type,
+    target_id,
+    last_scan_time,
+    metadata,
+    created_at,
+    updated_at
+FROM scan_targets
+ORDER BY created_at DESC
+LIMIT $1 OFFSET $2;
+
+-- name: UpdateScanTargetScanTime :execrows
+UPDATE scan_targets
+SET
+    last_scan_time = $2,
+    metadata = $3,
+    updated_at = NOW()
+WHERE id = $1;

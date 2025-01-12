@@ -51,7 +51,7 @@ func ReconstructScanTarget(
 	targetType string,
 	targetID int64,
 	lastScanTime *time.Time,
-	metadata map[string]interface{},
+	metadata map[string]any,
 	timeline *Timeline,
 ) *ScanTarget {
 	return &ScanTarget{

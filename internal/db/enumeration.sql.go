@@ -52,6 +52,43 @@ func (q *Queries) CreateGitHubRepo(ctx context.Context, arg CreateGitHubRepoPara
 	return id, err
 }
 
+const createScanTarget = `-- name: CreateScanTarget :one
+
+INSERT INTO scan_targets (
+    name,
+    target_type,
+    target_id,
+    metadata,
+    created_at,
+    updated_at
+) VALUES (
+    $1, $2, $3, $4, NOW(), NOW()
+)
+RETURNING id
+`
+
+type CreateScanTargetParams struct {
+	Name       string
+	TargetType string
+	TargetID   int64
+	Metadata   []byte
+}
+
+// ============================================
+// Scan Targets
+// ============================================
+func (q *Queries) CreateScanTarget(ctx context.Context, arg CreateScanTargetParams) (int64, error) {
+	row := q.db.QueryRow(ctx, createScanTarget,
+		arg.Name,
+		arg.TargetType,
+		arg.TargetID,
+		arg.Metadata,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const createTask = `-- name: CreateTask :exec
 WITH core_task AS (
     INSERT INTO tasks (task_id, source_type)
@@ -111,6 +148,41 @@ WHERE session_id = $1
 func (q *Queries) DeleteEnumerationSessionState(ctx context.Context, sessionID pgtype.UUID) error {
 	_, err := q.db.Exec(ctx, deleteEnumerationSessionState, sessionID)
 	return err
+}
+
+const findScanTarget = `-- name: FindScanTarget :one
+SELECT
+    id,
+    name,
+    target_type,
+    target_id,
+    last_scan_time,
+    metadata,
+    created_at,
+    updated_at
+FROM scan_targets
+WHERE target_type = $1 AND target_id = $2
+`
+
+type FindScanTargetParams struct {
+	TargetType string
+	TargetID   int64
+}
+
+func (q *Queries) FindScanTarget(ctx context.Context, arg FindScanTargetParams) (ScanTarget, error) {
+	row := q.db.QueryRow(ctx, findScanTarget, arg.TargetType, arg.TargetID)
+	var i ScanTarget
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.TargetType,
+		&i.TargetID,
+		&i.LastScanTime,
+		&i.Metadata,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const getActiveEnumerationSessionStates = `-- name: GetActiveEnumerationSessionStates :many
@@ -349,6 +421,36 @@ func (q *Queries) GetGitHubRepoByURL(ctx context.Context, url string) (GithubRep
 	return i, err
 }
 
+const getScanTargetByID = `-- name: GetScanTargetByID :one
+SELECT
+    id,
+    name,
+    target_type,
+    target_id,
+    last_scan_time,
+    metadata,
+    created_at,
+    updated_at
+FROM scan_targets
+WHERE id = $1
+`
+
+func (q *Queries) GetScanTargetByID(ctx context.Context, id int64) (ScanTarget, error) {
+	row := q.db.QueryRow(ctx, getScanTargetByID, id)
+	var i ScanTarget
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.TargetType,
+		&i.TargetID,
+		&i.LastScanTime,
+		&i.Metadata,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getSessionMetrics = `-- name: GetSessionMetrics :one
 SELECT id, session_id, total_batches, failed_batches, items_found, items_processed, created_at, updated_at FROM enumeration_session_metrics
 WHERE session_id = $1
@@ -531,6 +633,55 @@ func (q *Queries) ListGitHubRepos(ctx context.Context, arg ListGitHubReposParams
 	return items, nil
 }
 
+const listScanTargets = `-- name: ListScanTargets :many
+SELECT
+    id,
+    name,
+    target_type,
+    target_id,
+    last_scan_time,
+    metadata,
+    created_at,
+    updated_at
+FROM scan_targets
+ORDER BY created_at DESC
+LIMIT $1 OFFSET $2
+`
+
+type ListScanTargetsParams struct {
+	Limit  int32
+	Offset int32
+}
+
+func (q *Queries) ListScanTargets(ctx context.Context, arg ListScanTargetsParams) ([]ScanTarget, error) {
+	rows, err := q.db.Query(ctx, listScanTargets, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ScanTarget
+	for rows.Next() {
+		var i ScanTarget
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.TargetType,
+			&i.TargetID,
+			&i.LastScanTime,
+			&i.Metadata,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const updateGitHubRepo = `-- name: UpdateGitHubRepo :execrows
 UPDATE github_repositories
 SET
@@ -560,6 +711,65 @@ func (q *Queries) UpdateGitHubRepo(ctx context.Context, arg UpdateGitHubRepoPara
 		arg.Metadata,
 		arg.UpdatedAt,
 	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const updateScanTarget = `-- name: UpdateScanTarget :execrows
+UPDATE scan_targets
+SET
+    name = $2,
+    target_type = $3,
+    target_id = $4,
+    last_scan_time = $5,
+    metadata = $6,
+    updated_at = NOW()
+WHERE id = $1
+`
+
+type UpdateScanTargetParams struct {
+	ID           int64
+	Name         string
+	TargetType   string
+	TargetID     int64
+	LastScanTime pgtype.Timestamptz
+	Metadata     []byte
+}
+
+func (q *Queries) UpdateScanTarget(ctx context.Context, arg UpdateScanTargetParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateScanTarget,
+		arg.ID,
+		arg.Name,
+		arg.TargetType,
+		arg.TargetID,
+		arg.LastScanTime,
+		arg.Metadata,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const updateScanTargetScanTime = `-- name: UpdateScanTargetScanTime :execrows
+UPDATE scan_targets
+SET
+    last_scan_time = $2,
+    metadata = $3,
+    updated_at = NOW()
+WHERE id = $1
+`
+
+type UpdateScanTargetScanTimeParams struct {
+	ID           int64
+	LastScanTime pgtype.Timestamptz
+	Metadata     []byte
+}
+
+func (q *Queries) UpdateScanTargetScanTime(ctx context.Context, arg UpdateScanTargetScanTimeParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateScanTargetScanTime, arg.ID, arg.LastScanTime, arg.Metadata)
 	if err != nil {
 		return 0, err
 	}

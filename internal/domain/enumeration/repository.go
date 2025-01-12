@@ -13,58 +13,52 @@ import (
 	"github.com/google/uuid"
 )
 
-// GithubRepository provides an abstraction for storing and retrieving GitHubRepo
-// aggregates from a persistence mechanism (e.g., PostgreSQL). By depending on this interface,
-// the rest of the application remains insulated from database concerns, preserving domain integrity.
+// GithubRepository defines the interface for persisting and retrieving GitHub repository aggregates.
+// This abstraction isolates the domain model from storage implementation details, allowing the
+// application to remain focused on business rules while enabling different storage backends.
 type GithubRepository interface {
-	// Create persists a brand-new GitHubRepo into the data store. This is typically called
-	// after constructing a new domain.GitHubRepo via NewGitHubRepo, ensuring any creation-time
-	// invariants are already satisfied.
+	// Create persists a new GitHubRepo aggregate and returns its generated ID.
+	// The repo must be constructed via NewGitHubRepo to ensure domain invariants.
 	Create(ctx context.Context, repo *GitHubRepo) (int64, error)
 
-	// Update applies changes to an existing GitHubRepo in the data store. This method expects
-	// the repo has already passed any domain-level checks (e.g., calling Deactivate()).
-	// The repository ensures the persistent state reflects those valid domain transitions.
+	// Update modifies an existing GitHubRepo in storage.
+	// The repo must have already passed domain validation before being persisted.
 	Update(ctx context.Context, repo *GitHubRepo) error
 
-	// GetByID retrieves a GitHubRepo by its unique primary key. The returned aggregate
-	// is fully rehydrated, enabling further domain operations (e.g., rename, deactivate).
+	// GetByID retrieves a GitHubRepo by its unique identifier.
+	// Returns a fully hydrated aggregate ready for domain operations.
 	GetByID(ctx context.Context, id int64) (*GitHubRepo, error)
 
-	// GetByURL fetches a GitHubRepo by its URL, a unique business identifier. This is useful
-	// if your domain logic treats URLs as a key for external integrations or scanning.
+	// GetByURL retrieves a GitHubRepo by its unique URL.
+	// The URL serves as a natural business identifier for GitHub repositories.
 	GetByURL(ctx context.Context, url string) (*GitHubRepo, error)
 
-	// List returns a slice of GitHubRepos in descending creation order (or another criterion),
-	// optionally applying pagination via limit/offset. This supports scenarios like scanning
-	// multiple repos or enumerating them in the UI.
+	// List returns a paginated slice of GitHubRepos ordered by creation time.
+	// This supports UI display and batch processing scenarios.
 	List(ctx context.Context, limit, offset int32) ([]*GitHubRepo, error)
 }
 
-// ScanTargetRepository defines methods for persisting and retrieving ScanTarget aggregates.
-// This abstraction lets other parts of the system (like orchestrators) handle "things to scan"
-// without coupling to database specifics.
+// ScanTargetRepository defines the interface for managing scan target persistence.
+// It provides a storage-agnostic way to track what needs to be scanned, enabling
+// the orchestration layer to coordinate scanning without knowledge of the underlying storage.
 type ScanTargetRepository interface {
-	// Create adds a new ScanTarget record to storage. Typically invoked after calling
-	// domain.NewScanTarget(...) to ensure the initial domain invariants (e.g., name, targetType).
-	Create(ctx context.Context, target *ScanTarget) error
+	// Create persists a new scan target.
+	// The target must be constructed via NewScanTarget to ensure initial validity.
+	Create(ctx context.Context, target *ScanTarget) (int64, error)
 
-	// Update modifies fields of an existing ScanTarget, such as last_scan_time. In the domain model,
-	// this can correspond to a method like target.UpdateLastScanTime(...).
+	// Update modifies an existing scan target's metadata and timestamps.
+	// This is commonly used to track scan history and target state changes.
 	Update(ctx context.Context, target *ScanTarget) error
 
-	// GetByID looks up an existing ScanTarget by its primary key. Once retrieved, you can invoke
-	// domain logic (like updating the last scan time) and persist changes via Update.
+	// GetByID retrieves a scan target by its unique identifier.
 	GetByID(ctx context.Context, id int64) (*ScanTarget, error)
 
-	// Find locates a ScanTarget by (targetType, targetID). This is especially useful when you know
-	// the underlying resource's type (e.g., "github_repositories") and identity but not the
-	// ScanTarget’s own ID.
+	// Find retrieves a scan target by its business identifiers.
+	// This allows looking up targets by their logical identity rather than database ID.
 	Find(ctx context.Context, targetType string, targetID int64) (*ScanTarget, error)
 
-	// List returns a collection of ScanTargets, supporting pagination to avoid large in-memory
-	// loads. The domain or application layer can then apply business logic, like enumerating
-	// all targets due for a new scan.
+	// List returns a paginated collection of scan targets.
+	// Pagination prevents memory pressure when dealing with large target sets.
 	List(ctx context.Context, limit, offset int32) ([]*ScanTarget, error)
 }
 
