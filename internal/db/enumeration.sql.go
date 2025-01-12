@@ -11,6 +11,47 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const createGitHubRepo = `-- name: CreateGitHubRepo :one
+
+INSERT INTO github_repositories (
+    name,
+    url,
+    is_active,
+    metadata,
+    created_at,
+    updated_at
+) VALUES (
+    $1, $2, $3, $4, $5, $6
+)
+RETURNING id
+`
+
+type CreateGitHubRepoParams struct {
+	Name      string
+	Url       string
+	IsActive  bool
+	Metadata  []byte
+	CreatedAt pgtype.Timestamptz
+	UpdatedAt pgtype.Timestamptz
+}
+
+// ============================================
+// GitHub Repositories
+// ============================================
+func (q *Queries) CreateGitHubRepo(ctx context.Context, arg CreateGitHubRepoParams) (int64, error) {
+	row := q.db.QueryRow(ctx, createGitHubRepo,
+		arg.Name,
+		arg.Url,
+		arg.IsActive,
+		arg.Metadata,
+		arg.CreatedAt,
+		arg.UpdatedAt,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const createTask = `-- name: CreateTask :exec
 WITH core_task AS (
     INSERT INTO tasks (task_id, source_type)
@@ -252,6 +293,62 @@ func (q *Queries) GetEnumerationSessionState(ctx context.Context, sessionID pgty
 	return i, err
 }
 
+const getGitHubRepoByID = `-- name: GetGitHubRepoByID :one
+SELECT
+    id,
+    name,
+    url,
+    is_active,
+    metadata,
+    created_at,
+    updated_at
+FROM github_repositories
+WHERE id = $1
+`
+
+func (q *Queries) GetGitHubRepoByID(ctx context.Context, id int64) (GithubRepository, error) {
+	row := q.db.QueryRow(ctx, getGitHubRepoByID, id)
+	var i GithubRepository
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Url,
+		&i.IsActive,
+		&i.Metadata,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getGitHubRepoByURL = `-- name: GetGitHubRepoByURL :one
+SELECT
+    id,
+    name,
+    url,
+    is_active,
+    metadata,
+    created_at,
+    updated_at
+FROM github_repositories
+WHERE url = $1
+`
+
+func (q *Queries) GetGitHubRepoByURL(ctx context.Context, url string) (GithubRepository, error) {
+	row := q.db.QueryRow(ctx, getGitHubRepoByURL, url)
+	var i GithubRepository
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Url,
+		&i.IsActive,
+		&i.Metadata,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getSessionMetrics = `-- name: GetSessionMetrics :one
 SELECT id, session_id, total_batches, failed_batches, items_found, items_processed, created_at, updated_at FROM enumeration_session_metrics
 WHERE session_id = $1
@@ -385,6 +482,88 @@ func (q *Queries) ListEnumerationSessionStates(ctx context.Context, limit int32)
 		return nil, err
 	}
 	return items, nil
+}
+
+const listGitHubRepos = `-- name: ListGitHubRepos :many
+SELECT
+    id,
+    name,
+    url,
+    is_active,
+    metadata,
+    created_at,
+    updated_at
+FROM github_repositories
+ORDER BY created_at DESC
+LIMIT $1 OFFSET $2
+`
+
+type ListGitHubReposParams struct {
+	Limit  int32
+	Offset int32
+}
+
+func (q *Queries) ListGitHubRepos(ctx context.Context, arg ListGitHubReposParams) ([]GithubRepository, error) {
+	rows, err := q.db.Query(ctx, listGitHubRepos, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GithubRepository
+	for rows.Next() {
+		var i GithubRepository
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Url,
+			&i.IsActive,
+			&i.Metadata,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const updateGitHubRepo = `-- name: UpdateGitHubRepo :execrows
+UPDATE github_repositories
+SET
+    name = $2,
+    url = $3,
+    is_active = $4,
+    metadata = $5,
+    updated_at = $6
+WHERE id = $1
+`
+
+type UpdateGitHubRepoParams struct {
+	ID        int64
+	Name      string
+	Url       string
+	IsActive  bool
+	Metadata  []byte
+	UpdatedAt pgtype.Timestamptz
+}
+
+func (q *Queries) UpdateGitHubRepo(ctx context.Context, arg UpdateGitHubRepoParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateGitHubRepo,
+		arg.ID,
+		arg.Name,
+		arg.Url,
+		arg.IsActive,
+		arg.Metadata,
+		arg.UpdatedAt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const upsertBatch = `-- name: UpsertBatch :exec
