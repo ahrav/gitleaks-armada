@@ -9,6 +9,39 @@ import (
 	"context"
 )
 
+// iteratorForBulkAssociateTargets implements pgx.CopyFromSource.
+type iteratorForBulkAssociateTargets struct {
+	rows                 []BulkAssociateTargetsParams
+	skippedFirstNextCall bool
+}
+
+func (r *iteratorForBulkAssociateTargets) Next() bool {
+	if len(r.rows) == 0 {
+		return false
+	}
+	if !r.skippedFirstNextCall {
+		r.skippedFirstNextCall = true
+		return true
+	}
+	r.rows = r.rows[1:]
+	return len(r.rows) > 0
+}
+
+func (r iteratorForBulkAssociateTargets) Values() ([]interface{}, error) {
+	return []interface{}{
+		r.rows[0].JobID,
+		r.rows[0].ScanTargetID,
+	}, nil
+}
+
+func (r iteratorForBulkAssociateTargets) Err() error {
+	return nil
+}
+
+func (q *Queries) BulkAssociateTargets(ctx context.Context, arg []BulkAssociateTargetsParams) (int64, error) {
+	return q.db.CopyFrom(ctx, []string{"scan_job_targets"}, []string{"job_id", "scan_target_id"}, &iteratorForBulkAssociateTargets{rows: arg})
+}
+
 // iteratorForBulkInsertAllowlistCommits implements pgx.CopyFromSource.
 type iteratorForBulkInsertAllowlistCommits struct {
 	rows                 []BulkInsertAllowlistCommitsParams

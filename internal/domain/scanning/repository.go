@@ -19,8 +19,8 @@ type JobRepository interface {
 	// UpdateJob modifies an existing job’s fields (status, end_time, etc.).
 	UpdateJob(ctx context.Context, job *ScanJob) error
 
-	// AssociateTarget links a scan target with this job.
-	AssociateTarget(ctx context.Context, jobID, targetID uuid.UUID) error
+	// AssociateTargets associates scan targets with a job.
+	AssociateTargets(ctx context.Context, jobID uuid.UUID, targetIDs []uuid.UUID) error
 
 	// GetJob retrieves a job’s state (including associated tasks if needed).
 	GetJob(ctx context.Context, jobID string) (*ScanJob, error)
