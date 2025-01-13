@@ -252,7 +252,6 @@ func (o *Orchestrator) Enumerate(ctx context.Context) error {
 	ctx, span := o.tracer.Start(ctx, "orchestrator.enumerate")
 	defer span.End()
 
-	// Check for active states first
 	span.AddEvent("checking_active_states")
 	activeStates, err := o.stateRepo.GetActiveStates(ctx)
 	if err != nil {
@@ -264,7 +263,6 @@ func (o *Orchestrator) Enumerate(ctx context.Context) error {
 		return o.resumeEnumerations(ctx, activeStates)
 	}
 
-	// Start fresh enumeration
 	cfg, err := o.cfgLoader.Load(ctx)
 	if err != nil {
 		o.metrics.IncConfigReloadErrors(ctx)
@@ -273,7 +271,15 @@ func (o *Orchestrator) Enumerate(ctx context.Context) error {
 	span.AddEvent("config_loaded")
 	o.metrics.IncConfigReloads(ctx)
 
-	return o.startFreshEnumerations(ctx, cfg)
+	err = o.startFreshEnumerations(ctx, cfg)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to start fresh enumerations")
+		return fmt.Errorf("failed to start fresh enumerations: %w", err)
+	}
+	span.AddEvent("fresh_enumerations_started")
+
+	return nil
 }
 
 func (o *Orchestrator) startFreshEnumerations(ctx context.Context, cfg *config.Config) error {
@@ -294,6 +300,7 @@ func (o *Orchestrator) startFreshEnumerations(ctx context.Context, cfg *config.C
 		}
 
 		// Create callback that associates discovered targets with this job.
+		// This allows us to associate targets with the job as they are discovered.
 		cb := &orchestratorCallback{
 			job:    job,
 			jobSvc: o.scanningSvc,
@@ -303,7 +310,6 @@ func (o *Orchestrator) startFreshEnumerations(ctx context.Context, cfg *config.C
 			targetSpan.RecordError(err)
 			continue
 		}
-
 		targetSpan.AddEvent("target_enumeration_completed")
 	}
 
@@ -361,8 +367,15 @@ func (o *Orchestrator) Stop(ctx context.Context) error {
 // handleRule processes incoming rule update events. It deduplicates rules based on their hash
 // to prevent unnecessary processing of duplicate rules within a short time window.
 func (o *Orchestrator) handleRule(ctx context.Context, evt events.EventEnvelope) error {
+	ctx, span := o.tracer.Start(ctx, "orchestrator.handle_rule")
+	defer span.End()
+
+	span.AddEvent("processing_rule_update")
+
 	ruleEvent, ok := evt.Payload.(rules.RuleUpdatedEvent)
 	if !ok {
+		span.RecordError(fmt.Errorf("handleRule: payload is not RuleUpdatedEvent, got %T", evt.Payload))
+		span.SetStatus(codes.Error, "payload is not RuleUpdatedEvent")
 		return fmt.Errorf("handleRule: payload is not RuleUpdatedEvent, got %T", evt.Payload)
 	}
 
@@ -372,6 +385,7 @@ func (o *Orchestrator) handleRule(ctx context.Context, evt events.EventEnvelope)
 	o.rulesMutex.RUnlock()
 
 	if exists && time.Since(lastProcessed) < time.Minute*5 {
+		span.AddEvent("skipping_duplicate_rule")
 		o.logger.Info(ctx, "Skipping duplicate rule",
 			"rule_id", ruleEvent.Rule.RuleID,
 			"hash", ruleEvent.Rule.Hash,
@@ -381,6 +395,8 @@ func (o *Orchestrator) handleRule(ctx context.Context, evt events.EventEnvelope)
 
 	// Delegate to domain-level service for real domain logic (persisting rule).
 	if err := o.rulesService.SaveRule(ctx, ruleEvent.Rule.GitleaksRule); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to persist rule")
 		return fmt.Errorf("failed to persist rule: %w", err)
 	}
 
@@ -389,9 +405,13 @@ func (o *Orchestrator) handleRule(ctx context.Context, evt events.EventEnvelope)
 	o.processedRules[ruleEvent.Rule.Hash] = time.Now()
 	o.rulesMutex.Unlock()
 
+	span.AddEvent("rule_processed")
+	span.SetStatus(codes.Ok, "rule processed")
+
 	o.logger.Info(ctx, "Stored new rule",
 		"rule_id", ruleEvent.Rule.RuleID,
 		"hash", ruleEvent.Rule.Hash,
 		"occurred_at", ruleEvent.OccurredAt())
+
 	return nil
 }

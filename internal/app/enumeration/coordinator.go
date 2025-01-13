@@ -469,11 +469,11 @@ func (s *coordinator) streamEnumerate(
 			s.logger.Error(ctx, "Failed to save enumeration state", "error", err)
 			return err
 		}
-		span.AddEvent("State saved successfully in repository")
+		span.AddEvent("state_saved_successfully")
 		return err
 	}
 
-	span.AddEvent("Enumeration completed")
+	span.AddEvent("enumeration_completed")
 
 	if err := state.MarkCompleted(); err != nil {
 		span.RecordError(err)
@@ -498,7 +498,7 @@ func (s *coordinator) processBatch(
 	batchSpan := trace.SpanFromContext(ctx)
 	defer batchSpan.End()
 
-	batchSpan.AddEvent("Starting batch processing")
+	batchSpan.AddEvent("starting_batch_processing")
 
 	var checkpoint *enumeration.Checkpoint
 	if batch.NextCursor != "" {
@@ -509,7 +509,7 @@ func (s *coordinator) processBatch(
 	} else {
 		checkpoint = enumeration.NewTemporaryCheckpoint(state.SessionID(), nil)
 	}
-	batchSpan.AddEvent("Checkpoint created", trace.WithAttributes(
+	batchSpan.AddEvent("checkpoint_created", trace.WithAttributes(
 		attribute.String("end_cursor", batch.NextCursor),
 	))
 
@@ -518,16 +518,16 @@ func (s *coordinator) processBatch(
 		len(batch.Targets),
 		checkpoint,
 	)
-	batchSpan.AddEvent("Created batch entity")
+	batchSpan.AddEvent("batch_entity_created")
 
 	if err := s.batchRepo.Save(ctx, domainBatch); err != nil {
 		batchSpan.RecordError(err)
-		batchSpan.AddEvent("Failed to save batch", trace.WithAttributes(
+		batchSpan.AddEvent("failed_to_save_batch", trace.WithAttributes(
 			attribute.String("error", err.Error()),
 		))
 		return err
 	}
-	batchSpan.AddEvent("Batch saved successfully")
+	batchSpan.AddEvent("batch_saved_successfully")
 
 	var (
 		scanTargetIDs  []uuid.UUID
@@ -555,7 +555,7 @@ func (s *coordinator) processBatch(
 		if markErr := domainBatch.MarkFailed(lastError); markErr != nil {
 			batchSpan.RecordError(markErr)
 		}
-		batchSpan.AddEvent("Batch processing partially failed", trace.WithAttributes(
+		batchSpan.AddEvent("batch_processing_partially_failed", trace.WithAttributes(
 			attribute.Int("processed", processedCount),
 			attribute.Int("total", len(batch.Targets)),
 		))
@@ -563,7 +563,7 @@ func (s *coordinator) processBatch(
 		if markErr := domainBatch.MarkSuccessful(processedCount); markErr != nil {
 			batchSpan.RecordError(markErr)
 		}
-		batchSpan.AddEvent("Batch processing completed successfully")
+		batchSpan.AddEvent("batch_processing_completed_successfully")
 	}
 
 	if err := s.batchRepo.Save(ctx, domainBatch); err != nil {
@@ -671,7 +671,7 @@ func (s *coordinator) createScanTarget(
 		return uuid.Nil, fmt.Errorf("failed to create scan target: %w", err)
 	}
 
-	span.AddEvent("Scan target created successfully", trace.WithAttributes(
+	span.AddEvent("scan_target_created_successfully", trace.WithAttributes(
 		attribute.String("scan_target_id", createdTarget.String()),
 	))
 
@@ -711,13 +711,13 @@ func (s *coordinator) publishTask(
 		span.RecordError(err)
 		return fmt.Errorf("failed to publish task event: %w", err)
 	}
-	span.AddEvent("Task published successfully")
+	span.AddEvent("task_published_successfully")
 
 	if err := s.taskRepo.Save(ctx, task); err != nil {
 		span.RecordError(err)
 		return fmt.Errorf("failed to save task: %w", err)
 	}
-	span.AddEvent("Task saved successfully")
+	span.AddEvent("task_saved_successfully")
 
 	return nil
 }
