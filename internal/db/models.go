@@ -279,7 +279,6 @@ type Rule struct {
 }
 
 type ScanJob struct {
-	ID        pgtype.UUID
 	JobID     pgtype.UUID
 	Status    ScanJobStatus
 	StartTime pgtype.Timestamptz

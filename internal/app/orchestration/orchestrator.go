@@ -77,6 +77,7 @@ func NewOrchestrator(
 	eventPublisher events.DomainEventPublisher,
 	enumerationService enumCoordinator.Coordinator,
 	rulesService rulessvc.Service,
+	scanningSvc scanningSvc.ScanJobService,
 	stateRepo enumeration.StateRepository,
 	cfgLoader loaders.Loader,
 	logger *logger.Logger,
@@ -90,6 +91,7 @@ func NewOrchestrator(
 		eventPublisher:     eventPublisher,
 		enumerationService: enumerationService,
 		rulesService:       rulesService,
+		scanningSvc:        scanningSvc,
 		stateRepo:          stateRepo,
 		cfgLoader:          cfgLoader,
 		metrics:            metrics,
@@ -237,6 +239,7 @@ type orchestratorCallback struct {
 	job    *scanning.ScanJob
 
 	tracer trace.Tracer
+	logger *logger.Logger
 }
 
 func (oc *orchestratorCallback) OnScanTargetsDiscovered(ctx context.Context, targetIDs []uuid.UUID) {
@@ -248,11 +251,17 @@ func (oc *orchestratorCallback) OnScanTargetsDiscovered(ctx context.Context, tar
 		attribute.Int("num_targets", len(targetIDs)),
 	))
 
-	if err := oc.jobSvc.AssociateTargets(ctx, oc.job, targetIDs); err != nil {
+	oc.job.AssociateTargets(targetIDs)
+	if err := oc.jobSvc.AssociateTargets(ctx, oc.job); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to associate targets")
+		oc.logger.Error(ctx, "Failed to associate targets", "error", err)
+		return
 	}
+
 	span.AddEvent("targets_associated")
+	span.SetStatus(codes.Ok, "targets associated successfully")
+	oc.logger.Info(ctx, "Targets associated successfully", "job_id", oc.job.GetJobID(), "num_targets", len(targetIDs))
 }
 
 // Enumerate starts enumeration sessions for each target in the configuration.
@@ -314,6 +323,7 @@ func (o *Orchestrator) startFreshEnumerations(ctx context.Context, cfg *config.C
 			job:    job,
 			jobSvc: o.scanningSvc,
 			tracer: o.tracer,
+			logger: o.logger,
 		}
 
 		if err := o.enumerationService.EnumerateTarget(ctx, target, cfg.Auth, cb); err != nil {
@@ -344,6 +354,7 @@ func (o *Orchestrator) resumeEnumerations(ctx context.Context, states []*enumera
 			job:    job,
 			jobSvc: o.scanningSvc,
 			tracer: o.tracer,
+			logger: o.logger,
 		}
 
 		if err := o.enumerationService.ResumeTarget(ctx, state, cb); err != nil {

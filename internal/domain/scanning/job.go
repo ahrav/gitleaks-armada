@@ -98,8 +98,8 @@ func (j *ScanJob) GetTargetIDs() []uuid.UUID { return j.targetIDs }
 // Access is synchronized to ensure thread-safe reads.
 func (j *ScanJob) GetLastUpdateTime() time.Time { return j.timeline.LastUpdate() }
 
-// AssociateTarget links a scan target with this job.
-func (j *ScanJob) AssociateTarget(targetID uuid.UUID) { j.targetIDs = append(j.targetIDs, targetID) }
+// AssociateTargets links a scan target with this job.
+func (j *ScanJob) AssociateTargets(targetIDs []uuid.UUID) { j.targetIDs = append(j.targetIDs, targetIDs...) }
 
 // AddTask registers a new scan task with this job and updates task counters.
 func (j *ScanJob) AddTask(task *Task) {

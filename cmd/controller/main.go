@@ -23,11 +23,13 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/app/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/app/orchestration"
 	"github.com/ahrav/gitleaks-armada/internal/app/rules"
+	"github.com/ahrav/gitleaks-armada/internal/app/scanning"
 	"github.com/ahrav/gitleaks-armada/internal/config/loaders/fileloader"
 	"github.com/ahrav/gitleaks-armada/internal/infra/cluster/kubernetes"
 	"github.com/ahrav/gitleaks-armada/internal/infra/eventbus/kafka"
 	enumStore "github.com/ahrav/gitleaks-armada/internal/infra/storage/enumeration/postgres"
 	rulesStore "github.com/ahrav/gitleaks-armada/internal/infra/storage/rules/postgres"
+	scanningStore "github.com/ahrav/gitleaks-armada/internal/infra/storage/scanning/postgres"
 	"github.com/ahrav/gitleaks-armada/pkg/common"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/common/otel"
@@ -218,6 +220,8 @@ func main() {
 		metricCollector,
 		tracer,
 	)
+	scanJobRepo := scanningStore.NewJobStore(pool, tracer)
+	scanJobService := scanning.NewJobService(scanJobRepo, tracer)
 
 	configLoader := fileloader.NewFileLoader("/etc/scanner/config/config.yaml")
 	rulesService := rules.NewService(rulesStore.NewStore(pool, tracer, metricCollector))
@@ -228,6 +232,7 @@ func main() {
 		eventPublisher,
 		enumService,
 		rulesService,
+		scanJobService,
 		enumStateStorage,
 		configLoader,
 		log,

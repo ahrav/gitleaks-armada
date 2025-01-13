@@ -15,12 +15,13 @@ import (
 // ScanJobService coordinates the lifecycle of scan jobs and their associated tasks.
 // It provides high-level operations for job management while abstracting the underlying
 // implementation details of task distribution and state management.
+// TODO: Add cleanup daemon to delete jobs. (requirements TBH)
 type ScanJobService interface {
 	// CreateJob initializes a new scan job.
 	CreateJob(ctx context.Context) (*scanning.ScanJob, error)
 
 	// AssociateTargets associates scan targets with a job.
-	AssociateTargets(ctx context.Context, job *scanning.ScanJob, targetIDs []uuid.UUID) error
+	AssociateTargets(ctx context.Context, job *scanning.ScanJob) error
 
 	// AddTasks associates one or more tasks with an existing job.
 	// This enables building up complex scan jobs from multiple discrete tasks.
@@ -83,7 +84,24 @@ func (s *jobService) CreateJob(ctx context.Context) (*scanning.ScanJob, error) {
 }
 
 // AssociateTargets associates scan targets with a job.
-func (s *jobService) AssociateTargets(ctx context.Context, job *scanning.ScanJob, targetIDs []uuid.UUID) error {
+func (s *jobService) AssociateTargets(ctx context.Context, job *scanning.ScanJob) error {
+	ctx, span := s.tracer.Start(ctx, "job_service.scanning.associate_targets",
+		trace.WithAttributes(
+			attribute.String("component", "job_service"),
+			attribute.String("operation", "associate_targets"),
+			attribute.String("job_id", job.GetJobID().String()),
+			attribute.Int("num_targets", len(job.GetTargetIDs())),
+		))
+	defer span.End()
+
+	if err := s.jobRepo.AssociateTargets(ctx, job.GetJobID(), job.GetTargetIDs()); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to associate targets")
+		return fmt.Errorf("failed to associate targets: %w", err)
+	}
+	span.AddEvent("targets_associated")
+	span.SetStatus(codes.Ok, "targets associated successfully")
+
 	return nil
 }
 
