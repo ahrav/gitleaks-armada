@@ -52,11 +52,9 @@ func NewScanJob() *ScanJob {
 func ReconstructJob(
 	jobID uuid.UUID,
 	status JobStatus,
-	startTime, endTime, lastUpdate time.Time,
+	timeline *Timeline,
 	targetIDs []uuid.UUID,
 ) *ScanJob {
-	timeline := ReconstructTimeline(startTime, endTime, lastUpdate)
-
 	job := &ScanJob{
 		jobID:    jobID,
 		status:   status,
@@ -82,6 +80,14 @@ func (j *ScanJob) GetStatus() JobStatus { return j.status }
 // GetStartTime returns when this scan job was initialized.
 // Access is synchronized to ensure thread-safe reads.
 func (j *ScanJob) GetStartTime() time.Time { return j.timeline.StartedAt() }
+
+// GetEndTime returns when this scan job was completed.
+// Access is synchronized to ensure thread-safe reads.
+func (j *ScanJob) GetEndTime() time.Time { return j.timeline.CompletedAt() }
+
+// GetTargetIDs returns the IDs of the targets associated with this job.
+// Access is synchronized to ensure thread-safe reads.
+func (j *ScanJob) GetTargetIDs() []uuid.UUID { return j.targetIDs }
 
 // GetLastUpdateTime returns when this job's state was last modified.
 // Access is synchronized to ensure thread-safe reads.

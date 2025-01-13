@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -53,19 +52,23 @@ func (r *jobStore) CreateJob(ctx context.Context, job *scanning.ScanJob) error {
 	)
 
 	return storage.ExecuteAndTrace(ctx, r.tracer, "postgres.create_job", dbAttrs, func(ctx context.Context) error {
-		startTime := job.GetStartTime()
-		var endTime *time.Time
-		// Set end time only for terminal states
+		var endTime pgtype.Timestamptz
+
+		// Set end time only for terminal states.
 		if job.GetStatus() == scanning.JobStatusCompleted || job.GetStatus() == scanning.JobStatusFailed {
-			e := job.GetLastUpdateTime()
-			endTime = &e
+			endTime = pgtype.Timestamptz{
+				Time:  job.GetLastUpdateTime(),
+				Valid: true,
+			}
+		} else {
+			endTime = pgtype.Timestamptz{Valid: false}
 		}
 
 		err := r.q.CreateJob(ctx, db.CreateJobParams{
 			JobID:     pgtype.UUID{Bytes: job.GetJobID(), Valid: true},
 			Status:    db.ScanJobStatus(job.GetStatus()),
-			StartTime: pgtype.Timestamptz{Time: startTime, Valid: true},
-			EndTime:   pgtype.Timestamptz{Time: *endTime, Valid: endTime != nil},
+			StartTime: pgtype.Timestamptz{Time: job.GetStartTime(), Valid: true},
+			EndTime:   endTime,
 		})
 		if err != nil {
 			return fmt.Errorf("CreateJob insert error: %w", err)
@@ -84,22 +87,31 @@ func (r *jobStore) UpdateJob(ctx context.Context, job *scanning.ScanJob) error {
 	)
 
 	return storage.ExecuteAndTrace(ctx, r.tracer, "postgres.update_job", dbAttrs, func(ctx context.Context) error {
-		startTime := job.GetStartTime()
-		var endTime *time.Time
+		span := trace.SpanFromContext(ctx)
+
+		var endTime pgtype.Timestamptz
 		if job.GetStatus() == scanning.JobStatusCompleted || job.GetStatus() == scanning.JobStatusFailed {
-			e := job.GetLastUpdateTime()
-			endTime = &e
+			endTime = pgtype.Timestamptz{
+				Time:  job.GetLastUpdateTime(),
+				Valid: true,
+			}
 		}
 
-		err := r.q.UpdateJob(ctx, db.UpdateJobParams{
+		rowsAffected, err := r.q.UpdateJob(ctx, db.UpdateJobParams{
 			JobID:     pgtype.UUID{Bytes: job.GetJobID(), Valid: true},
 			Status:    db.ScanJobStatus(job.GetStatus()),
-			StartTime: pgtype.Timestamptz{Time: startTime, Valid: true},
-			EndTime:   pgtype.Timestamptz{Time: *endTime, Valid: endTime != nil},
+			StartTime: pgtype.Timestamptz{Time: job.GetStartTime(), Valid: true},
+			EndTime:   endTime,
 		})
 		if err != nil {
 			return fmt.Errorf("UpdateJob query error: %w", err)
 		}
+
+		if rowsAffected == 0 {
+			span.RecordError(fmt.Errorf("job not found: %s", job.GetJobID()))
+			return fmt.Errorf("job not found: %s", job.GetJobID())
+		}
+
 		return nil
 	})
 }
@@ -172,12 +184,16 @@ func (r *jobStore) GetJob(ctx context.Context, jobID uuid.UUID) (*scanning.ScanJ
 			}
 		}
 
-		job = scanning.ReconstructJob(
-			firstRow.JobID.Bytes,
-			scanning.JobStatus(firstRow.Status),
+		timeline := scanning.ReconstructTimeline(
 			firstRow.StartTime.Time,
 			firstRow.EndTime.Time,
 			firstRow.UpdatedAt.Time,
+		)
+
+		job = scanning.ReconstructJob(
+			firstRow.JobID.Bytes,
+			scanning.JobStatus(firstRow.Status),
+			timeline,
 			targetIDs,
 		)
 		return nil

@@ -13,10 +13,9 @@ INSERT INTO scan_jobs (
     $4  -- end_time TIMESTAMPTZ
 );
 
--- name: UpdateJob :exec
+-- name: UpdateJob :execrows
 UPDATE scan_jobs
-SET
-    status = $2,
+SET status = $2,
     start_time = $3,
     end_time = $4,
     updated_at = NOW()

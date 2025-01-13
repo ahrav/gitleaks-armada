@@ -118,10 +118,9 @@ func (q *Queries) GetJob(ctx context.Context, jobID pgtype.UUID) ([]GetJobRow, e
 	return items, nil
 }
 
-const updateJob = `-- name: UpdateJob :exec
+const updateJob = `-- name: UpdateJob :execrows
 UPDATE scan_jobs
-SET
-    status = $2,
+SET status = $2,
     start_time = $3,
     end_time = $4,
     updated_at = NOW()
@@ -135,12 +134,15 @@ type UpdateJobParams struct {
 	EndTime   pgtype.Timestamptz
 }
 
-func (q *Queries) UpdateJob(ctx context.Context, arg UpdateJobParams) error {
-	_, err := q.db.Exec(ctx, updateJob,
+func (q *Queries) UpdateJob(ctx context.Context, arg UpdateJobParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateJob,
 		arg.JobID,
 		arg.Status,
 		arg.StartTime,
 		arg.EndTime,
 	)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
