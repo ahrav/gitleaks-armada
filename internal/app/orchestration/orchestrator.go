@@ -235,15 +235,24 @@ var _ enumCoordinator.ScanTargetCallback = (*orchestratorCallback)(nil)
 type orchestratorCallback struct {
 	jobSvc scanningSvc.ScanJobService
 	job    *scanning.ScanJob
+
+	tracer trace.Tracer
 }
 
 func (oc *orchestratorCallback) OnScanTargetsDiscovered(ctx context.Context, targetIDs []uuid.UUID) {
-	for _, tid := range targetIDs {
-		if err := oc.jobSvc.AssociateTargets(ctx, oc.job, []uuid.UUID{tid}); err != nil {
-			// Handle error (log it, maybe retry, etc.)
-			continue
-		}
+	ctx, span := oc.tracer.Start(ctx, "orchestrator.associate_targets")
+	defer span.End()
+
+	span.AddEvent("associating_targets", trace.WithAttributes(
+		attribute.String("job_id", oc.job.GetJobID().String()),
+		attribute.Int("num_targets", len(targetIDs)),
+	))
+
+	if err := oc.jobSvc.AssociateTargets(ctx, oc.job, targetIDs); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to associate targets")
 	}
+	span.AddEvent("targets_associated")
 }
 
 // Enumerate starts enumeration sessions for each target in the configuration.
@@ -304,6 +313,7 @@ func (o *Orchestrator) startFreshEnumerations(ctx context.Context, cfg *config.C
 		cb := &orchestratorCallback{
 			job:    job,
 			jobSvc: o.scanningSvc,
+			tracer: o.tracer,
 		}
 
 		if err := o.enumerationService.EnumerateTarget(ctx, target, cfg.Auth, cb); err != nil {
@@ -333,6 +343,7 @@ func (o *Orchestrator) resumeEnumerations(ctx context.Context, states []*enumera
 		cb := &orchestratorCallback{
 			job:    job,
 			jobSvc: o.scanningSvc,
+			tracer: o.tracer,
 		}
 
 		if err := o.enumerationService.ResumeTarget(ctx, state, cb); err != nil {
