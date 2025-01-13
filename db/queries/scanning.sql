@@ -16,8 +16,7 @@ INSERT INTO scan_jobs (
 -- name: UpdateJob :execrows
 UPDATE scan_jobs
 SET status = $2,
-    start_time = $3,
-    end_time = $4,
+    end_time = $3,
     updated_at = NOW()
 WHERE job_id = $1;
 

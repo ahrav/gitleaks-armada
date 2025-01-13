@@ -92,16 +92,15 @@ func (r *jobStore) UpdateJob(ctx context.Context, job *scanning.ScanJob) error {
 		var endTime pgtype.Timestamptz
 		if job.GetStatus() == scanning.JobStatusCompleted || job.GetStatus() == scanning.JobStatusFailed {
 			endTime = pgtype.Timestamptz{
-				Time:  job.GetLastUpdateTime(),
+				Time:  job.GetEndTime(),
 				Valid: true,
 			}
 		}
 
 		rowsAffected, err := r.q.UpdateJob(ctx, db.UpdateJobParams{
-			JobID:     pgtype.UUID{Bytes: job.GetJobID(), Valid: true},
-			Status:    db.ScanJobStatus(job.GetStatus()),
-			StartTime: pgtype.Timestamptz{Time: job.GetStartTime(), Valid: true},
-			EndTime:   endTime,
+			JobID:   pgtype.UUID{Bytes: job.GetJobID(), Valid: true},
+			Status:  db.ScanJobStatus(job.GetStatus()),
+			EndTime: endTime,
 		})
 		if err != nil {
 			return fmt.Errorf("UpdateJob query error: %w", err)

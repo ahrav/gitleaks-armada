@@ -69,10 +69,7 @@ func TestJobStore_UpdateJob(t *testing.T) {
 	ctx, _, store, cleanup := setupJobTest(t)
 	defer cleanup()
 
-	mockTime := &mockTimeProvider{current: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)}
-	startTime := mockTime.Now()
-
-	// Create initial job
+	mockTime := &mockTimeProvider{current: time.Now().UTC()}
 	timeline := scanning.NewTimeline(mockTime)
 	job := scanning.ReconstructJob(
 		uuid.New(),
@@ -84,12 +81,16 @@ func TestJobStore_UpdateJob(t *testing.T) {
 	err := store.CreateJob(ctx, job)
 	require.NoError(t, err)
 
-	// Update to completed with new timeline
-	mockTime.current = startTime.Add(time.Hour)
+	initialJob, err := store.GetJob(ctx, job.GetJobID())
+	require.NoError(t, err)
+	require.NotNil(t, initialJob)
+
+	// Set completion time one hour later.
+	completionTime := initialJob.GetStartTime().Add(time.Hour)
 	completionTimeline := scanning.ReconstructTimeline(
-		startTime,
-		mockTime.Now(),
-		mockTime.Now(),
+		initialJob.GetStartTime(),
+		completionTime,
+		completionTime,
 	)
 
 	updatedJob := scanning.ReconstructJob(
@@ -102,16 +103,17 @@ func TestJobStore_UpdateJob(t *testing.T) {
 	err = store.UpdateJob(ctx, updatedJob)
 	require.NoError(t, err)
 
-	// Get the final state
 	loaded, err := store.GetJob(ctx, job.GetJobID())
 	require.NoError(t, err)
 	require.NotNil(t, loaded)
 
-	// Verify the update
 	assert.Equal(t, scanning.JobStatusCompleted, loaded.GetStatus())
-	assert.Equal(t, startTime, loaded.GetStartTime())
-	assert.Equal(t, mockTime.Now(), loaded.GetLastUpdateTime())
-	assert.Equal(t, mockTime.Now(), loaded.GetEndTime())
+	assert.Equal(t, initialJob.GetStartTime(), loaded.GetStartTime(),
+		"Start time should not change")
+	assert.Equal(t, completionTime, loaded.GetEndTime(),
+		"End time should match completion time")
+	assert.WithinDuration(t, time.Now().UTC(), loaded.GetLastUpdateTime(), time.Second,
+		"Last update time should be close to current time")
 }
 
 func TestJobStore_AssociateTargets(t *testing.T) {
