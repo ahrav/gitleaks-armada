@@ -44,6 +44,7 @@ func NewScanTargetStore(pool *pgxpool.Pool, tracer trace.Tracer) *scanTargetRepo
 // Create persists a new scan target to the database. It automatically sets
 // created_at and updated_at timestamps. Returns an error if the target cannot
 // be created or if metadata serialization fails.
+// TODO: Avoid returning the ID and instead Set the ID on the domain object.
 func (r *scanTargetRepository) Create(ctx context.Context, target *enumeration.ScanTarget) (uuid.UUID, error) {
 	dbAttrs := []attribute.KeyValue{
 		attribute.String("repository", "ScanTargetRepository"),

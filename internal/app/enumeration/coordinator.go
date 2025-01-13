@@ -107,6 +107,11 @@ type coordinator struct {
 	// Persistence handlers for different resource types.
 	enumeratorHandlers map[shared.TargetType]resourcePersister
 
+	// targetCollector manages the collection and notification of discovered scan targets
+	// during enumeration. It provides thread-safe operations for aggregating target IDs
+	// and notifying downstream consumers via callbacks when new targets are found.
+	targetCollector *TargetEnumerationResults
+
 	// Creates enumerators for different target types.
 	enumFactory EnumeratorFactory
 	credStore   credentials.Store
@@ -164,6 +169,8 @@ func (s *coordinator) StartFreshEnumerations(ctx context.Context, cfg *config.Co
 		))
 	defer span.End()
 
+	s.targetCollector = NewEnumerationResults(cb)
+
 	var err error
 	s.credStore, err = memory.NewCredentialStore(cfg.Auth)
 	if err != nil {
@@ -189,7 +196,7 @@ func (s *coordinator) StartFreshEnumerations(ctx context.Context, cfg *config.Co
 		start := time.Now()
 		state := enumeration.NewState(string(target.SourceType), s.marshalConfig(ctx, target, cfg.Auth))
 
-		if err := s.processTargetEnumeration(ctx, state, target); err != nil {
+		if err := s.processTargetEnumeration(ctx, state, target, cb); err != nil {
 			targetSpan.RecordError(err)
 			targetSpan.SetStatus(codes.Error, "target enumeration failed")
 			s.logger.Error(ctx, "Target enumeration failed",
@@ -260,6 +267,8 @@ func (s *coordinator) ResumeEnumerations(
 		trace.WithAttributes(attribute.Int("state_count", len(states))))
 	defer span.End()
 
+	s.targetCollector = NewEnumerationResults(cb)
+
 	span.AddEvent("starting_enumeration_resume")
 
 	for _, st := range states {
@@ -301,7 +310,7 @@ func (s *coordinator) ResumeEnumerations(
 			credSpan.AddEvent("credential_store_initialized")
 		}
 
-		if err := s.processTargetEnumeration(stateCtx, st, combined.TargetSpec); err != nil {
+		if err := s.processTargetEnumeration(stateCtx, st, combined.TargetSpec, cb); err != nil {
 			stateSpan.RecordError(err)
 			stateSpan.SetStatus(codes.Error, "enumeration failed")
 			s.logger.Error(stateCtx, "Resume enumeration failed",
@@ -326,6 +335,7 @@ func (s *coordinator) processTargetEnumeration(
 	ctx context.Context,
 	state *enumeration.SessionState,
 	target config.TargetSpec,
+	cb ScanTargetCallback,
 ) error {
 	ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.process_target_enumeration",
 		trace.WithAttributes(
@@ -398,7 +408,7 @@ func (s *coordinator) processTargetEnumeration(
 		}
 	}
 
-	if err := s.streamEnumerate(ctx, enumerator, state, resumeCursor, creds); err != nil {
+	if err := s.streamEnumerate(ctx, enumerator, state, resumeCursor, creds, cb); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "enumeration stream failed")
 		s.logger.Error(ctx, "Enumeration failed",
@@ -421,6 +431,7 @@ func (s *coordinator) streamEnumerate(
 	state *enumeration.SessionState,
 	startCursor *string,
 	creds *enumeration.TaskCredentials,
+	cb ScanTargetCallback,
 ) error {
 	ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.stream_enumerate",
 		trace.WithAttributes(
@@ -444,7 +455,7 @@ func (s *coordinator) streamEnumerate(
 					attribute.String("next_cursor", batch.NextCursor),
 				))
 
-			if err := s.processBatch(batchCtx, batch, state, creds); err != nil {
+			if err := s.processBatch(batchCtx, batch, state, creds, cb); err != nil {
 				batchSpan.RecordError(err)
 				batchSpan.SetStatus(codes.Error, "failed to process batch")
 				batchSpan.End()
@@ -491,12 +502,12 @@ func (s *coordinator) streamEnumerate(
 }
 
 // processBatch handles the processing of a batch of enumerated targets.
-// It creates a batch entity, saves it to the repository, and processes individual targets.
 func (s *coordinator) processBatch(
 	ctx context.Context,
 	batch EnumerateBatch,
 	state *enumeration.SessionState,
 	creds *enumeration.TaskCredentials,
+	cb ScanTargetCallback,
 ) error {
 	batchSpan := trace.SpanFromContext(ctx)
 	defer batchSpan.End()
@@ -532,19 +543,27 @@ func (s *coordinator) processBatch(
 	}
 	batchSpan.AddEvent("Batch saved successfully")
 
-	// Process each target individually
-	var processedCount int
-	var lastError error
+	var (
+		scanTargetIDs  []uuid.UUID
+		processedCount int
+		lastError      error
+	)
 	for _, target := range batch.Targets {
-		if err := s.processTarget(ctx, target, state.SessionID(), creds); err != nil {
+		targetID, err := s.processTarget(ctx, target, state.SessionID(), creds)
+		if err != nil {
 			batchSpan.RecordError(err)
 			lastError = err
 			s.metrics.IncTasksFailedToEnqueue(ctx)
 			continue
 		}
+		if targetID != uuid.Nil {
+			scanTargetIDs = append(scanTargetIDs, targetID)
+		}
 		processedCount++
 		s.metrics.IncTasksEnqueued(ctx)
 	}
+
+	s.targetCollector.AddTargets(ctx, scanTargetIDs)
 
 	if lastError != nil {
 		if markErr := domainBatch.MarkFailed(lastError); markErr != nil {
@@ -579,14 +598,13 @@ func (s *coordinator) processBatch(
 	return lastError
 }
 
-// processTarget handles the processing of a single target, including persisting
-// the resource, creating a scan target, and publishing the task.
+// processTarget handles the processing of a single target and returns the created scan target ID
 func (s *coordinator) processTarget(
 	ctx context.Context,
 	target *TargetInfo,
 	sessionID uuid.UUID,
 	creds *enumeration.TaskCredentials,
-) error {
+) (uuid.UUID, error) {
 	ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.process_target",
 		trace.WithAttributes(
 			attribute.String("resource_uri", target.ResourceURI),
@@ -598,7 +616,7 @@ func (s *coordinator) processTarget(
 	if !ok {
 		err := fmt.Errorf("no persister found for target type: %s", target.TargetType)
 		span.RecordError(err)
-		return err
+		return uuid.Nil, err
 	}
 
 	resourceEntry := ResourceEntry{
@@ -615,40 +633,38 @@ func (s *coordinator) processTarget(
 	result, err := persister.persist(ctx, resourceEntry)
 	if err != nil {
 		span.RecordError(err)
-		return fmt.Errorf("failed to persist resource: %w", err)
+		return uuid.Nil, fmt.Errorf("failed to persist resource: %w", err)
 	}
-	span.AddEvent("Resource persisted successfully")
 
-	if err := s.createScanTarget(
+	scanTargetID, err := s.createScanTarget(
 		ctx,
 		result.Name,
 		result.TargetType,
 		result.ResourceID,
 		result.Metadata,
-	); err != nil {
+	)
+	if err != nil {
 		span.RecordError(err)
-		return fmt.Errorf("failed to create scan target: %w", err)
+		return uuid.Nil, fmt.Errorf("failed to create scan target: %w", err)
 	}
 
 	if err := s.publishTask(ctx, target, sessionID, creds); err != nil {
 		span.RecordError(err)
-		return fmt.Errorf("failed to publish task: %w", err)
+		return scanTargetID, fmt.Errorf("failed to publish task: %w", err)
 	}
 
 	span.SetStatus(codes.Ok, "Target processed successfully")
-	return nil
+	return scanTargetID, nil
 }
 
-// createScanTarget constructs a ScanTarget domain object and inserts it
-// into the scan_targets table. We do this after we have a resource's ID
-// and target type from ResourceUpsertResult.
+// createScanTarget constructs a ScanTarget domain object and returns its ID
 func (s *coordinator) createScanTarget(
 	ctx context.Context,
 	name string,
 	targetType shared.TargetType,
 	targetID int64,
 	metadata map[string]any,
-) error {
+) (uuid.UUID, error) {
 	ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.create_scan_target",
 		trace.WithAttributes(
 			attribute.String("name", name),
@@ -660,19 +676,20 @@ func (s *coordinator) createScanTarget(
 	st, err := enumeration.NewScanTarget(name, targetType, targetID, metadata)
 	if err != nil {
 		span.RecordError(err)
-		return fmt.Errorf("failed to create scan target domain object: %w", err)
+		return uuid.Nil, fmt.Errorf("failed to create scan target domain object: %w", err)
 	}
 
-	_, err = s.scanTargetRepo.Create(ctx, st)
+	createdTarget, err := s.scanTargetRepo.Create(ctx, st)
 	if err != nil {
 		span.RecordError(err)
-		return fmt.Errorf("failed to create scan target: %w", err)
+		return uuid.Nil, fmt.Errorf("failed to create scan target: %w", err)
 	}
+
 	span.AddEvent("Scan target created successfully", trace.WithAttributes(
-		attribute.String("scan_target_id", st.ID().String()),
+		attribute.String("scan_target_id", createdTarget.String()),
 	))
 
-	return nil
+	return createdTarget, nil
 }
 
 // publishTask publishes a single task creation event and saves the task record.

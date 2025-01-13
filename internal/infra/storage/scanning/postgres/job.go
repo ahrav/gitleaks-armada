@@ -41,34 +41,20 @@ var defaultDBAttributes = []attribute.KeyValue{
 	attribute.String("db.system", "postgresql"),
 }
 
-// CreateJob persists a new scan job to the database. It captures the job's initial state
-// including status, timing information, and sets appropriate end time for completed or
-// failed jobs.
+// CreateJob persists a new scan job to the database.
 func (r *jobStore) CreateJob(ctx context.Context, job *scanning.ScanJob) error {
 	dbAttrs := append(
 		defaultDBAttributes,
 		attribute.String("job_id", job.GetJobID().String()),
 		attribute.String("status", string(job.GetStatus())),
+		attribute.String("start_time", job.GetStartTime().String()),
 	)
 
 	return storage.ExecuteAndTrace(ctx, r.tracer, "postgres.create_job", dbAttrs, func(ctx context.Context) error {
-		var endTime pgtype.Timestamptz
-
-		// Set end time only for terminal states.
-		if job.GetStatus() == scanning.JobStatusCompleted || job.GetStatus() == scanning.JobStatusFailed {
-			endTime = pgtype.Timestamptz{
-				Time:  job.GetLastUpdateTime(),
-				Valid: true,
-			}
-		} else {
-			endTime = pgtype.Timestamptz{Valid: false}
-		}
-
 		err := r.q.CreateJob(ctx, db.CreateJobParams{
 			JobID:     pgtype.UUID{Bytes: job.GetJobID(), Valid: true},
 			Status:    db.ScanJobStatus(job.GetStatus()),
 			StartTime: pgtype.Timestamptz{Time: job.GetStartTime(), Valid: true},
-			EndTime:   endTime,
 		})
 		if err != nil {
 			return fmt.Errorf("CreateJob insert error: %w", err)
@@ -77,8 +63,7 @@ func (r *jobStore) CreateJob(ctx context.Context, job *scanning.ScanJob) error {
 	})
 }
 
-// UpdateJob modifies an existing job's state in the database. It handles status transitions
-// and updates timing information, particularly for jobs reaching terminal states.
+// UpdateJob modifies an existing job's state in the database.
 func (r *jobStore) UpdateJob(ctx context.Context, job *scanning.ScanJob) error {
 	dbAttrs := append(
 		defaultDBAttributes,
@@ -89,18 +74,16 @@ func (r *jobStore) UpdateJob(ctx context.Context, job *scanning.ScanJob) error {
 	return storage.ExecuteAndTrace(ctx, r.tracer, "postgres.update_job", dbAttrs, func(ctx context.Context) error {
 		span := trace.SpanFromContext(ctx)
 
-		var endTime pgtype.Timestamptz
-		if job.GetStatus() == scanning.JobStatusCompleted || job.GetStatus() == scanning.JobStatusFailed {
-			endTime = pgtype.Timestamptz{
-				Time:  job.GetEndTime(),
-				Valid: true,
-			}
+		endTime, hasEndTime := job.GetEndTime()
+		dbEndTime := pgtype.Timestamptz{
+			Time:  endTime,
+			Valid: hasEndTime,
 		}
 
 		rowsAffected, err := r.q.UpdateJob(ctx, db.UpdateJobParams{
 			JobID:   pgtype.UUID{Bytes: job.GetJobID(), Valid: true},
 			Status:  db.ScanJobStatus(job.GetStatus()),
-			EndTime: endTime,
+			EndTime: dbEndTime,
 		})
 		if err != nil {
 			return fmt.Errorf("UpdateJob query error: %w", err)

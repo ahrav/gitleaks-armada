@@ -108,9 +108,12 @@ func TestJobStore_UpdateJob(t *testing.T) {
 	require.NotNil(t, loaded)
 
 	assert.Equal(t, scanning.JobStatusCompleted, loaded.GetStatus())
+
+	endTime, hasEndTime := loaded.GetEndTime()
+	assert.True(t, hasEndTime)
 	assert.Equal(t, initialJob.GetStartTime(), loaded.GetStartTime(),
 		"Start time should not change")
-	assert.Equal(t, completionTime, loaded.GetEndTime(),
+	assert.Equal(t, completionTime, endTime,
 		"End time should match completion time")
 	assert.WithinDuration(t, time.Now().UTC(), loaded.GetLastUpdateTime(), time.Second,
 		"Last update time should be close to current time")

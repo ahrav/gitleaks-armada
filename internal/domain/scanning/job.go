@@ -82,8 +82,13 @@ func (j *ScanJob) GetStatus() JobStatus { return j.status }
 func (j *ScanJob) GetStartTime() time.Time { return j.timeline.StartedAt() }
 
 // GetEndTime returns when this scan job was completed.
-// Access is synchronized to ensure thread-safe reads.
-func (j *ScanJob) GetEndTime() time.Time { return j.timeline.CompletedAt() }
+// A job only has an end time if it's in a terminal state.
+func (j *ScanJob) GetEndTime() (time.Time, bool) {
+	if j.status == JobStatusCompleted || j.status == JobStatusFailed {
+		return j.timeline.CompletedAt(), true
+	}
+	return time.Time{}, false
+}
 
 // GetTargetIDs returns the IDs of the targets associated with this job.
 // Access is synchronized to ensure thread-safe reads.
