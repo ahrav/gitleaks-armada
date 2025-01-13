@@ -5,6 +5,8 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
@@ -56,11 +58,26 @@ func NewJobService(jobRepo scanning.JobRepository, tracer trace.Tracer) *jobServ
 
 // CreateJob initializes a new scan job and persists it to storage.
 func (s *jobService) CreateJob(ctx context.Context) (*scanning.ScanJob, error) {
+	ctx, span := s.tracer.Start(ctx, "job_service.scanning.create_job",
+		trace.WithAttributes(
+			attribute.String("component", "job_service"),
+			attribute.String("operation", "create_job"),
+		))
+	defer span.End()
+
 	job := scanning.NewScanJob()
 
 	if err := s.jobRepo.CreateJob(ctx, job); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to create job")
 		return nil, fmt.Errorf("failed to create job: %w", err)
 	}
+	span.AddEvent("job_created", trace.WithAttributes(
+		attribute.String("job_id", job.GetJobID().String()),
+		attribute.String("status", string(job.GetStatus())),
+		attribute.String("start_time", job.GetStartTime().String()),
+	))
+	span.SetStatus(codes.Ok, "job created successfully")
 
 	return job, nil
 }

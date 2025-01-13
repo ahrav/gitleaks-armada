@@ -27,22 +27,15 @@ type ScanTargetCallback interface {
 }
 
 // Coordinator defines the core domain operations for target enumeration.
-// It coordinates the overall enumeration process by managing enumeration state
-// and supporting resumable enumeration.
 type Coordinator interface {
-	// StartFreshEnumerations begins new enumeration sessions for all targets defined in the config.
-	// It creates new state records and initializes the enumeration process for each target.
-	// The callback is invoked when scan targets are discovered during enumeration to allow
-	// downstream consumers to begin processing them immediately.
-	// Returns an error if the enumeration sessions cannot be started.
-	StartFreshEnumerations(ctx context.Context, cfg *config.Config, cb ScanTargetCallback) error
+	// EnumerateTarget handles enumeration for a single target.
+	// It creates a new state record and initializes the enumeration process.
+	// The callback is invoked when scan targets are discovered during enumeration.
+	EnumerateTarget(ctx context.Context, target config.TargetSpec, auth map[string]config.AuthConfig, cb ScanTargetCallback) error
 
-	// ResumeEnumerations continues enumeration for previously interrupted sessions.
-	// It picks up from the last checkpoint for each provided session state.
-	// The callback is invoked when scan targets are discovered during enumeration to allow
-	// downstream consumers to begin processing them immediately.
-	// Returns an error if any session cannot be resumed.
-	ResumeEnumerations(ctx context.Context, states []*enumeration.SessionState, cb ScanTargetCallback) error
+	// ResumeTarget continues enumeration for a previously interrupted session.
+	// It picks up from the last checkpoint for the provided session state.
+	ResumeTarget(ctx context.Context, state *enumeration.SessionState, cb ScanTargetCallback) error
 }
 
 // metrics defines the interface for tracking enumeration-related metrics.
@@ -158,21 +151,21 @@ func NewCoordinator(
 	}
 }
 
-// StartFreshEnumerations begins new enumeration sessions for all targets defined in the config.
-// It creates new state records and initializes the enumeration process for each target.
-// Returns an error if the enumeration sessions cannot be started.
-func (s *coordinator) StartFreshEnumerations(ctx context.Context, cfg *config.Config, cb ScanTargetCallback) error {
-	ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.start_fresh_enumerations",
+// EnumerateTarget begins new enumeration sessions for a single target.
+// It creates a new state record and initializes the enumeration process.
+// Returns an error if the enumeration session cannot be started.
+func (s *coordinator) EnumerateTarget(ctx context.Context, target config.TargetSpec, auth map[string]config.AuthConfig, cb ScanTargetCallback) error {
+	ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.enumerate_target",
 		trace.WithAttributes(
 			attribute.String("component", "coordinator"),
-			attribute.String("operation", "start_fresh_enumerations"),
+			attribute.String("operation", "enumerate_target"),
 		))
 	defer span.End()
 
 	s.targetCollector = NewEnumerationResults(cb)
 
 	var err error
-	s.credStore, err = memory.NewCredentialStore(cfg.Auth)
+	s.credStore, err = memory.NewCredentialStore(auth)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to create credential store")
@@ -181,36 +174,33 @@ func (s *coordinator) StartFreshEnumerations(ctx context.Context, cfg *config.Co
 	span.AddEvent("credential_store_initialized")
 
 	span.SetAttributes(
-		attribute.Int("target_count", len(cfg.Targets)),
-		attribute.Int("auth_config_count", len(cfg.Auth)),
+		attribute.Int("auth_config_count", len(auth)),
 	)
 
-	for i, target := range cfg.Targets {
-		targetSpan := trace.SpanFromContext(ctx)
-		targetSpan.AddEvent("processing_target", trace.WithAttributes(
-			attribute.Int("target_index", i),
-			attribute.String("target_type", string(target.SourceType)),
-			attribute.String("auth_ref", target.AuthRef),
-		))
+	targetSpan := trace.SpanFromContext(ctx)
+	targetSpan.AddEvent("processing_target", trace.WithAttributes(
+		attribute.String("target_name", target.Name),
+		attribute.String("target_type", string(target.SourceType)),
+		attribute.String("auth_ref", target.AuthRef),
+	))
 
-		start := time.Now()
-		state := enumeration.NewState(string(target.SourceType), s.marshalConfig(ctx, target, cfg.Auth))
+	start := time.Now()
+	state := enumeration.NewState(string(target.SourceType), s.marshalConfig(ctx, target, auth))
 
-		if err := s.processTargetEnumeration(ctx, state, target, cb); err != nil {
-			targetSpan.RecordError(err)
-			targetSpan.SetStatus(codes.Error, "target enumeration failed")
-			s.logger.Error(ctx, "Target enumeration failed",
-				"target_type", target.SourceType,
-				"error", err)
-			continue // Continue with other targets
-		}
-
-		targetSpan.AddEvent("target_processed", trace.WithAttributes(
-			attribute.Int64("processing_time_ms", time.Since(start).Milliseconds()),
-		))
-		s.metrics.ObserveTargetProcessingTime(ctx, time.Since(start))
-		s.metrics.IncTargetsProcessed(ctx)
+	if err := s.processTargetEnumeration(ctx, state, target, cb); err != nil {
+		targetSpan.RecordError(err)
+		targetSpan.SetStatus(codes.Error, "target enumeration failed")
+		s.logger.Error(ctx, "Target enumeration failed",
+			"target_type", target.SourceType,
+			"error", err)
+		return err
 	}
+
+	targetSpan.AddEvent("target_processed", trace.WithAttributes(
+		attribute.Int64("processing_time_ms", time.Since(start).Milliseconds()),
+	))
+	s.metrics.ObserveTargetProcessingTime(ctx, time.Since(start))
+	s.metrics.IncTargetsProcessed(ctx)
 
 	span.SetStatus(codes.Ok, "fresh enumeration completed")
 	return nil
@@ -256,76 +246,72 @@ func (s *coordinator) marshalConfig(
 	return data
 }
 
-// ResumeEnumerations attempts to continue enumeration from previously saved states.
+// ResumeTarget attempts to continue enumeration from previously saved states.
 // This allows recovery from interruptions and supports incremental enumeration.
-func (s *coordinator) ResumeEnumerations(
+func (s *coordinator) ResumeTarget(
 	ctx context.Context,
-	states []*enumeration.SessionState,
+	state *enumeration.SessionState,
 	cb ScanTargetCallback,
 ) error {
-	ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.resume_enumerations",
-		trace.WithAttributes(attribute.Int("state_count", len(states))))
+	ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.resume_target",
+		trace.WithAttributes(attribute.Int("state_count", 1)))
 	defer span.End()
 
 	s.targetCollector = NewEnumerationResults(cb)
 
 	span.AddEvent("starting_enumeration_resume")
 
-	for _, st := range states {
-		stateCtx, stateSpan := s.tracer.Start(ctx, "coordinator.enumeration.process_state",
-			trace.WithAttributes(
-				attribute.String("session_id", st.SessionID().String()),
-				attribute.String("source_type", string(st.SourceType())),
-			),
-		)
+	stateSpan := trace.SpanFromContext(ctx)
+	stateSpan.AddEvent("processing_state", trace.WithAttributes(
+		attribute.String("session_id", state.SessionID().String()),
+		attribute.String("source_type", string(state.SourceType())),
+	))
+	defer stateSpan.End()
 
-		var combined struct {
-			config.TargetSpec
-			Auth config.AuthConfig `json:"auth,omitempty"`
-		}
-
-		if err := json.Unmarshal(st.Config(), &combined); err != nil {
-			stateSpan.RecordError(err)
-			stateSpan.SetStatus(codes.Error, "failed to unmarshal config")
-			s.logger.Error(stateCtx, "Failed to unmarshal target config",
-				"session_id", st.SessionID(),
-				"error", err)
-			stateSpan.End()
-			continue
-		}
-
-		if s.credStore == nil {
-			credSpan := trace.SpanFromContext(stateCtx)
-
-			var err error
-			s.credStore, err = memory.NewCredentialStore(map[string]config.AuthConfig{
-				combined.AuthRef: combined.Auth,
-			})
-			if err != nil {
-				credSpan.RecordError(err)
-				credSpan.SetStatus(codes.Error, "failed to create credential store")
-				stateSpan.End()
-				return fmt.Errorf("failed to create credential store: %w", err)
-			}
-			credSpan.AddEvent("credential_store_initialized")
-		}
-
-		if err := s.processTargetEnumeration(stateCtx, st, combined.TargetSpec, cb); err != nil {
-			stateSpan.RecordError(err)
-			stateSpan.SetStatus(codes.Error, "enumeration failed")
-			s.logger.Error(stateCtx, "Resume enumeration failed",
-				"session_id", st.SessionID(),
-				"error", err)
-			stateSpan.End()
-			continue
-		}
-
-		stateSpan.SetStatus(codes.Ok, "state processed successfully")
-		stateSpan.End()
+	var combined struct {
+		config.TargetSpec
+		Auth config.AuthConfig `json:"auth,omitempty"`
 	}
 
-	span.AddEvent("enumeration_resume_completed")
-	span.SetStatus(codes.Ok, "all states processed")
+	if err := json.Unmarshal(state.Config(), &combined); err != nil {
+		stateSpan.RecordError(err)
+		stateSpan.SetStatus(codes.Error, "failed to unmarshal config")
+		s.logger.Error(ctx, "Failed to unmarshal target config",
+			"session_id", state.SessionID(),
+			"error", err)
+		stateSpan.End()
+		return fmt.Errorf("failed to unmarshal target config: %w", err)
+	}
+
+	if s.credStore == nil {
+		credSpan := trace.SpanFromContext(ctx)
+
+		var err error
+		s.credStore, err = memory.NewCredentialStore(map[string]config.AuthConfig{
+			combined.AuthRef: combined.Auth,
+		})
+		if err != nil {
+			credSpan.RecordError(err)
+			credSpan.SetStatus(codes.Error, "failed to create credential store")
+			stateSpan.End()
+			return fmt.Errorf("failed to create credential store: %w", err)
+		}
+		credSpan.AddEvent("credential_store_initialized")
+	}
+
+	if err := s.processTargetEnumeration(ctx, state, combined.TargetSpec, cb); err != nil {
+		stateSpan.RecordError(err)
+		stateSpan.SetStatus(codes.Error, "enumeration failed")
+		s.logger.Error(ctx, "Resume enumeration failed",
+			"session_id", state.SessionID(),
+			"error", err)
+		stateSpan.End()
+		return err
+	}
+
+	stateSpan.AddEvent("enumeration_resume_completed")
+	stateSpan.SetStatus(codes.Ok, "enumeration completed successfully")
+
 	return nil
 }
 

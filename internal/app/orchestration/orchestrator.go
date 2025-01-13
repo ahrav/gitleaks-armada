@@ -14,12 +14,13 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/app/cluster"
 	enumCoordinator "github.com/ahrav/gitleaks-armada/internal/app/enumeration"
 	rulessvc "github.com/ahrav/gitleaks-armada/internal/app/rules"
-	"github.com/ahrav/gitleaks-armada/internal/app/scanning"
+	scanningSvc "github.com/ahrav/gitleaks-armada/internal/app/scanning"
 	"github.com/ahrav/gitleaks-armada/internal/config"
 	"github.com/ahrav/gitleaks-armada/internal/config/loaders"
 	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/rules"
+	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
 
@@ -38,7 +39,7 @@ type Orchestrator struct {
 
 	enumerationService enumCoordinator.Coordinator
 	rulesService       rulessvc.Service
-	scanningSvc        scanning.ScanJobService
+	scanningSvc        scanningSvc.ScanJobService
 	stateRepo          enumeration.StateRepository
 
 	// mu protects running and cancelFn state
@@ -232,109 +233,108 @@ var _ enumCoordinator.ScanTargetCallback = (*orchestratorCallback)(nil)
 // orchestratorCallback is a callback implementation for the orchestrator.
 // It is used to notify the orchestrator when scan targets are discovered.
 type orchestratorCallback struct {
-	jobID  uuid.UUID
-	jobSvc scanning.ScanJobService
+	jobSvc scanningSvc.ScanJobService
+	job    *scanning.ScanJob
 }
 
 func (oc *orchestratorCallback) OnScanTargetsDiscovered(ctx context.Context, targetIDs []uuid.UUID) {
-	// for _, tid := range targetIDs {
-	// TODO: Associate target with job
-	// oc.jobSvc.AssociateTargetWithJob(ctx, oc.jobID, tid)
-	// }
+	for _, tid := range targetIDs {
+		if err := oc.jobSvc.AssociateTargets(ctx, oc.job, []uuid.UUID{tid}); err != nil {
+			// Handle error (log it, maybe retry, etc.)
+			continue
+		}
+	}
 }
 
-// Enumerate starts a new enumeration session or resumes an existing one. It coordinates
-// the scanning process by first checking for any active enumeration states. If none exist,
-// it starts a fresh enumeration by loading the configuration and creating new scanning records.
-// Otherwise, it resumes enumeration from the existing states. This ensures reliable and
-// resumable scanning operations even after interruptions.
+// Enumerate starts enumeration sessions for each target in the configuration.
+// It creates a job for each target and associates discovered scan targets with that job.
 func (o *Orchestrator) Enumerate(ctx context.Context) error {
-	ctx, span := o.tracer.Start(ctx, "orchestrator.enumerate",
-		trace.WithAttributes(
-			attribute.String("component", "orchestrator"),
-			attribute.String("operation", "enumerate"),
-		))
+	ctx, span := o.tracer.Start(ctx, "orchestrator.enumerate")
 	defer span.End()
 
-	// TODO: Create a job.
-	cb := &orchestratorCallback{
-		jobSvc: o.scanningSvc,
-	}
-
+	// Check for active states first
 	span.AddEvent("checking_active_states")
 	activeStates, err := o.stateRepo.GetActiveStates(ctx)
 	if err != nil {
 		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to load active states")
 		return fmt.Errorf("failed to load active states: %w", err)
 	}
-	span.AddEvent("active_states_loaded", trace.WithAttributes(
-		attribute.Int("active_state_count", len(activeStates)),
-	))
 
-	if len(activeStates) == 0 {
-		// No active states means we need to start fresh.
-		cfg, err := o.cfgLoader.Load(ctx)
+	if len(activeStates) > 0 {
+		return o.resumeEnumerations(ctx, activeStates)
+	}
+
+	// Start fresh enumeration
+	cfg, err := o.cfgLoader.Load(ctx)
+	if err != nil {
+		o.metrics.IncConfigReloadErrors(ctx)
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+	span.AddEvent("config_loaded")
+	o.metrics.IncConfigReloads(ctx)
+
+	return o.startFreshEnumerations(ctx, cfg)
+}
+
+func (o *Orchestrator) startFreshEnumerations(ctx context.Context, cfg *config.Config) error {
+	ctx, span := o.tracer.Start(ctx, "orchestrator.start_fresh_enumerations")
+	defer span.End()
+
+	for _, target := range cfg.Targets {
+		targetSpan := trace.SpanFromContext(ctx)
+		targetSpan.AddEvent("processing_target", trace.WithAttributes(
+			attribute.String("target_name", target.Name),
+			attribute.String("target_type", string(target.SourceType)),
+		))
+
+		job, err := o.scanningSvc.CreateJob(ctx)
 		if err != nil {
-			o.metrics.IncConfigReloadErrors(ctx)
-			return fmt.Errorf("failed to load config: %w", err)
+			targetSpan.RecordError(err)
+			return fmt.Errorf("failed to create job for target %s: %w", target.Name, err)
 		}
-		span.AddEvent("config_loaded")
-		o.metrics.IncConfigReloads(ctx)
 
-		// Create database records before starting enumeration to maintain data consistency.
-		if err := o.createScanningRecords(ctx, cfg); err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "failed to create scanning records")
-			return fmt.Errorf("failed to create scanning records: %w", err)
+		// Create callback that associates discovered targets with this job.
+		cb := &orchestratorCallback{
+			job:    job,
+			jobSvc: o.scanningSvc,
 		}
-		span.AddEvent("scanning_records_created")
 
-		span.AddEvent("starting_fresh_enumeration")
-		if err := o.enumerationService.StartFreshEnumerations(ctx, cfg, cb); err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "failed to start fresh enumerations")
-			return fmt.Errorf("failed to start fresh enumerations: %w", err)
+		if err := o.enumerationService.EnumerateTarget(ctx, target, cfg.Auth, cb); err != nil {
+			targetSpan.RecordError(err)
+			continue
 		}
-		span.AddEvent("fresh_enumeration_completed")
+
+		targetSpan.AddEvent("target_enumeration_completed")
 	}
-
-	span.AddEvent("resuming_enumeration", trace.WithAttributes(
-		attribute.Int("state_count", len(activeStates)),
-	))
-	if err := o.enumerationService.ResumeEnumerations(ctx, activeStates, cb); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to resume enumerations")
-		return fmt.Errorf("failed to resume enumerations: %w", err)
-	}
-	span.AddEvent("resumed_enumeration_completed")
-	span.SetStatus(codes.Ok, "enumeration completed successfully")
 
 	return nil
 }
 
-func (o *Orchestrator) createScanningRecords(ctx context.Context, cfg *config.Config) error {
-	for _, tgt := range cfg.Targets {
-		// e.g. scanningSvc.CreateGitHubRepo(tgt.GitHub.Org, ...)? or
-		// scanningSvc.CreateScanTarget("github_repositories", /* repoID or url? */)
+func (o *Orchestrator) resumeEnumerations(ctx context.Context, states []*enumeration.SessionState) error {
+	ctx, span := o.tracer.Start(ctx, "orchestrator.resume_enumerations")
+	defer span.End()
 
-		if tgt.SourceType == "github" && tgt.GitHub != nil {
-			// repoID, err := o.scanningSvc.CreateGitHubRepository(ctx, tgt.GitHub)
-			// if err != nil {
-			// 	return err
-			// }
-			// Then create scan_target row referencing that repo
-			// scanTargetID, err := o.scanningSvc.CreateScanTarget(ctx, "github_repositories", repoID, tgt.Metadata)
-			// if err != nil {
-			// 	return err
-			// }
-			// Possibly create a job in "QUEUED" or "SCHEDULED" status
-			// _, err := o.scanningSvc.CreateJob(ctx, scanTargetID)
-			// if err != nil {
-			// 	return err
-			// }
+	for _, state := range states {
+		stateSpan := trace.SpanFromContext(ctx)
+
+		// TODO: Use existing job if possible, bleh...
+		job, err := o.scanningSvc.CreateJob(ctx)
+		if err != nil {
+			stateSpan.RecordError(err)
+			return fmt.Errorf("failed to create job for state %s: %w", state.SessionID(), err)
 		}
-		// else if S3, do something else...
+
+		cb := &orchestratorCallback{
+			job:    job,
+			jobSvc: o.scanningSvc,
+		}
+
+		if err := o.enumerationService.ResumeTarget(ctx, state, cb); err != nil {
+			stateSpan.RecordError(err)
+			continue
+		}
+
+		stateSpan.AddEvent("state_enumeration_completed")
 	}
 
 	return nil
