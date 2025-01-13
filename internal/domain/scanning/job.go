@@ -27,12 +27,12 @@ const (
 // ScanJob coordinates and tracks a collection of related scanning tasks.
 // It provides aggregated status and progress tracking across all child tasks.
 type ScanJob struct {
-	jobID        uuid.UUID
-	scanTargetID uuid.UUID
-	status       JobStatus
-	timeline     *Timeline
-	metrics      *JobMetrics
-	tasks        map[uuid.UUID]*Task
+	jobID     uuid.UUID
+	targetIDs []uuid.UUID
+	status    JobStatus
+	timeline  *Timeline
+	metrics   *JobMetrics
+	tasks     map[uuid.UUID]*Task
 }
 
 // NewScanJob creates a new ScanJob instance with initialized state tracking.
@@ -45,6 +45,30 @@ func NewScanJob() *ScanJob {
 		metrics:  NewJobMetrics(),
 		tasks:    make(map[uuid.UUID]*Task),
 	}
+}
+
+// ReconstructJob creates a ScanJob instance from stored fields, bypassing creation invariants.
+// This should only be used by repositories when loading from the DB.
+func ReconstructJob(
+	jobID uuid.UUID,
+	status JobStatus,
+	startTime, endTime, lastUpdate time.Time,
+	targetIDs []uuid.UUID,
+) *ScanJob {
+	timeline := ReconstructTimeline(startTime, endTime, lastUpdate)
+
+	job := &ScanJob{
+		jobID:    jobID,
+		status:   status,
+		timeline: timeline,
+		tasks:    make(map[uuid.UUID]*Task),
+	}
+
+	if len(targetIDs) > 0 {
+		job.targetIDs = targetIDs
+	}
+
+	return job
 }
 
 // GetJobID returns the unique identifier for this scan job.
@@ -64,7 +88,7 @@ func (j *ScanJob) GetStartTime() time.Time { return j.timeline.StartedAt() }
 func (j *ScanJob) GetLastUpdateTime() time.Time { return j.timeline.LastUpdate() }
 
 // AssociateTarget links a scan target with this job.
-func (j *ScanJob) AssociateTarget(targetID uuid.UUID) { j.scanTargetID = targetID }
+func (j *ScanJob) AssociateTarget(targetID uuid.UUID) { j.targetIDs = append(j.targetIDs, targetID) }
 
 // AddTask registers a new scan task with this job and updates task counters.
 func (j *ScanJob) AddTask(task *Task) {

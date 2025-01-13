@@ -37,7 +37,7 @@ INSERT INTO scan_job_targets (
     scan_target_id
 ) VALUES ($1, $2);
 
--- name: GetJob :one
+-- name: GetJob :many
 SELECT
     j.job_id,
     j.status,
@@ -48,21 +48,3 @@ SELECT
 FROM scan_jobs j
 LEFT JOIN scan_job_targets t ON j.job_id = t.job_id
 WHERE j.job_id = $1;
-
--- name: ListJobs :many
-SELECT
-    j.job_id,
-    j.status,
-    j.start_time,
-    j.end_time,
-    j.updated_at,
-    t.scan_target_id
-FROM scan_jobs j
-LEFT JOIN scan_job_targets t ON j.job_id = t.job_id
-WHERE
-    -- Using COALESCE to handle empty status array
-    COALESCE(ARRAY_LENGTH($1::scan_job_status[], 1), 0) = 0
-    OR j.status = ANY($1::scan_job_status[])
-ORDER BY j.created_at DESC
-LIMIT $2 OFFSET $3;
-

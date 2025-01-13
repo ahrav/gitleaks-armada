@@ -35,7 +35,7 @@ type ScanTaskService interface {
 // Implementation that orchestrates domain service, repositories, concurrency, caching, etc.
 type ScanTaskServiceImpl struct {
 	mu        sync.RWMutex
-	jobsCache map[string]*domain.ScanJob // ephemeral cache
+	jobsCache map[uuid.UUID]*domain.ScanJob // ephemeral cache
 	jobRepo   domain.JobRepository
 	taskRepo  domain.TaskRepository
 	// checkpointRepo   domain.CheckpointRepository
@@ -55,7 +55,7 @@ func NewScanTaskServiceImpl(
 	staleTimeout time.Duration,
 ) *ScanTaskServiceImpl {
 	return &ScanTaskServiceImpl{
-		jobsCache: make(map[string]*domain.ScanJob),
+		jobsCache: make(map[uuid.UUID]*domain.ScanJob),
 		jobRepo:   jobRepo,
 		taskRepo:  taskRepo,
 		// checkpointRepo:    checkpointRepo,
@@ -73,10 +73,10 @@ func (s *ScanTaskServiceImpl) UpdateProgress(ctx context.Context, progress domai
 
 	// 1. Load job from in-memory or repo
 	s.mu.RLock()
-	job, inCache := s.jobsCache[progress.JobID.String()]
+	job, inCache := s.jobsCache[progress.JobID]
 	s.mu.RUnlock()
 	if !inCache {
-		loadedJob, err := s.jobRepo.GetJob(ctx, progress.JobID.String())
+		loadedJob, err := s.jobRepo.GetJob(ctx, progress.JobID)
 		if err != nil {
 			return err
 		}
@@ -84,10 +84,10 @@ func (s *ScanTaskServiceImpl) UpdateProgress(ctx context.Context, progress domai
 			return fmt.Errorf("job %s not found", progress.JobID)
 		}
 		s.mu.Lock()
-		job, inCache = s.jobsCache[progress.JobID.String()]
+		job, inCache = s.jobsCache[progress.JobID]
 		if !inCache {
 			job = loadedJob
-			s.jobsCache[progress.JobID.String()] = job
+			s.jobsCache[progress.JobID] = job
 		}
 		s.mu.Unlock()
 	}
@@ -134,7 +134,7 @@ func (s *ScanTaskServiceImpl) UpdateProgress(ctx context.Context, progress domai
 
 func (s *ScanTaskServiceImpl) GetTask(ctx context.Context, jobID uuid.UUID, taskID uuid.UUID) (*domain.Task, error) {
 	// purely orchestration logic
-	job, err := s.jobRepo.GetJob(ctx, jobID.String())
+	job, err := s.jobRepo.GetJob(ctx, jobID)
 	if err != nil {
 		return nil, err
 	}
@@ -152,7 +152,7 @@ func (s *ScanTaskServiceImpl) GetTask(ctx context.Context, jobID uuid.UUID, task
 }
 
 func (s *ScanTaskServiceImpl) MarkTaskStale(ctx context.Context, jobID uuid.UUID, taskID uuid.UUID, reason domain.StallReason) error {
-	job, err := s.jobRepo.GetJob(ctx, jobID.String())
+	job, err := s.jobRepo.GetJob(ctx, jobID)
 	if err != nil {
 		return err
 	}
@@ -178,7 +178,7 @@ func (s *ScanTaskServiceImpl) MarkTaskStale(ctx context.Context, jobID uuid.UUID
 }
 
 func (s *ScanTaskServiceImpl) RecoverTask(ctx context.Context, jobID uuid.UUID, taskID uuid.UUID) error {
-	job, err := s.jobRepo.GetJob(ctx, jobID.String())
+	job, err := s.jobRepo.GetJob(ctx, jobID)
 	if err != nil {
 		return err
 	}

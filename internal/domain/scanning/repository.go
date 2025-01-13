@@ -23,10 +23,7 @@ type JobRepository interface {
 	AssociateTargets(ctx context.Context, jobID uuid.UUID, targetIDs []uuid.UUID) error
 
 	// GetJob retrieves a job’s state (including associated tasks if needed).
-	GetJob(ctx context.Context, jobID string) (*ScanJob, error)
-
-	// ListJobs retrieves a filtered, paginated list of jobs.
-	ListJobs(ctx context.Context, status []JobStatus, limit, offset int) ([]*ScanJob, error)
+	GetJob(ctx context.Context, jobID uuid.UUID) (*ScanJob, error)
 }
 
 // TaskRepository defines the persistence operations for scan tasks.

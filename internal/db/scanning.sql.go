@@ -69,7 +69,7 @@ func (q *Queries) CreateJob(ctx context.Context, arg CreateJobParams) error {
 	return err
 }
 
-const getJob = `-- name: GetJob :one
+const getJob = `-- name: GetJob :many
 SELECT
     j.job_id,
     j.status,
@@ -91,62 +91,15 @@ type GetJobRow struct {
 	ScanTargetID pgtype.UUID
 }
 
-func (q *Queries) GetJob(ctx context.Context, jobID pgtype.UUID) (GetJobRow, error) {
-	row := q.db.QueryRow(ctx, getJob, jobID)
-	var i GetJobRow
-	err := row.Scan(
-		&i.JobID,
-		&i.Status,
-		&i.StartTime,
-		&i.EndTime,
-		&i.UpdatedAt,
-		&i.ScanTargetID,
-	)
-	return i, err
-}
-
-const listJobs = `-- name: ListJobs :many
-SELECT
-    j.job_id,
-    j.status,
-    j.start_time,
-    j.end_time,
-    j.updated_at,
-    t.scan_target_id
-FROM scan_jobs j
-LEFT JOIN scan_job_targets t ON j.job_id = t.job_id
-WHERE
-    -- Using COALESCE to handle empty status array
-    COALESCE(ARRAY_LENGTH($1::scan_job_status[], 1), 0) = 0
-    OR j.status = ANY($1::scan_job_status[])
-ORDER BY j.created_at DESC
-LIMIT $2 OFFSET $3
-`
-
-type ListJobsParams struct {
-	Column1 []ScanJobStatus
-	Limit   int32
-	Offset  int32
-}
-
-type ListJobsRow struct {
-	JobID        pgtype.UUID
-	Status       ScanJobStatus
-	StartTime    pgtype.Timestamptz
-	EndTime      pgtype.Timestamptz
-	UpdatedAt    pgtype.Timestamptz
-	ScanTargetID pgtype.UUID
-}
-
-func (q *Queries) ListJobs(ctx context.Context, arg ListJobsParams) ([]ListJobsRow, error) {
-	rows, err := q.db.Query(ctx, listJobs, arg.Column1, arg.Limit, arg.Offset)
+func (q *Queries) GetJob(ctx context.Context, jobID pgtype.UUID) ([]GetJobRow, error) {
+	rows, err := q.db.Query(ctx, getJob, jobID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ListJobsRow
+	var items []GetJobRow
 	for rows.Next() {
-		var i ListJobsRow
+		var i GetJobRow
 		if err := rows.Scan(
 			&i.JobID,
 			&i.Status,

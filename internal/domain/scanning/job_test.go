@@ -249,5 +249,5 @@ func TestScanJob_AssociateTarget(t *testing.T) {
 	targetID := uuid.New()
 	job.AssociateTarget(targetID)
 
-	assert.Equal(t, job.scanTargetID, targetID)
+	assert.Equal(t, job.targetIDs, []uuid.UUID{targetID})
 }
