@@ -54,28 +54,37 @@ func (f *enumerationFactory) CreateEnumerator(target config.TargetSpec, creds *e
 
 	switch target.SourceType {
 	case config.SourceTypeGitHub:
-		// Ensure GitHub-specific configuration exists.
+		githubSpan := trace.SpanFromContext(ctx)
+		defer githubSpan.End()
+
 		if target.GitHub == nil {
-			span.RecordError(fmt.Errorf("github target configuration is missing"))
+			githubSpan.RecordError(fmt.Errorf("github target configuration is missing"))
 			return nil, fmt.Errorf("github target configuration is missing")
 		}
 
-		_, ghSpan := f.tracer.Start(ctx, "factory.enumeration.create_github_client")
 		ghClient, err := NewGitHubClient(f.httpClient, creds, f.tracer)
 		if err != nil {
-			ghSpan.RecordError(err)
-			ghSpan.End()
+			githubSpan.RecordError(err)
 			return nil, fmt.Errorf("failed to create GitHub client: %w", err)
 		}
-		ghSpan.End()
+
+		githubSpan.AddEvent("github_client_created")
 
 		return NewGitHubEnumerator(
 			ghClient,
 			target.GitHub,
 			f.tracer,
 		), nil
+	case config.SourceTypeURL:
+		urlSpan := trace.SpanFromContext(ctx)
+		defer urlSpan.End()
+
+		// TODO: Implement URL enumerator.
+		if target.URL == nil {
+			urlSpan.RecordError(fmt.Errorf("url target configuration is missing"))
+			return nil, fmt.Errorf("url target configuration is missing")
+		}
 	case config.SourceTypeS3:
-		span.SetAttributes(attribute.String("source_type", "s3"))
 		// TODO: Implement S3 enumerator.
 	default:
 		err := fmt.Errorf("unsupported source type: %s", target.SourceType)
