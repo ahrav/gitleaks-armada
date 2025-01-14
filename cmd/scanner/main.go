@@ -113,7 +113,7 @@ func main() {
 
 	log.Info(ctx, "Scanner connected to Kafka")
 
-	scanner := scanner.NewGitLeaksScanner(ctx, eventPublisher, log, tracer)
+	scanner := scanner.NewGitLeaksScanner(ctx, eventPublisher, log, tracer, metricsCollector)
 	scannerService := scanning.NewScannerService(hostname, broker, eventPublisher, scanner, log, metricsCollector, tracer)
 
 	ready.Store(true)

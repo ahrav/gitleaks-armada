@@ -255,6 +255,8 @@ func (m *scannerMetrics) IncCloneError(ctx context.Context, repoURI string) {
 	))
 }
 
-func (m *scannerMetrics) ObserveFindings(ctx context.Context, count int) {
-	m.findingsPerTask.Record(ctx, float64(count))
+func (m *scannerMetrics) ObserveFindings(ctx context.Context, repoURI string, count int) {
+	m.findingsPerTask.Record(ctx, float64(count), metric.WithAttributes(
+		attribute.String("repository_uri", repoURI),
+	))
 }
