@@ -103,7 +103,7 @@ type coordinator struct {
 	// targetCollector manages the collection and notification of discovered scan targets
 	// during enumeration. It provides thread-safe operations for aggregating target IDs
 	// and notifying downstream consumers via callbacks when new targets are found.
-	targetCollector *TargetEnumerationResults
+	targetCollector *targetEnumerationResults
 
 	// Creates enumerators for different target types.
 	enumFactory EnumeratorFactory
@@ -154,7 +154,12 @@ func NewCoordinator(
 // EnumerateTarget begins new enumeration sessions for a single target.
 // It creates a new state record and initializes the enumeration process.
 // Returns an error if the enumeration session cannot be started.
-func (s *coordinator) EnumerateTarget(ctx context.Context, target config.TargetSpec, auth map[string]config.AuthConfig, cb ScanTargetCallback) error {
+func (s *coordinator) EnumerateTarget(
+	ctx context.Context,
+	target config.TargetSpec,
+	auth map[string]config.AuthConfig,
+	cb ScanTargetCallback,
+) error {
 	ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.enumerate_target",
 		trace.WithAttributes(
 			attribute.String("component", "coordinator"),
@@ -162,7 +167,7 @@ func (s *coordinator) EnumerateTarget(ctx context.Context, target config.TargetS
 		))
 	defer span.End()
 
-	s.targetCollector = NewEnumerationResults(cb)
+	s.targetCollector = newEnumerationResults(cb)
 
 	var err error
 	s.credStore, err = memory.NewCredentialStore(auth)
@@ -187,7 +192,7 @@ func (s *coordinator) EnumerateTarget(ctx context.Context, target config.TargetS
 	start := time.Now()
 	state := enumeration.NewState(string(target.SourceType), s.marshalConfig(ctx, target, auth))
 
-	if err := s.processTargetEnumeration(ctx, state, target, cb); err != nil {
+	if err := s.processTargetEnumeration(ctx, state, target); err != nil {
 		targetSpan.RecordError(err)
 		targetSpan.SetStatus(codes.Error, "target enumeration failed")
 		s.logger.Error(ctx, "Target enumeration failed",
@@ -257,7 +262,7 @@ func (s *coordinator) ResumeTarget(
 		trace.WithAttributes(attribute.Int("state_count", 1)))
 	defer span.End()
 
-	s.targetCollector = NewEnumerationResults(cb)
+	s.targetCollector = newEnumerationResults(cb)
 
 	span.AddEvent("starting_enumeration_resume")
 
@@ -299,7 +304,7 @@ func (s *coordinator) ResumeTarget(
 		credSpan.AddEvent("credential_store_initialized")
 	}
 
-	if err := s.processTargetEnumeration(ctx, state, combined.TargetSpec, cb); err != nil {
+	if err := s.processTargetEnumeration(ctx, state, combined.TargetSpec); err != nil {
 		stateSpan.RecordError(err)
 		stateSpan.SetStatus(codes.Error, "enumeration failed")
 		s.logger.Error(ctx, "Resume enumeration failed",
@@ -321,7 +326,6 @@ func (s *coordinator) processTargetEnumeration(
 	ctx context.Context,
 	state *enumeration.SessionState,
 	target config.TargetSpec,
-	cb ScanTargetCallback,
 ) error {
 	ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.process_target_enumeration",
 		trace.WithAttributes(
@@ -394,7 +398,7 @@ func (s *coordinator) processTargetEnumeration(
 		}
 	}
 
-	if err := s.streamEnumerate(ctx, enumerator, state, resumeCursor, creds, cb); err != nil {
+	if err := s.streamEnumerate(ctx, enumerator, state, resumeCursor, creds); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "enumeration stream failed")
 		s.logger.Error(ctx, "Enumeration failed",
@@ -417,7 +421,6 @@ func (s *coordinator) streamEnumerate(
 	state *enumeration.SessionState,
 	startCursor *string,
 	creds *enumeration.TaskCredentials,
-	cb ScanTargetCallback,
 ) error {
 	ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.stream_enumerate",
 		trace.WithAttributes(
@@ -441,7 +444,7 @@ func (s *coordinator) streamEnumerate(
 					attribute.String("next_cursor", batch.NextCursor),
 				))
 
-			if err := s.processBatch(batchCtx, batch, state, creds, cb); err != nil {
+			if err := s.processBatch(batchCtx, batch, state, creds); err != nil {
 				batchSpan.RecordError(err)
 				batchSpan.SetStatus(codes.Error, "failed to process batch")
 				batchSpan.End()
@@ -493,7 +496,6 @@ func (s *coordinator) processBatch(
 	batch EnumerateBatch,
 	state *enumeration.SessionState,
 	creds *enumeration.TaskCredentials,
-	cb ScanTargetCallback,
 ) error {
 	batchSpan := trace.SpanFromContext(ctx)
 	defer batchSpan.End()
