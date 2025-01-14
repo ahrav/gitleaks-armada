@@ -101,7 +101,6 @@ func (s *Gitleaks) Scan(ctx context.Context, task *dtos.ScanRequest) error {
 		span.AddEvent("temp_dir_creation_failed")
 		return fmt.Errorf("failed to create temp directory: %w", err)
 	}
-	defer os.RemoveAll(tempDir)
 	dirSpan.End()
 	span.AddEvent("temp_dir_created", trace.WithAttributes(
 		attribute.String("temp_dir", tempDir),
