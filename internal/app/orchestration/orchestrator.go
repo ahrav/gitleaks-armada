@@ -332,6 +332,8 @@ func (o *Orchestrator) startFreshEnumerations(ctx context.Context, cfg *config.C
 	span.AddEvent("fresh_enumeration_started")
 
 	for _, target := range cfg.Targets {
+		startTime := time.Now()
+
 		targetSpan := trace.SpanFromContext(ctx)
 		targetSpan.AddEvent("processing_target", trace.WithAttributes(
 			attribute.String("target_name", target.Name),
@@ -360,7 +362,11 @@ func (o *Orchestrator) startFreshEnumerations(ctx context.Context, cfg *config.C
 			continue
 		}
 
-		targetSpan.AddEvent("target_enumeration_completed")
+		duration := time.Since(startTime)
+		o.metrics.ObserveTargetProcessingTime(ctx, duration)
+		targetSpan.AddEvent("target_enumeration_completed", trace.WithAttributes(
+			attribute.String("duration", duration.String()),
+		))
 	}
 	span.AddEvent("fresh_enumeration_completed")
 

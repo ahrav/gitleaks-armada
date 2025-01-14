@@ -15,13 +15,6 @@ type OrchestrationMetrics interface {
 	// Messaging metrics
 	kafka.BrokerMetrics
 
-	// Enumeration metrics
-	TrackEnumeration(ctx context.Context, f func() error) error
-
-	// Target metrics
-	IncTargetsProcessed(ctx context.Context)
-	ObserveTargetProcessingTime(ctx context.Context, duration time.Duration)
-
 	// Leader election metrics
 	SetLeaderStatus(ctx context.Context, isLeader bool)
 
@@ -34,6 +27,9 @@ type OrchestrationMetrics interface {
 	IncRuleSaveErrors(ctx context.Context) // Tracks errors saving rules to DB
 
 	// Enumeration metrics.
+	TrackEnumeration(ctx context.Context, f func() error) error
+	IncTargetsProcessed(ctx context.Context)
+	ObserveTargetProcessingTime(ctx context.Context, duration time.Duration)
 	IncEnumerationStarted(ctx context.Context)                 // Track how many enumerations we start
 	IncEnumerationCompleted(ctx context.Context)               // Track successful completions
 	IncEnumerationErrors(ctx context.Context)                  // Track enumeration failures
