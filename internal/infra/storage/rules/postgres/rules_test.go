@@ -23,7 +23,7 @@ func TestRulesStorage_SaveRule(t *testing.T) {
 	// TODO: Replace this with a mock metrics implementation.
 	mp, err := otel.NewMeterProvider("test-service")
 	require.NoError(t, err)
-	metricsCollector, err := orchestration.NewControllerMetrics(mp)
+	metricsCollector, err := orchestration.NewOrchestrationMetrics(mp)
 	require.NoError(t, err)
 	rulesStorage := NewStore(dbConn, storage.NoOpTracer(), metricsCollector)
 

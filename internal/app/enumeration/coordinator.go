@@ -43,8 +43,8 @@ type metrics interface {
 	ObserveTargetProcessingTime(ctx context.Context, duration time.Duration)
 	IncTargetsProcessed(ctx context.Context)
 	TrackEnumeration(ctx context.Context, fn func() error) error
-	IncTasksEnqueued(ctx context.Context)
-	IncTasksFailedToEnqueue(ctx context.Context)
+	IncEnumerationTasksEnqueued(ctx context.Context)
+	IncEnumerationTasksFailedToEnqueue(ctx context.Context)
 }
 
 // ResourceEntry represents a discovered resource during enumeration that needs to be persisted.
@@ -541,14 +541,14 @@ func (s *coordinator) processBatch(
 		if err != nil {
 			batchSpan.RecordError(err)
 			lastError = err
-			s.metrics.IncTasksFailedToEnqueue(ctx)
+			s.metrics.IncEnumerationTasksFailedToEnqueue(ctx)
 			continue
 		}
 		if targetID != uuid.Nil {
 			scanTargetIDs = append(scanTargetIDs, targetID)
 		}
 		processedCount++
-		s.metrics.IncTasksEnqueued(ctx)
+		s.metrics.IncEnumerationTasksEnqueued(ctx)
 	}
 
 	s.targetCollector.AddTargets(ctx, scanTargetIDs)

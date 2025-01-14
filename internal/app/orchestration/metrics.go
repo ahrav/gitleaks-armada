@@ -10,8 +10,8 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/infra/eventbus/kafka"
 )
 
-// ControllerMetrics defines metrics operations needed by the controller.
-type ControllerMetrics interface {
+// OrchestrationMetrics defines metrics operations needed by the orchestrator.
+type OrchestrationMetrics interface {
 	// Messaging metrics
 	kafka.BrokerMetrics
 
@@ -34,18 +34,18 @@ type ControllerMetrics interface {
 	IncRuleSaveErrors(ctx context.Context) // Tracks errors saving rules to DB
 }
 
-// Controller implements ControllerMetrics
-type controllerMetrics struct {
+// OrchestrationMetrics implements OrchestrationMetrics
+type orchestrationMetrics struct {
 	// Broker metrics.
 	messagesPublished metric.Int64Counter
 	messagesConsumed  metric.Int64Counter
 	publishErrors     metric.Int64Counter
 	consumeErrors     metric.Int64Counter
 
-	// Task metrics
-	tasksEnqueued        metric.Int64Counter
-	tasksRetried         metric.Int64Counter
-	tasksFailedToEnqueue metric.Int64Counter
+	// EnumerationTask metrics
+	enumerationTasksEnqueued        metric.Int64Counter
+	enumerationTasksRetried         metric.Int64Counter
+	enumerationTasksFailedToEnqueue metric.Int64Counter
 
 	// Enumeration metrics
 	enumerationTime   metric.Float64Histogram
@@ -69,11 +69,11 @@ type controllerMetrics struct {
 
 const namespace = "controller"
 
-// NewControllerMetrics creates a new Controller metrics instance.
-func NewControllerMetrics(mp metric.MeterProvider) (*controllerMetrics, error) {
+// NewOrchestrationMetrics creates a new orchestration metrics instance.
+func NewOrchestrationMetrics(mp metric.MeterProvider) (*orchestrationMetrics, error) {
 	meter := mp.Meter(namespace, metric.WithInstrumentationVersion("v0.1.0"))
 
-	c := new(controllerMetrics)
+	c := new(orchestrationMetrics)
 	var err error
 
 	if c.messagesPublished, err = meter.Int64Counter(
@@ -104,21 +104,21 @@ func NewControllerMetrics(mp metric.MeterProvider) (*controllerMetrics, error) {
 		return nil, err
 	}
 
-	if c.tasksEnqueued, err = meter.Int64Counter(
+	if c.enumerationTasksEnqueued, err = meter.Int64Counter(
 		"tasks_enqueued_total",
 		metric.WithDescription("Total number of tasks published to Kafka"),
 	); err != nil {
 		return nil, err
 	}
 
-	if c.tasksRetried, err = meter.Int64Counter(
+	if c.enumerationTasksRetried, err = meter.Int64Counter(
 		"tasks_retried_total",
 		metric.WithDescription("Total number of tasks that were retried"),
 	); err != nil {
 		return nil, err
 	}
 
-	if c.tasksFailedToEnqueue, err = meter.Int64Counter(
+	if c.enumerationTasksFailedToEnqueue, err = meter.Int64Counter(
 		"tasks_failed_to_enqueue_total",
 		metric.WithDescription("Total number of tasks that failed to be enqueued"),
 	); err != nil {
@@ -192,44 +192,44 @@ func NewControllerMetrics(mp metric.MeterProvider) (*controllerMetrics, error) {
 }
 
 // Interface implementation methods.
-func (c *controllerMetrics) IncMessagePublished(ctx context.Context, topic string) {
+func (c *orchestrationMetrics) IncMessagePublished(ctx context.Context, topic string) {
 	c.messagesPublished.Add(ctx, 1, metric.WithAttributes(attribute.String("topic", topic)))
 }
-func (c *controllerMetrics) IncMessageConsumed(ctx context.Context, topic string) {
+func (c *orchestrationMetrics) IncMessageConsumed(ctx context.Context, topic string) {
 	c.messagesConsumed.Add(ctx, 1, metric.WithAttributes(attribute.String("topic", topic)))
 }
-func (c *controllerMetrics) IncPublishError(ctx context.Context, topic string) {
+func (c *orchestrationMetrics) IncPublishError(ctx context.Context, topic string) {
 	c.publishErrors.Add(ctx, 1, metric.WithAttributes(attribute.String("topic", topic)))
 }
-func (c *controllerMetrics) IncConsumeError(ctx context.Context, topic string) {
+func (c *orchestrationMetrics) IncConsumeError(ctx context.Context, topic string) {
 	c.consumeErrors.Add(ctx, 1, metric.WithAttributes(attribute.String("topic", topic)))
 }
-func (c *controllerMetrics) IncTasksEnqueued(ctx context.Context) {
-	c.tasksEnqueued.Add(ctx, 1)
+func (c *orchestrationMetrics) IncEnumerationTasksEnqueued(ctx context.Context) {
+	c.enumerationTasksEnqueued.Add(ctx, 1)
 }
-func (c *controllerMetrics) IncTasksRetried(ctx context.Context) {
-	c.tasksRetried.Add(ctx, 1)
+func (c *orchestrationMetrics) IncEnumerationTasksRetried(ctx context.Context) {
+	c.enumerationTasksRetried.Add(ctx, 1)
 }
-func (c *controllerMetrics) IncTasksFailedToEnqueue(ctx context.Context) {
-	c.tasksFailedToEnqueue.Add(ctx, 1)
+func (c *orchestrationMetrics) IncEnumerationTasksFailedToEnqueue(ctx context.Context) {
+	c.enumerationTasksFailedToEnqueue.Add(ctx, 1)
 }
-func (c *controllerMetrics) IncTargetsProcessed(ctx context.Context) {
+func (c *orchestrationMetrics) IncTargetsProcessed(ctx context.Context) {
 	c.targetsProcessed.Add(ctx, 1)
 }
-func (c *controllerMetrics) IncConfigReloads(ctx context.Context) {
+func (c *orchestrationMetrics) IncConfigReloads(ctx context.Context) {
 	c.configReloads.Add(ctx, 1)
 }
-func (c *controllerMetrics) IncConfigReloadErrors(ctx context.Context) {
+func (c *orchestrationMetrics) IncConfigReloadErrors(ctx context.Context) {
 	c.configReloadErrors.Add(ctx, 1)
 }
-func (c *controllerMetrics) IncRulesSaved(ctx context.Context) {
+func (c *orchestrationMetrics) IncRulesSaved(ctx context.Context) {
 	c.rulesSaved.Add(ctx, 1)
 }
-func (c *controllerMetrics) IncRuleSaveErrors(ctx context.Context) {
+func (c *orchestrationMetrics) IncRuleSaveErrors(ctx context.Context) {
 	c.ruleSaveErrors.Add(ctx, 1)
 }
 
-func (c *controllerMetrics) SetLeaderStatus(ctx context.Context, isLeader bool) {
+func (c *orchestrationMetrics) SetLeaderStatus(ctx context.Context, isLeader bool) {
 	if isLeader {
 		c.leaderStatus.Add(ctx, 1)
 	} else {
@@ -237,11 +237,11 @@ func (c *controllerMetrics) SetLeaderStatus(ctx context.Context, isLeader bool) 
 	}
 }
 
-func (c *controllerMetrics) ObserveTargetProcessingTime(ctx context.Context, duration time.Duration) {
+func (c *orchestrationMetrics) ObserveTargetProcessingTime(ctx context.Context, duration time.Duration) {
 	c.targetProcessingTime.Record(ctx, duration.Seconds())
 }
 
-func (c *controllerMetrics) TrackEnumeration(ctx context.Context, f func() error) error {
+func (c *orchestrationMetrics) TrackEnumeration(ctx context.Context, f func() error) error {
 	c.activeEnumeration.Add(ctx, 1)
 	defer c.activeEnumeration.Add(ctx, -1)
 

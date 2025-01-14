@@ -47,7 +47,7 @@ type Orchestrator struct {
 	cancelFn context.CancelFunc
 
 	logger  *logger.Logger
-	metrics ControllerMetrics
+	metrics OrchestrationMetrics
 
 	tracer trace.Tracer
 
@@ -80,7 +80,7 @@ func NewOrchestrator(
 	stateRepo enumeration.StateRepository,
 	cfgLoader loaders.Loader,
 	logger *logger.Logger,
-	metrics ControllerMetrics,
+	metrics OrchestrationMetrics,
 	tracer trace.Tracer,
 ) *Orchestrator {
 	return &Orchestrator{
@@ -229,6 +229,42 @@ func (o *Orchestrator) Run(ctx context.Context) (<-chan struct{}, error) {
 	return ready, nil
 }
 
+// Enumerate starts enumeration sessions for each target in the configuration.
+// It creates a job for each target and associates discovered scan targets with that job.
+func (o *Orchestrator) Enumerate(ctx context.Context) error {
+	ctx, span := o.tracer.Start(ctx, "orchestrator.enumerate")
+	defer span.End()
+
+	span.AddEvent("checking_active_states")
+	activeStates, err := o.stateRepo.GetActiveStates(ctx)
+	if err != nil {
+		span.RecordError(err)
+		return fmt.Errorf("failed to load active states: %w", err)
+	}
+
+	if len(activeStates) > 0 {
+		return o.resumeEnumerations(ctx, activeStates)
+	}
+
+	cfg, err := o.cfgLoader.Load(ctx)
+	if err != nil {
+		o.metrics.IncConfigReloadErrors(ctx)
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+	span.AddEvent("config_loaded")
+	o.metrics.IncConfigReloads(ctx)
+
+	err = o.startFreshEnumerations(ctx, cfg)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to start fresh enumerations")
+		return fmt.Errorf("failed to start fresh enumerations: %w", err)
+	}
+	span.AddEvent("fresh_enumerations_started")
+
+	return nil
+}
+
 var _ enumCoordinator.ScanTargetCallback = (*orchestratorCallback)(nil)
 
 // orchestratorCallback handles discovered scan targets during enumeration.
@@ -282,42 +318,6 @@ func (oc *orchestratorCallback) associateTargets(ctx context.Context, targetIDs 
 
 	span.AddEvent("target_associations_persisted")
 	span.SetStatus(codes.Ok, "target associations persisted successfully")
-	return nil
-}
-
-// Enumerate starts enumeration sessions for each target in the configuration.
-// It creates a job for each target and associates discovered scan targets with that job.
-func (o *Orchestrator) Enumerate(ctx context.Context) error {
-	ctx, span := o.tracer.Start(ctx, "orchestrator.enumerate")
-	defer span.End()
-
-	span.AddEvent("checking_active_states")
-	activeStates, err := o.stateRepo.GetActiveStates(ctx)
-	if err != nil {
-		span.RecordError(err)
-		return fmt.Errorf("failed to load active states: %w", err)
-	}
-
-	if len(activeStates) > 0 {
-		return o.resumeEnumerations(ctx, activeStates)
-	}
-
-	cfg, err := o.cfgLoader.Load(ctx)
-	if err != nil {
-		o.metrics.IncConfigReloadErrors(ctx)
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-	span.AddEvent("config_loaded")
-	o.metrics.IncConfigReloads(ctx)
-
-	err = o.startFreshEnumerations(ctx, cfg)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to start fresh enumerations")
-		return fmt.Errorf("failed to start fresh enumerations: %w", err)
-	}
-	span.AddEvent("fresh_enumerations_started")
-
 	return nil
 }
 
