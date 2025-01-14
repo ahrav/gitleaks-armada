@@ -212,8 +212,6 @@ func (m *scannerMetrics) TrackTask(ctx context.Context, f func() error) error {
 
 // Worker metrics implementations
 func (m *scannerMetrics) SetActiveWorkers(ctx context.Context, count int) {
-	// Since we can't directly set the value, we need to calculate the difference
-	// This is a basic implementation and might need refinement based on requirements
 	m.activeWorkers.Add(ctx, int64(count))
 }
 
@@ -238,29 +236,25 @@ func (m *scannerMetrics) IncConsumeError(ctx context.Context, topic string) {
 	m.consumeErrors.Add(ctx, 1, metric.WithAttributes(attribute.String("topic", topic)))
 }
 
-const repoURLKey = "repository_uri"
-
 // Repository metrics implementations
 func (m *scannerMetrics) ObserveRepoSize(ctx context.Context, repoURI string, sizeBytes int64) {
 	m.repoSize.Record(ctx, sizeBytes, metric.WithAttributes(
-		attribute.String(repoURLKey, repoURI),
+		attribute.String("repository_uri", repoURI),
 	))
 }
 
 func (m *scannerMetrics) ObserveCloneTime(ctx context.Context, repoURI string, duration time.Duration) {
 	m.cloneTime.Record(ctx, duration.Seconds(), metric.WithAttributes(
-		attribute.String(repoURLKey, repoURI),
+		attribute.String("repository_uri", repoURI),
 	))
 }
 
 func (m *scannerMetrics) IncCloneError(ctx context.Context, repoURI string) {
 	m.cloneErrors.Add(ctx, 1, metric.WithAttributes(
-		attribute.String(repoURLKey, repoURI),
+		attribute.String("repository_uri", repoURI),
 	))
 }
 
-func (m *scannerMetrics) ObserveFindings(ctx context.Context, repoURI string, count int) {
-	m.findingsPerTask.Record(ctx, float64(count), metric.WithAttributes(
-		attribute.String(repoURLKey, repoURI),
-	))
+func (m *scannerMetrics) ObserveFindings(ctx context.Context, count int) {
+	m.findingsPerTask.Record(ctx, float64(count))
 }

@@ -22,6 +22,7 @@ import (
 // metrics defines the interface for tracking scanning-related metrics.
 type metrics interface {
 	TrackTask(ctx context.Context, f func() error) error
+	SetActiveWorkers(ctx context.Context, count int)
 }
 
 // ScannerService coordinates the execution of secret scanning tasks across multiple workers.
@@ -96,6 +97,7 @@ func (s *ScannerService) Run(ctx context.Context) error {
 			s.workerLoop(ctx, workerID)
 		}(i)
 	}
+	s.metrics.SetActiveWorkers(ctx, s.workers)
 
 	err := s.eventBus.Subscribe(ctx, []events.EventType{enumeration.EventTypeTaskCreated},
 		s.handleTaskEvent)
