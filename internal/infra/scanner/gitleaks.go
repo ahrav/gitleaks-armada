@@ -107,29 +107,24 @@ func (s *Gitleaks) Scan(ctx context.Context, task *dtos.ScanRequest) error {
 	))
 
 	defer func() {
-		cleanupCtx, cleanupSpan := s.tracer.Start(ctx, "gitleaks_scanner.scanning.cleanup_temp_dir")
-		cleanupSpan.AddEvent("starting_cleanup")
+		cleanupSpan := trace.SpanFromContext(ctx)
+		defer cleanupSpan.End()
+		cleanupSpan.AddEvent("starting_temp_dir_cleanup")
 		if err := os.RemoveAll(tempDir); err != nil {
 			cleanupSpan.RecordError(err)
 			cleanupSpan.AddEvent("cleanup_failed")
-			s.logger.Error(cleanupCtx, "failed to cleanup temp directory", "error", err)
-		} else {
-			cleanupSpan.AddEvent("cleanup_successful")
+			s.logger.Error(ctx, "failed to cleanup temp directory", "error", err)
+			return
 		}
-		cleanupSpan.End()
+		cleanupSpan.AddEvent("cleanup_successful")
 	}()
 
-	cloneCtx, cloneSpan := s.tracer.Start(ctx, "gitleaks_scanner.scanning.clone_repository",
-		trace.WithAttributes(
-			attribute.String("repository.url", task.ResourceURI),
-			attribute.String("task.id", task.TaskID.String()),
-			attribute.String("source.type", string(task.SourceType)),
-			attribute.String("clone.path", tempDir),
-		))
+	cloneSpan := trace.SpanFromContext(ctx)
+	cloneSpan.AddEvent("starting_clone_repository")
 	defer cloneSpan.End()
 
 	startTime := time.Now()
-	if err := cloneRepo(cloneCtx, task.ResourceURI, tempDir); err != nil {
+	if err := cloneRepo(ctx, task.ResourceURI, tempDir); err != nil {
 		cloneSpan.RecordError(err)
 		cloneSpan.AddEvent("clone_failed")
 		s.metrics.IncCloneError(ctx, task.ResourceURI)
@@ -141,24 +136,24 @@ func (s *Gitleaks) Scan(ctx context.Context, task *dtos.ScanRequest) error {
 
 	cloneSpan.AddEvent("clone_successful")
 
-	_, cmdSpan := s.tracer.Start(ctx, "gitleaks_scanner.scanning.setup_git_log")
+	cmdSpan := trace.SpanFromContext(ctx)
+	cmdSpan.AddEvent("starting_git_log_setup")
 	gitCmd, err := sources.NewGitLogCmd(tempDir, "")
 	if err != nil {
 		cmdSpan.RecordError(err)
 		cmdSpan.AddEvent("git_log_setup_failed")
-		cmdSpan.End()
 		return fmt.Errorf("failed to create git log command: %w", err)
 	}
 	cmdSpan.AddEvent("git_log_setup_successful")
-	cmdSpan.End()
 
 	_, detectSpan := s.tracer.Start(ctx, "gitleaks_scanner.scanning.detect_secrets")
+	defer detectSpan.End()
+
 	detectSpan.AddEvent("starting_secret_detection")
 	findings, err := s.detector.DetectGit(gitCmd)
 	if err != nil {
 		detectSpan.RecordError(err)
 		detectSpan.AddEvent("secret_detection_failed")
-		detectSpan.End()
 		return fmt.Errorf("failed to scan repository: %w", err)
 	}
 	s.metrics.ObserveFindings(ctx, task.ResourceURI, len(findings))
@@ -169,12 +164,12 @@ func (s *Gitleaks) Scan(ctx context.Context, task *dtos.ScanRequest) error {
 	detectSpan.AddEvent("secret_detection_completed", trace.WithAttributes(
 		attribute.Int("findings.count", len(findings)),
 	))
-	detectSpan.End()
 
 	s.logger.Info(ctx, "found findings in repository", "repo_url", task.ResourceURI, "num_findings", len(findings))
 	span.AddEvent("scan_completed", trace.WithAttributes(
 		attribute.Int("findings.count", len(findings)),
 	))
+
 	return nil
 }
 
