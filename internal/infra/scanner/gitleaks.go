@@ -9,6 +9,7 @@ package scanner
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log"
@@ -207,7 +208,7 @@ func (s *Gitleaks) calculateRepoSizeAsync(ctx context.Context, task *dtos.ScanRe
 
 	size, err := getDirSize(sizeCtx, tempDir)
 	if err != nil {
-		if err != context.Canceled && err != context.DeadlineExceeded {
+		if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 			sizeSpan.RecordError(err)
 			s.logger.Warn(sizeCtx, "Failed to get repository size",
 				"error", err,
