@@ -10,9 +10,12 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io/fs"
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"time"
 
 	"github.com/spf13/viper"
 	regexp "github.com/wasilibs/go-re2"
@@ -28,6 +31,21 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
 
+// metrics defines metrics operations for Git repository operations
+type metrics interface {
+	// ObserveRepoSize records the size of a cloned repository in bytes
+	ObserveRepoSize(ctx context.Context, repoURI string, sizeBytes int64)
+
+	// ObserveCloneTime records how long it took to clone a repository
+	ObserveCloneTime(ctx context.Context, repoURI string, duration time.Duration)
+
+	// IncCloneError increments the clone error counter for a repository
+	IncCloneError(ctx context.Context, repoURI string)
+
+	// ObserveFindings records the number of findings in a repository
+	ObserveFindings(ctx context.Context, repoURI string, findings int)
+}
+
 // Gitleaks provides secret scanning functionality by wrapping the Gitleaks detection engine.
 // It handles scanning repositories for potential secrets and sensitive information leaks
 // while providing observability through logging and tracing.
@@ -35,6 +53,7 @@ type Gitleaks struct {
 	detector *detect.Detector
 	logger   *logger.Logger
 	tracer   trace.Tracer
+	metrics  metrics
 }
 
 // NewGitLeaksScanner creates a new Gitleaks scanner instance with a configured detector.
@@ -46,6 +65,7 @@ func NewGitLeaksScanner(
 	broker events.DomainEventPublisher,
 	logger *logger.Logger,
 	tracer trace.Tracer,
+	metrics metrics,
 ) *Gitleaks {
 	detector := setupGitleaksDetector()
 	// Publish initial ruleset to ensure all scanners have consistent detection patterns
@@ -57,6 +77,7 @@ func NewGitLeaksScanner(
 		detector: detector,
 		logger:   logger,
 		tracer:   tracer,
+		metrics:  metrics,
 	}
 }
 
@@ -104,14 +125,20 @@ func (s *Gitleaks) Scan(ctx context.Context, task *dtos.ScanRequest) error {
 			attribute.String("source.type", string(task.SourceType)),
 			attribute.String("clone.path", tempDir),
 		))
+	defer cloneSpan.End()
+
+	startTime := time.Now()
 	if err := cloneRepo(cloneCtx, task.ResourceURI, tempDir); err != nil {
 		cloneSpan.RecordError(err)
 		cloneSpan.AddEvent("clone_failed")
-		cloneSpan.End()
+		s.metrics.IncCloneError(ctx, task.ResourceURI)
 		return fmt.Errorf("failed to clone repository: %w", err)
 	}
+	s.metrics.ObserveCloneTime(ctx, task.ResourceURI, time.Since(startTime))
+
+	go s.calculateRepoSizeAsync(ctx, task, tempDir)
+
 	cloneSpan.AddEvent("clone_successful")
-	cloneSpan.End()
 
 	_, cmdSpan := s.tracer.Start(ctx, "gitleaks_scanner.scanning.setup_git_log")
 	gitCmd, err := sources.NewGitLogCmd(tempDir, "")
@@ -133,6 +160,8 @@ func (s *Gitleaks) Scan(ctx context.Context, task *dtos.ScanRequest) error {
 		detectSpan.End()
 		return fmt.Errorf("failed to scan repository: %w", err)
 	}
+	s.metrics.ObserveFindings(ctx, task.ResourceURI, len(findings))
+
 	detectSpan.SetAttributes(
 		attribute.Int("findings.count", len(findings)),
 	)
@@ -148,7 +177,7 @@ func (s *Gitleaks) Scan(ctx context.Context, task *dtos.ScanRequest) error {
 	return nil
 }
 
-// cloneRepo clones a git repository to the specified directory
+// cloneRepo clones a git repository to the specified directory.
 func cloneRepo(ctx context.Context, repoURL, dir string) error {
 	cmd := exec.CommandContext(ctx, "git", "clone", "--depth=1", repoURL, dir)
 
@@ -160,6 +189,63 @@ func cloneRepo(ctx context.Context, repoURL, dir string) error {
 	}
 
 	return nil
+}
+
+// calculateRepoSizeAsync calculates the size of a repository asynchronously.
+func (s *Gitleaks) calculateRepoSizeAsync(ctx context.Context, task *dtos.ScanRequest, tempDir string) {
+	const defaultTimeout = 2 * time.Minute
+	sizeCtx, cancel := context.WithTimeout(ctx, defaultTimeout)
+	defer cancel()
+
+	_, sizeSpan := s.tracer.Start(sizeCtx, "gitleaks_scanner.calculate_repo_size",
+		trace.WithAttributes(
+			attribute.String("repository.url", task.ResourceURI),
+			attribute.String("task.id", task.TaskID.String()),
+			attribute.String("clone.path", tempDir),
+		))
+	defer sizeSpan.End()
+
+	size, err := getDirSize(sizeCtx, tempDir)
+	if err != nil {
+		if err != context.Canceled && err != context.DeadlineExceeded {
+			sizeSpan.RecordError(err)
+			s.logger.Warn(sizeCtx, "Failed to get repository size",
+				"error", err,
+				"repo", task.ResourceURI)
+		}
+		return
+	}
+
+	s.metrics.ObserveRepoSize(sizeCtx, task.ResourceURI, size)
+	sizeSpan.AddEvent("size_calculation_complete",
+		trace.WithAttributes(attribute.Int64("size_bytes", size)))
+
+}
+
+// getDirSize returns the total size of a directory in bytes
+// It uses WalkDir for better performance and is context-aware
+func getDirSize(ctx context.Context, path string) (int64, error) {
+	var size int64
+	err := filepath.WalkDir(path, func(path string, d fs.DirEntry, err error) error {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() {
+			info, err := d.Info()
+			if err != nil {
+				return err
+			}
+			size += info.Size()
+		}
+		return nil
+	})
+	return size, err
 }
 
 // setupGitleaksDetector initializes the Gitleaks detector using the embedded default configuration.

@@ -20,16 +20,15 @@ type ScannerMetrics interface {
 	IncTaskErrors(ctx context.Context)
 	TrackTask(ctx context.Context, f func() error) error
 
-	// Git operations metrics
-	ObserveCloneTime(ctx context.Context, duration time.Duration)
-	IncCloneErrors(ctx context.Context)
-
-	// Finding metrics
-	ObserveFindings(ctx context.Context, count int)
-
 	// Worker metrics
 	SetActiveWorkers(ctx context.Context, count int)
 	IncWorkerErrors(ctx context.Context)
+
+	// Repository metrics
+	ObserveFindings(ctx context.Context, repoURI string, count int)
+	ObserveRepoSize(ctx context.Context, repoURI string, sizeBytes int64)
+	ObserveCloneTime(ctx context.Context, repoURI string, duration time.Duration)
+	IncCloneError(ctx context.Context, repoURI string)
 }
 
 // scannerMetrics implements ScannerMetrics
@@ -46,10 +45,6 @@ type scannerMetrics struct {
 	activeTasks     metric.Int64UpDownCounter
 	taskProcessTime metric.Float64Histogram
 
-	// Git operations metrics
-	cloneTime   metric.Float64Histogram
-	cloneErrors metric.Int64Counter
-
 	// Finding metrics
 	findingsPerTask      metric.Float64Histogram
 	lastFindingFoundTime metric.Float64ObservableGauge
@@ -57,6 +52,11 @@ type scannerMetrics struct {
 	// Worker metrics
 	activeWorkers metric.Int64UpDownCounter
 	workerErrors  metric.Int64Counter
+
+	// Repository metrics
+	repoSize    metric.Int64Histogram
+	cloneTime   metric.Float64Histogram
+	cloneErrors metric.Int64Counter
 }
 
 const namespace = "scanner"
@@ -164,6 +164,30 @@ func NewScannerMetrics(mp metric.MeterProvider) (*scannerMetrics, error) {
 		return nil, err
 	}
 
+	// Initialize repository metrics
+	if s.repoSize, err = meter.Int64Histogram(
+		"repository_size_bytes",
+		metric.WithDescription("Size of cloned repositories in bytes"),
+		metric.WithUnit("bytes"),
+	); err != nil {
+		return nil, err
+	}
+
+	if s.cloneTime, err = meter.Float64Histogram(
+		"repository_clone_duration_seconds",
+		metric.WithDescription("Time taken to clone repositories"),
+		metric.WithUnit("s"),
+	); err != nil {
+		return nil, err
+	}
+
+	if s.cloneErrors, err = meter.Int64Counter(
+		"repository_clone_errors_total",
+		metric.WithDescription("Total number of repository clone errors"),
+	); err != nil {
+		return nil, err
+	}
+
 	return s, nil
 }
 
@@ -184,20 +208,6 @@ func (m *scannerMetrics) TrackTask(ctx context.Context, f func() error) error {
 	err := f()
 	m.taskProcessTime.Record(ctx, time.Since(start).Seconds())
 	return err
-}
-
-// Git operations metrics implementations
-func (m *scannerMetrics) ObserveCloneTime(ctx context.Context, duration time.Duration) {
-	m.cloneTime.Record(ctx, duration.Seconds())
-}
-
-func (m *scannerMetrics) IncCloneErrors(ctx context.Context) {
-	m.cloneErrors.Add(ctx, 1)
-}
-
-// Finding metrics implementations
-func (m *scannerMetrics) ObserveFindings(ctx context.Context, count int) {
-	m.findingsPerTask.Record(ctx, float64(count))
 }
 
 // Worker metrics implementations
@@ -226,4 +236,31 @@ func (m *scannerMetrics) IncPublishError(ctx context.Context, topic string) {
 
 func (m *scannerMetrics) IncConsumeError(ctx context.Context, topic string) {
 	m.consumeErrors.Add(ctx, 1, metric.WithAttributes(attribute.String("topic", topic)))
+}
+
+const repoURLKey = "repository_uri"
+
+// Repository metrics implementations
+func (m *scannerMetrics) ObserveRepoSize(ctx context.Context, repoURI string, sizeBytes int64) {
+	m.repoSize.Record(ctx, sizeBytes, metric.WithAttributes(
+		attribute.String(repoURLKey, repoURI),
+	))
+}
+
+func (m *scannerMetrics) ObserveCloneTime(ctx context.Context, repoURI string, duration time.Duration) {
+	m.cloneTime.Record(ctx, duration.Seconds(), metric.WithAttributes(
+		attribute.String(repoURLKey, repoURI),
+	))
+}
+
+func (m *scannerMetrics) IncCloneError(ctx context.Context, repoURI string) {
+	m.cloneErrors.Add(ctx, 1, metric.WithAttributes(
+		attribute.String(repoURLKey, repoURI),
+	))
+}
+
+func (m *scannerMetrics) ObserveFindings(ctx context.Context, repoURI string, count int) {
+	m.findingsPerTask.Record(ctx, float64(count), metric.WithAttributes(
+		attribute.String(repoURLKey, repoURI),
+	))
 }
