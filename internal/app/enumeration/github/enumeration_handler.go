@@ -14,21 +14,21 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
 
-var _ enumeration.ResourcePersister = (*gitHubRepoPersistence)(nil)
+var _ enumeration.ResourcePersister = (*repoPersistence)(nil)
 
-// gitHubRepoPersistence implements resourcePersister for GitHub repositories.
+// repoPersistence implements resourcePersister for GitHub repositories.
 // It handles the persistence logic for creating and updating GitHub repositories
 // while maintaining domain invariants and generating scan targets.
-type gitHubRepoPersistence struct {
+type repoPersistence struct {
 	githubRepo domain.GithubRepository
 
 	logger *logger.Logger
 	tracer trace.Tracer
 }
 
-// NewGitHubRepoPersistence creates a new gitHubRepoPersistence instance.
-func NewGitHubRepoPersistence(githubRepo domain.GithubRepository, logger *logger.Logger, tracer trace.Tracer) *gitHubRepoPersistence {
-	return &gitHubRepoPersistence{githubRepo: githubRepo, logger: logger, tracer: tracer}
+// NewRepoPersistence creates a new repoPersistence instance.
+func NewRepoPersistence(githubRepo domain.GithubRepository, logger *logger.Logger, tracer trace.Tracer) *repoPersistence {
+	return &repoPersistence{githubRepo: githubRepo, logger: logger, tracer: tracer}
 }
 
 // Persist creates or updates a GitHub repository based on the provided ResourceEntry.
@@ -36,7 +36,7 @@ func NewGitHubRepoPersistence(githubRepo domain.GithubRepository, logger *logger
 // new ones. For existing repos, it will update the name if changed while preserving
 // other attributes. Returns a ResourceUpsertResult containing the persisted entity's
 // details or an error if persistence fails.
-func (p *gitHubRepoPersistence) Persist(
+func (p *repoPersistence) Persist(
 	ctx context.Context,
 	item enumeration.ResourceEntry,
 ) (enumeration.ResourceUpsertResult, error) {
@@ -78,7 +78,7 @@ func (p *gitHubRepoPersistence) Persist(
 	return result, nil
 }
 
-func (p *gitHubRepoPersistence) updateExistingRepo(
+func (p *repoPersistence) updateExistingRepo(
 	ctx context.Context,
 	existing *domain.GitHubRepo,
 	item enumeration.ResourceEntry,
@@ -106,7 +106,7 @@ func (p *gitHubRepoPersistence) updateExistingRepo(
 	return existing, nil
 }
 
-func (p *gitHubRepoPersistence) createNewRepo(
+func (p *repoPersistence) createNewRepo(
 	ctx context.Context,
 	item enumeration.ResourceEntry,
 ) (*domain.GitHubRepo, error) {

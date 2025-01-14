@@ -12,33 +12,33 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 )
 
-// GitHubAPI defines the interface for interacting with GitHub's API.
-type GitHubAPI interface {
+// API defines the interface for interacting with GitHub's API.
+type API interface {
 	// ListRepositories returns a list of repositories for an organization
 	// along with pagination information.
-	ListRepositories(ctx context.Context, org string, cursor *string) (*githubGraphQLResponse, error)
+	ListRepositories(ctx context.Context, org string, cursor *string) (*repositoryResponse, error)
 }
 
-var _ enumeration.TargetEnumerator = new(GitHubEnumerator)
+var _ enumeration.TargetEnumerator = new(Enumerator)
 
-// GitHubEnumerator handles enumerating repositories from a GitHub organization.
+// Enumerator handles enumerating repositories from a GitHub organization.
 // It supports pagination and checkpoint-based resumption to handle large organizations
 // efficiently and reliably.
-type GitHubEnumerator struct {
+type Enumerator struct {
 	ghConfig *config.GitHubTarget
 
-	ghClient GitHubAPI
+	ghClient API
 	tracer   trace.Tracer
 }
 
-// NewGitHubEnumerator creates a new GitHubEnumerator with the provided HTTP client,
+// NewEnumerator creates a new GitHubEnumerator with the provided HTTP client,
 // credentials and state storage.
-func NewGitHubEnumerator(
-	client GitHubAPI,
+func NewEnumerator(
+	client API,
 	ghConfig *config.GitHubTarget,
 	tracer trace.Tracer,
-) *GitHubEnumerator {
-	return &GitHubEnumerator{
+) *Enumerator {
+	return &Enumerator{
 		ghClient: client,
 		ghConfig: ghConfig,
 		tracer:   tracer,
@@ -49,7 +49,7 @@ func NewGitHubEnumerator(
 // It uses GraphQL for efficient pagination and maintains checkpoints for resumability.
 // The method streams batches of tasks through the provided channel and updates progress
 // in the enumeration state storage.
-func (e *GitHubEnumerator) Enumerate(ctx context.Context, startCursor *string, batchCh chan<- enumeration.EnumerateBatch) error {
+func (e *Enumerator) Enumerate(ctx context.Context, startCursor *string, batchCh chan<- enumeration.EnumerateBatch) error {
 	ctx, span := e.tracer.Start(ctx, "github_enumerator.enumeration.enumerate",
 		trace.WithAttributes(
 			attribute.String("org", e.ghConfig.Org),

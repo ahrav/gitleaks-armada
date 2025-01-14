@@ -17,24 +17,25 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/common"
 )
 
-// GitHubClient is a wrapper around the GitHub API client with rate limiting and tracing.
-type GitHubClient struct {
+// GraphQLClient is a wrapper around the GitHub GraphQL API client with rate limiting and tracing.
+type GraphQLClient struct {
 	httpClient  *http.Client
-	rateLimiter *common.RateLimiter
 	token       string
-	tracer      trace.Tracer
+	rateLimiter *common.RateLimiter
+
+	tracer trace.Tracer
 }
 
-// NewGitHubClient creates a new GitHub client with rate limiting.
-func NewGitHubClient(
+// NewGraphQLClient creates a new GraphQL client with rate limiting.
+func NewGraphQLClient(
 	httpClient *http.Client,
 	creds *domain.TaskCredentials,
 	tracer trace.Tracer,
-) (*GitHubClient, error) {
+) (*GraphQLClient, error) {
 	var token string
 	if creds.Type == domain.CredentialTypeGitHub {
 		var err error
-		token, err = extractGitHubToken(creds)
+		token, err = extractToken(creds)
 		if err != nil {
 			return nil, fmt.Errorf("failed to extract GitHub token: %w", err)
 		}
@@ -42,7 +43,7 @@ func NewGitHubClient(
 	// GitHub's default rate limit is 5000 requests per hour.
 	// Setting initial rate to 4500/hour (1.25/second) to be conservative.
 	// TODO: Figure out a way to pool tokens?
-	return &GitHubClient{
+	return &GraphQLClient{
 		httpClient:  httpClient,
 		rateLimiter: common.NewRateLimiter(1.25, 5),
 		token:       token,
@@ -50,9 +51,9 @@ func NewGitHubClient(
 	}, nil
 }
 
-// extractGitHubToken retrieves and validates the authentication token from GitHub credentials.
+// extractToken retrieves and validates the authentication token from GitHub credentials.
 // It returns an error if the credentials are not GitHub type or if the token is missing.
-func extractGitHubToken(creds *domain.TaskCredentials) (string, error) {
+func extractToken(creds *domain.TaskCredentials) (string, error) {
 	if creds.Type != domain.CredentialTypeGitHub && creds.Type != domain.CredentialTypeUnauthenticated {
 		return "", fmt.Errorf("expected github credentials, got %s", creds.Type)
 	}
@@ -64,10 +65,9 @@ func extractGitHubToken(creds *domain.TaskCredentials) (string, error) {
 	return tokenVal, nil
 }
 
-// githubGraphQLResponse represents the structure of GitHub's GraphQL API response
-// for repository queries.
+// repositoryResponse represents the structure of GitHub's GraphQL API response for repository queries.
 // It includes both the repository data and any potential error messages.
-type githubGraphQLResponse struct {
+type repositoryResponse struct {
 	Data struct {
 		Organization struct {
 			Repositories struct {
@@ -89,7 +89,7 @@ type githubGraphQLResponse struct {
 // ListRepositories retrieves a paginated list of repository names from a GitHub organization
 // using the GraphQL API. It fetches repositories in batches of 100 and accepts an optional
 // cursor for continuation.
-func (c *GitHubClient) ListRepositories(ctx context.Context, org string, cursor *string) (*githubGraphQLResponse, error) {
+func (c *GraphQLClient) ListRepositories(ctx context.Context, org string, cursor *string) (*repositoryResponse, error) {
 	ctx, span := c.tracer.Start(ctx, "github_enumerator.enumeration.list_repositories",
 		trace.WithAttributes(
 			attribute.String("org", org),
@@ -118,7 +118,7 @@ func (c *GitHubClient) ListRepositories(ctx context.Context, org string, cursor 
 		variables["after"] = *cursor
 	}
 
-	resp, err := c.doGitHubGraphQLRequest(ctx, query, variables)
+	resp, err := c.doRequest(ctx, query, variables)
 	if err != nil {
 		span.RecordError(err)
 		return nil, err
@@ -134,12 +134,12 @@ func (c *GitHubClient) ListRepositories(ctx context.Context, org string, cursor 
 	return resp, nil
 }
 
-// doGitHubGraphQLRequest executes a GraphQL query against GitHub's API.
-func (c *GitHubClient) doGitHubGraphQLRequest(
+// doRequest executes a request against GitHub's API.
+func (c *GraphQLClient) doRequest(
 	ctx context.Context,
 	query string,
 	variables map[string]any,
-) (*githubGraphQLResponse, error) {
+) (*repositoryResponse, error) {
 	ctx, span := c.tracer.Start(ctx, "github_enumerator.do_github_graphql_request")
 	defer span.End()
 
@@ -194,7 +194,7 @@ func (c *GitHubClient) doGitHubGraphQLRequest(
 		return nil, fmt.Errorf("non-200 response from GitHub GraphQL API: %d %s", resp.StatusCode, string(data))
 	}
 
-	var result githubGraphQLResponse
+	var result repositoryResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		span.RecordError(err)
 		return nil, fmt.Errorf("failed to decode graphql response: %w", err)
@@ -216,7 +216,7 @@ func (c *GitHubClient) doGitHubGraphQLRequest(
 // - Total requests allowed per window
 //
 // TODO: Review this again...
-func (c *GitHubClient) updateRateLimits(headers http.Header) {
+func (c *GraphQLClient) updateRateLimits(headers http.Header) {
 	remaining := headers.Get("X-RateLimit-Remaining")
 	reset := headers.Get("X-RateLimit-Reset")
 	limit := headers.Get("X-RateLimit-Limit")

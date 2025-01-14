@@ -64,7 +64,7 @@ func (f *enumerationFactory) CreateEnumerator(target config.TargetSpec, creds *d
 			return nil, fmt.Errorf("github target configuration is missing")
 		}
 
-		ghClient, err := github.NewGitHubClient(f.httpClient, creds, f.tracer)
+		ghClient, err := github.NewGraphQLClient(f.httpClient, creds, f.tracer)
 		if err != nil {
 			githubSpan.RecordError(err)
 			return nil, fmt.Errorf("failed to create GitHub client: %w", err)
@@ -72,7 +72,7 @@ func (f *enumerationFactory) CreateEnumerator(target config.TargetSpec, creds *d
 
 		githubSpan.AddEvent("github_client_created")
 
-		return github.NewGitHubEnumerator(
+		return github.NewEnumerator(
 			ghClient,
 			target.GitHub,
 			f.tracer,
@@ -88,6 +88,7 @@ func (f *enumerationFactory) CreateEnumerator(target config.TargetSpec, creds *d
 		}
 	case config.SourceTypeS3:
 		// TODO: Implement S3 enumerator.
+		panic("not implemented")
 	default:
 		err := fmt.Errorf("unsupported source type: %s", target.SourceType)
 		span.RecordError(err)

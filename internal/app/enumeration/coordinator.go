@@ -105,7 +105,7 @@ func NewCoordinator(
 		checkpointRepo: checkpointRepo,
 		taskRepo:       taskRepo,
 		enumeratorHandlers: map[shared.TargetType]enumeration.ResourcePersister{
-			shared.TargetTypeGitHubRepo: github.NewGitHubRepoPersistence(githubRepo, logger, tracer),
+			shared.TargetTypeGitHubRepo: github.NewRepoPersistence(githubRepo, logger, tracer),
 		},
 		enumFactory:    enumFactory,
 		eventPublisher: eventPublisher,
