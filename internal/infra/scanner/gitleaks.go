@@ -94,12 +94,7 @@ func (s *Gitleaks) Scan(ctx context.Context, task *dtos.ScanRequest) error {
 	var scanner SecretScanner
 	switch task.SourceType {
 	case dtos.SourceTypeGitHub:
-		scanner = &git.Scanner{
-			Detector: s.detector,
-			Logger:   s.logger,
-			Tracer:   s.tracer,
-			Metrics:  s.metrics,
-		}
+		scanner = git.NewScanner(s.detector, s.logger, s.tracer, s.metrics)
 	case dtos.SourceTypeURL:
 		// TODO: Implement URL scanner
 		// scanner = &URLScanner{

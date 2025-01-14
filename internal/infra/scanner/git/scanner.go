@@ -37,16 +37,26 @@ type metrics interface {
 
 // Scanner implements SecretScanner for git-based sources.
 type Scanner struct {
-	Detector *detect.Detector
-	Logger   *logger.Logger
-	Tracer   trace.Tracer
-	Metrics  metrics
+	detector *detect.Detector
+	logger   *logger.Logger
+	tracer   trace.Tracer
+	metrics  metrics
+}
+
+// NewScanner creates a new Git scanner instance.
+func NewScanner(detector *detect.Detector, logger *logger.Logger, tracer trace.Tracer, metrics metrics) *Scanner {
+	return &Scanner{
+		detector: detector,
+		logger:   logger,
+		tracer:   tracer,
+		metrics:  metrics,
+	}
 }
 
 // Scan clones the repository to a temporary directory and scans it for secrets.
 // It ensures the cloned repository is cleaned up after scanning.
 func (s *Scanner) Scan(ctx context.Context, task *dtos.ScanRequest) error {
-	ctx, span := s.Tracer.Start(ctx, "gitleaks_scanner.scanning.scan_repository",
+	ctx, span := s.tracer.Start(ctx, "gitleaks_scanner.scanning.scan_repository",
 		trace.WithAttributes(
 			attribute.String("repository.url", task.ResourceURI),
 			attribute.String("task.id", task.TaskID.String()),
@@ -54,7 +64,7 @@ func (s *Scanner) Scan(ctx context.Context, task *dtos.ScanRequest) error {
 		))
 	defer span.End()
 
-	_, dirSpan := s.Tracer.Start(ctx, "gitleaks_scanner.scanning.create_temp_dir")
+	_, dirSpan := s.tracer.Start(ctx, "gitleaks_scanner.scanning.create_temp_dir")
 	tempDir, err := os.MkdirTemp("", "gitleaks-scan-")
 	if err != nil {
 		dirSpan.RecordError(err)
@@ -74,7 +84,7 @@ func (s *Scanner) Scan(ctx context.Context, task *dtos.ScanRequest) error {
 		if err := os.RemoveAll(tempDir); err != nil {
 			cleanupSpan.RecordError(err)
 			cleanupSpan.AddEvent("cleanup_failed")
-			s.Logger.Error(ctx, "failed to cleanup temp directory", "error", err)
+			s.logger.Error(ctx, "failed to cleanup temp directory", "error", err)
 			return
 		}
 		cleanupSpan.AddEvent("cleanup_successful")
@@ -88,10 +98,10 @@ func (s *Scanner) Scan(ctx context.Context, task *dtos.ScanRequest) error {
 	if err := cloneRepo(ctx, task.ResourceURI, tempDir); err != nil {
 		cloneSpan.RecordError(err)
 		cloneSpan.AddEvent("clone_failed")
-		s.Metrics.IncCloneError(ctx, task.ResourceURI)
+		s.metrics.IncCloneError(ctx, task.ResourceURI)
 		return fmt.Errorf("failed to clone repository: %w", err)
 	}
-	s.Metrics.ObserveCloneTime(ctx, task.ResourceURI, time.Since(startTime))
+	s.metrics.ObserveCloneTime(ctx, task.ResourceURI, time.Since(startTime))
 
 	go s.calculateRepoSize(ctx, task, tempDir) // async repo size calculation
 
@@ -107,17 +117,17 @@ func (s *Scanner) Scan(ctx context.Context, task *dtos.ScanRequest) error {
 	}
 	cmdSpan.AddEvent("git_log_setup_successful")
 
-	_, detectSpan := s.Tracer.Start(ctx, "gitleaks_scanner.scanning.detect_secrets")
+	_, detectSpan := s.tracer.Start(ctx, "gitleaks_scanner.scanning.detect_secrets")
 	defer detectSpan.End()
 
 	detectSpan.AddEvent("starting_secret_detection")
-	findings, err := s.Detector.DetectGit(gitCmd)
+	findings, err := s.detector.DetectGit(gitCmd)
 	if err != nil {
 		detectSpan.RecordError(err)
 		detectSpan.AddEvent("secret_detection_failed")
 		return fmt.Errorf("failed to scan repository: %w", err)
 	}
-	s.Metrics.ObserveFindings(ctx, task.ResourceURI, len(findings))
+	s.metrics.ObserveFindings(ctx, task.ResourceURI, len(findings))
 
 	detectSpan.SetAttributes(
 		attribute.Int("findings.count", len(findings)),
@@ -126,7 +136,7 @@ func (s *Scanner) Scan(ctx context.Context, task *dtos.ScanRequest) error {
 		attribute.Int("findings.count", len(findings)),
 	))
 
-	s.Logger.Info(ctx, "found findings in repository", "repo_url", task.ResourceURI, "num_findings", len(findings))
+	s.logger.Info(ctx, "found findings in repository", "repo_url", task.ResourceURI, "num_findings", len(findings))
 	span.AddEvent("scan_completed", trace.WithAttributes(
 		attribute.Int("findings.count", len(findings)),
 	))
@@ -154,7 +164,7 @@ func (s *Scanner) calculateRepoSize(ctx context.Context, task *dtos.ScanRequest,
 	sizeCtx, cancel := context.WithTimeout(ctx, defaultTimeout)
 	defer cancel()
 
-	_, sizeSpan := s.Tracer.Start(sizeCtx, "gitleaks_scanner.calculate_repo_size",
+	_, sizeSpan := s.tracer.Start(sizeCtx, "gitleaks_scanner.calculate_repo_size",
 		trace.WithAttributes(
 			attribute.String("repository.url", task.ResourceURI),
 			attribute.String("task.id", task.TaskID.String()),
@@ -166,14 +176,14 @@ func (s *Scanner) calculateRepoSize(ctx context.Context, task *dtos.ScanRequest,
 	if err != nil {
 		if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 			sizeSpan.RecordError(err)
-			s.Logger.Warn(sizeCtx, "Failed to get repository size",
+			s.logger.Warn(sizeCtx, "Failed to get repository size",
 				"error", err,
 				"repo", task.ResourceURI)
 		}
 		return
 	}
 
-	s.Metrics.ObserveRepoSize(sizeCtx, task.ResourceURI, size)
+	s.metrics.ObserveRepoSize(sizeCtx, task.ResourceURI, size)
 	sizeSpan.AddEvent("size_calculation_complete",
 		trace.WithAttributes(attribute.Int64("size_bytes", size)))
 
