@@ -101,6 +101,7 @@ func (s *Gitleaks) Scan(ctx context.Context, task *dtos.ScanRequest) error {
 		span.AddEvent("temp_dir_creation_failed")
 		return fmt.Errorf("failed to create temp directory: %w", err)
 	}
+	defer os.RemoveAll(tempDir)
 	dirSpan.End()
 	span.AddEvent("temp_dir_created", trace.WithAttributes(
 		attribute.String("temp_dir", tempDir),
@@ -137,7 +138,7 @@ func (s *Gitleaks) Scan(ctx context.Context, task *dtos.ScanRequest) error {
 	}
 	s.metrics.ObserveCloneTime(ctx, task.ResourceURI, time.Since(startTime))
 
-	go s.calculateRepoSizeAsync(ctx, task, tempDir)
+	go s.calculateRepoSize(ctx, task, tempDir) // async repo size calculation
 
 	cloneSpan.AddEvent("clone_successful")
 
@@ -192,8 +193,8 @@ func cloneRepo(ctx context.Context, repoURL, dir string) error {
 	return nil
 }
 
-// calculateRepoSizeAsync calculates the size of a repository asynchronously.
-func (s *Gitleaks) calculateRepoSizeAsync(ctx context.Context, task *dtos.ScanRequest, tempDir string) {
+// calculateRepoSize calculates the size of a repository asynchronously.
+func (s *Gitleaks) calculateRepoSize(ctx context.Context, task *dtos.ScanRequest, tempDir string) {
 	const defaultTimeout = 2 * time.Minute
 	sizeCtx, cancel := context.WithTimeout(ctx, defaultTimeout)
 	defer cancel()
