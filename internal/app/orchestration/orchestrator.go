@@ -269,10 +269,11 @@ var _ enumCoordinator.ScanTargetCallback = (*orchestratorCallback)(nil)
 
 // orchestratorCallback handles discovered scan targets during enumeration.
 type orchestratorCallback struct {
-	job    *scanning.ScanJob
-	repo   scanning.JobRepository
-	tracer trace.Tracer
-	logger *logger.Logger
+	job     *scanning.ScanJob
+	repo    scanning.JobRepository
+	tracer  trace.Tracer
+	logger  *logger.Logger
+	metrics OrchestrationMetrics
 }
 
 // OnScanTargetsDiscovered is called when scan targets are discovered during enumeration.
@@ -285,6 +286,7 @@ func (oc *orchestratorCallback) OnScanTargetsDiscovered(ctx context.Context, tar
 		))
 	defer span.End()
 
+	oc.metrics.ObserveEnumerationBatchSize(ctx, len(targetIDs))
 	oc.job.AssociateTargets(targetIDs)
 
 	if err := oc.associateTargets(ctx, targetIDs); err != nil {
@@ -294,6 +296,7 @@ func (oc *orchestratorCallback) OnScanTargetsDiscovered(ctx context.Context, tar
 		return
 	}
 
+	oc.metrics.ObserveTargetsPerJob(ctx, len(targetIDs))
 	span.AddEvent("targets_associated")
 	span.SetStatus(codes.Ok, "targets associated successfully")
 	oc.logger.Info(ctx, "Targets associated successfully",
@@ -325,6 +328,9 @@ func (o *Orchestrator) startFreshEnumerations(ctx context.Context, cfg *config.C
 	ctx, span := o.tracer.Start(ctx, "orchestrator.start_fresh_enumerations")
 	defer span.End()
 
+	o.metrics.IncEnumerationStarted(ctx)
+	span.AddEvent("fresh_enumeration_started")
+
 	for _, target := range cfg.Targets {
 		targetSpan := trace.SpanFromContext(ctx)
 		targetSpan.AddEvent("processing_target", trace.WithAttributes(
@@ -334,24 +340,31 @@ func (o *Orchestrator) startFreshEnumerations(ctx context.Context, cfg *config.C
 
 		job := scanning.NewScanJob()
 		if err := o.createJob(ctx, job); err != nil {
+			o.metrics.IncEnumerationErrors(ctx)
 			targetSpan.RecordError(err)
 			return fmt.Errorf("failed to create job for target %s: %w", target.Name, err)
 		}
+		o.metrics.IncJobsCreated(ctx)
 
 		cb := &orchestratorCallback{
-			job:    job,
-			repo:   o.jobRepo,
-			tracer: o.tracer,
-			logger: o.logger,
+			job:     job,
+			repo:    o.jobRepo,
+			tracer:  o.tracer,
+			logger:  o.logger,
+			metrics: o.metrics,
 		}
 
 		if err := o.enumerationService.EnumerateTarget(ctx, target, cfg.Auth, cb); err != nil {
+			o.metrics.IncEnumerationErrors(ctx)
 			targetSpan.RecordError(err)
 			continue
 		}
+
 		targetSpan.AddEvent("target_enumeration_completed")
 	}
+	span.AddEvent("fresh_enumeration_completed")
 
+	o.metrics.IncEnumerationCompleted(ctx)
 	return nil
 }
 
@@ -379,6 +392,7 @@ func (o *Orchestrator) resumeEnumerations(ctx context.Context, states []*enumera
 	ctx, span := o.tracer.Start(ctx, "orchestrator.resume_enumerations")
 	defer span.End()
 
+	span.AddEvent("resume_enumerations_started")
 	for _, state := range states {
 		stateSpan := trace.SpanFromContext(ctx)
 
@@ -403,6 +417,7 @@ func (o *Orchestrator) resumeEnumerations(ctx context.Context, states []*enumera
 
 		stateSpan.AddEvent("state_enumeration_completed")
 	}
+	span.AddEvent("resume_enumerations_completed")
 
 	return nil
 }

@@ -123,7 +123,6 @@ func (e *GitHubEnumerator) Enumerate(ctx context.Context, startCursor *string, b
 	// Resume from last known position if checkpoint exists.
 	var endCursor = startCursor
 
-	const batchSize = 100 // GitHub GraphQL API limit per query
 	for {
 		// Create child span for API calls
 		apiCtx, apiSpan := e.tracer.Start(ctx, "github_enumerator.enumeration.list_repositories")

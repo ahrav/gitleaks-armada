@@ -32,6 +32,18 @@ type OrchestrationMetrics interface {
 	// Rules storage metrics (renamed to be more clear)
 	IncRulesSaved(ctx context.Context)     // Tracks individual rules saved to DB
 	IncRuleSaveErrors(ctx context.Context) // Tracks errors saving rules to DB
+
+	// Enumeration metrics.
+	IncEnumerationStarted(ctx context.Context)                 // Track how many enumerations we start
+	IncEnumerationCompleted(ctx context.Context)               // Track successful completions
+	IncEnumerationErrors(ctx context.Context)                  // Track enumeration failures
+	ObserveEnumerationBatchSize(ctx context.Context, size int) // Track size of target batches
+	ObserveTargetsPerJob(ctx context.Context, count int)       // Track targets discovered per job
+	IncJobsCreated(ctx context.Context)                        // Track total jobs created
+	// TODO:
+	// ObserveJobDuration(ctx context.Context, duration time.Duration) // Track how long jobs take
+	// IncJobsCompleted(ctx context.Context)                           // Track completed jobs
+	// IncJobsFailed(ctx context.Context)                              // Track failed jobs
 }
 
 // OrchestrationMetrics implements OrchestrationMetrics
@@ -65,6 +77,17 @@ type orchestrationMetrics struct {
 	// Rules storage metrics
 	rulesSaved     metric.Int64Counter // Total number of individual rules saved to DB
 	ruleSaveErrors metric.Int64Counter // Total number of errors saving rules to DB
+
+	// Enumeration metrics
+	enumerationsStarted   metric.Int64Counter
+	enumerationsCompleted metric.Int64Counter
+	enumerationErrors     metric.Int64Counter
+	enumerationBatchSize  metric.Int64Histogram
+	targetsPerJob         metric.Int64Histogram
+	jobDuration           metric.Float64Histogram
+	jobsCreated           metric.Int64Counter
+	jobsCompleted         metric.Int64Counter
+	jobsFailed            metric.Int64Counter
 }
 
 const namespace = "controller"
@@ -188,6 +211,69 @@ func NewOrchestrationMetrics(mp metric.MeterProvider) (*orchestrationMetrics, er
 		return nil, err
 	}
 
+	if c.enumerationsStarted, err = meter.Int64Counter(
+		"enumerations_started_total",
+		metric.WithDescription("Total number of enumeration processes started"),
+	); err != nil {
+		return nil, err
+	}
+
+	if c.enumerationsCompleted, err = meter.Int64Counter(
+		"enumerations_completed_total",
+		metric.WithDescription("Total number of enumeration processes completed successfully"),
+	); err != nil {
+		return nil, err
+	}
+
+	if c.enumerationErrors, err = meter.Int64Counter(
+		"enumeration_errors_total",
+		metric.WithDescription("Total number of enumeration failures"),
+	); err != nil {
+		return nil, err
+	}
+
+	if c.enumerationBatchSize, err = meter.Int64Histogram(
+		"enumeration_batch_size",
+		metric.WithDescription("Size of target batches discovered during enumeration"),
+	); err != nil {
+		return nil, err
+	}
+
+	if c.targetsPerJob, err = meter.Int64Histogram(
+		"targets_per_job",
+		metric.WithDescription("Number of targets discovered per enumeration job"),
+	); err != nil {
+		return nil, err
+	}
+
+	if c.jobDuration, err = meter.Float64Histogram(
+		"job_duration_seconds",
+		metric.WithDescription("Duration of enumeration jobs"),
+	); err != nil {
+		return nil, err
+	}
+
+	if c.jobsCreated, err = meter.Int64Counter(
+		"jobs_created_total",
+		metric.WithDescription("Total number of enumeration jobs created"),
+	); err != nil {
+		return nil, err
+	}
+
+	if c.jobsCompleted, err = meter.Int64Counter(
+		"jobs_completed_total",
+		metric.WithDescription("Total number of enumeration jobs completed successfully"),
+	); err != nil {
+		return nil, err
+	}
+
+	if c.jobsFailed, err = meter.Int64Counter(
+		"jobs_failed_total",
+		metric.WithDescription("Total number of enumeration jobs that failed"),
+	); err != nil {
+		return nil, err
+	}
+
 	return c, nil
 }
 
@@ -249,4 +335,40 @@ func (c *orchestrationMetrics) TrackEnumeration(ctx context.Context, f func() er
 	err := f()
 	c.enumerationTime.Record(ctx, time.Since(start).Seconds())
 	return err
+}
+
+func (c *orchestrationMetrics) IncEnumerationStarted(ctx context.Context) {
+	c.enumerationsStarted.Add(ctx, 1)
+}
+
+func (c *orchestrationMetrics) IncEnumerationCompleted(ctx context.Context) {
+	c.enumerationsCompleted.Add(ctx, 1)
+}
+
+func (c *orchestrationMetrics) IncEnumerationErrors(ctx context.Context) {
+	c.enumerationErrors.Add(ctx, 1)
+}
+
+func (c *orchestrationMetrics) ObserveEnumerationBatchSize(ctx context.Context, size int) {
+	c.enumerationBatchSize.Record(ctx, int64(size))
+}
+
+func (c *orchestrationMetrics) ObserveTargetsPerJob(ctx context.Context, count int) {
+	c.targetsPerJob.Record(ctx, int64(count))
+}
+
+func (c *orchestrationMetrics) ObserveJobDuration(ctx context.Context, duration time.Duration) {
+	c.jobDuration.Record(ctx, duration.Seconds())
+}
+
+func (c *orchestrationMetrics) IncJobsCreated(ctx context.Context) {
+	c.jobsCreated.Add(ctx, 1)
+}
+
+func (c *orchestrationMetrics) IncJobsCompleted(ctx context.Context) {
+	c.jobsCompleted.Add(ctx, 1)
+}
+
+func (c *orchestrationMetrics) IncJobsFailed(ctx context.Context) {
+	c.jobsFailed.Add(ctx, 1)
 }
