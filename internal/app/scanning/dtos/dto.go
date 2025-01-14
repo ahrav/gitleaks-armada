@@ -12,6 +12,8 @@ const (
 	SourceTypeUnspecified SourceType = "UNSPECIFIED"
 	// SourceTypeGitHub represents GitHub repositories as scan targets.
 	SourceTypeGitHub SourceType = "GITHUB"
+	// SourceTypeURL represents a URL as a scan target.
+	SourceTypeURL SourceType = "URL"
 	// SourceTypeS3 represents AWS S3 buckets as scan targets.
 	SourceTypeS3 SourceType = "S3"
 	// ...
@@ -29,6 +31,8 @@ const (
 	CredentialTypeGitHub CredentialType = "GITHUB"
 	// CredentialTypeS3 authenticates against AWS S3 using access credentials.
 	CredentialTypeS3 CredentialType = "S3"
+	// CredentialTypeURL authenticates against a URL using a personal access token.
+	CredentialTypeURL CredentialType = "URL"
 )
 
 // ScanCredentials encapsulates authentication details needed to access a scan target.
