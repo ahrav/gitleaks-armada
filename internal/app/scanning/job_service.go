@@ -2,11 +2,8 @@ package scanning
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/google/uuid"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
@@ -17,12 +14,6 @@ import (
 // implementation details of task distribution and state management.
 // TODO: Add cleanup daemon to delete jobs. (requirements TBH)
 type ScanJobService interface {
-	// CreateJob initializes a new scan job.
-	CreateJob(ctx context.Context) (*scanning.ScanJob, error)
-
-	// AssociateTargets associates scan targets with a job.
-	AssociateTargets(ctx context.Context, job *scanning.ScanJob) error
-
 	// AddTasks associates one or more tasks with an existing job.
 	// This enables building up complex scan jobs from multiple discrete tasks.
 	AddTasks(ctx context.Context, job *scanning.ScanJob, tasks ...*scanning.Task) error
@@ -55,54 +46,6 @@ type jobService struct {
 // NewJobService creates a new instance of the job service with required dependencies.
 func NewJobService(jobRepo scanning.JobRepository, tracer trace.Tracer) *jobService {
 	return &jobService{jobRepo: jobRepo, tracer: tracer}
-}
-
-// CreateJob initializes a new scan job and persists it to storage.
-func (s *jobService) CreateJob(ctx context.Context) (*scanning.ScanJob, error) {
-	ctx, span := s.tracer.Start(ctx, "job_service.scanning.create_job",
-		trace.WithAttributes(
-			attribute.String("component", "job_service"),
-			attribute.String("operation", "create_job"),
-		))
-	defer span.End()
-
-	job := scanning.NewScanJob()
-
-	if err := s.jobRepo.CreateJob(ctx, job); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to create job")
-		return nil, fmt.Errorf("failed to create job: %w", err)
-	}
-	span.AddEvent("job_created", trace.WithAttributes(
-		attribute.String("job_id", job.GetJobID().String()),
-		attribute.String("status", string(job.GetStatus())),
-		attribute.String("start_time", job.GetStartTime().String()),
-	))
-	span.SetStatus(codes.Ok, "job created successfully")
-
-	return job, nil
-}
-
-// AssociateTargets associates scan targets with a job.
-func (s *jobService) AssociateTargets(ctx context.Context, job *scanning.ScanJob) error {
-	ctx, span := s.tracer.Start(ctx, "job_service.scanning.associate_targets",
-		trace.WithAttributes(
-			attribute.String("component", "job_service"),
-			attribute.String("operation", "associate_targets"),
-			attribute.String("job_id", job.GetJobID().String()),
-			attribute.Int("num_targets", len(job.GetTargetIDs())),
-		))
-	defer span.End()
-
-	if err := s.jobRepo.AssociateTargets(ctx, job.GetJobID(), job.GetTargetIDs()); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to associate targets")
-		return fmt.Errorf("failed to associate targets: %w", err)
-	}
-	span.AddEvent("targets_associated")
-	span.SetStatus(codes.Ok, "targets associated successfully")
-
-	return nil
 }
 
 // AddTasks associates one or more tasks with an existing job.

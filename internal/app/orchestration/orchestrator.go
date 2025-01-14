@@ -14,7 +14,6 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/app/cluster"
 	enumCoordinator "github.com/ahrav/gitleaks-armada/internal/app/enumeration"
 	rulessvc "github.com/ahrav/gitleaks-armada/internal/app/rules"
-	scanningSvc "github.com/ahrav/gitleaks-armada/internal/app/scanning"
 	"github.com/ahrav/gitleaks-armada/internal/config"
 	"github.com/ahrav/gitleaks-armada/internal/config/loaders"
 	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
@@ -39,7 +38,7 @@ type Orchestrator struct {
 
 	enumerationService enumCoordinator.Coordinator
 	rulesService       rulessvc.Service
-	scanningSvc        scanningSvc.ScanJobService
+	jobRepo            scanning.JobRepository
 	stateRepo          enumeration.StateRepository
 
 	// mu protects running and cancelFn state
@@ -77,7 +76,7 @@ func NewOrchestrator(
 	eventPublisher events.DomainEventPublisher,
 	enumerationService enumCoordinator.Coordinator,
 	rulesService rulessvc.Service,
-	scanningSvc scanningSvc.ScanJobService,
+	jobRepo scanning.JobRepository,
 	stateRepo enumeration.StateRepository,
 	cfgLoader loaders.Loader,
 	logger *logger.Logger,
@@ -91,7 +90,7 @@ func NewOrchestrator(
 		eventPublisher:     eventPublisher,
 		enumerationService: enumerationService,
 		rulesService:       rulesService,
-		scanningSvc:        scanningSvc,
+		jobRepo:            jobRepo,
 		stateRepo:          stateRepo,
 		cfgLoader:          cfgLoader,
 		metrics:            metrics,
@@ -232,27 +231,27 @@ func (o *Orchestrator) Run(ctx context.Context) (<-chan struct{}, error) {
 
 var _ enumCoordinator.ScanTargetCallback = (*orchestratorCallback)(nil)
 
-// orchestratorCallback is a callback implementation for the orchestrator.
-// It is used to notify the orchestrator when scan targets are discovered.
+// orchestratorCallback handles discovered scan targets during enumeration
 type orchestratorCallback struct {
-	jobSvc scanningSvc.ScanJobService
 	job    *scanning.ScanJob
-
+	repo   scanning.JobRepository
 	tracer trace.Tracer
 	logger *logger.Logger
 }
 
 func (oc *orchestratorCallback) OnScanTargetsDiscovered(ctx context.Context, targetIDs []uuid.UUID) {
-	ctx, span := oc.tracer.Start(ctx, "orchestrator.associate_targets")
+	ctx, span := oc.tracer.Start(ctx, "orchestrator.associate_targets",
+		trace.WithAttributes(
+			attribute.String("job_id", oc.job.GetJobID().String()),
+			attribute.Int("num_targets", len(targetIDs)),
+		))
 	defer span.End()
 
-	span.AddEvent("associating_targets", trace.WithAttributes(
-		attribute.String("job_id", oc.job.GetJobID().String()),
-		attribute.Int("num_targets", len(targetIDs)),
-	))
-
+	// Update domain model
 	oc.job.AssociateTargets(targetIDs)
-	if err := oc.jobSvc.AssociateTargets(ctx, oc.job); err != nil {
+
+	// Persist the association with tracing
+	if err := oc.associateTargetsWithTracing(ctx, targetIDs); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to associate targets")
 		oc.logger.Error(ctx, "Failed to associate targets", "error", err)
@@ -261,7 +260,29 @@ func (oc *orchestratorCallback) OnScanTargetsDiscovered(ctx context.Context, tar
 
 	span.AddEvent("targets_associated")
 	span.SetStatus(codes.Ok, "targets associated successfully")
-	oc.logger.Info(ctx, "Targets associated successfully", "job_id", oc.job.GetJobID(), "num_targets", len(targetIDs))
+	oc.logger.Info(ctx, "Targets associated successfully",
+		"job_id", oc.job.GetJobID(),
+		"num_targets", len(targetIDs))
+}
+
+// associateTargetsWithTracing wraps target association with proper tracing
+func (oc *orchestratorCallback) associateTargetsWithTracing(ctx context.Context, targetIDs []uuid.UUID) error {
+	ctx, span := oc.tracer.Start(ctx, "orchestrator.persist_target_associations",
+		trace.WithAttributes(
+			attribute.String("job_id", oc.job.GetJobID().String()),
+			attribute.Int("num_targets", len(targetIDs)),
+		))
+	defer span.End()
+
+	if err := oc.repo.AssociateTargets(ctx, oc.job.GetJobID(), targetIDs); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to persist target associations")
+		return fmt.Errorf("failed to persist target associations: %w", err)
+	}
+
+	span.AddEvent("target_associations_persisted")
+	span.SetStatus(codes.Ok, "target associations persisted successfully")
+	return nil
 }
 
 // Enumerate starts enumeration sessions for each target in the configuration.
@@ -311,17 +332,16 @@ func (o *Orchestrator) startFreshEnumerations(ctx context.Context, cfg *config.C
 			attribute.String("target_type", string(target.SourceType)),
 		))
 
-		job, err := o.scanningSvc.CreateJob(ctx)
-		if err != nil {
+		// Create new job
+		job := scanning.NewScanJob()
+		if err := o.createJob(ctx, job); err != nil {
 			targetSpan.RecordError(err)
 			return fmt.Errorf("failed to create job for target %s: %w", target.Name, err)
 		}
 
-		// Create callback that associates discovered targets with this job.
-		// This allows us to associate targets with the job as they are discovered.
 		cb := &orchestratorCallback{
 			job:    job,
-			jobSvc: o.scanningSvc,
+			repo:   o.jobRepo,
 			tracer: o.tracer,
 			logger: o.logger,
 		}
@@ -336,6 +356,26 @@ func (o *Orchestrator) startFreshEnumerations(ctx context.Context, cfg *config.C
 	return nil
 }
 
+// createJob persists a new scan job
+func (o *Orchestrator) createJob(ctx context.Context, job *scanning.ScanJob) error {
+	ctx, span := o.tracer.Start(ctx, "orchestrator.create_job",
+		trace.WithAttributes(
+			attribute.String("job_id", job.GetJobID().String()),
+			attribute.String("status", string(job.GetStatus())),
+		))
+	defer span.End()
+
+	if err := o.jobRepo.CreateJob(ctx, job); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to create job")
+		return fmt.Errorf("failed to create job: %w", err)
+	}
+
+	span.AddEvent("job_created")
+	span.SetStatus(codes.Ok, "job created successfully")
+	return nil
+}
+
 func (o *Orchestrator) resumeEnumerations(ctx context.Context, states []*enumeration.SessionState) error {
 	ctx, span := o.tracer.Start(ctx, "orchestrator.resume_enumerations")
 	defer span.End()
@@ -344,15 +384,15 @@ func (o *Orchestrator) resumeEnumerations(ctx context.Context, states []*enumera
 		stateSpan := trace.SpanFromContext(ctx)
 
 		// TODO: Use existing job if possible, bleh...
-		job, err := o.scanningSvc.CreateJob(ctx)
-		if err != nil {
+		job := scanning.NewScanJob()
+		if err := o.createJob(ctx, job); err != nil {
 			stateSpan.RecordError(err)
 			return fmt.Errorf("failed to create job for state %s: %w", state.SessionID(), err)
 		}
 
 		cb := &orchestratorCallback{
 			job:    job,
-			jobSvc: o.scanningSvc,
+			repo:   o.jobRepo,
 			tracer: o.tracer,
 			logger: o.logger,
 		}

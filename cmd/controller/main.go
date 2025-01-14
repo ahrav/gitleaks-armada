@@ -23,7 +23,6 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/app/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/app/orchestration"
 	"github.com/ahrav/gitleaks-armada/internal/app/rules"
-	"github.com/ahrav/gitleaks-armada/internal/app/scanning"
 	"github.com/ahrav/gitleaks-armada/internal/config/loaders/fileloader"
 	"github.com/ahrav/gitleaks-armada/internal/infra/cluster/kubernetes"
 	"github.com/ahrav/gitleaks-armada/internal/infra/eventbus/kafka"
@@ -221,7 +220,6 @@ func main() {
 		tracer,
 	)
 	scanJobRepo := scanningStore.NewJobStore(pool, tracer)
-	scanJobService := scanning.NewJobService(scanJobRepo, tracer)
 
 	configLoader := fileloader.NewFileLoader("/etc/scanner/config/config.yaml")
 	rulesService := rules.NewService(rulesStore.NewStore(pool, tracer, metricCollector))
@@ -232,7 +230,7 @@ func main() {
 		eventPublisher,
 		enumService,
 		rulesService,
-		scanJobService,
+		scanJobRepo,
 		enumStateStorage,
 		configLoader,
 		log,
