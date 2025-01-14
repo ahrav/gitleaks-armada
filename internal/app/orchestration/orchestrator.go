@@ -231,7 +231,7 @@ func (o *Orchestrator) Run(ctx context.Context) (<-chan struct{}, error) {
 
 var _ enumCoordinator.ScanTargetCallback = (*orchestratorCallback)(nil)
 
-// orchestratorCallback handles discovered scan targets during enumeration
+// orchestratorCallback handles discovered scan targets during enumeration.
 type orchestratorCallback struct {
 	job    *scanning.ScanJob
 	repo   scanning.JobRepository
@@ -239,6 +239,8 @@ type orchestratorCallback struct {
 	logger *logger.Logger
 }
 
+// OnScanTargetsDiscovered is called when scan targets are discovered during enumeration.
+// This allows the orchestrator to associate the targets with the job in batches as they are discovered.
 func (oc *orchestratorCallback) OnScanTargetsDiscovered(ctx context.Context, targetIDs []uuid.UUID) {
 	ctx, span := oc.tracer.Start(ctx, "orchestrator.associate_targets",
 		trace.WithAttributes(
@@ -247,11 +249,9 @@ func (oc *orchestratorCallback) OnScanTargetsDiscovered(ctx context.Context, tar
 		))
 	defer span.End()
 
-	// Update domain model
 	oc.job.AssociateTargets(targetIDs)
 
-	// Persist the association with tracing
-	if err := oc.associateTargetsWithTracing(ctx, targetIDs); err != nil {
+	if err := oc.associateTargets(ctx, targetIDs); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to associate targets")
 		oc.logger.Error(ctx, "Failed to associate targets", "error", err)
@@ -265,8 +265,8 @@ func (oc *orchestratorCallback) OnScanTargetsDiscovered(ctx context.Context, tar
 		"num_targets", len(targetIDs))
 }
 
-// associateTargetsWithTracing wraps target association with proper tracing
-func (oc *orchestratorCallback) associateTargetsWithTracing(ctx context.Context, targetIDs []uuid.UUID) error {
+// associateTargets persists the association of scan targets with a job.
+func (oc *orchestratorCallback) associateTargets(ctx context.Context, targetIDs []uuid.UUID) error {
 	ctx, span := oc.tracer.Start(ctx, "orchestrator.persist_target_associations",
 		trace.WithAttributes(
 			attribute.String("job_id", oc.job.GetJobID().String()),
@@ -332,7 +332,6 @@ func (o *Orchestrator) startFreshEnumerations(ctx context.Context, cfg *config.C
 			attribute.String("target_type", string(target.SourceType)),
 		))
 
-		// Create new job
 		job := scanning.NewScanJob()
 		if err := o.createJob(ctx, job); err != nil {
 			targetSpan.RecordError(err)
