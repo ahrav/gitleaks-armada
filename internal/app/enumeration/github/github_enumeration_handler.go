@@ -1,4 +1,4 @@
-package enumeration
+package github
 
 import (
 	"context"
@@ -8,37 +8,38 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
+	enumeration "github.com/ahrav/gitleaks-armada/internal/app/enumeration/shared"
+	domain "github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
 
-var _ resourcePersister = (*gitHubRepoPersistence)(nil)
+var _ enumeration.ResourcePersister = (*gitHubRepoPersistence)(nil)
 
 // gitHubRepoPersistence implements resourcePersister for GitHub repositories.
 // It handles the persistence logic for creating and updating GitHub repositories
 // while maintaining domain invariants and generating scan targets.
 type gitHubRepoPersistence struct {
-	githubRepo enumeration.GithubRepository
+	githubRepo domain.GithubRepository
 
 	logger *logger.Logger
 	tracer trace.Tracer
 }
 
 // NewGitHubRepoPersistence creates a new gitHubRepoPersistence instance.
-func NewGitHubRepoPersistence(githubRepo enumeration.GithubRepository, logger *logger.Logger, tracer trace.Tracer) *gitHubRepoPersistence {
+func NewGitHubRepoPersistence(githubRepo domain.GithubRepository, logger *logger.Logger, tracer trace.Tracer) *gitHubRepoPersistence {
 	return &gitHubRepoPersistence{githubRepo: githubRepo, logger: logger, tracer: tracer}
 }
 
-// persist creates or updates a GitHub repository based on the provided ResourceEntry.
+// Persist creates or updates a GitHub repository based on the provided ResourceEntry.
 // It maintains idempotency by checking for existing repositories by URL before creating
 // new ones. For existing repos, it will update the name if changed while preserving
 // other attributes. Returns a ResourceUpsertResult containing the persisted entity's
 // details or an error if persistence fails.
-func (p *gitHubRepoPersistence) persist(
+func (p *gitHubRepoPersistence) Persist(
 	ctx context.Context,
-	item ResourceEntry,
-) (ResourceUpsertResult, error) {
+	item enumeration.ResourceEntry,
+) (enumeration.ResourceUpsertResult, error) {
 	ctx, span := p.tracer.Start(ctx, "github_repo_persistence.persist",
 		trace.WithAttributes(
 			attribute.String("resource_name", item.Name),
@@ -50,10 +51,10 @@ func (p *gitHubRepoPersistence) persist(
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to get repo by URL")
-		return EmptyResourceUpsertResult, err
+		return enumeration.EmptyResourceUpsertResult, err
 	}
 
-	var repo *enumeration.GitHubRepo
+	var repo *domain.GitHubRepo
 	if existing != nil {
 		span.AddEvent("Found existing repository", trace.WithAttributes(
 			attribute.Int64("repo_id", existing.ID()),
@@ -64,10 +65,10 @@ func (p *gitHubRepoPersistence) persist(
 		repo, err = p.createNewRepo(ctx, item)
 	}
 	if err != nil {
-		return EmptyResourceUpsertResult, err
+		return enumeration.EmptyResourceUpsertResult, err
 	}
 
-	result := ResourceUpsertResult{
+	result := enumeration.ResourceUpsertResult{
 		ResourceID: repo.ID(),
 		TargetType: shared.TargetTypeGitHubRepo,
 		Name:       repo.Name(),
@@ -79,9 +80,9 @@ func (p *gitHubRepoPersistence) persist(
 
 func (p *gitHubRepoPersistence) updateExistingRepo(
 	ctx context.Context,
-	existing *enumeration.GitHubRepo,
-	item ResourceEntry,
-) (*enumeration.GitHubRepo, error) {
+	existing *domain.GitHubRepo,
+	item enumeration.ResourceEntry,
+) (*domain.GitHubRepo, error) {
 	span := trace.SpanFromContext(ctx)
 
 	if item.Name != "" && item.Name != existing.Name() {
@@ -107,11 +108,11 @@ func (p *gitHubRepoPersistence) updateExistingRepo(
 
 func (p *gitHubRepoPersistence) createNewRepo(
 	ctx context.Context,
-	item ResourceEntry,
-) (*enumeration.GitHubRepo, error) {
+	item enumeration.ResourceEntry,
+) (*domain.GitHubRepo, error) {
 	span := trace.SpanFromContext(ctx)
 
-	newRepo, err := enumeration.NewGitHubRepo(item.Name, item.URL, item.Metadata)
+	newRepo, err := domain.NewGitHubRepo(item.Name, item.URL, item.Metadata)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to create domain object")

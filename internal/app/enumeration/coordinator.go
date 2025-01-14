@@ -12,10 +12,12 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/ahrav/gitleaks-armada/internal/app/enumeration/github"
+	enumeration "github.com/ahrav/gitleaks-armada/internal/app/enumeration/shared"
 	"github.com/ahrav/gitleaks-armada/internal/config"
 	"github.com/ahrav/gitleaks-armada/internal/config/credentials"
 	"github.com/ahrav/gitleaks-armada/internal/config/credentials/memory"
-	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
+	domain "github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
@@ -35,7 +37,7 @@ type Coordinator interface {
 
 	// ResumeTarget continues enumeration for a previously interrupted session.
 	// It picks up from the last checkpoint for the provided session state.
-	ResumeTarget(ctx context.Context, state *enumeration.SessionState, cb ScanTargetCallback) error
+	ResumeTarget(ctx context.Context, state *domain.SessionState, cb ScanTargetCallback) error
 }
 
 // metrics defines the interface for tracking enumeration-related metrics.
@@ -47,58 +49,20 @@ type metrics interface {
 	IncEnumerationTasksFailedToEnqueue(ctx context.Context)
 }
 
-// ResourceEntry represents a discovered resource during enumeration that needs to be persisted.
-// It contains the core identifying information and metadata needed to create or update
-// the corresponding domain entity (e.g. GitHubRepo). The ResourceType field helps the
-// coordinator route the entry to the appropriate resourcePersister implementation.
-// TODO: Refactor this to be more generic and allow for different resource types.
-// eg. ResourceType, Name + Metadata)
-type ResourceEntry struct {
-	ResourceType shared.TargetType // Type of resource (e.g. "github_repository") for routing
-	Name         string            // Display name of the resource
-	URL          string            // Unique URL/identifier for the resource
-	Metadata     map[string]any    // Additional resource-specific metadata
-}
-
-// ResourceUpsertResult contains the outcome of persisting a ResourceEntry via a resourcePersister.
-// It provides the necessary information to create a ScanTarget and generate enumeration tasks.
-// The TargetType and ResourceID fields together uniquely identify the persisted domain entity
-// (e.g. a GitHubRepo) that will be the subject of future scanning operations.
-type ResourceUpsertResult struct {
-	ResourceID int64             // Primary key of the persisted domain entity
-	TargetType shared.TargetType // Domain entity type (e.g. "github_repositories")
-	Name       string            // Resource name for display/logging
-	Metadata   map[string]any    // Final metadata after any merging/processing
-}
-
-// EmptyResourceUpsertResult provides a zero-value result for error cases.
-// This is returned when persistence fails or no changes were needed,
-// allowing callers to distinguish between successful and failed operations.
-var EmptyResourceUpsertResult = ResourceUpsertResult{}
-
-// resourcePersister defines the interface for persisting discovered resources.
-// Implementations (like gitHubRepoPersistence) handle the domain-specific logic
-// of creating or updating the appropriate aggregate (e.g. GitHubRepo) based on
-// the ResourceEntry data. This abstraction allows the coordinator to handle
-// different resource types uniformly while preserving domain invariants.
-type resourcePersister interface {
-	persist(ctx context.Context, item ResourceEntry) (ResourceUpsertResult, error)
-}
-
 // Orchestrator implements target enumeration by orchestrating domain logic, repository calls,
 // and event publishing. It manages the lifecycle of enumeration sessions and coordinates
 // the overall enumeration process.
 type coordinator struct {
 	// Domain repositories.
-	scanTargetRepo enumeration.ScanTargetRepository
-	githubRepo     enumeration.GithubRepository
-	batchRepo      enumeration.BatchRepository
-	stateRepo      enumeration.StateRepository
-	checkpointRepo enumeration.CheckpointRepository
-	taskRepo       enumeration.TaskRepository
+	scanTargetRepo domain.ScanTargetRepository
+	githubRepo     domain.GithubRepository
+	batchRepo      domain.BatchRepository
+	stateRepo      domain.StateRepository
+	checkpointRepo domain.CheckpointRepository
+	taskRepo       domain.TaskRepository
 
 	// Persistence handlers for different resource types.
-	enumeratorHandlers map[shared.TargetType]resourcePersister
+	enumeratorHandlers map[shared.TargetType]enumeration.ResourcePersister
 
 	// targetCollector manages the collection and notification of discovered scan targets
 	// during enumeration. It provides thread-safe operations for aggregating target IDs
@@ -121,12 +85,12 @@ type coordinator struct {
 // It wires together all required dependencies including repositories, domain services,
 // and external integrations needed for the enumeration workflow.
 func NewCoordinator(
-	scanTargetRepo enumeration.ScanTargetRepository,
-	githubRepo enumeration.GithubRepository,
-	batchRepo enumeration.BatchRepository,
-	stateRepo enumeration.StateRepository,
-	checkpointRepo enumeration.CheckpointRepository,
-	taskRepo enumeration.TaskRepository,
+	scanTargetRepo domain.ScanTargetRepository,
+	githubRepo domain.GithubRepository,
+	batchRepo domain.BatchRepository,
+	stateRepo domain.StateRepository,
+	checkpointRepo domain.CheckpointRepository,
+	taskRepo domain.TaskRepository,
 	enumFactory EnumeratorFactory,
 	eventPublisher events.DomainEventPublisher,
 	logger *logger.Logger,
@@ -140,8 +104,8 @@ func NewCoordinator(
 		stateRepo:      stateRepo,
 		checkpointRepo: checkpointRepo,
 		taskRepo:       taskRepo,
-		enumeratorHandlers: map[shared.TargetType]resourcePersister{
-			shared.TargetTypeGitHubRepo: NewGitHubRepoPersistence(githubRepo, logger, tracer),
+		enumeratorHandlers: map[shared.TargetType]enumeration.ResourcePersister{
+			shared.TargetTypeGitHubRepo: github.NewGitHubRepoPersistence(githubRepo, logger, tracer),
 		},
 		enumFactory:    enumFactory,
 		eventPublisher: eventPublisher,
@@ -190,7 +154,7 @@ func (s *coordinator) EnumerateTarget(
 	))
 
 	start := time.Now()
-	state := enumeration.NewState(string(target.SourceType), s.marshalConfig(ctx, target, auth))
+	state := domain.NewState(string(target.SourceType), s.marshalConfig(ctx, target, auth))
 
 	if err := s.processTargetEnumeration(ctx, state, target); err != nil {
 		targetSpan.RecordError(err)
@@ -255,7 +219,7 @@ func (s *coordinator) marshalConfig(
 // This allows recovery from interruptions and supports incremental enumeration.
 func (s *coordinator) ResumeTarget(
 	ctx context.Context,
-	state *enumeration.SessionState,
+	state *domain.SessionState,
 	cb ScanTargetCallback,
 ) error {
 	ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.resume_target",
@@ -324,7 +288,7 @@ func (s *coordinator) ResumeTarget(
 // including state transitions, enumerator creation, and streaming of results.
 func (s *coordinator) processTargetEnumeration(
 	ctx context.Context,
-	state *enumeration.SessionState,
+	state *domain.SessionState,
 	target config.TargetSpec,
 ) error {
 	ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.process_target_enumeration",
@@ -417,10 +381,10 @@ func (s *coordinator) processTargetEnumeration(
 // This enables efficient processing of large datasets by avoiding loading everything into memory.
 func (s *coordinator) streamEnumerate(
 	ctx context.Context,
-	enumerator TargetEnumerator,
-	state *enumeration.SessionState,
+	enumerator enumeration.TargetEnumerator,
+	state *domain.SessionState,
 	startCursor *string,
-	creds *enumeration.TaskCredentials,
+	creds *domain.TaskCredentials,
 ) error {
 	ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.stream_enumerate",
 		trace.WithAttributes(
@@ -429,7 +393,7 @@ func (s *coordinator) streamEnumerate(
 		))
 	defer span.End()
 
-	batchCh := make(chan EnumerateBatch, 1)
+	batchCh := make(chan enumeration.EnumerateBatch, 1)
 	var wg sync.WaitGroup
 	wg.Add(1)
 
@@ -493,29 +457,29 @@ func (s *coordinator) streamEnumerate(
 // processBatch handles the processing of a batch of enumerated targets.
 func (s *coordinator) processBatch(
 	ctx context.Context,
-	batch EnumerateBatch,
-	state *enumeration.SessionState,
-	creds *enumeration.TaskCredentials,
+	batch enumeration.EnumerateBatch,
+	state *domain.SessionState,
+	creds *domain.TaskCredentials,
 ) error {
 	batchSpan := trace.SpanFromContext(ctx)
 	defer batchSpan.End()
 
 	batchSpan.AddEvent("starting_batch_processing")
 
-	var checkpoint *enumeration.Checkpoint
+	var checkpoint *domain.Checkpoint
 	if batch.NextCursor != "" {
-		checkpoint = enumeration.NewTemporaryCheckpoint(
+		checkpoint = domain.NewTemporaryCheckpoint(
 			state.SessionID(),
 			map[string]any{"endCursor": batch.NextCursor},
 		)
 	} else {
-		checkpoint = enumeration.NewTemporaryCheckpoint(state.SessionID(), nil)
+		checkpoint = domain.NewTemporaryCheckpoint(state.SessionID(), nil)
 	}
 	batchSpan.AddEvent("checkpoint_created", trace.WithAttributes(
 		attribute.String("end_cursor", batch.NextCursor),
 	))
 
-	domainBatch := enumeration.NewBatch(
+	domainBatch := domain.NewBatch(
 		state.SessionID(),
 		len(batch.Targets),
 		checkpoint,
@@ -589,9 +553,9 @@ func (s *coordinator) processBatch(
 // processTarget handles the processing of a single target and returns the created scan target ID
 func (s *coordinator) processTarget(
 	ctx context.Context,
-	target *TargetInfo,
+	target *enumeration.TargetInfo,
 	sessionID uuid.UUID,
-	creds *enumeration.TaskCredentials,
+	creds *domain.TaskCredentials,
 ) (uuid.UUID, error) {
 	ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.process_target",
 		trace.WithAttributes(
@@ -607,7 +571,7 @@ func (s *coordinator) processTarget(
 		return uuid.Nil, err
 	}
 
-	resourceEntry := ResourceEntry{
+	resourceEntry := enumeration.ResourceEntry{
 		ResourceType: target.TargetType,
 		Name:         target.ResourceURI,
 		URL:          target.ResourceURI,
@@ -618,7 +582,7 @@ func (s *coordinator) processTarget(
 		attribute.String("resource_entry_url", resourceEntry.URL),
 	)
 
-	result, err := persister.persist(ctx, resourceEntry)
+	result, err := persister.Persist(ctx, resourceEntry)
 	if err != nil {
 		span.RecordError(err)
 		return uuid.Nil, fmt.Errorf("failed to persist resource: %w", err)
@@ -661,7 +625,7 @@ func (s *coordinator) createScanTarget(
 		))
 	defer span.End()
 
-	st, err := enumeration.NewScanTarget(name, targetType, targetID, metadata)
+	st, err := domain.NewScanTarget(name, targetType, targetID, metadata)
 	if err != nil {
 		span.RecordError(err)
 		return uuid.Nil, fmt.Errorf("failed to create scan target domain object: %w", err)
@@ -686,9 +650,9 @@ func (s *coordinator) createScanTarget(
 // TODO: Handle partial failures.
 func (s *coordinator) publishTask(
 	ctx context.Context,
-	target *TargetInfo,
+	target *enumeration.TargetInfo,
 	sessionID uuid.UUID,
-	creds *enumeration.TaskCredentials,
+	creds *domain.TaskCredentials,
 ) error {
 	ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.publish_task",
 		trace.WithAttributes(
@@ -697,7 +661,7 @@ func (s *coordinator) publishTask(
 		))
 	defer span.End()
 
-	task := enumeration.NewTask(
+	task := domain.NewTask(
 		target.TargetType.ToSourceType(),
 		sessionID,
 		target.ResourceURI,
@@ -707,7 +671,7 @@ func (s *coordinator) publishTask(
 
 	if err := s.eventPublisher.PublishDomainEvent(
 		ctx,
-		enumeration.NewTaskCreatedEvent(task),
+		domain.NewTaskCreatedEvent(task),
 		events.WithKey(sessionID.String()),
 	); err != nil {
 		span.RecordError(err)

@@ -1,4 +1,4 @@
-package enumeration
+package github
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
+	enumeration "github.com/ahrav/gitleaks-armada/internal/app/enumeration/shared"
 	"github.com/ahrav/gitleaks-armada/internal/config"
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 )
@@ -18,43 +19,7 @@ type GitHubAPI interface {
 	ListRepositories(ctx context.Context, org string, cursor *string) (*githubGraphQLResponse, error)
 }
 
-// TargetEnumerator provides application-level target enumeration capabilities.
-// It differs from the domain interface by operating on batches and managing cursors
-// directly to support efficient streaming of large datasets.
-type TargetEnumerator interface {
-	// Enumerate walks through a data source and streams batches of scan tasks.
-	// It accepts a cursor to support resumable operations and sends batches through
-	// the provided channel. Each batch includes both tasks and checkpoint data.
-	Enumerate(
-		ctx context.Context,
-		startCursor *string,
-		batchCh chan<- EnumerateBatch,
-	) error
-}
-
-// TargetInfo represents a scannable target with its associated metadata.
-// It provides the minimal information needed to create a scan task while
-// keeping the enumeration layer decoupled from domain specifics.
-type TargetInfo struct {
-	// TargetType identifies the type of target being scanned (e.g., "github_repo").
-	TargetType shared.TargetType
-
-	// ResourceURI is the unique location identifier for the target.
-	ResourceURI string
-
-	// Metadata contains additional context needed for scanning the target.
-	Metadata map[string]string
-}
-
-// EnumerateBatch groups related scan tasks with their checkpoint data.
-// This enables atomic processing of task batches while maintaining
-// resumability through checkpoint tracking.
-type EnumerateBatch struct {
-	Targets    []*TargetInfo
-	NextCursor string
-}
-
-var _ TargetEnumerator = new(GitHubEnumerator)
+var _ enumeration.TargetEnumerator = new(GitHubEnumerator)
 
 // GitHubEnumerator handles enumerating repositories from a GitHub organization.
 // It supports pagination and checkpoint-based resumption to handle large organizations
@@ -84,7 +49,7 @@ func NewGitHubEnumerator(
 // It uses GraphQL for efficient pagination and maintains checkpoints for resumability.
 // The method streams batches of tasks through the provided channel and updates progress
 // in the enumeration state storage.
-func (e *GitHubEnumerator) Enumerate(ctx context.Context, startCursor *string, batchCh chan<- EnumerateBatch) error {
+func (e *GitHubEnumerator) Enumerate(ctx context.Context, startCursor *string, batchCh chan<- enumeration.EnumerateBatch) error {
 	ctx, span := e.tracer.Start(ctx, "github_enumerator.enumeration.enumerate",
 		trace.WithAttributes(
 			attribute.String("org", e.ghConfig.Org),
@@ -100,15 +65,15 @@ func (e *GitHubEnumerator) Enumerate(ctx context.Context, startCursor *string, b
 	// If we have a repo list, process it directly.
 	// TODO: Batch this too.
 	if len(e.ghConfig.RepoList) > 0 {
-		targets := make([]*TargetInfo, 0, len(e.ghConfig.RepoList))
+		targets := make([]*enumeration.TargetInfo, 0, len(e.ghConfig.RepoList))
 		for _, repoURL := range e.ghConfig.RepoList {
-			targets = append(targets, &TargetInfo{
+			targets = append(targets, &enumeration.TargetInfo{
 				TargetType:  shared.TargetTypeGitHubRepo,
 				ResourceURI: repoURL,
 				Metadata:    e.ghConfig.Metadata,
 			})
 		}
-		batchCh <- EnumerateBatch{Targets: targets}
+		batchCh <- enumeration.EnumerateBatch{Targets: targets}
 		return nil
 	}
 
@@ -127,9 +92,9 @@ func (e *GitHubEnumerator) Enumerate(ctx context.Context, startCursor *string, b
 		apiSpan.End()
 
 		_, taskSpan := e.tracer.Start(ctx, "github_enumerator.enumeration.create_tasks")
-		targets := make([]*TargetInfo, 0, len(respData.Data.Organization.Repositories.Nodes))
+		targets := make([]*enumeration.TargetInfo, 0, len(respData.Data.Organization.Repositories.Nodes))
 		for _, node := range respData.Data.Organization.Repositories.Nodes {
-			targets = append(targets, &TargetInfo{
+			targets = append(targets, &enumeration.TargetInfo{
 				TargetType:  shared.TargetTypeGitHubRepo,
 				ResourceURI: buildGithubResourceURI(e.ghConfig.Org, node.Name),
 				Metadata:    e.ghConfig.Metadata,
@@ -140,7 +105,7 @@ func (e *GitHubEnumerator) Enumerate(ctx context.Context, startCursor *string, b
 		pageInfo := respData.Data.Organization.Repositories.PageInfo
 		newCursor := pageInfo.EndCursor
 
-		batchCh <- EnumerateBatch{
+		batchCh <- enumeration.EnumerateBatch{
 			Targets:    targets,
 			NextCursor: newCursor,
 		}

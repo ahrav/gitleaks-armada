@@ -1,4 +1,4 @@
-package enumeration
+package github
 
 import (
 	"bytes"
@@ -13,7 +13,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
+	domain "github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 	"github.com/ahrav/gitleaks-armada/pkg/common"
 )
 
@@ -28,11 +28,11 @@ type GitHubClient struct {
 // NewGitHubClient creates a new GitHub client with rate limiting.
 func NewGitHubClient(
 	httpClient *http.Client,
-	creds *enumeration.TaskCredentials,
+	creds *domain.TaskCredentials,
 	tracer trace.Tracer,
 ) (*GitHubClient, error) {
 	var token string
-	if creds.Type == enumeration.CredentialTypeGitHub {
+	if creds.Type == domain.CredentialTypeGitHub {
 		var err error
 		token, err = extractGitHubToken(creds)
 		if err != nil {
@@ -52,8 +52,8 @@ func NewGitHubClient(
 
 // extractGitHubToken retrieves and validates the authentication token from GitHub credentials.
 // It returns an error if the credentials are not GitHub type or if the token is missing.
-func extractGitHubToken(creds *enumeration.TaskCredentials) (string, error) {
-	if creds.Type != enumeration.CredentialTypeGitHub && creds.Type != enumeration.CredentialTypeUnauthenticated {
+func extractGitHubToken(creds *domain.TaskCredentials) (string, error) {
+	if creds.Type != domain.CredentialTypeGitHub && creds.Type != domain.CredentialTypeUnauthenticated {
 		return "", fmt.Errorf("expected github credentials, got %s", creds.Type)
 	}
 

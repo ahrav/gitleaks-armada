@@ -8,8 +8,10 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/ahrav/gitleaks-armada/internal/app/enumeration/github"
+	"github.com/ahrav/gitleaks-armada/internal/app/enumeration/shared"
 	"github.com/ahrav/gitleaks-armada/internal/config"
-	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
+	domain "github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 )
 
 // EnumeratorFactory creates TargetEnumerators for different data sources.
@@ -18,7 +20,7 @@ import (
 type EnumeratorFactory interface {
 	// CreateEnumerator constructs a new TargetEnumerator for the given target
 	// specification and authentication configuration.
-	CreateEnumerator(target config.TargetSpec, creds *enumeration.TaskCredentials) (TargetEnumerator, error)
+	CreateEnumerator(target config.TargetSpec, creds *domain.TaskCredentials) (shared.TargetEnumerator, error)
 }
 
 // enumerationFactory creates target enumerators with required dependencies.
@@ -43,7 +45,7 @@ func NewEnumerationFactory(
 // It handles authentication and creates source-specific enumerators (e.g., GitHub, S3).
 // Returns an error if the target configuration is invalid or required credentials are missing.
 // TODO: Revist the use of this factory it's still a bit wonky with the credential store.
-func (f *enumerationFactory) CreateEnumerator(target config.TargetSpec, creds *enumeration.TaskCredentials) (TargetEnumerator, error) {
+func (f *enumerationFactory) CreateEnumerator(target config.TargetSpec, creds *domain.TaskCredentials) (shared.TargetEnumerator, error) {
 	ctx := context.Background()
 	ctx, span := f.tracer.Start(ctx, "factory.enumeration.create_enumerator",
 		trace.WithAttributes(
@@ -62,7 +64,7 @@ func (f *enumerationFactory) CreateEnumerator(target config.TargetSpec, creds *e
 			return nil, fmt.Errorf("github target configuration is missing")
 		}
 
-		ghClient, err := NewGitHubClient(f.httpClient, creds, f.tracer)
+		ghClient, err := github.NewGitHubClient(f.httpClient, creds, f.tracer)
 		if err != nil {
 			githubSpan.RecordError(err)
 			return nil, fmt.Errorf("failed to create GitHub client: %w", err)
@@ -70,7 +72,7 @@ func (f *enumerationFactory) CreateEnumerator(target config.TargetSpec, creds *e
 
 		githubSpan.AddEvent("github_client_created")
 
-		return NewGitHubEnumerator(
+		return github.NewGitHubEnumerator(
 			ghClient,
 			target.GitHub,
 			f.tracer,
