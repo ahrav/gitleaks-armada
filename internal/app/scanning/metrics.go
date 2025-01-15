@@ -30,6 +30,10 @@ type ScannerMetrics interface {
 	ObserveCloneTime(ctx context.Context, repoURI string, duration time.Duration)
 	IncCloneError(ctx context.Context, repoURI string)
 	ObserveScanTime(ctx context.Context, repoURI string, duration time.Duration)
+
+	// URL scan metrics
+	ObserveURLScanTime(ctx context.Context, url string, duration time.Duration)
+	ObserveURLScanSize(ctx context.Context, url string, sizeBytes int64)
 }
 
 // scannerMetrics implements ScannerMetrics
@@ -54,11 +58,15 @@ type scannerMetrics struct {
 	activeWorkers metric.Int64UpDownCounter
 	workerErrors  metric.Int64Counter
 
-	// Repository metrics
+	// Repository scan metrics
 	repoSize    metric.Int64Histogram
 	cloneTime   metric.Float64Histogram
 	cloneErrors metric.Int64Counter
 	scanTime    metric.Float64Histogram
+
+	// URL scan metrics
+	urlScanTime metric.Float64Histogram
+	urlScanSize metric.Int64Histogram
 }
 
 const namespace = "scanner"
@@ -198,6 +206,22 @@ func NewScannerMetrics(mp metric.MeterProvider) (*scannerMetrics, error) {
 		return nil, err
 	}
 
+	if s.urlScanTime, err = meter.Float64Histogram(
+		"url_scan_duration_milliseconds",
+		metric.WithDescription("Time taken to scan URLs in milliseconds"),
+		metric.WithUnit("ms"),
+	); err != nil {
+		return nil, err
+	}
+
+	if s.urlScanSize, err = meter.Int64Histogram(
+		"url_scan_size_bytes",
+		metric.WithDescription("Size of URLs scanned in bytes"),
+		metric.WithUnit("bytes"),
+	); err != nil {
+		return nil, err
+	}
+
 	return s, nil
 }
 
@@ -274,5 +298,17 @@ func (m *scannerMetrics) ObserveFindings(ctx context.Context, repoURI string, co
 func (m *scannerMetrics) ObserveScanTime(ctx context.Context, repoURI string, duration time.Duration) {
 	m.scanTime.Record(ctx, float64(duration.Milliseconds()), metric.WithAttributes(
 		attribute.String("repository_uri", repoURI),
+	))
+}
+
+func (m *scannerMetrics) ObserveURLScanTime(ctx context.Context, url string, duration time.Duration) {
+	m.urlScanTime.Record(ctx, float64(duration.Milliseconds()), metric.WithAttributes(
+		attribute.String("url", url),
+	))
+}
+
+func (m *scannerMetrics) ObserveURLScanSize(ctx context.Context, url string, sizeBytes int64) {
+	m.urlScanSize.Record(ctx, sizeBytes, metric.WithAttributes(
+		attribute.String("url", url),
 	))
 }

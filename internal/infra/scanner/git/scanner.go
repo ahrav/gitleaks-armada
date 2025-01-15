@@ -63,10 +63,11 @@ func (s *Scanner) Scan(ctx context.Context, task *dtos.ScanRequest) error {
 		trace.WithAttributes(
 			attribute.String("repository.url", task.ResourceURI),
 		))
-	defer span.End()
-
 	startTime := time.Now()
-	defer s.metrics.ObserveScanTime(ctx, task.ResourceURI, time.Since(startTime))
+	defer func() {
+		span.End()
+		s.metrics.ObserveScanTime(ctx, task.ResourceURI, time.Since(startTime))
+	}()
 
 	_, dirSpan := s.tracer.Start(ctx, "gitleaks_scanner.scanning.create_temp_dir")
 	tempDir, err := os.MkdirTemp("", "gitleaks-scan-")

@@ -11,7 +11,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"time"
 
 	"github.com/spf13/viper"
 	regexp "github.com/wasilibs/go-re2"
@@ -20,27 +19,13 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/ahrav/gitleaks-armada/internal/app/scanning"
 	"github.com/ahrav/gitleaks-armada/internal/app/scanning/dtos"
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/rules"
 	"github.com/ahrav/gitleaks-armada/internal/infra/scanner/git"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
-
-// metrics defines metrics operations for Git repository operations
-type metrics interface {
-	// ObserveRepoSize records the size of a cloned repository in bytes
-	ObserveRepoSize(ctx context.Context, repoURI string, sizeBytes int64)
-
-	// ObserveCloneTime records how long it took to clone a repository
-	ObserveCloneTime(ctx context.Context, repoURI string, duration time.Duration)
-
-	// IncCloneError increments the clone error counter for a repository
-	IncCloneError(ctx context.Context, repoURI string)
-
-	// ObserveFindings records the number of findings in a repository
-	ObserveFindings(ctx context.Context, repoURI string, findings int)
-}
 
 type SecretScanner interface {
 	Scan(ctx context.Context, task *dtos.ScanRequest) error
@@ -53,7 +38,7 @@ type Gitleaks struct {
 	detector *detect.Detector
 	logger   *logger.Logger
 	tracer   trace.Tracer
-	metrics  metrics
+	metrics  scanning.ScannerMetrics
 }
 
 // NewGitLeaks creates a new Gitleaks scanner instance with a configured detector.
@@ -65,7 +50,7 @@ func NewGitLeaks(
 	broker events.DomainEventPublisher,
 	logger *logger.Logger,
 	tracer trace.Tracer,
-	metrics metrics,
+	metrics scanning.ScannerMetrics,
 ) *Gitleaks {
 	detector := setupGitleaksDetector()
 	// Publish initial ruleset to ensure all scanners have consistent detection patterns
