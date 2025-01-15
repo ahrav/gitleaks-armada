@@ -40,32 +40,21 @@ const createJob = `-- name: CreateJob :exec
 
 INSERT INTO scan_jobs (
     job_id,
-    status,
-    start_time,
-    end_time
+    status
 ) VALUES (
     $1, -- job_id UUID
-    $2, -- status scan_job_status
-    $3, -- start_time TIMESTAMPTZ
-    $4  -- end_time TIMESTAMPTZ
+    $2  -- status scan_job_status
 )
 `
 
 type CreateJobParams struct {
-	JobID     pgtype.UUID
-	Status    ScanJobStatus
-	StartTime pgtype.Timestamptz
-	EndTime   pgtype.Timestamptz
+	JobID  pgtype.UUID
+	Status ScanJobStatus
 }
 
 // Scanning Domain Queries
 func (q *Queries) CreateJob(ctx context.Context, arg CreateJobParams) error {
-	_, err := q.db.Exec(ctx, createJob,
-		arg.JobID,
-		arg.Status,
-		arg.StartTime,
-		arg.EndTime,
-	)
+	_, err := q.db.Exec(ctx, createJob, arg.JobID, arg.Status)
 	return err
 }
 
@@ -121,19 +110,26 @@ func (q *Queries) GetJob(ctx context.Context, jobID pgtype.UUID) ([]GetJobRow, e
 const updateJob = `-- name: UpdateJob :execrows
 UPDATE scan_jobs
 SET status = $2,
-    end_time = $3,
+    start_time = $3,
+    end_time = $4,
     updated_at = NOW()
 WHERE job_id = $1
 `
 
 type UpdateJobParams struct {
-	JobID   pgtype.UUID
-	Status  ScanJobStatus
-	EndTime pgtype.Timestamptz
+	JobID     pgtype.UUID
+	Status    ScanJobStatus
+	StartTime pgtype.Timestamptz
+	EndTime   pgtype.Timestamptz
 }
 
 func (q *Queries) UpdateJob(ctx context.Context, arg UpdateJobParams) (int64, error) {
-	result, err := q.db.Exec(ctx, updateJob, arg.JobID, arg.Status, arg.EndTime)
+	result, err := q.db.Exec(ctx, updateJob,
+		arg.JobID,
+		arg.Status,
+		arg.StartTime,
+		arg.EndTime,
+	)
 	if err != nil {
 		return 0, err
 	}

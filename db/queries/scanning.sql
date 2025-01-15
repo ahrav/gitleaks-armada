@@ -3,20 +3,17 @@
 -- name: CreateJob :exec
 INSERT INTO scan_jobs (
     job_id,
-    status,
-    start_time,
-    end_time
+    status
 ) VALUES (
     $1, -- job_id UUID
-    $2, -- status scan_job_status
-    $3, -- start_time TIMESTAMPTZ
-    $4  -- end_time TIMESTAMPTZ
+    $2  -- status scan_job_status
 );
 
 -- name: UpdateJob :execrows
 UPDATE scan_jobs
 SET status = $2,
-    end_time = $3,
+    start_time = $3,
+    end_time = $4,
     updated_at = NOW()
 WHERE job_id = $1;
 

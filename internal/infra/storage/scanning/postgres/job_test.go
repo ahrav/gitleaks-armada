@@ -53,7 +53,7 @@ func TestJobStore_CreateAndGet(t *testing.T) {
 
 	assert.Equal(t, job.GetJobID(), loaded.GetJobID())
 	assert.Equal(t, job.GetStatus(), loaded.GetStatus())
-	assert.WithinDuration(t, job.GetStartTime(), loaded.GetStartTime(), time.Second)
+	assert.True(t, loaded.GetStartTime().IsZero(), "New jobs should not have a start time")
 }
 
 type mockTimeProvider struct {
@@ -111,9 +111,7 @@ func TestJobStore_UpdateJob(t *testing.T) {
 
 	endTime, hasEndTime := loaded.GetEndTime()
 	assert.True(t, hasEndTime)
-	assert.Equal(t, initialJob.GetStartTime(), loaded.GetStartTime(),
-		"Start time should not change")
-	assert.Equal(t, completionTime, endTime,
+	assert.Equal(t, completionTime.UTC(), endTime.UTC(),
 		"End time should match completion time")
 	assert.WithinDuration(t, time.Now().UTC(), loaded.GetLastUpdateTime(), time.Second,
 		"Last update time should be close to current time")

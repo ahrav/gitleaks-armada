@@ -52,9 +52,8 @@ func (r *jobStore) CreateJob(ctx context.Context, job *scanning.ScanJob) error {
 
 	return storage.ExecuteAndTrace(ctx, r.tracer, "postgres.create_job", dbAttrs, func(ctx context.Context) error {
 		err := r.q.CreateJob(ctx, db.CreateJobParams{
-			JobID:     pgtype.UUID{Bytes: job.GetJobID(), Valid: true},
-			Status:    db.ScanJobStatus(job.GetStatus()),
-			StartTime: pgtype.Timestamptz{Time: job.GetStartTime(), Valid: true},
+			JobID:  pgtype.UUID{Bytes: job.GetJobID(), Valid: true},
+			Status: db.ScanJobStatus(job.GetStatus()),
 		})
 		if err != nil {
 			return fmt.Errorf("CreateJob insert error: %w", err)
@@ -81,9 +80,10 @@ func (r *jobStore) UpdateJob(ctx context.Context, job *scanning.ScanJob) error {
 		}
 
 		rowsAffected, err := r.q.UpdateJob(ctx, db.UpdateJobParams{
-			JobID:   pgtype.UUID{Bytes: job.GetJobID(), Valid: true},
-			Status:  db.ScanJobStatus(job.GetStatus()),
-			EndTime: dbEndTime,
+			JobID:     pgtype.UUID{Bytes: job.GetJobID(), Valid: true},
+			Status:    db.ScanJobStatus(job.GetStatus()),
+			StartTime: pgtype.Timestamptz{Time: job.GetStartTime(), Valid: true},
+			EndTime:   dbEndTime,
 		})
 		if err != nil {
 			return fmt.Errorf("UpdateJob query error: %w", err)
