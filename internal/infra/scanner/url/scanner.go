@@ -53,7 +53,7 @@ func NewScanner(detector *detect.Detector, logger *logger.Logger, tracer trace.T
 // It fetches data from the URL, then streams it into the Gitleaks detector.
 // It also records the number of findings in a repository and logs the findings.
 func (s *Scanner) Scan(ctx context.Context, task *dtos.ScanRequest) error {
-	ctx, span := s.tracer.Start(ctx, "gitleaks_scanner.scan.url",
+	ctx, span := s.tracer.Start(ctx, "gitleaks_url_scanner.scan",
 		trace.WithAttributes(
 			attribute.String("url", task.ResourceURI),
 		))
@@ -69,7 +69,7 @@ func (s *Scanner) Scan(ctx context.Context, task *dtos.ScanRequest) error {
 	}
 	span.SetAttributes(attribute.String("archive_format", format))
 
-	_, archiveSpan := s.tracer.Start(ctx, "gitleaks_scanner.create_archive_reader")
+	_, archiveSpan := s.tracer.Start(ctx, "gitleaks_url_scanner.create_archive_reader")
 	archiveReader, err := newArchiveReader(format, func(size int64) {
 		s.metrics.ObserveURLScanSize(ctx, task.ResourceURI, size)
 	})
@@ -80,7 +80,7 @@ func (s *Scanner) Scan(ctx context.Context, task *dtos.ScanRequest) error {
 	}
 	archiveSpan.End()
 
-	_, httpSpan := s.tracer.Start(ctx, "gitleaks_scanner.http_request")
+	_, httpSpan := s.tracer.Start(ctx, "gitleaks_url_scanner.http_request")
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, task.ResourceURI, nil)
 	if err != nil {
 		httpSpan.RecordError(err)
@@ -109,7 +109,7 @@ func (s *Scanner) Scan(ctx context.Context, task *dtos.ScanRequest) error {
 		return fmt.Errorf("failed to fetch URL: %s", errMsg)
 	}
 
-	_, processSpan := s.tracer.Start(ctx, "gitleaks_scanner.process_archive")
+	_, processSpan := s.tracer.Start(ctx, "gitleaks_url_scanner.process_archive")
 	reader, err := archiveReader.Read(ctx, resp.Body)
 	if err != nil {
 		processSpan.RecordError(err)
@@ -118,7 +118,7 @@ func (s *Scanner) Scan(ctx context.Context, task *dtos.ScanRequest) error {
 	}
 	processSpan.End()
 
-	_, detectSpan := s.tracer.Start(ctx, "gitleaks_scanner.detect_secrets")
+	_, detectSpan := s.tracer.Start(ctx, "gitleaks_url_scanner.detect_secrets")
 	findings, err := s.detector.DetectReader(reader, 32)
 	if err != nil {
 		detectSpan.RecordError(err)
