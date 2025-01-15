@@ -53,10 +53,11 @@ func TestReconstructURLTarget(t *testing.T) {
 func TestURLTarget_UpdateURL(t *testing.T) {
 	metadata := map[string]any{"key": "value"}
 	url := "http://example.com"
-	target, _ := NewURLTarget(url, metadata)
+	target, err := NewURLTarget(url, metadata)
+	assert.NoError(t, err)
 
 	newURL := "http://newexample.com"
-	err := target.UpdateURL(newURL)
+	err = target.UpdateURL(newURL)
 	assert.NoError(t, err)
 	assert.Equal(t, newURL, target.URL())
 }
@@ -64,9 +65,10 @@ func TestURLTarget_UpdateURL(t *testing.T) {
 func TestURLTarget_UpdateURL_Empty(t *testing.T) {
 	metadata := map[string]any{"key": "value"}
 	url := "http://example.com"
-	target, _ := NewURLTarget(url, metadata)
+	target, err := NewURLTarget(url, metadata)
+	assert.NoError(t, err)
 
-	err := target.UpdateURL("")
+	err = target.UpdateURL("")
 	assert.Error(t, err)
 	assert.Equal(t, url, target.URL()) // URL should remain unchanged
 }
@@ -74,7 +76,8 @@ func TestURLTarget_UpdateURL_Empty(t *testing.T) {
 func TestURLTarget_SetID(t *testing.T) {
 	metadata := map[string]any{"key": "value"}
 	url := "http://example.com"
-	target, _ := NewURLTarget(url, metadata)
+	target, err := NewURLTarget(url, metadata)
+	assert.NoError(t, err)
 
 	target.SetID(42)
 	assert.Equal(t, int64(42), target.ID())
@@ -83,7 +86,8 @@ func TestURLTarget_SetID(t *testing.T) {
 func TestURLTarget_Timeline(t *testing.T) {
 	metadata := map[string]any{"key": "value"}
 	url := "http://example.com"
-	target, _ := NewURLTarget(url, metadata)
+	target, err := NewURLTarget(url, metadata)
+	assert.NoError(t, err)
 
 	createdAt := target.CreatedAt()
 	updatedAt := target.UpdatedAt()
