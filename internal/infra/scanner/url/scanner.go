@@ -69,56 +69,67 @@ func (s *Scanner) Scan(ctx context.Context, task *dtos.ScanRequest) error {
 	}
 	span.SetAttributes(attribute.String("archive_format", format))
 
-	sizeTracker := func(size int64) {
+	_, archiveSpan := s.tracer.Start(ctx, "gitleaks_scanner.create_archive_reader")
+	archiveReader, err := newArchiveReader(format, func(size int64) {
 		s.metrics.ObserveURLScanSize(ctx, task.ResourceURI, size)
-	}
-
-	archiveReader, err := newArchiveReader(format, sizeTracker)
+	})
 	if err != nil {
-		span.RecordError(err)
+		archiveSpan.RecordError(err)
+		archiveSpan.End()
 		return fmt.Errorf("failed to create archive reader: %w", err)
 	}
+	archiveSpan.End()
 
+	_, httpSpan := s.tracer.Start(ctx, "gitleaks_scanner.http_request")
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, task.ResourceURI, nil)
 	if err != nil {
-		span.RecordError(err)
+		httpSpan.RecordError(err)
+		httpSpan.End()
 		return fmt.Errorf("failed to create HTTP request: %w", err)
 	}
 
-	// TODO: Use a custom HTTP client.
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		span.RecordError(err)
-		span.SetAttributes(attribute.String("error", err.Error()))
+		httpSpan.RecordError(err)
+		httpSpan.SetAttributes(attribute.String("error", err.Error()))
+		httpSpan.End()
 		return fmt.Errorf("failed to execute HTTP request: %w", err)
 	}
 	defer resp.Body.Close()
-	span.SetAttributes(attribute.Int("response_status_code", resp.StatusCode))
-	span.SetAttributes(attribute.String("response_status", resp.Status))
+
+	httpSpan.SetAttributes(
+		attribute.Int("response_status_code", resp.StatusCode),
+		attribute.String("response_status", resp.Status),
+	)
+	httpSpan.End()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		errMsg := fmt.Sprintf("received non-2xx response code %d", resp.StatusCode)
 		span.RecordError(errors.New(errMsg))
-		span.SetAttributes(attribute.String("error", errMsg))
 		return fmt.Errorf("failed to fetch URL: %s", errMsg)
 	}
 
+	_, processSpan := s.tracer.Start(ctx, "gitleaks_scanner.process_archive")
 	reader, err := archiveReader.Read(ctx, resp.Body)
 	if err != nil {
-		span.RecordError(err)
-		span.SetAttributes(attribute.String("error", err.Error()))
+		processSpan.RecordError(err)
+		processSpan.End()
 		return fmt.Errorf("failed to process archive: %w", err)
 	}
+	processSpan.End()
 
+	_, detectSpan := s.tracer.Start(ctx, "gitleaks_scanner.detect_secrets")
 	findings, err := s.detector.DetectReader(reader, 32)
 	if err != nil {
-		span.RecordError(err)
-		span.SetAttributes(attribute.String("error", err.Error()))
+		detectSpan.RecordError(err)
+		detectSpan.End()
 		return fmt.Errorf("failed to scan URL: %w", err)
 	}
 
 	s.metrics.ObserveFindings(ctx, task.ResourceURI, len(findings))
-	span.AddEvent("findings_processed", trace.WithAttributes(attribute.Int("findings.count", len(findings))))
+	detectSpan.AddEvent("findings_processed",
+		trace.WithAttributes(attribute.Int("findings.count", len(findings))))
+	detectSpan.End()
 
 	s.logger.Info(ctx, "found findings in URL-based data",
 		"url", task.ResourceURI,
