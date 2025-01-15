@@ -31,6 +31,7 @@ func (e *TargetTypeError) Error() string {
 
 var allTargetTypes = []TargetType{
 	TargetTypeGitHubRepo,
+	TargetTypeURL,
 }
 
 // NewTargetType creates a new TargetType from a string.

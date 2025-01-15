@@ -16,5 +16,5 @@ const (
 
 	// SourceTypeURL represents a list of URLs as a source system.
 	// Tasks with this source type will use URL-specific authentication and API access.
-	SourceTypeURL SourceType = "urls"
+	SourceTypeURL SourceType = "url"
 )
