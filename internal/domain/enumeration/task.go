@@ -87,6 +87,9 @@ const (
 
 	// CredentialTypeS3 authenticates against AWS S3 using access credentials
 	CredentialTypeS3 CredentialType = "s3"
+
+	// CredentialTypeURL authenticates against a URL using a personal access token.
+	CredentialTypeURL CredentialType = "url"
 )
 
 // TaskCredentials is a value object that encapsulates authentication details for a specific target.

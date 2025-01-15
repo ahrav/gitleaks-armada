@@ -54,7 +54,6 @@ func NewGitLeaks(
 	metrics scanning.ScannerMetrics,
 ) *Gitleaks {
 	detector := setupGitleaksDetector()
-	// Publish initial ruleset to ensure all scanners have consistent detection patterns
 	if err := publishRulesOnStartup(ctx, broker, detector, logger, tracer); err != nil {
 		logger.Error(ctx, "failed to publish rules on startup", "error", err)
 	}

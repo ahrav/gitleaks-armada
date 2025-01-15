@@ -38,6 +38,8 @@ func toScanningSourceType(e shared.SourceType) dtos.SourceType {
 		return dtos.SourceTypeGitHub
 	case shared.SourceTypeS3:
 		return dtos.SourceTypeS3
+	case shared.SourceTypeURL:
+		return dtos.SourceTypeURL
 	default:
 		return dtos.SourceTypeUnspecified
 	}
@@ -65,6 +67,8 @@ func toScanningCredentialType(ec enumeration.CredentialType) dtos.CredentialType
 		return dtos.CredentialTypeGitHub
 	case enumeration.CredentialTypeS3:
 		return dtos.CredentialTypeS3
+	case enumeration.CredentialTypeURL:
+		return dtos.CredentialTypeURL
 	default:
 		return dtos.CredentialTypeUnknown
 	}

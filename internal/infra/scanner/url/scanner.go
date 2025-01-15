@@ -69,7 +69,6 @@ func (s *Scanner) Scan(ctx context.Context, task *dtos.ScanRequest) error {
 	}
 	span.SetAttributes(attribute.String("archive_format", format))
 
-	// Create size tracking callback
 	sizeTracker := func(size int64) {
 		s.metrics.ObserveURLScanSize(ctx, task.ResourceURI, size)
 	}
