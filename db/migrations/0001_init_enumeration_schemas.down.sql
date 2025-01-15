@@ -26,4 +26,4 @@ DROP TYPE IF EXISTS batch_status;
 
 DROP TABLE IF EXISTS scan_targets;
 DROP TABLE IF EXISTS github_repositories;
-DROP TABLE IF EXISTS url_targets;
+DROP TABLE IF EXISTS urls;

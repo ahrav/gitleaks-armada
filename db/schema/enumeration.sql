@@ -127,7 +127,7 @@ CREATE INDEX idx_scan_targets_name ON scan_targets (name);
 CREATE INDEX idx_scan_targets_target_type ON scan_targets (target_type);
 
 -- URL Targets Table
-CREATE TABLE url_targets (
+CREATE TABLE urls (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     url VARCHAR(2048) NOT NULL UNIQUE,
     metadata JSONB,
@@ -136,4 +136,4 @@ CREATE TABLE url_targets (
 );
 
 -- Index
-CREATE INDEX idx_url_targets_url ON url_targets (url);
+CREATE INDEX idx_urls_url ON urls (url);

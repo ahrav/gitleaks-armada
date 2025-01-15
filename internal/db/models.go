@@ -308,7 +308,7 @@ type Task struct {
 	SourceType string
 }
 
-type UrlTarget struct {
+type Url struct {
 	ID        int64
 	Url       string
 	Metadata  []byte

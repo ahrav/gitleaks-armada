@@ -52,6 +52,8 @@ func (t TargetType) ToSourceType() SourceType {
 	switch t {
 	case TargetTypeGitHubRepo:
 		return SourceTypeGitHub
+	case TargetTypeURL:
+		return SourceTypeURL
 	}
 	return SourceType("")
 }

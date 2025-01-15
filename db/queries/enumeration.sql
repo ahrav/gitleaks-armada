@@ -254,7 +254,7 @@ LIMIT $1 OFFSET $2;
 -- ============================================
 
 -- name: CreateURLTarget :one
-INSERT INTO url_targets (
+INSERT INTO urls (
     url,
     metadata,
     created_at,
@@ -269,12 +269,13 @@ SELECT
     id,
     url,
     metadata,
+    created_at,
     updated_at
-FROM url_targets
+FROM urls
 WHERE url = $1;
 
 -- name: UpdateURLTarget :execrows
-UPDATE url_targets
+UPDATE urls
 SET
     url = $2,
     metadata = $3,

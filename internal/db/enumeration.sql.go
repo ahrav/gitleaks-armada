@@ -131,7 +131,7 @@ func (q *Queries) CreateTask(ctx context.Context, arg CreateTaskParams) error {
 
 const createURLTarget = `-- name: CreateURLTarget :one
 
-INSERT INTO url_targets (
+INSERT INTO urls (
     url,
     metadata,
     created_at,
@@ -561,25 +561,20 @@ SELECT
     id,
     url,
     metadata,
+    created_at,
     updated_at
-FROM url_targets
+FROM urls
 WHERE url = $1
 `
 
-type GetURLTargetByURLRow struct {
-	ID        int64
-	Url       string
-	Metadata  []byte
-	UpdatedAt pgtype.Timestamptz
-}
-
-func (q *Queries) GetURLTargetByURL(ctx context.Context, url string) (GetURLTargetByURLRow, error) {
+func (q *Queries) GetURLTargetByURL(ctx context.Context, url string) (Url, error) {
 	row := q.db.QueryRow(ctx, getURLTargetByURL, url)
-	var i GetURLTargetByURLRow
+	var i Url
 	err := row.Scan(
 		&i.ID,
 		&i.Url,
 		&i.Metadata,
+		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
 	return i, err
@@ -822,7 +817,7 @@ func (q *Queries) UpdateScanTargetScanTime(ctx context.Context, arg UpdateScanTa
 }
 
 const updateURLTarget = `-- name: UpdateURLTarget :execrows
-UPDATE url_targets
+UPDATE urls
 SET
     url = $2,
     metadata = $3,
