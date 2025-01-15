@@ -307,3 +307,11 @@ type Task struct {
 	TaskID     pgtype.UUID
 	SourceType string
 }
+
+type UrlTarget struct {
+	ID        int64
+	Url       string
+	Metadata  []byte
+	CreatedAt pgtype.Timestamptz
+	UpdatedAt pgtype.Timestamptz
+}

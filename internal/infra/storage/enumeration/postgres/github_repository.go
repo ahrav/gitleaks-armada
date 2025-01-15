@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -56,12 +55,10 @@ func (s *githubRepositoryStore) Create(ctx context.Context, repo *enumeration.Gi
 		}
 
 		insertParams := db.CreateGitHubRepoParams{
-			Name:      repo.Name(),
-			Url:       repo.URL(),
-			IsActive:  repo.IsActive(),
-			Metadata:  metadata,
-			CreatedAt: pgtype.Timestamptz{Time: repo.CreatedAt(), Valid: true},
-			UpdatedAt: pgtype.Timestamptz{Time: repo.UpdatedAt(), Valid: true},
+			Name:     repo.Name(),
+			Url:      repo.URL(),
+			IsActive: repo.IsActive(),
+			Metadata: metadata,
 		}
 
 		id, err = s.q.CreateGitHubRepo(ctx, insertParams)
@@ -98,12 +95,11 @@ func (s *githubRepositoryStore) Update(ctx context.Context, repo *enumeration.Gi
 		}
 
 		updateParams := db.UpdateGitHubRepoParams{
-			ID:        repo.ID(),
-			Name:      repo.Name(),
-			Url:       repo.URL(),
-			IsActive:  repo.IsActive(),
-			Metadata:  metadata,
-			UpdatedAt: pgtype.Timestamptz{Time: repo.UpdatedAt(), Valid: true},
+			ID:       repo.ID(),
+			Name:     repo.Name(),
+			Url:      repo.URL(),
+			IsActive: repo.IsActive(),
+			Metadata: metadata,
 		}
 
 		var rowsAff int64

@@ -21,18 +21,16 @@ INSERT INTO github_repositories (
     created_at,
     updated_at
 ) VALUES (
-    $1, $2, $3, $4, $5, $6
+    $1, $2, $3, $4, NOW(), NOW()
 )
 RETURNING id
 `
 
 type CreateGitHubRepoParams struct {
-	Name      string
-	Url       string
-	IsActive  bool
-	Metadata  []byte
-	CreatedAt pgtype.Timestamptz
-	UpdatedAt pgtype.Timestamptz
+	Name     string
+	Url      string
+	IsActive bool
+	Metadata []byte
 }
 
 // ============================================
@@ -44,8 +42,6 @@ func (q *Queries) CreateGitHubRepo(ctx context.Context, arg CreateGitHubRepoPara
 		arg.Url,
 		arg.IsActive,
 		arg.Metadata,
-		arg.CreatedAt,
-		arg.UpdatedAt,
 	)
 	var id int64
 	err := row.Scan(&id)
@@ -131,6 +127,34 @@ func (q *Queries) CreateTask(ctx context.Context, arg CreateTaskParams) error {
 		arg.Metadata,
 	)
 	return err
+}
+
+const createURLTarget = `-- name: CreateURLTarget :one
+
+INSERT INTO url_targets (
+    url,
+    metadata,
+    created_at,
+    updated_at
+) VALUES (
+    $1, $2, NOW(), NOW()
+)
+RETURNING id
+`
+
+type CreateURLTargetParams struct {
+	Url      string
+	Metadata []byte
+}
+
+// ============================================
+// URL Targets
+// ============================================
+func (q *Queries) CreateURLTarget(ctx context.Context, arg CreateURLTargetParams) (int64, error) {
+	row := q.db.QueryRow(ctx, createURLTarget, arg.Url, arg.Metadata)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const deleteCheckpoint = `-- name: DeleteCheckpoint :exec
@@ -532,6 +556,28 @@ func (q *Queries) GetTaskByID(ctx context.Context, taskID pgtype.UUID) (GetTaskB
 	return i, err
 }
 
+const getURLTargetByURL = `-- name: GetURLTargetByURL :one
+SELECT
+    id,
+    url,
+    metadata
+FROM url_targets
+WHERE url = $1
+`
+
+type GetURLTargetByURLRow struct {
+	ID       int64
+	Url      string
+	Metadata []byte
+}
+
+func (q *Queries) GetURLTargetByURL(ctx context.Context, url string) (GetURLTargetByURLRow, error) {
+	row := q.db.QueryRow(ctx, getURLTargetByURL, url)
+	var i GetURLTargetByURLRow
+	err := row.Scan(&i.ID, &i.Url, &i.Metadata)
+	return i, err
+}
+
 const listEnumerationSessionStates = `-- name: ListEnumerationSessionStates :many
 SELECT session_id, source_type, config, last_checkpoint_id, failure_reason,
        status, created_at, updated_at
@@ -683,17 +729,16 @@ SET
     url = $3,
     is_active = $4,
     metadata = $5,
-    updated_at = $6
+    updated_at = NOW()
 WHERE id = $1
 `
 
 type UpdateGitHubRepoParams struct {
-	ID        int64
-	Name      string
-	Url       string
-	IsActive  bool
-	Metadata  []byte
-	UpdatedAt pgtype.Timestamptz
+	ID       int64
+	Name     string
+	Url      string
+	IsActive bool
+	Metadata []byte
 }
 
 func (q *Queries) UpdateGitHubRepo(ctx context.Context, arg UpdateGitHubRepoParams) (int64, error) {
@@ -703,7 +748,6 @@ func (q *Queries) UpdateGitHubRepo(ctx context.Context, arg UpdateGitHubRepoPara
 		arg.Url,
 		arg.IsActive,
 		arg.Metadata,
-		arg.UpdatedAt,
 	)
 	if err != nil {
 		return 0, err
@@ -764,6 +808,29 @@ type UpdateScanTargetScanTimeParams struct {
 
 func (q *Queries) UpdateScanTargetScanTime(ctx context.Context, arg UpdateScanTargetScanTimeParams) (int64, error) {
 	result, err := q.db.Exec(ctx, updateScanTargetScanTime, arg.ID, arg.LastScanTime, arg.Metadata)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const updateURLTarget = `-- name: UpdateURLTarget :execrows
+UPDATE url_targets
+SET
+    url = $2,
+    metadata = $3,
+    updated_at = NOW()
+WHERE id = $1
+`
+
+type UpdateURLTargetParams struct {
+	ID       int64
+	Url      string
+	Metadata []byte
+}
+
+func (q *Queries) UpdateURLTarget(ctx context.Context, arg UpdateURLTargetParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateURLTarget, arg.ID, arg.Url, arg.Metadata)
 	if err != nil {
 		return 0, err
 	}

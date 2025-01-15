@@ -106,6 +106,19 @@ CREATE TABLE github_repositories (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- URL Targets Table
+CREATE TABLE url_targets (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    url VARCHAR(2048) NOT NULL UNIQUE,
+    metadata JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Index
+CREATE INDEX idx_url_targets_url ON url_targets (url);
+
+
 -- Indexes
 CREATE INDEX idx_github_repositories_name ON github_repositories (name);
 CREATE INDEX idx_github_repositories_url ON github_repositories (url);

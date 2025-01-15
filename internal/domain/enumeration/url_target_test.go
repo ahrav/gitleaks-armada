@@ -28,20 +28,16 @@ func TestNewURLTarget_EmptyURL(t *testing.T) {
 }
 
 func TestReconstructURLTarget(t *testing.T) {
-	// Arrange: Set up the input parameters for reconstruction
 	id := int64(1)
 	url := "http://example.com"
 	metadata := map[string]any{"key": "value"}
 
-	// Use a fixed time for testing
 	fixedTime := time.Date(2023, 10, 1, 12, 0, 0, 0, time.UTC)
 	mockProvider := mockTimeProvider{current: fixedTime}
 	timeline := NewTimeline(&mockProvider)
 
-	// Act: Call the ReconstructURLTarget function
 	target := ReconstructURLTarget(id, url, metadata, timeline)
 
-	// Assert: Verify that the target is reconstructed correctly
 	assert.NotNil(t, target)
 	assert.Equal(t, id, target.ID())
 	assert.Equal(t, url, target.URL())

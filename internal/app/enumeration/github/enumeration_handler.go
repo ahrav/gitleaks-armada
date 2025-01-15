@@ -11,7 +11,6 @@ import (
 	enumeration "github.com/ahrav/gitleaks-armada/internal/app/enumeration/shared"
 	domain "github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
-	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
 
 var _ enumeration.ResourcePersister = (*repoPersistence)(nil)
@@ -22,13 +21,12 @@ var _ enumeration.ResourcePersister = (*repoPersistence)(nil)
 type repoPersistence struct {
 	githubRepo domain.GithubRepository
 
-	logger *logger.Logger
 	tracer trace.Tracer
 }
 
 // NewRepoPersistence creates a new repoPersistence instance.
-func NewRepoPersistence(githubRepo domain.GithubRepository, logger *logger.Logger, tracer trace.Tracer) *repoPersistence {
-	return &repoPersistence{githubRepo: githubRepo, logger: logger, tracer: tracer}
+func NewRepoPersistence(githubRepo domain.GithubRepository, tracer trace.Tracer) *repoPersistence {
+	return &repoPersistence{githubRepo: githubRepo, tracer: tracer}
 }
 
 // Persist creates or updates a GitHub repository based on the provided ResourceEntry.
@@ -110,7 +108,8 @@ func (p *repoPersistence) createNewRepo(
 	ctx context.Context,
 	item enumeration.ResourceEntry,
 ) (*domain.GitHubRepo, error) {
-	span := trace.SpanFromContext(ctx)
+	ctx, span := p.tracer.Start(ctx, "github_repo_persistence.create_new_repo")
+	defer span.End()
 
 	newRepo, err := domain.NewGitHubRepo(item.Name, item.URL, item.Metadata)
 	if err != nil {

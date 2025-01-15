@@ -38,6 +38,18 @@ type GithubRepository interface {
 	List(ctx context.Context, limit, offset int32) ([]*GitHubRepo, error)
 }
 
+// URLRepository defines the interface for persisting and retrieving URL target aggregates.
+type URLRepository interface {
+	// Create persists a new URLTarget aggregate and returns its generated ID.
+	Create(ctx context.Context, target *URLTarget) (int64, error)
+
+	// GetByURL retrieves a URLTarget by its unique URL.
+	GetByURL(ctx context.Context, url string) (*URLTarget, error)
+
+	// Update modifies an existing URLTarget in storage.
+	Update(ctx context.Context, target *URLTarget) error
+}
+
 // ScanTargetRepository defines the interface for managing scan target persistence.
 // It provides a storage-agnostic way to track what needs to be scanned, enabling
 // the orchestration layer to coordinate scanning without knowledge of the underlying storage.

@@ -125,3 +125,15 @@ CREATE TABLE scan_targets (
 -- Indexes
 CREATE INDEX idx_scan_targets_name ON scan_targets (name);
 CREATE INDEX idx_scan_targets_target_type ON scan_targets (target_type);
+
+-- URL Targets Table
+CREATE TABLE url_targets (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    url VARCHAR(2048) NOT NULL UNIQUE,
+    metadata JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Index
+CREATE INDEX idx_url_targets_url ON url_targets (url);

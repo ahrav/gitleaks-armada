@@ -3,8 +3,6 @@ package storage
 import (
 	"context"
 	"fmt"
-	"io"
-	"log/slog"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -20,9 +18,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
-
-	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
-	"github.com/ahrav/gitleaks-armada/pkg/common/otel"
+	"go.opentelemetry.io/otel/trace/noop"
 )
 
 // ExecuteAndTrace is a helper function that wraps database operations with OpenTelemetry tracing.
@@ -114,11 +110,4 @@ func SetupTestContainer(t *testing.T) (*pgxpool.Pool, func()) {
 	return pool, cleanup
 }
 
-func NoOpTracer() trace.Tracer {
-	tracer, _, _ := otel.InitTelemetry(logger.NewWithHandler(slog.NewJSONHandler(io.Discard, nil)), otel.Config{
-		ServiceName:      "test",
-		ExporterEndpoint: "localhost:4317",
-		InsecureExporter: true,
-	})
-	return tracer.Tracer("test")
-}
+func NoOpTracer() trace.Tracer { return noop.NewTracerProvider().Tracer("test") }

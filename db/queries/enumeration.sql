@@ -198,7 +198,7 @@ INSERT INTO github_repositories (
     created_at,
     updated_at
 ) VALUES (
-    $1, $2, $3, $4, $5, $6
+    $1, $2, $3, $4, NOW(), NOW()
 )
 RETURNING id;
 
@@ -209,7 +209,7 @@ SET
     url = $3,
     is_active = $4,
     metadata = $5,
-    updated_at = $6
+    updated_at = NOW()
 WHERE id = $1;
 
 -- name: GetGitHubRepoByID :one
@@ -248,6 +248,37 @@ SELECT
 FROM github_repositories
 ORDER BY created_at DESC
 LIMIT $1 OFFSET $2;
+
+-- ============================================
+-- URL Targets
+-- ============================================
+
+-- name: CreateURLTarget :one
+INSERT INTO url_targets (
+    url,
+    metadata,
+    created_at,
+    updated_at
+) VALUES (
+    $1, $2, NOW(), NOW()
+)
+RETURNING id;
+
+-- name: GetURLTargetByURL :one
+SELECT
+    id,
+    url,
+    metadata
+FROM url_targets
+WHERE url = $1;
+
+-- name: UpdateURLTarget :execrows
+UPDATE url_targets
+SET
+    url = $2,
+    metadata = $3,
+    updated_at = NOW()
+WHERE id = $1;
 
 -- ============================================
 -- Scan Targets
