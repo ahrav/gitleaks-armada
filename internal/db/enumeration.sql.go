@@ -560,21 +560,28 @@ const getURLTargetByURL = `-- name: GetURLTargetByURL :one
 SELECT
     id,
     url,
-    metadata
+    metadata,
+    updated_at
 FROM url_targets
 WHERE url = $1
 `
 
 type GetURLTargetByURLRow struct {
-	ID       int64
-	Url      string
-	Metadata []byte
+	ID        int64
+	Url       string
+	Metadata  []byte
+	UpdatedAt pgtype.Timestamptz
 }
 
 func (q *Queries) GetURLTargetByURL(ctx context.Context, url string) (GetURLTargetByURLRow, error) {
 	row := q.db.QueryRow(ctx, getURLTargetByURL, url)
 	var i GetURLTargetByURLRow
-	err := row.Scan(&i.ID, &i.Url, &i.Metadata)
+	err := row.Scan(
+		&i.ID,
+		&i.Url,
+		&i.Metadata,
+		&i.UpdatedAt,
+	)
 	return i, err
 }
 

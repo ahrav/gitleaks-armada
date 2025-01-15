@@ -268,7 +268,8 @@ RETURNING id;
 SELECT
     id,
     url,
-    metadata
+    metadata,
+    updated_at
 FROM url_targets
 WHERE url = $1;
 
