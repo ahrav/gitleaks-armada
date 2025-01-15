@@ -85,11 +85,7 @@ func main() {
 		}
 	}()
 
-	mp, err := otel.NewMeterProvider(svcName)
-	if err != nil {
-		log.Error(ctx, "failed to create metrics collector", "error", err)
-		os.Exit(1)
-	}
+	mp := otel.GetMeterProvider()
 	metricsCollector, err := scanning.NewScannerMetrics(mp)
 	if err != nil {
 		log.Error(ctx, "failed to create metrics collector", "error", err)

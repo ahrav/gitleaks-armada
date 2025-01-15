@@ -92,9 +92,11 @@ func (s *ScannerService) Run(ctx context.Context) error {
 	initSpan.AddEvent("starting_workers")
 	s.workerWg.Add(s.workers)
 	for i := 0; i < s.workers; i++ {
+		// Create a new context for each worker that inherits the trace
+		workerCtx := trace.ContextWithSpan(ctx, initSpan)
 		go func(workerID int) {
 			defer s.workerWg.Done()
-			s.workerLoop(ctx, workerID)
+			s.workerLoop(workerCtx, workerID)
 		}(i)
 	}
 	s.metrics.SetActiveWorkers(ctx, s.workers)
