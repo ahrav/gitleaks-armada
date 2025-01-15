@@ -13,4 +13,8 @@ const (
 	// SourceTypeS3 represents Amazon S3 buckets as a source system.
 	// Tasks with this source type will use AWS credentials and S3-specific access patterns.
 	SourceTypeS3 SourceType = "s3"
+
+	// SourceTypeURL represents a list of URLs as a source system.
+	// Tasks with this source type will use URL-specific authentication and API access.
+	SourceTypeURL SourceType = "urls"
 )

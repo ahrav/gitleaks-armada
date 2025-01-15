@@ -10,6 +10,7 @@ import (
 
 	"github.com/ahrav/gitleaks-armada/internal/app/enumeration/github"
 	"github.com/ahrav/gitleaks-armada/internal/app/enumeration/shared"
+	"github.com/ahrav/gitleaks-armada/internal/app/enumeration/url"
 	"github.com/ahrav/gitleaks-armada/internal/config"
 	domain "github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 )
@@ -81,11 +82,12 @@ func (f *enumerationFactory) CreateEnumerator(target config.TargetSpec, creds *d
 		urlSpan := trace.SpanFromContext(ctx)
 		defer urlSpan.End()
 
-		// TODO: Implement URL enumerator.
 		if target.URL == nil {
 			urlSpan.RecordError(fmt.Errorf("url target configuration is missing"))
 			return nil, fmt.Errorf("url target configuration is missing")
 		}
+
+		return url.NewEnumerator(target.URL, f.tracer), nil
 	case config.SourceTypeS3:
 		// TODO: Implement S3 enumerator.
 		panic("not implemented")
@@ -94,6 +96,4 @@ func (f *enumerationFactory) CreateEnumerator(target config.TargetSpec, creds *d
 		span.RecordError(err)
 		return nil, err
 	}
-
-	return nil, nil
 }

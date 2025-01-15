@@ -13,6 +13,10 @@ const (
 	// TargetTypeGitHubRepo represents GitHub repositories as a target type.
 	// Tasks with this target type will use GitHub-specific authentication and API access.
 	TargetTypeGitHubRepo TargetType = "github_repositories"
+
+	// TargetTypeURL represents a list of URLs as a target type.
+	// Tasks with this target type will use URL-specific authentication and API access.
+	TargetTypeURL TargetType = "urls"
 )
 
 // TargetTypeError is an error type that indicates an invalid target type.
