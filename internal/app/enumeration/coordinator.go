@@ -14,6 +14,7 @@ import (
 
 	"github.com/ahrav/gitleaks-armada/internal/app/enumeration/github"
 	enumeration "github.com/ahrav/gitleaks-armada/internal/app/enumeration/shared"
+	"github.com/ahrav/gitleaks-armada/internal/app/enumeration/url"
 	"github.com/ahrav/gitleaks-armada/internal/config"
 	"github.com/ahrav/gitleaks-armada/internal/config/credentials"
 	"github.com/ahrav/gitleaks-armada/internal/config/credentials/memory"
@@ -55,7 +56,8 @@ type metrics interface {
 type coordinator struct {
 	// Domain repositories.
 	scanTargetRepo domain.ScanTargetRepository
-	githubRepo     domain.GithubRepository
+	githubTargetRepo     domain.GithubRepository
+	urlTargetRepo  domain.URLRepository
 	batchRepo      domain.BatchRepository
 	stateRepo      domain.StateRepository
 	checkpointRepo domain.CheckpointRepository
@@ -87,6 +89,7 @@ type coordinator struct {
 func NewCoordinator(
 	scanTargetRepo domain.ScanTargetRepository,
 	githubRepo domain.GithubRepository,
+	urlTargetRepo domain.URLRepository,
 	batchRepo domain.BatchRepository,
 	stateRepo domain.StateRepository,
 	checkpointRepo domain.CheckpointRepository,
@@ -99,13 +102,15 @@ func NewCoordinator(
 ) Coordinator {
 	return &coordinator{
 		scanTargetRepo: scanTargetRepo,
-		githubRepo:     githubRepo,
+		githubTargetRepo:     githubRepo,
+		urlTargetRepo:  urlTargetRepo,
 		batchRepo:      batchRepo,
 		stateRepo:      stateRepo,
 		checkpointRepo: checkpointRepo,
 		taskRepo:       taskRepo,
 		enumeratorHandlers: map[shared.TargetType]enumeration.ResourcePersister{
 			shared.TargetTypeGitHubRepo: github.NewRepoPersistence(githubRepo, tracer),
+			shared.TargetTypeURL:        url.NewURLPersistence(urlTargetRepo, tracer),
 		},
 		enumFactory:    enumFactory,
 		eventPublisher: eventPublisher,
