@@ -29,6 +29,7 @@ type ScannerMetrics interface {
 	ObserveRepoSize(ctx context.Context, repoURI string, sizeBytes int64)
 	ObserveCloneTime(ctx context.Context, repoURI string, duration time.Duration)
 	IncCloneError(ctx context.Context, repoURI string)
+	ObserveScanTime(ctx context.Context, repoURI string, duration time.Duration)
 }
 
 // scannerMetrics implements ScannerMetrics
@@ -57,6 +58,7 @@ type scannerMetrics struct {
 	repoSize    metric.Int64Histogram
 	cloneTime   metric.Float64Histogram
 	cloneErrors metric.Int64Counter
+	scanTime    metric.Float64Histogram
 }
 
 const namespace = "scanner"
@@ -188,6 +190,14 @@ func NewScannerMetrics(mp metric.MeterProvider) (*scannerMetrics, error) {
 		return nil, err
 	}
 
+	if s.scanTime, err = meter.Float64Histogram(
+		"repository_scan_duration_milliseconds",
+		metric.WithDescription("Time taken to scan repositories in milliseconds"),
+		metric.WithUnit("ms"),
+	); err != nil {
+		return nil, err
+	}
+
 	return s, nil
 }
 
@@ -257,6 +267,12 @@ func (m *scannerMetrics) IncCloneError(ctx context.Context, repoURI string) {
 
 func (m *scannerMetrics) ObserveFindings(ctx context.Context, repoURI string, count int) {
 	m.findingsPerTask.Record(ctx, float64(count), metric.WithAttributes(
+		attribute.String("repository_uri", repoURI),
+	))
+}
+
+func (m *scannerMetrics) ObserveScanTime(ctx context.Context, repoURI string, duration time.Duration) {
+	m.scanTime.Record(ctx, float64(duration.Milliseconds()), metric.WithAttributes(
 		attribute.String("repository_uri", repoURI),
 	))
 }

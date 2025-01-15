@@ -33,6 +33,9 @@ type metrics interface {
 
 	// ObserveFindings records the number of findings in a repository
 	ObserveFindings(ctx context.Context, repoURI string, findings int)
+
+	// ObserveScanTime records how long it took to scan a repository
+	ObserveScanTime(ctx context.Context, repoURI string, duration time.Duration)
 }
 
 // Scanner implements SecretScanner for git-based sources.
@@ -61,6 +64,9 @@ func (s *Scanner) Scan(ctx context.Context, task *dtos.ScanRequest) error {
 			attribute.String("repository.url", task.ResourceURI),
 		))
 	defer span.End()
+
+	startTime := time.Now()
+	defer s.metrics.ObserveScanTime(ctx, task.ResourceURI, time.Since(startTime))
 
 	_, dirSpan := s.tracer.Start(ctx, "gitleaks_scanner.scanning.create_temp_dir")
 	tempDir, err := os.MkdirTemp("", "gitleaks-scan-")
@@ -92,7 +98,7 @@ func (s *Scanner) Scan(ctx context.Context, task *dtos.ScanRequest) error {
 	cloneSpan.AddEvent("starting_clone_repository")
 	defer cloneSpan.End()
 
-	startTime := time.Now()
+	startTime = time.Now()
 	if err := cloneRepo(ctx, task.ResourceURI, tempDir); err != nil {
 		cloneSpan.RecordError(err)
 		cloneSpan.AddEvent("clone_failed")
