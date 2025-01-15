@@ -72,7 +72,7 @@ func (s *Scanner) Scan(ctx context.Context, task *dtos.ScanRequest) error {
 	_, archiveSpan := s.tracer.Start(ctx, "gitleaks_url_scanner.create_archive_reader")
 	archiveReader, err := newArchiveReader(format, func(size int64) {
 		s.metrics.ObserveURLScanSize(ctx, task.ResourceURI, size)
-	})
+	}, s.tracer)
 	if err != nil {
 		archiveSpan.RecordError(err)
 		archiveSpan.End()
@@ -109,8 +109,8 @@ func (s *Scanner) Scan(ctx context.Context, task *dtos.ScanRequest) error {
 		return fmt.Errorf("failed to fetch URL: %s", errMsg)
 	}
 
-	_, processSpan := s.tracer.Start(ctx, "gitleaks_url_scanner.process_archive")
-	reader, err := archiveReader.Read(ctx, resp.Body)
+	processCtx, processSpan := s.tracer.Start(ctx, "gitleaks_url_scanner.process_archive")
+	reader, err := archiveReader.Read(processCtx, resp.Body)
 	if err != nil {
 		processSpan.RecordError(err)
 		processSpan.End()
@@ -150,25 +150,31 @@ type ArchiveReader interface {
 // It reads WARC.GZ files.
 type WarcGzReader struct {
 	sizeCallback func(int64) // Callback to report final size
+	tracer       trace.Tracer
 }
 
 // Read is a method of the WarcGzReader struct.
 // It reads from an input stream and returns a reader and an error.
 func (w *WarcGzReader) Read(ctx context.Context, input io.Reader) (io.Reader, error) {
-	span := trace.SpanFromContext(ctx)
+	ctx, readSpan := w.tracer.Start(ctx, "warc_reader.read")
+	defer readSpan.End()
 
 	warcReader, err := gowarc.NewWarcFileReaderFromStream(input, 0)
 	if err != nil {
+		readSpan.RecordError(err)
 		return nil, fmt.Errorf("failed to create WARC reader: %w", err)
 	}
-	span.AddEvent("warc_reader_created")
+	readSpan.AddEvent("warc_reader_created")
 
 	var totalSize int64
 	pr, pw := io.Pipe()
+
 	go func() {
+		span := trace.SpanFromContext(ctx)
+
 		defer func() {
 			if w.sizeCallback != nil {
-				w.sizeCallback(totalSize) // Report final size when done
+				w.sizeCallback(totalSize)
 			}
 			pw.Close()
 			warcReader.Close()
@@ -236,10 +242,10 @@ func (p *PassthroughReader) Read(ctx context.Context, input io.Reader) (io.Reade
 
 // newArchiveReader is a factory function that creates an appropriate reader based on the format string.
 // It returns an ArchiveReader and an error.
-func newArchiveReader(format string, sizeCallback func(int64)) (ArchiveReader, error) {
+func newArchiveReader(format string, sizeCallback func(int64), tracer trace.Tracer) (ArchiveReader, error) {
 	switch format {
 	case "warc.gz":
-		return &WarcGzReader{sizeCallback: sizeCallback}, nil
+		return &WarcGzReader{sizeCallback: sizeCallback, tracer: tracer}, nil
 	case "none", "":
 		return new(PassthroughReader), nil
 	default:
