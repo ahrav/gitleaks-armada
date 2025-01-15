@@ -132,12 +132,12 @@ func (o *Orchestrator) Run(ctx context.Context) (<-chan struct{}, error) {
 	}
 	initSpan.AddEvent("subscribed_to_rules")
 
-	// Once basic init is complete, we'll end runSpan (due to `defer` above).
-	// But we still want to keep a context that is traced so child spans get the same trace ID.
+	// Create a new context for long-running operations that inherits the trace.
+	longRunningCtx := trace.ContextWithSpan(ctx, initSpan)
 
-	// Hook up leadership change callback.
+	// Hook up leadership change callback with the traced context.
 	o.coordinator.OnLeadershipChange(func(isLeader bool) {
-		leaderCtx, leaderSpan := o.tracer.Start(ctx, "orchestrator.leadership_change",
+		leaderCtx, leaderSpan := o.tracer.Start(longRunningCtx, "orchestrator.leadership_change",
 			trace.WithAttributes(
 				attribute.String("orchestrator_id", o.id),
 				attribute.Bool("is_leader", isLeader),
@@ -165,15 +165,15 @@ func (o *Orchestrator) Run(ctx context.Context) (<-chan struct{}, error) {
 		}
 	})
 
-	// Goroutine for handling leadership signals and orchestrator tasks.
+	// Use the same longRunningCtx.
 	go func() {
 		readyClosed := false
-		o.logger.Info(ctx, "Waiting for leadership signal...", "orchestrator_id", o.id)
+		o.logger.Info(longRunningCtx, "Waiting for leadership signal...", "orchestrator_id", o.id)
 
 		for {
 			select {
 			case isLeader := <-leaderCh:
-				loopCtx, loopSpan := o.tracer.Start(ctx, "orchestrator.handle_leadership",
+				loopCtx, loopSpan := o.tracer.Start(longRunningCtx, "orchestrator.handle_leadership",
 					trace.WithAttributes(
 						attribute.Bool("is_leader", isLeader),
 					))
