@@ -28,6 +28,10 @@ require (
 )
 
 require (
+	github.com/bits-and-blooms/bitset v1.5.0 // indirect
+	github.com/nlnwa/gowarc v1.6.0 // indirect
+	github.com/nlnwa/whatwg-url v0.4.0 // indirect
+	github.com/prometheus/prometheus v0.40.3 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.33.0 // indirect
 	go.opentelemetry.io/otel/log v0.9.0 // indirect
 )
@@ -154,7 +158,7 @@ require (
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.33.0 // indirect
 	go.opentelemetry.io/otel/metric v1.33.0
 	go.opentelemetry.io/proto/otlp v1.4.0 // indirect
-	go.uber.org/atomic v1.9.0 // indirect
+	go.uber.org/atomic v1.10.0 // indirect
 	go.uber.org/multierr v1.9.0 // indirect
 	golang.org/x/crypto v0.31.0 // indirect
 	golang.org/x/exp v0.0.0-20240909161429-701f63a606c0 // indirect

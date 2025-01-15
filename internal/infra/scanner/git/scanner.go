@@ -59,8 +59,6 @@ func (s *Scanner) Scan(ctx context.Context, task *dtos.ScanRequest) error {
 	ctx, span := s.tracer.Start(ctx, "gitleaks_scanner.scanning.scan_repository",
 		trace.WithAttributes(
 			attribute.String("repository.url", task.ResourceURI),
-			attribute.String("task.id", task.TaskID.String()),
-			attribute.String("source.type", string(task.SourceType)),
 		))
 	defer span.End()
 
