@@ -10,6 +10,7 @@ enum SourceType {
   SOURCE_TYPE_UNSPECIFIED = 0;
   SOURCE_TYPE_GITHUB = 1;
   SOURCE_TYPE_S3 = 2;
+  SOURCE_TYPE_URL = 3;
 }
 
 message EnumerationTask {

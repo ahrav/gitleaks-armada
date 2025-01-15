@@ -11,6 +11,7 @@ import (
 var taskSourceTypeToProto = map[shared.SourceType]pb.SourceType{
 	shared.SourceTypeGitHub: pb.SourceType_SOURCE_TYPE_GITHUB,
 	shared.SourceTypeS3:     pb.SourceType_SOURCE_TYPE_S3,
+	shared.SourceTypeURL:    pb.SourceType_SOURCE_TYPE_URL,
 }
 
 // TaskToProto converts a domain Task to its protobuf representation (pb.EnumerationTask).
@@ -34,6 +35,7 @@ func TaskToProto(t *enumeration.Task) *pb.EnumerationTask {
 var protoSourceTypeToTaskSourceType = map[pb.SourceType]shared.SourceType{
 	pb.SourceType_SOURCE_TYPE_GITHUB: shared.SourceTypeGitHub,
 	pb.SourceType_SOURCE_TYPE_S3:     shared.SourceTypeS3,
+	pb.SourceType_SOURCE_TYPE_URL:    shared.SourceTypeURL,
 }
 
 // ProtoToTask converts a protobuf EnumerationTask to a domain Task.
