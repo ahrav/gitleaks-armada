@@ -24,6 +24,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/rules"
 	"github.com/ahrav/gitleaks-armada/internal/infra/scanner/git"
+	"github.com/ahrav/gitleaks-armada/internal/infra/scanner/url"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
 
@@ -81,13 +82,7 @@ func (s *Gitleaks) Scan(ctx context.Context, task *dtos.ScanRequest) error {
 	case dtos.SourceTypeGitHub:
 		scanner = git.NewScanner(s.detector, s.logger, s.tracer, s.metrics)
 	case dtos.SourceTypeURL:
-		// TODO: Implement URL scanner
-		// scanner = &URLScanner{
-		// 	detector: g.detector,
-		// 	logger:   g.logger,
-		// 	tracer:   g.tracer,
-		// 	metrics:  g.metrics,
-		// }
+		scanner = url.NewScanner(s.detector, s.logger, s.tracer, s.metrics)
 	default:
 		return fmt.Errorf("unsupported source type: %s", task.SourceType)
 	}

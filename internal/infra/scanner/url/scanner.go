@@ -39,6 +39,16 @@ type Scanner struct {
 	metrics  metrics
 }
 
+// NewScanner creates a new Scanner instance.
+func NewScanner(detector *detect.Detector, logger *logger.Logger, tracer trace.Tracer, metrics metrics) *Scanner {
+	return &Scanner{
+		detector: detector,
+		logger:   logger,
+		tracer:   tracer,
+		metrics:  metrics,
+	}
+}
+
 // Scan is a method of the Scanner struct.
 // It fetches data from the URL, then streams it into the Gitleaks detector.
 // It also records the number of findings in a repository and logs the findings.
