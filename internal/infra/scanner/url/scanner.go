@@ -20,8 +20,8 @@ import (
 
 // metrics is an interface that defines operations for URL-based sources.
 type metrics interface {
-	// ObserveFindings records the number of findings in a repository.
-	ObserveFindings(ctx context.Context, repoURI string, findings int)
+	// ObserveURLFindings records the number of findings in a repository.
+	ObserveURLFindings(ctx context.Context, url string, count int)
 
 	// ObserveURLScanTime records the time taken to scan a URL.
 	ObserveURLScanTime(ctx context.Context, url string, duration time.Duration)
@@ -119,6 +119,7 @@ func (s *Scanner) Scan(ctx context.Context, task *dtos.ScanRequest) error {
 	processSpan.End()
 
 	_, detectSpan := s.tracer.Start(ctx, "gitleaks_url_scanner.detect_secrets")
+	detectSpan.AddEvent("gitleaks_detection_started")
 	findings, err := s.detector.DetectReader(reader, 32)
 	if err != nil {
 		detectSpan.RecordError(err)
@@ -126,7 +127,7 @@ func (s *Scanner) Scan(ctx context.Context, task *dtos.ScanRequest) error {
 		return fmt.Errorf("failed to scan URL: %w", err)
 	}
 
-	s.metrics.ObserveFindings(ctx, task.ResourceURI, len(findings))
+	s.metrics.ObserveURLFindings(ctx, task.ResourceURI, len(findings))
 	detectSpan.AddEvent("findings_processed",
 		trace.WithAttributes(attribute.Int("findings.count", len(findings))))
 	detectSpan.End()

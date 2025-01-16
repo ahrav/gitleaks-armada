@@ -31,8 +31,8 @@ type metrics interface {
 	// IncCloneError increments the clone error counter for a repository
 	IncCloneError(ctx context.Context, repoURI string)
 
-	// ObserveFindings records the number of findings in a repository
-	ObserveFindings(ctx context.Context, repoURI string, findings int)
+	// ObserveRepoFindings records the number of findings in a repository
+	ObserveRepoFindings(ctx context.Context, repoURI string, findings int)
 
 	// ObserveScanTime records how long it took to scan a repository
 	ObserveScanTime(ctx context.Context, repoURI string, duration time.Duration)
@@ -132,7 +132,7 @@ func (s *Scanner) Scan(ctx context.Context, task *dtos.ScanRequest) error {
 		detectSpan.AddEvent("secret_detection_failed")
 		return fmt.Errorf("failed to scan repository: %w", err)
 	}
-	s.metrics.ObserveFindings(ctx, task.ResourceURI, len(findings))
+	s.metrics.ObserveRepoFindings(ctx, task.ResourceURI, len(findings))
 
 	detectSpan.SetAttributes(
 		attribute.Int("findings.count", len(findings)),

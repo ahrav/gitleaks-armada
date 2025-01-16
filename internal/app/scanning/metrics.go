@@ -25,7 +25,7 @@ type ScannerMetrics interface {
 	IncWorkerErrors(ctx context.Context)
 
 	// Repository metrics
-	ObserveFindings(ctx context.Context, repoURI string, count int)
+	ObserveRepoFindings(ctx context.Context, repoURI string, count int)
 	ObserveRepoSize(ctx context.Context, repoURI string, sizeBytes int64)
 	ObserveCloneTime(ctx context.Context, repoURI string, duration time.Duration)
 	IncCloneError(ctx context.Context, repoURI string)
@@ -34,6 +34,7 @@ type ScannerMetrics interface {
 	// URL scan metrics
 	ObserveURLScanTime(ctx context.Context, url string, duration time.Duration)
 	ObserveURLScanSize(ctx context.Context, url string, sizeBytes int64)
+	ObserveURLFindings(ctx context.Context, url string, count int)
 }
 
 // scannerMetrics implements ScannerMetrics
@@ -51,7 +52,6 @@ type scannerMetrics struct {
 	taskProcessTime metric.Float64Histogram
 
 	// Finding metrics
-	findingsPerTask      metric.Float64Histogram
 	lastFindingFoundTime metric.Float64ObservableGauge
 
 	// Worker metrics
@@ -59,14 +59,16 @@ type scannerMetrics struct {
 	workerErrors  metric.Int64Counter
 
 	// Repository scan metrics
-	repoSize    metric.Int64Histogram
-	cloneTime   metric.Float64Histogram
-	cloneErrors metric.Int64Counter
-	scanTime    metric.Float64Histogram
+	repoFindings metric.Int64Histogram
+	repoSize     metric.Int64Histogram
+	cloneTime    metric.Float64Histogram
+	cloneErrors  metric.Int64Counter
+	scanTime     metric.Float64Histogram
 
 	// URL scan metrics
 	urlScanTime metric.Float64Histogram
 	urlScanSize metric.Int64Histogram
+	urlFindings metric.Int64Histogram
 }
 
 const namespace = "scanner"
@@ -152,9 +154,9 @@ func NewScannerMetrics(mp metric.MeterProvider) (*scannerMetrics, error) {
 	}
 
 	// Initialize finding metrics
-	if s.findingsPerTask, err = meter.Float64Histogram(
-		"findings_per_task",
-		metric.WithDescription("Number of findings discovered per task"),
+	if s.repoFindings, err = meter.Int64Histogram(
+		"repository_findings",
+		metric.WithDescription("Number of findings discovered per repository"),
 	); err != nil {
 		return nil, err
 	}
@@ -218,6 +220,14 @@ func NewScannerMetrics(mp metric.MeterProvider) (*scannerMetrics, error) {
 		"url_scan_size_bytes",
 		metric.WithDescription("Size of URLs scanned in bytes"),
 		metric.WithUnit("bytes"),
+	); err != nil {
+		return nil, err
+	}
+
+	if s.urlFindings, err = meter.Int64Histogram(
+		"url_findings",
+		metric.WithDescription("Number of findings discovered per URL"),
+		metric.WithUnit("findings"),
 	); err != nil {
 		return nil, err
 	}
@@ -289,8 +299,8 @@ func (m *scannerMetrics) IncCloneError(ctx context.Context, repoURI string) {
 	))
 }
 
-func (m *scannerMetrics) ObserveFindings(ctx context.Context, repoURI string, count int) {
-	m.findingsPerTask.Record(ctx, float64(count), metric.WithAttributes(
+func (m *scannerMetrics) ObserveRepoFindings(ctx context.Context, repoURI string, count int) {
+	m.repoFindings.Record(ctx, int64(count), metric.WithAttributes(
 		attribute.String("repository_uri", repoURI),
 	))
 }
@@ -309,6 +319,12 @@ func (m *scannerMetrics) ObserveURLScanTime(ctx context.Context, url string, dur
 
 func (m *scannerMetrics) ObserveURLScanSize(ctx context.Context, url string, sizeBytes int64) {
 	m.urlScanSize.Record(ctx, sizeBytes, metric.WithAttributes(
+		attribute.String("url", url),
+	))
+}
+
+func (m *scannerMetrics) ObserveURLFindings(ctx context.Context, url string, count int) {
+	m.urlFindings.Record(ctx, int64(count), metric.WithAttributes(
 		attribute.String("url", url),
 	))
 }
