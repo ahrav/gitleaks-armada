@@ -145,6 +145,51 @@ func (ns NullScanJobStatus) Value() (driver.Value, error) {
 	return string(ns.ScanJobStatus), nil
 }
 
+type ScanTaskStatus string
+
+const (
+	ScanTaskStatusINITIALIZED ScanTaskStatus = "INITIALIZED"
+	ScanTaskStatusINPROGRESS  ScanTaskStatus = "IN_PROGRESS"
+	ScanTaskStatusCOMPLETED   ScanTaskStatus = "COMPLETED"
+	ScanTaskStatusFAILED      ScanTaskStatus = "FAILED"
+	ScanTaskStatusSTALE       ScanTaskStatus = "STALE"
+)
+
+func (e *ScanTaskStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = ScanTaskStatus(s)
+	case string:
+		*e = ScanTaskStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for ScanTaskStatus: %T", src)
+	}
+	return nil
+}
+
+type NullScanTaskStatus struct {
+	ScanTaskStatus ScanTaskStatus
+	Valid          bool // Valid is true if ScanTaskStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullScanTaskStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.ScanTaskStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.ScanTaskStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullScanTaskStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.ScanTaskStatus), nil
+}
+
 type Allowlist struct {
 	ID             int64
 	RuleID         int64
@@ -301,6 +346,20 @@ type ScanTarget struct {
 	Metadata     []byte
 	CreatedAt    pgtype.Timestamptz
 	UpdatedAt    pgtype.Timestamptz
+}
+
+type ScanTask struct {
+	TaskID          pgtype.UUID
+	JobID           pgtype.UUID
+	Status          ScanTaskStatus
+	LastSequenceNum int64
+	StartTime       pgtype.Timestamptz
+	LastUpdateTime  pgtype.Timestamptz
+	ItemsProcessed  int64
+	ProgressDetails []byte
+	LastCheckpoint  []byte
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
 }
 
 type Task struct {

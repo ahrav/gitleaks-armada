@@ -35,7 +35,6 @@ const (
 // task recovery.
 type Progress struct {
 	TaskID          uuid.UUID       `json:"task_id"`
-	JobID           uuid.UUID       `json:"job_id"`
 	SequenceNum     int64           `json:"sequence_num"`
 	Timestamp       time.Time       `json:"timestamp"`
 	Status          TaskStatus      `json:"status"`
@@ -46,14 +45,70 @@ type Progress struct {
 	Checkpoint      *Checkpoint     `json:"checkpoint,omitempty"`
 }
 
+// ReconstructProgress creates a Progress instance from persisted data.
+// This should only be used by repositories when reconstructing from storage.
+func ReconstructProgress(
+	taskID uuid.UUID,
+	sequenceNum int64,
+	timestamp time.Time,
+	status TaskStatus,
+	itemsProcessed int64,
+	errorCount int32,
+	message string,
+	progressDetails json.RawMessage,
+	checkpoint *Checkpoint,
+) Progress {
+	return Progress{
+		TaskID:          taskID,
+		SequenceNum:     sequenceNum,
+		Timestamp:       timestamp,
+		Status:          status,
+		ItemsProcessed:  itemsProcessed,
+		ErrorCount:      errorCount,
+		Message:         message,
+		ProgressDetails: progressDetails,
+		Checkpoint:      checkpoint,
+	}
+}
+
 // Checkpoint contains the state needed to resume a scan after interruption.
 // This enables fault tolerance by preserving progress markers and context.
 type Checkpoint struct {
 	TaskID      uuid.UUID         `json:"task_id"`
-	JobID       uuid.UUID         `json:"job_id"`
 	Timestamp   time.Time         `json:"timestamp"`
 	ResumeToken []byte            `json:"resume_token"`
 	Metadata    map[string]string `json:"metadata"`
+}
+
+// NewCheckpoint creates a new Checkpoint for tracking scan progress.
+// It establishes initial state for resuming interrupted scans.
+func NewCheckpoint(
+	taskID uuid.UUID,
+	resumeToken []byte,
+	metadata map[string]string,
+) *Checkpoint {
+	return &Checkpoint{
+		TaskID:      taskID,
+		Timestamp:   time.Now(),
+		ResumeToken: resumeToken,
+		Metadata:    metadata,
+	}
+}
+
+// ReconstructCheckpoint creates a Checkpoint instance from persisted data.
+// This should only be used by repositories when reconstructing from storage.
+func ReconstructCheckpoint(
+	taskID uuid.UUID,
+	timestamp time.Time,
+	resumeToken []byte,
+	metadata map[string]string,
+) *Checkpoint {
+	return &Checkpoint{
+		TaskID:      taskID,
+		Timestamp:   timestamp,
+		ResumeToken: resumeToken,
+		Metadata:    metadata,
+	}
 }
 
 // Task tracks the full lifecycle and state of an individual scanning operation.
@@ -68,6 +123,35 @@ type Task struct {
 	itemsProcessed  int64
 	progressDetails json.RawMessage
 	lastCheckpoint  *Checkpoint
+}
+
+// ReconstructTask creates a Task instance from persisted data without enforcing
+// creation-time invariants. This should only be used by repositories when
+// reconstructing from storage.
+func ReconstructTask(
+	taskID uuid.UUID,
+	jobID uuid.UUID,
+	status TaskStatus,
+	lastSequenceNum int64,
+	startTime time.Time,
+	lastUpdate time.Time,
+	itemsProcessed int64,
+	progressDetails json.RawMessage,
+	lastCheckpoint *Checkpoint,
+) *Task {
+	return &Task{
+		CoreTask: shared.CoreTask{
+			TaskID: taskID,
+		},
+		jobID:           jobID,
+		status:          status,
+		lastSequenceNum: lastSequenceNum,
+		startTime:       startTime,
+		lastUpdate:      lastUpdate,
+		itemsProcessed:  itemsProcessed,
+		progressDetails: progressDetails,
+		lastCheckpoint:  lastCheckpoint,
+	}
 }
 
 // NewScanTask creates a new ScanTask instance for tracking an individual scan operation.
@@ -89,7 +173,7 @@ func (t *Task) UpdateProgress(progress Progress) {
 	t.lastSequenceNum = progress.SequenceNum
 	t.status = progress.Status
 	t.lastUpdate = progress.Timestamp
-	t.itemsProcessed = progress.ItemsProcessed
+	t.itemsProcessed += progress.ItemsProcessed
 	t.progressDetails = progress.ProgressDetails
 	if progress.Checkpoint != nil {
 		t.lastCheckpoint = progress.Checkpoint

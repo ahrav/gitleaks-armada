@@ -34,8 +34,11 @@ type TaskRepository interface {
 	CreateTask(ctx context.Context, task *Task) error
 
 	// GetTask retrieves a task’s current state.
-	GetTask(ctx context.Context, jobID, taskID string) (*Task, error)
+	GetTask(ctx context.Context, taskID uuid.UUID) (*Task, error)
 
 	// UpdateTask persists changes to an existing task's state.
 	UpdateTask(ctx context.Context, task *Task) error
+
+	// ListTasksByJobAndStatus retrieves tasks associated with a job and matching a specific status.
+	ListTasksByJobAndStatus(ctx context.Context, jobID uuid.UUID, status TaskStatus) ([]*Task, error)
 }

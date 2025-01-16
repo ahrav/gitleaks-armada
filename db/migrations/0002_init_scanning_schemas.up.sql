@@ -28,3 +28,34 @@ CREATE TABLE scan_job_targets (
     scan_target_id UUID NOT NULL REFERENCES scan_targets (id),
     PRIMARY KEY(job_id, scan_target_id)
 );
+
+-- Scan Task Status Enum
+CREATE TYPE scan_task_status AS ENUM (
+    'INITIALIZED',
+    'IN_PROGRESS',
+    'COMPLETED',
+    'FAILED',
+    'STALE'
+);
+
+-- Scan Tasks Table
+CREATE TABLE scan_tasks (
+    task_id           UUID PRIMARY KEY,
+    job_id            UUID NOT NULL,
+    status            scan_task_status NOT NULL,
+    last_sequence_num BIGINT NOT NULL DEFAULT 0,
+    start_time        TIMESTAMPTZ NOT NULL,
+    last_update_time  TIMESTAMPTZ,
+    items_processed   BIGINT NOT NULL DEFAULT 0,
+    progress_details  JSONB,
+    last_checkpoint   JSONB,
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT fk_scan_job
+        FOREIGN KEY (job_id) REFERENCES scan_jobs(job_id)
+);
+
+-- Indexes
+CREATE INDEX idx_scan_tasks_job_id ON scan_tasks (job_id);
+CREATE INDEX idx_scan_tasks_status ON scan_tasks (status);

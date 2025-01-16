@@ -58,6 +58,57 @@ func (q *Queries) CreateJob(ctx context.Context, arg CreateJobParams) error {
 	return err
 }
 
+const createScanTask = `-- name: CreateScanTask :exec
+INSERT INTO scan_tasks (
+    task_id,
+    job_id,
+    status,
+    last_sequence_num,
+    start_time,
+    last_update_time,
+    items_processed,
+    progress_details,
+    last_checkpoint
+) VALUES (
+    $1, -- task_id UUID
+    $2, -- job_id UUID
+    $3, -- status TEXT (TaskStatus)
+    $4, -- last_sequence_num BIGINT
+    $5, -- start_time TIMESTAMPTZ
+    $6, -- last_update_time TIMESTAMPTZ
+    $7, -- items_processed BIGINT
+    $8, -- progress_details JSONB
+    $9 -- last_checkpoint JSONB
+)
+`
+
+type CreateScanTaskParams struct {
+	TaskID          pgtype.UUID
+	JobID           pgtype.UUID
+	Status          ScanTaskStatus
+	LastSequenceNum int64
+	StartTime       pgtype.Timestamptz
+	LastUpdateTime  pgtype.Timestamptz
+	ItemsProcessed  int64
+	ProgressDetails []byte
+	LastCheckpoint  []byte
+}
+
+func (q *Queries) CreateScanTask(ctx context.Context, arg CreateScanTaskParams) error {
+	_, err := q.db.Exec(ctx, createScanTask,
+		arg.TaskID,
+		arg.JobID,
+		arg.Status,
+		arg.LastSequenceNum,
+		arg.StartTime,
+		arg.LastUpdateTime,
+		arg.ItemsProcessed,
+		arg.ProgressDetails,
+		arg.LastCheckpoint,
+	)
+	return err
+}
+
 const getJob = `-- name: GetJob :many
 SELECT
     j.job_id,
@@ -107,6 +158,98 @@ func (q *Queries) GetJob(ctx context.Context, jobID pgtype.UUID) ([]GetJobRow, e
 	return items, nil
 }
 
+const getScanTask = `-- name: GetScanTask :one
+SELECT
+    task_id,
+    job_id,
+    status,
+    last_sequence_num,
+    start_time,
+    last_update_time,
+    items_processed,
+    progress_details,
+    last_checkpoint,
+    created_at,
+    updated_at
+FROM scan_tasks
+WHERE task_id = $1
+`
+
+func (q *Queries) GetScanTask(ctx context.Context, taskID pgtype.UUID) (ScanTask, error) {
+	row := q.db.QueryRow(ctx, getScanTask, taskID)
+	var i ScanTask
+	err := row.Scan(
+		&i.TaskID,
+		&i.JobID,
+		&i.Status,
+		&i.LastSequenceNum,
+		&i.StartTime,
+		&i.LastUpdateTime,
+		&i.ItemsProcessed,
+		&i.ProgressDetails,
+		&i.LastCheckpoint,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const listScanTasksByJobAndStatus = `-- name: ListScanTasksByJobAndStatus :many
+SELECT
+    t.task_id,
+    t.job_id,
+    t.status,
+    t.last_sequence_num,
+    t.start_time,
+    t.last_update_time,
+    t.items_processed,
+    t.progress_details,
+    t.last_checkpoint,
+    t.created_at,
+    t.updated_at
+FROM scan_tasks t
+WHERE t.job_id = $1
+  AND t.status = $2
+ORDER BY t.created_at ASC
+`
+
+type ListScanTasksByJobAndStatusParams struct {
+	JobID  pgtype.UUID
+	Status ScanTaskStatus
+}
+
+func (q *Queries) ListScanTasksByJobAndStatus(ctx context.Context, arg ListScanTasksByJobAndStatusParams) ([]ScanTask, error) {
+	rows, err := q.db.Query(ctx, listScanTasksByJobAndStatus, arg.JobID, arg.Status)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ScanTask
+	for rows.Next() {
+		var i ScanTask
+		if err := rows.Scan(
+			&i.TaskID,
+			&i.JobID,
+			&i.Status,
+			&i.LastSequenceNum,
+			&i.StartTime,
+			&i.LastUpdateTime,
+			&i.ItemsProcessed,
+			&i.ProgressDetails,
+			&i.LastCheckpoint,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const updateJob = `-- name: UpdateJob :execrows
 UPDATE scan_jobs
 SET status = $2,
@@ -134,4 +277,40 @@ func (q *Queries) UpdateJob(ctx context.Context, arg UpdateJobParams) (int64, er
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const updateScanTask = `-- name: UpdateScanTask :exec
+UPDATE scan_tasks
+SET
+    status = $2,
+    last_sequence_num = $3,
+    last_update_time = $4,
+    items_processed = $5,
+    progress_details = $6,
+    last_checkpoint = $7,
+    updated_at = NOW()
+WHERE task_id = $1
+`
+
+type UpdateScanTaskParams struct {
+	TaskID          pgtype.UUID
+	Status          ScanTaskStatus
+	LastSequenceNum int64
+	LastUpdateTime  pgtype.Timestamptz
+	ItemsProcessed  int64
+	ProgressDetails []byte
+	LastCheckpoint  []byte
+}
+
+func (q *Queries) UpdateScanTask(ctx context.Context, arg UpdateScanTaskParams) error {
+	_, err := q.db.Exec(ctx, updateScanTask,
+		arg.TaskID,
+		arg.Status,
+		arg.LastSequenceNum,
+		arg.LastUpdateTime,
+		arg.ItemsProcessed,
+		arg.ProgressDetails,
+		arg.LastCheckpoint,
+	)
+	return err
 }

@@ -2,7 +2,6 @@ package scanning
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -34,10 +33,10 @@ type ScanTaskService interface {
 
 // Implementation that orchestrates domain service, repositories, concurrency, caching, etc.
 type ScanTaskServiceImpl struct {
-	mu        sync.RWMutex
-	jobsCache map[uuid.UUID]*domain.ScanJob // ephemeral cache
-	jobRepo   domain.JobRepository
-	taskRepo  domain.TaskRepository
+	mu         sync.RWMutex
+	tasksCache map[uuid.UUID]*domain.Task // ephemeral cache
+	jobRepo    domain.JobRepository
+	taskRepo   domain.TaskRepository
 	// checkpointRepo   domain.CheckpointRepository
 	persistInterval  time.Duration
 	staleTaskTimeout time.Duration
@@ -55,9 +54,9 @@ func NewScanTaskServiceImpl(
 	staleTimeout time.Duration,
 ) *ScanTaskServiceImpl {
 	return &ScanTaskServiceImpl{
-		jobsCache: make(map[uuid.UUID]*domain.ScanJob),
-		jobRepo:   jobRepo,
-		taskRepo:  taskRepo,
+		tasksCache: make(map[uuid.UUID]*domain.Task),
+		jobRepo:    jobRepo,
+		taskRepo:   taskRepo,
 		// checkpointRepo:    checkpointRepo,
 		persistInterval:   persistInterval,
 		staleTaskTimeout:  staleTimeout,
@@ -67,68 +66,68 @@ func NewScanTaskServiceImpl(
 
 // UpdateProgress orchestrates the domain calls + repo calls + concurrency
 func (s *ScanTaskServiceImpl) UpdateProgress(ctx context.Context, progress domain.Progress) error {
-	if progress.JobID == uuid.Nil || progress.TaskID == uuid.Nil {
-		return errors.New("missing jobID or taskID")
-	}
-
-	// 1. Load job from in-memory or repo
-	s.mu.RLock()
-	job, inCache := s.jobsCache[progress.JobID]
-	s.mu.RUnlock()
-	if !inCache {
-		loadedJob, err := s.jobRepo.GetJob(ctx, progress.JobID)
-		if err != nil {
-			return err
-		}
-		if loadedJob == nil {
-			return fmt.Errorf("job %s not found", progress.JobID)
-		}
-		s.mu.Lock()
-		job, inCache = s.jobsCache[progress.JobID]
-		if !inCache {
-			job = loadedJob
-			s.jobsCache[progress.JobID] = job
-		}
-		s.mu.Unlock()
-	}
-
-	// 2. Update the task in the domain
-	s.mu.Lock()
-	updated := job.UpdateTask(progress.TaskID, func(task *domain.Task) {
-		// Instead of direct domain logic, we call the domain service method:
-		_ = s.taskDomainService.UpdateProgress(task, progress)
-		// ignoring out-of-order updates is a domain rule => in domain service
-	})
-	if !updated {
-		// If the task doesn't exist in memory, create a new one
-		newTask := domain.NewScanTask(job.GetJobID(), progress.TaskID)
-		_ = s.taskDomainService.UpdateProgress(newTask, progress)
-		job.AddTask(newTask)
-	}
-
-	persistNow := time.Since(job.GetLastUpdateTime()) >= s.persistInterval
-	s.mu.Unlock()
-
-	// 3. Persist checkpoint if needed
-	// if progress.Checkpoint != nil && s.checkpointRepo != nil {
-	// 	if err := s.checkpointRepo.SaveCheckpoint(ctx, *progress.Checkpoint); err != nil {
-	// 		return err
-	// 	}
+	// if progress.TaskID == uuid.Nil {
+	// 	return errors.New("missing taskID")
 	// }
 
-	// 4. Persist changes if needed
-	if persistNow {
-		if err := s.jobRepo.UpdateJob(ctx, job); err != nil {
-			return err
-		}
-		// If tasks live in a separate table, we might do:
-		t, _ := s.GetTask(ctx, progress.JobID, progress.TaskID)
-		if t != nil {
-			if err := s.taskRepo.UpdateTask(ctx, t); err != nil {
-				return err
-			}
-		}
-	}
+	// // 1. Load task from in-memory or repo
+	// s.mu.RLock()
+	// task, inCache := s.tasksCache[progress.TaskID]
+	// s.mu.RUnlock()
+	// if !inCache {
+	// 	loadedTask, err := s.taskRepo.GetTask(ctx, progress.TaskID)
+	// 	if err != nil {
+	// 		return err
+	// 	}
+	// 	if loadedTask == nil {
+	// 		return fmt.Errorf("task %s not found", progress.TaskID)
+	// 	}
+	// 	s.mu.Lock()
+	// 	task, inCache = s.tasksCache[progress.TaskID]
+	// 	if !inCache {
+	// 		task = loadedTask
+	// 		s.tasksCache[progress.TaskID] = task
+	// 	}
+	// 	s.mu.Unlock()
+	// }
+
+	// // 2. Update the task in the domain
+	// s.mu.Lock()
+	// updated := task.UpdateTask(progress.TaskID, func(task *domain.Task) {
+	// 	// Instead of direct domain logic, we call the domain service method:
+	// 	_ = s.taskDomainService.UpdateProgress(task, progress)
+	// 	// ignoring out-of-order updates is a domain rule => in domain service
+	// })
+	// if !updated {
+	// 	// If the task doesn't exist in memory, create a new one
+	// 	newTask := domain.NewScanTask(task.GetJobID(), progress.TaskID)
+	// 	_ = s.taskDomainService.UpdateProgress(newTask, progress)
+	// 	task.AddTask(newTask)
+	// }
+
+	// persistNow := time.Since(job.GetLastUpdateTime()) >= s.persistInterval
+	// s.mu.Unlock()
+
+	// // 3. Persist checkpoint if needed
+	// // if progress.Checkpoint != nil && s.checkpointRepo != nil {
+	// // 	if err := s.checkpointRepo.SaveCheckpoint(ctx, *progress.Checkpoint); err != nil {
+	// // 		return err
+	// // 	}
+	// // }
+
+	// // 4. Persist changes if needed
+	// if persistNow {
+	// 	if err := s.jobRepo.UpdateJob(ctx, job); err != nil {
+	// 		return err
+	// 	}
+	// 	// If tasks live in a separate table, we might do:
+	// 	t, _ := s.GetTask(ctx, progress.JobID, progress.TaskID)
+	// 	if t != nil {
+	// 		if err := s.taskRepo.UpdateTask(ctx, t); err != nil {
+	// 			return err
+	// 		}
+	// 	}
+	// }
 	return nil
 }
 
