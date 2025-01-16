@@ -83,7 +83,7 @@ SELECT
 FROM scan_tasks
 WHERE task_id = $1;
 
--- name: UpdateScanTask :exec
+-- name: UpdateScanTask :execrows
 UPDATE scan_tasks
 SET
     status = $2,

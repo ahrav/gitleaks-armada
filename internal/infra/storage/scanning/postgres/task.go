@@ -32,7 +32,7 @@ type taskStore struct {
 
 // NewTaskStore creates a TaskRepository backed by PostgreSQL. It encapsulates database
 // operations and telemetry for scan task management.
-func NewTaskStore(pool *pgxpool.Pool, tracer trace.Tracer) scanning.TaskRepository {
+func NewTaskStore(pool *pgxpool.Pool, tracer trace.Tracer) *taskStore {
 	return &taskStore{
 		q:      db.New(pool),
 		tracer: tracer,
@@ -155,14 +155,18 @@ func (s *taskStore) UpdateTask(ctx context.Context, task *scanning.Task) error {
 	)
 
 	return storage.ExecuteAndTrace(ctx, s.tracer, "postgres.update_task", dbAttrs, func(ctx context.Context) error {
+		span := trace.SpanFromContext(ctx)
+
 		var lastUpdateTime pgtype.Timestamptz
 		if !task.GetLastUpdateTime().IsZero() {
 			lastUpdateTime = pgtype.Timestamptz{Time: task.GetLastUpdateTime(), Valid: true}
+			span.SetAttributes(attribute.String("last_update_time", lastUpdateTime.Time.String()))
 		}
 
 		var checkpointJSON []byte
 		if task.LastCheckpoint() != nil {
 			checkpointJSON, _ = json.Marshal(task.LastCheckpoint())
+			span.SetAttributes(attribute.Bool("has_checkpoint", true))
 		}
 
 		sqlcStatus := db.ScanTaskStatus(task.GetStatus())
@@ -177,10 +181,16 @@ func (s *taskStore) UpdateTask(ctx context.Context, task *scanning.Task) error {
 			LastCheckpoint:  checkpointJSON,
 		}
 
-		err := s.q.UpdateScanTask(ctx, params)
+		rowsAff, err := s.q.UpdateScanTask(ctx, params)
 		if err != nil {
 			return fmt.Errorf("UpdateScanTask error: %w", err)
 		}
+		if rowsAff == 0 {
+			span.SetAttributes(attribute.Bool("update_task_no_rows_affected", true))
+			span.RecordError(errors.New("task not found"))
+			return fmt.Errorf("UpdateScanTask no rows affected")
+		}
+
 		return nil
 	})
 }

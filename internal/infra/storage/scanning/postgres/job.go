@@ -90,7 +90,8 @@ func (r *jobStore) UpdateJob(ctx context.Context, job *scanning.ScanJob) error {
 		}
 
 		if rowsAffected == 0 {
-			span.RecordError(fmt.Errorf("job not found: %s", job.GetJobID()))
+			span.SetAttributes(attribute.Bool("job_not_found", true))
+			span.RecordError(errors.New("job not found"))
 			return fmt.Errorf("job not found: %s", job.GetJobID())
 		}
 

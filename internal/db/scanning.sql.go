@@ -279,7 +279,7 @@ func (q *Queries) UpdateJob(ctx context.Context, arg UpdateJobParams) (int64, er
 	return result.RowsAffected(), nil
 }
 
-const updateScanTask = `-- name: UpdateScanTask :exec
+const updateScanTask = `-- name: UpdateScanTask :execrows
 UPDATE scan_tasks
 SET
     status = $2,
@@ -302,8 +302,8 @@ type UpdateScanTaskParams struct {
 	LastCheckpoint  []byte
 }
 
-func (q *Queries) UpdateScanTask(ctx context.Context, arg UpdateScanTaskParams) error {
-	_, err := q.db.Exec(ctx, updateScanTask,
+func (q *Queries) UpdateScanTask(ctx context.Context, arg UpdateScanTaskParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateScanTask,
 		arg.TaskID,
 		arg.Status,
 		arg.LastSequenceNum,
@@ -312,5 +312,8 @@ func (q *Queries) UpdateScanTask(ctx context.Context, arg UpdateScanTaskParams) 
 		arg.ProgressDetails,
 		arg.LastCheckpoint,
 	)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
