@@ -7,6 +7,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
+	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	"github.com/ahrav/gitleaks-armada/internal/infra/eventbus/kafka"
 )
 
@@ -24,17 +25,11 @@ type ScannerMetrics interface {
 	SetActiveWorkers(ctx context.Context, count int)
 	IncWorkerErrors(ctx context.Context)
 
-	// Repository metrics
-	ObserveRepoFindings(ctx context.Context, repoURI string, count int)
-	ObserveRepoSize(ctx context.Context, repoURI string, sizeBytes int64)
-	ObserveCloneTime(ctx context.Context, repoURI string, duration time.Duration)
-	IncCloneError(ctx context.Context, repoURI string)
-	ObserveScanTime(ctx context.Context, repoURI string, duration time.Duration)
-
-	// URL scan metrics
-	ObserveURLScanTime(ctx context.Context, url string, duration time.Duration)
-	ObserveURLScanSize(ctx context.Context, url string, sizeBytes int64)
-	ObserveURLFindings(ctx context.Context, url string, count int)
+	// Common scan metrics across all sources.
+	ObserveScanDuration(ctx context.Context, sourceType shared.SourceType, duration time.Duration)
+	ObserveScanSize(ctx context.Context, sourceType shared.SourceType, sizeBytes int64)
+	ObserveScanFindings(ctx context.Context, sourceType shared.SourceType, count int)
+	IncScanError(ctx context.Context, sourceType shared.SourceType)
 }
 
 // scannerMetrics implements ScannerMetrics
@@ -58,17 +53,11 @@ type scannerMetrics struct {
 	activeWorkers metric.Int64UpDownCounter
 	workerErrors  metric.Int64Counter
 
-	// Repository scan metrics
-	repoFindings metric.Int64Histogram
-	repoSize     metric.Int64Histogram
-	cloneTime    metric.Float64Histogram
-	cloneErrors  metric.Int64Counter
-	scanTime     metric.Float64Histogram
-
-	// URL scan metrics
-	urlScanTime metric.Float64Histogram
-	urlScanSize metric.Int64Histogram
-	urlFindings metric.Int64Histogram
+	// Common scan metrics across all sources.
+	scanDuration metric.Float64Histogram
+	scanSize     metric.Int64Histogram
+	scanFindings metric.Int64Histogram
+	scanError    metric.Int64Counter
 }
 
 const namespace = "scanner"
@@ -138,29 +127,6 @@ func NewScannerMetrics(mp metric.MeterProvider) (*scannerMetrics, error) {
 		return nil, err
 	}
 
-	// Initialize Git operations metrics
-	if s.cloneTime, err = meter.Float64Histogram(
-		"git_clone_duration_seconds",
-		metric.WithDescription("Time taken to clone repositories"),
-	); err != nil {
-		return nil, err
-	}
-
-	if s.cloneErrors, err = meter.Int64Counter(
-		"git_clone_errors_total",
-		metric.WithDescription("Total number of repository clone errors"),
-	); err != nil {
-		return nil, err
-	}
-
-	// Initialize finding metrics
-	if s.repoFindings, err = meter.Int64Histogram(
-		"repository_findings",
-		metric.WithDescription("Number of findings discovered per repository"),
-	); err != nil {
-		return nil, err
-	}
-
 	// Initialize worker metrics
 	if s.activeWorkers, err = meter.Int64UpDownCounter(
 		"active_workers",
@@ -176,58 +142,34 @@ func NewScannerMetrics(mp metric.MeterProvider) (*scannerMetrics, error) {
 		return nil, err
 	}
 
-	// Initialize repository metrics
-	if s.repoSize, err = meter.Int64Histogram(
-		"repository_size_bytes",
-		metric.WithDescription("Size of cloned repositories in bytes"),
-		metric.WithUnit("bytes"),
-	); err != nil {
-		return nil, err
-	}
-
-	if s.cloneTime, err = meter.Float64Histogram(
-		"repository_clone_duration_seconds",
-		metric.WithDescription("Time taken to clone repositories"),
-		metric.WithUnit("s"),
-	); err != nil {
-		return nil, err
-	}
-
-	if s.cloneErrors, err = meter.Int64Counter(
-		"repository_clone_errors_total",
-		metric.WithDescription("Total number of repository clone errors"),
-	); err != nil {
-		return nil, err
-	}
-
-	if s.scanTime, err = meter.Float64Histogram(
-		"repository_scan_duration_milliseconds",
-		metric.WithDescription("Time taken to scan repositories in milliseconds"),
+	// Initialize common scan metrics
+	if s.scanDuration, err = meter.Float64Histogram(
+		"scan_duration_milliseconds",
+		metric.WithDescription("Time taken to scan sources in milliseconds"),
 		metric.WithUnit("ms"),
 	); err != nil {
 		return nil, err
 	}
 
-	if s.urlScanTime, err = meter.Float64Histogram(
-		"url_scan_duration_milliseconds",
-		metric.WithDescription("Time taken to scan URLs in milliseconds"),
-		metric.WithUnit("ms"),
-	); err != nil {
-		return nil, err
-	}
-
-	if s.urlScanSize, err = meter.Int64Histogram(
-		"url_scan_size_bytes",
-		metric.WithDescription("Size of URLs scanned in bytes"),
+	if s.scanSize, err = meter.Int64Histogram(
+		"scan_size_bytes",
+		metric.WithDescription("Size of sources scanned in bytes"),
 		metric.WithUnit("bytes"),
 	); err != nil {
 		return nil, err
 	}
 
-	if s.urlFindings, err = meter.Int64Histogram(
-		"url_findings",
-		metric.WithDescription("Number of findings discovered per URL"),
+	if s.scanFindings, err = meter.Int64Histogram(
+		"scan_findings",
+		metric.WithDescription("Number of findings discovered per source"),
 		metric.WithUnit("findings"),
+	); err != nil {
+		return nil, err
+	}
+
+	if s.scanError, err = meter.Int64Counter(
+		"scan_errors_total",
+		metric.WithDescription("Total number of scan errors"),
 	); err != nil {
 		return nil, err
 	}
@@ -280,51 +222,27 @@ func (m *scannerMetrics) IncConsumeError(ctx context.Context, topic string) {
 	m.consumeErrors.Add(ctx, 1, metric.WithAttributes(attribute.String("topic", topic)))
 }
 
-// Repository metrics implementations
-func (m *scannerMetrics) ObserveRepoSize(ctx context.Context, repoURI string, sizeBytes int64) {
-	m.repoSize.Record(ctx, sizeBytes, metric.WithAttributes(
-		attribute.String("repository_uri", repoURI),
+// Common scan metrics implementations
+func (m *scannerMetrics) ObserveScanDuration(ctx context.Context, sourceType shared.SourceType, duration time.Duration) {
+	m.scanDuration.Record(ctx, float64(duration.Milliseconds()), metric.WithAttributes(
+		attribute.String("source_type", string(sourceType)),
 	))
 }
 
-func (m *scannerMetrics) ObserveCloneTime(ctx context.Context, repoURI string, duration time.Duration) {
-	m.cloneTime.Record(ctx, duration.Seconds(), metric.WithAttributes(
-		attribute.String("repository_uri", repoURI),
+func (m *scannerMetrics) ObserveScanSize(ctx context.Context, sourceType shared.SourceType, sizeBytes int64) {
+	m.scanSize.Record(ctx, sizeBytes, metric.WithAttributes(
+		attribute.String("source_type", string(sourceType)),
 	))
 }
 
-func (m *scannerMetrics) IncCloneError(ctx context.Context, repoURI string) {
-	m.cloneErrors.Add(ctx, 1, metric.WithAttributes(
-		attribute.String("repository_uri", repoURI),
+func (m *scannerMetrics) ObserveScanFindings(ctx context.Context, sourceType shared.SourceType, count int) {
+	m.scanFindings.Record(ctx, int64(count), metric.WithAttributes(
+		attribute.String("source_type", string(sourceType)),
 	))
 }
 
-func (m *scannerMetrics) ObserveRepoFindings(ctx context.Context, repoURI string, count int) {
-	m.repoFindings.Record(ctx, int64(count), metric.WithAttributes(
-		attribute.String("repository_uri", repoURI),
-	))
-}
-
-func (m *scannerMetrics) ObserveScanTime(ctx context.Context, repoURI string, duration time.Duration) {
-	m.scanTime.Record(ctx, float64(duration.Milliseconds()), metric.WithAttributes(
-		attribute.String("repository_uri", repoURI),
-	))
-}
-
-func (m *scannerMetrics) ObserveURLScanTime(ctx context.Context, url string, duration time.Duration) {
-	m.urlScanTime.Record(ctx, float64(duration.Milliseconds()), metric.WithAttributes(
-		attribute.String("url", url),
-	))
-}
-
-func (m *scannerMetrics) ObserveURLScanSize(ctx context.Context, url string, sizeBytes int64) {
-	m.urlScanSize.Record(ctx, sizeBytes, metric.WithAttributes(
-		attribute.String("url", url),
-	))
-}
-
-func (m *scannerMetrics) ObserveURLFindings(ctx context.Context, url string, count int) {
-	m.urlFindings.Record(ctx, int64(count), metric.WithAttributes(
-		attribute.String("url", url),
+func (m *scannerMetrics) IncScanError(ctx context.Context, sourceType shared.SourceType) {
+	m.scanError.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("source_type", string(sourceType)),
 	))
 }

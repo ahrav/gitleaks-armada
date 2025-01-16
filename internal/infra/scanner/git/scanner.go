@@ -17,25 +17,23 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/ahrav/gitleaks-armada/internal/app/scanning/dtos"
+	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
 
 // metrics defines metrics operations for Git repository operations
 type metrics interface {
-	// ObserveRepoSize records the size of a cloned repository in bytes
-	ObserveRepoSize(ctx context.Context, repoURI string, sizeBytes int64)
+	// ObserveScanDuration records how long it took to scan a repository.
+	ObserveScanDuration(ctx context.Context, sourceType shared.SourceType, duration time.Duration)
 
-	// ObserveCloneTime records how long it took to clone a repository
-	ObserveCloneTime(ctx context.Context, repoURI string, duration time.Duration)
+	// ObserveScanSize records the size of a repository in bytes.
+	ObserveScanSize(ctx context.Context, sourceType shared.SourceType, sizeBytes int64)
 
-	// IncCloneError increments the clone error counter for a repository
-	IncCloneError(ctx context.Context, repoURI string)
+	// ObserveScanFindings records the number of findings in a repository.
+	ObserveScanFindings(ctx context.Context, sourceType shared.SourceType, count int)
 
-	// ObserveRepoFindings records the number of findings in a repository
-	ObserveRepoFindings(ctx context.Context, repoURI string, findings int)
-
-	// ObserveScanTime records how long it took to scan a repository
-	ObserveScanTime(ctx context.Context, repoURI string, duration time.Duration)
+	// IncScanError increments the scan error counter for a repository.
+	IncScanError(ctx context.Context, sourceType shared.SourceType)
 }
 
 // Scanner implements SecretScanner for git-based sources.
@@ -66,7 +64,7 @@ func (s *Scanner) Scan(ctx context.Context, task *dtos.ScanRequest) error {
 	startTime := time.Now()
 	defer func() {
 		span.End()
-		s.metrics.ObserveScanTime(ctx, task.ResourceURI, time.Since(startTime))
+		s.metrics.ObserveScanDuration(ctx, shared.SourceType(task.SourceType), time.Since(startTime))
 	}()
 
 	_, dirSpan := s.tracer.Start(ctx, "gitleaks_scanner.scanning.create_temp_dir")
@@ -103,10 +101,10 @@ func (s *Scanner) Scan(ctx context.Context, task *dtos.ScanRequest) error {
 	if err := cloneRepo(ctx, task.ResourceURI, tempDir); err != nil {
 		cloneSpan.RecordError(err)
 		cloneSpan.AddEvent("clone_failed")
-		s.metrics.IncCloneError(ctx, task.ResourceURI)
+		s.metrics.IncScanError(ctx, shared.SourceType(task.SourceType))
 		return fmt.Errorf("failed to clone repository: %w", err)
 	}
-	s.metrics.ObserveCloneTime(ctx, task.ResourceURI, time.Since(startTime))
+	s.metrics.ObserveScanDuration(ctx, shared.SourceType(task.SourceType), time.Since(startTime))
 
 	go s.calculateRepoSize(ctx, task, tempDir) // async repo size calculation
 
@@ -132,7 +130,7 @@ func (s *Scanner) Scan(ctx context.Context, task *dtos.ScanRequest) error {
 		detectSpan.AddEvent("secret_detection_failed")
 		return fmt.Errorf("failed to scan repository: %w", err)
 	}
-	s.metrics.ObserveRepoFindings(ctx, task.ResourceURI, len(findings))
+	s.metrics.ObserveScanFindings(ctx, shared.SourceType(task.SourceType), len(findings))
 
 	detectSpan.SetAttributes(
 		attribute.Int("findings.count", len(findings)),
@@ -188,7 +186,7 @@ func (s *Scanner) calculateRepoSize(ctx context.Context, task *dtos.ScanRequest,
 		return
 	}
 
-	s.metrics.ObserveRepoSize(sizeCtx, task.ResourceURI, size)
+	s.metrics.ObserveScanSize(sizeCtx, shared.SourceType(task.SourceType), size)
 	sizeSpan.AddEvent("size_calculation_complete",
 		trace.WithAttributes(attribute.Int64("size_bytes", size)))
 

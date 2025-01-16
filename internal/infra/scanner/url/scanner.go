@@ -1,6 +1,7 @@
 package url
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -15,19 +16,23 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/ahrav/gitleaks-armada/internal/app/scanning/dtos"
+	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
 
 // metrics is an interface that defines operations for URL-based sources.
 type metrics interface {
-	// ObserveFindings records the number of findings in a repository.
-	ObserveURLFindings(ctx context.Context, url string, count int)
+	// ObserveScanDuration records how long it took to scan a repository.
+	ObserveScanDuration(ctx context.Context, sourceType shared.SourceType, duration time.Duration)
 
-	// ObserveURLScanTime records the time taken to scan a URL.
-	ObserveURLScanTime(ctx context.Context, url string, duration time.Duration)
+	// ObserveScanSize records the size of a repository in bytes.
+	ObserveScanSize(ctx context.Context, sourceType shared.SourceType, sizeBytes int64)
 
-	// ObserveURLScanSize records the size of a URL.
-	ObserveURLScanSize(ctx context.Context, url string, sizeBytes int64)
+	// ObserveScanFindings records the number of findings in a repository.
+	ObserveScanFindings(ctx context.Context, sourceType shared.SourceType, count int)
+
+	// IncScanError increments the scan error counter for a repository.
+	IncScanError(ctx context.Context, sourceType shared.SourceType)
 }
 
 // Scanner is a struct that implements SecretScanner for URL-based sources.
@@ -57,10 +62,12 @@ func (s *Scanner) Scan(ctx context.Context, task *dtos.ScanRequest) error {
 		trace.WithAttributes(
 			attribute.String("url", task.ResourceURI),
 		))
+	var err error
+
 	startTime := time.Now()
 	defer func() {
 		span.End()
-		s.metrics.ObserveURLScanTime(ctx, task.ResourceURI, time.Since(startTime))
+		s.metrics.ObserveScanDuration(ctx, shared.SourceType(task.SourceType), time.Since(startTime))
 	}()
 
 	format := "none"
@@ -71,11 +78,12 @@ func (s *Scanner) Scan(ctx context.Context, task *dtos.ScanRequest) error {
 
 	_, archiveSpan := s.tracer.Start(ctx, "gitleaks_url_scanner.create_archive_reader")
 	archiveReader, err := newArchiveReader(format, func(size int64) {
-		s.metrics.ObserveURLScanSize(ctx, task.ResourceURI, size)
+		s.metrics.ObserveScanSize(ctx, shared.SourceType(task.SourceType), size)
 	}, s.tracer)
 	if err != nil {
 		archiveSpan.RecordError(err)
 		archiveSpan.End()
+		s.metrics.IncScanError(ctx, shared.SourceType(task.SourceType))
 		return fmt.Errorf("failed to create archive reader: %w", err)
 	}
 	archiveSpan.End()
@@ -85,6 +93,7 @@ func (s *Scanner) Scan(ctx context.Context, task *dtos.ScanRequest) error {
 	if err != nil {
 		httpSpan.RecordError(err)
 		httpSpan.End()
+		s.metrics.IncScanError(ctx, shared.SourceType(task.SourceType))
 		return fmt.Errorf("failed to create HTTP request: %w", err)
 	}
 
@@ -93,6 +102,7 @@ func (s *Scanner) Scan(ctx context.Context, task *dtos.ScanRequest) error {
 		httpSpan.RecordError(err)
 		httpSpan.SetAttributes(attribute.String("error", err.Error()))
 		httpSpan.End()
+		s.metrics.IncScanError(ctx, shared.SourceType(task.SourceType))
 		return fmt.Errorf("failed to execute HTTP request: %w", err)
 	}
 	defer resp.Body.Close()
@@ -106,6 +116,7 @@ func (s *Scanner) Scan(ctx context.Context, task *dtos.ScanRequest) error {
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		errMsg := fmt.Sprintf("received non-2xx response code %d", resp.StatusCode)
 		span.RecordError(errors.New(errMsg))
+		s.metrics.IncScanError(ctx, shared.SourceType(task.SourceType))
 		return fmt.Errorf("failed to fetch URL: %s", errMsg)
 	}
 
@@ -114,6 +125,7 @@ func (s *Scanner) Scan(ctx context.Context, task *dtos.ScanRequest) error {
 	if err != nil {
 		processSpan.RecordError(err)
 		processSpan.End()
+		s.metrics.IncScanError(ctx, shared.SourceType(task.SourceType))
 		return fmt.Errorf("failed to process archive: %w", err)
 	}
 	processSpan.End()
@@ -124,10 +136,11 @@ func (s *Scanner) Scan(ctx context.Context, task *dtos.ScanRequest) error {
 	if err != nil {
 		detectSpan.RecordError(err)
 		detectSpan.End()
+		s.metrics.IncScanError(ctx, shared.SourceType(task.SourceType))
 		return fmt.Errorf("failed to scan URL: %w", err)
 	}
 
-	s.metrics.ObserveURLFindings(ctx, task.ResourceURI, len(findings))
+	s.metrics.ObserveScanFindings(ctx, shared.SourceType(task.SourceType), len(findings))
 	detectSpan.AddEvent("findings_processed",
 		trace.WithAttributes(attribute.Int("findings.count", len(findings))))
 	detectSpan.End()
@@ -169,6 +182,7 @@ func (w *WarcGzReader) Read(ctx context.Context, input io.Reader) (io.Reader, er
 
 	var totalSize int64
 	pr, pw := io.Pipe()
+	bw := bufio.NewWriter(pw)
 
 	go func() {
 		span := trace.SpanFromContext(ctx)
@@ -177,6 +191,7 @@ func (w *WarcGzReader) Read(ctx context.Context, input io.Reader) (io.Reader, er
 			if w.sizeCallback != nil {
 				w.sizeCallback(totalSize)
 			}
+			bw.Flush()
 			pw.Close()
 			warcReader.Close()
 		}()
@@ -207,21 +222,20 @@ func (w *WarcGzReader) Read(ctx context.Context, input io.Reader) (io.Reader, er
 
 			span.AddEvent("warc_record_processed")
 
-			body, err := record.Block().RawBytes()
+			bodyReader, err := record.Block().RawBytes()
 			if err != nil {
 				span.AddEvent("failed_to_get_record_body")
 				pw.CloseWithError(fmt.Errorf("failed to get record body: %w", err))
 				return
 			}
 
-			_, err = io.Copy(pw, body)
+			size, err := io.Copy(bw, bodyReader)
 			if err != nil {
 				span.AddEvent("failed_to_copy_record_body")
 				pw.CloseWithError(fmt.Errorf("failed to copy record body: %w", err))
 				return
 			}
 
-			size := int64(record.Block().Size())
 			totalSize += size // Accumulate total size
 
 			span.AddEvent("record_body_copied", trace.WithAttributes(attribute.Int64("record_body_length", size)))
