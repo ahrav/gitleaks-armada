@@ -20,7 +20,7 @@ import (
 
 // metrics is an interface that defines operations for URL-based sources.
 type metrics interface {
-	// ObserveURLFindings records the number of findings in a repository.
+	// ObserveFindings records the number of findings in a repository.
 	ObserveURLFindings(ctx context.Context, url string, count int)
 
 	// ObserveURLScanTime records the time taken to scan a URL.
@@ -80,7 +80,7 @@ func (s *Scanner) Scan(ctx context.Context, task *dtos.ScanRequest) error {
 	}
 	archiveSpan.End()
 
-	_, httpSpan := s.tracer.Start(ctx, "gitleaks_url_scanner.http_request")
+	_, httpSpan := s.tracer.Start(ctx, "gitleaks_url_scanner.http_request", trace.WithSpanKind(trace.SpanKindClient))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, task.ResourceURI, nil)
 	if err != nil {
 		httpSpan.RecordError(err)
