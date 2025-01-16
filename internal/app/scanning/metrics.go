@@ -46,9 +46,6 @@ type scannerMetrics struct {
 	activeTasks     metric.Int64UpDownCounter
 	taskProcessTime metric.Float64Histogram
 
-	// Finding metrics
-	lastFindingFoundTime metric.Float64ObservableGauge
-
 	// Worker metrics
 	activeWorkers metric.Int64UpDownCounter
 	workerErrors  metric.Int64Counter
