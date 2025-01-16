@@ -198,6 +198,12 @@ func (t *Task) GetItemsProcessed() int64 { return t.itemsProcessed }
 // GetTaskID returns the unique identifier for this scan task.
 func (t *Task) GetTaskID() uuid.UUID { return t.TaskID }
 
+func (t *Task) LastCheckpoint() *Checkpoint { return t.lastCheckpoint }
+
+func (t *Task) ProgressDetails() []byte { return t.progressDetails }
+
+func (t *Task) StartTime() time.Time { return t.startTime }
+
 // GetSummary returns a TaskSummary containing the key metrics and status
 // for this task's execution progress.
 func (t *Task) GetSummary(duration time.Duration) TaskSummary {

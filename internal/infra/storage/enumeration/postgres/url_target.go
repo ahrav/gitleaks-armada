@@ -48,8 +48,6 @@ func (s *urlTargetStore) Create(ctx context.Context, target *enumeration.URLTarg
 
 		metadataBytes, err := json.Marshal(target.Metadata())
 		if err != nil {
-			span.SetAttributes(attribute.Bool("db.error", true))
-			span.RecordError(err)
 			return fmt.Errorf("failed to marshal metadata: %w", err)
 		}
 
@@ -59,8 +57,6 @@ func (s *urlTargetStore) Create(ctx context.Context, target *enumeration.URLTarg
 		}
 		newID, err = s.q.CreateURLTarget(ctx, params)
 		if err != nil {
-			span.SetAttributes(attribute.Bool("db.error", true))
-			span.RecordError(err)
 			return fmt.Errorf("urlTargetStore.Create: insert error: %w", err)
 		}
 		span.SetAttributes(attribute.Int64("db.id", newID))
@@ -89,8 +85,6 @@ func (s *urlTargetStore) Update(ctx context.Context, target *enumeration.URLTarg
 
 		metadataBytes, err := json.Marshal(target.Metadata())
 		if err != nil {
-			span.SetAttributes(attribute.Bool("db.error", true))
-			span.RecordError(err)
 			return fmt.Errorf("failed to marshal metadata: %w", err)
 		}
 
@@ -102,8 +96,6 @@ func (s *urlTargetStore) Update(ctx context.Context, target *enumeration.URLTarg
 
 		rowsAff, err := s.q.UpdateURLTarget(ctx, params)
 		if err != nil {
-			span.SetAttributes(attribute.Bool("db.error", true))
-			span.RecordError(err)
 			return fmt.Errorf("urlTargetStore.Update: update error: %w", err)
 		}
 		if rowsAff == 0 {
@@ -138,18 +130,13 @@ func (s *urlTargetStore) GetByURL(ctx context.Context, urlStr string) (*enumerat
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				span.SetAttributes(attribute.Bool("db.no_rows", true))
-				span.RecordError(err)
 				return nil
 			}
-			span.SetAttributes(attribute.Bool("db.error", true))
-			span.RecordError(err)
 			return fmt.Errorf("select error: %w", err)
 		}
 
 		var meta map[string]any
 		if err := json.Unmarshal(dbRow.Metadata, &meta); err != nil {
-			span.SetAttributes(attribute.Bool("db.error", true))
-			span.RecordError(err)
 			return fmt.Errorf("failed to unmarshal metadata: %w", err)
 		}
 		span.SetAttributes(attribute.Int64("db.id", dbRow.ID))
