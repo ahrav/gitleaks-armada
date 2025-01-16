@@ -28,7 +28,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
 
-// SecretScanner defines a standardized interface for secret detection across different source types.
+// SourceScanner defines a standardized interface for secret detection across different source types.
 // It abstracts the scanning logic, allowing pluggable implementations for various data sources
 // like Git repositories, URLs, and other potential scanning targets. Each implementation
 // must handle source-specific nuances while providing a consistent scanning contract.
@@ -36,7 +36,7 @@ import (
 // The Scan method takes a context for cancellation and tracing, and a scan request
 // containing metadata about the target. It returns an error to indicate scanning failures,
 // allowing for granular error handling and observability.
-type SecretScanner interface {
+type SourceScanner interface {
 	Scan(ctx context.Context, task *dtos.ScanRequest) error
 }
 
@@ -84,7 +84,7 @@ func (s *Gitleaks) Scan(ctx context.Context, task *dtos.ScanRequest) error {
 		))
 	defer span.End()
 
-	var scanner SecretScanner
+	var scanner SourceScanner
 	switch task.SourceType {
 	case dtos.SourceTypeGitHub:
 		scanner = git.NewScanner(s.detector, s.logger, s.tracer, s.metrics)
