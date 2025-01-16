@@ -16,36 +16,22 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/ahrav/gitleaks-armada/internal/app/scanning"
 	"github.com/ahrav/gitleaks-armada/internal/app/scanning/dtos"
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
-
-// metrics defines metrics operations for Git repository operations
-type metrics interface {
-	// ObserveScanDuration records how long it took to scan a repository.
-	ObserveScanDuration(ctx context.Context, sourceType shared.SourceType, duration time.Duration)
-
-	// ObserveScanSize records the size of a repository in bytes.
-	ObserveScanSize(ctx context.Context, sourceType shared.SourceType, sizeBytes int64)
-
-	// ObserveScanFindings records the number of findings in a repository.
-	ObserveScanFindings(ctx context.Context, sourceType shared.SourceType, count int)
-
-	// IncScanError increments the scan error counter for a repository.
-	IncScanError(ctx context.Context, sourceType shared.SourceType)
-}
 
 // Scanner implements SecretScanner for git-based sources.
 type Scanner struct {
 	detector *detect.Detector
 	logger   *logger.Logger
 	tracer   trace.Tracer
-	metrics  metrics
+	metrics  scanning.SourceScanMetrics
 }
 
 // NewScanner creates a new Git scanner instance.
-func NewScanner(detector *detect.Detector, logger *logger.Logger, tracer trace.Tracer, metrics metrics) *Scanner {
+func NewScanner(detector *detect.Detector, logger *logger.Logger, tracer trace.Tracer, metrics scanning.SourceScanMetrics) *Scanner {
 	return &Scanner{
 		detector: detector,
 		logger:   logger,

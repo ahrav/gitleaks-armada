@@ -13,8 +13,8 @@ import (
 
 // ScannerMetrics defines metrics operations needed by the scanner.
 type ScannerMetrics interface {
-	// Messaging metrics
-	kafka.BrokerMetrics
+	kafka.BrokerMetrics // Messaging metrics
+	SourceScanMetrics   // Common scan metrics across all sources.
 
 	// Task metrics
 	IncTasksProcessed(ctx context.Context)
@@ -24,11 +24,22 @@ type ScannerMetrics interface {
 	// Worker metrics
 	SetActiveWorkers(ctx context.Context, count int)
 	IncWorkerErrors(ctx context.Context)
+}
 
-	// Common scan metrics across all sources.
+// SourceScanMetrics defines the common metrics operations used by all source scanners.
+// This interface captures the core metrics that every scanner implementation (git, url, etc.)
+// needs to report during the scanning process.
+type SourceScanMetrics interface {
+	// ObserveScanDuration records how long it took to scan a source.
 	ObserveScanDuration(ctx context.Context, sourceType shared.SourceType, duration time.Duration)
+
+	// ObserveScanSize records the size of a source in bytes.
 	ObserveScanSize(ctx context.Context, sourceType shared.SourceType, sizeBytes int64)
+
+	// ObserveScanFindings records the number of findings in a source.
 	ObserveScanFindings(ctx context.Context, sourceType shared.SourceType, count int)
+
+	// IncScanError increments the scan error counter for a source.
 	IncScanError(ctx context.Context, sourceType shared.SourceType)
 }
 

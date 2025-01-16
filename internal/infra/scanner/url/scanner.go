@@ -15,25 +15,11 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/ahrav/gitleaks-armada/internal/app/scanning"
 	"github.com/ahrav/gitleaks-armada/internal/app/scanning/dtos"
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
-
-// metrics is an interface that defines operations for URL-based sources.
-type metrics interface {
-	// ObserveScanDuration records how long it took to scan a repository.
-	ObserveScanDuration(ctx context.Context, sourceType shared.SourceType, duration time.Duration)
-
-	// ObserveScanSize records the size of a repository in bytes.
-	ObserveScanSize(ctx context.Context, sourceType shared.SourceType, sizeBytes int64)
-
-	// ObserveScanFindings records the number of findings in a repository.
-	ObserveScanFindings(ctx context.Context, sourceType shared.SourceType, count int)
-
-	// IncScanError increments the scan error counter for a repository.
-	IncScanError(ctx context.Context, sourceType shared.SourceType)
-}
 
 // Scanner is a struct that implements SecretScanner for URL-based sources.
 // It contains a Gitleaks detector, a logger, a tracer, and a metrics interface.
@@ -41,11 +27,11 @@ type Scanner struct {
 	detector *detect.Detector
 	logger   *logger.Logger
 	tracer   trace.Tracer
-	metrics  metrics
+	metrics  scanning.SourceScanMetrics
 }
 
 // NewScanner creates a new Scanner instance.
-func NewScanner(detector *detect.Detector, logger *logger.Logger, tracer trace.Tracer, metrics metrics) *Scanner {
+func NewScanner(detector *detect.Detector, logger *logger.Logger, tracer trace.Tracer, metrics scanning.SourceScanMetrics) *Scanner {
 	return &Scanner{
 		detector: detector,
 		logger:   logger,
@@ -76,6 +62,8 @@ func (s *Scanner) Scan(ctx context.Context, task *dtos.ScanRequest) error {
 	}
 	span.SetAttributes(attribute.String("archive_format", format))
 
+	// TODO: Abstract all this crap away.
+	// Ideally, we have a single component that can handle any archive format.
 	_, archiveSpan := s.tracer.Start(ctx, "gitleaks_url_scanner.create_archive_reader")
 	archiveReader, err := newArchiveReader(format, func(size int64) {
 		s.metrics.ObserveScanSize(ctx, shared.SourceType(task.SourceType), size)
