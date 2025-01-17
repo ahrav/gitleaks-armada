@@ -37,7 +37,7 @@ func NewTaskStore(dbConn *pgxpool.Pool, tracer trace.Tracer) *taskStore {
 func (t *taskStore) Save(ctx context.Context, task *enumeration.Task) error {
 	dbAttrs := append(
 		defaultDBAttributes,
-		attribute.String("task_id", task.TaskID.String()),
+		attribute.String("task_id", task.ID.String()),
 		attribute.String("session_id", task.SessionID().String()),
 		attribute.String("resource_uri", task.ResourceURI()),
 	)
@@ -48,7 +48,7 @@ func (t *taskStore) Save(ctx context.Context, task *enumeration.Task) error {
 		}
 
 		err = t.q.CreateTask(ctx, db.CreateTaskParams{
-			TaskID:      pgtype.UUID{Bytes: task.TaskID, Valid: true},
+			TaskID:      pgtype.UUID{Bytes: task.ID, Valid: true},
 			SourceType:  string(task.SourceType),
 			SessionID:   pgtype.UUID{Bytes: task.SessionID(), Valid: true},
 			ResourceUri: task.ResourceURI(),

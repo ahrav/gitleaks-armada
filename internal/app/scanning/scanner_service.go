@@ -145,7 +145,7 @@ func (s *ScannerService) handleTaskEvent(ctx context.Context, evt events.EventEn
 	}
 
 	span.SetAttributes(
-		attribute.String("task_id", tce.Task.TaskID.String()),
+		attribute.String("task_id", tce.Task.ID.String()),
 		attribute.String("resource_uri", tce.Task.ResourceURI()),
 		attribute.String("source_type", string(tce.Task.SourceType)),
 		attribute.String("session_id", tce.Task.SessionID().String()),

@@ -136,7 +136,7 @@ func TestScanJob_UpdateTask(t *testing.T) {
 					tasks: map[uuid.UUID]*Task{
 						taskID: {
 							CoreTask: shared.CoreTask{
-								TaskID: taskID,
+								ID: taskID,
 							},
 							status: TaskStatusInProgress,
 						},
@@ -174,7 +174,7 @@ func TestScanJob_UpdateTask(t *testing.T) {
 					tasks: map[uuid.UUID]*Task{
 						taskID: {
 							CoreTask: shared.CoreTask{
-								TaskID: taskID,
+								ID: taskID,
 							},
 							status: TaskStatusInProgress,
 						},

@@ -151,7 +151,7 @@ func (s *TaskService) UpdateProgress(ctx context.Context, progress domain.Progre
 
 	s.tasksCache[progress.TaskID] = task
 
-	shouldPersist := time.Since(task.GetLastUpdateTime()) >= s.persistInterval
+	shouldPersist := time.Since(task.LastUpdateTime()) >= s.persistInterval
 	if shouldPersist {
 		if err := s.taskRepo.UpdateTask(ctx, task); err != nil {
 			span.RecordError(err)

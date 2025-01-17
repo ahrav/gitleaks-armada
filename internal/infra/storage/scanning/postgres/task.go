@@ -44,17 +44,17 @@ func NewTaskStore(pool *pgxpool.Pool, tracer trace.Tracer) *taskStore {
 func (s *taskStore) CreateTask(ctx context.Context, task *scanning.Task) error {
 	dbAttrs := append(
 		defaultDBAttributes,
-		attribute.String("task_id", task.GetTaskID().String()),
-		attribute.String("job_id", task.GetJobID().String()),
-		attribute.String("status", string(task.GetStatus())),
+		attribute.String("task_id", task.TaskID().String()),
+		attribute.String("job_id", task.JobID().String()),
+		attribute.String("status", string(task.Status())),
 	)
 
 	return storage.ExecuteAndTrace(ctx, s.tracer, "postgres.create_task", dbAttrs, func(ctx context.Context) error {
 		span := trace.SpanFromContext(ctx)
 		// Only store lastUpdateTime if non-zero to preserve NULL semantics.
 		var lastUpdateTime pgtype.Timestamptz
-		if !task.GetLastUpdateTime().IsZero() {
-			lastUpdateTime = pgtype.Timestamptz{Time: task.GetLastUpdateTime(), Valid: true}
+		if !task.LastUpdateTime().IsZero() {
+			lastUpdateTime = pgtype.Timestamptz{Time: task.LastUpdateTime(), Valid: true}
 		} else {
 			lastUpdateTime = pgtype.Timestamptz{Valid: false}
 		}
@@ -71,13 +71,13 @@ func (s *taskStore) CreateTask(ctx context.Context, task *scanning.Task) error {
 		}
 
 		params := db.CreateScanTaskParams{
-			TaskID:          pgtype.UUID{Bytes: task.GetTaskID(), Valid: true},
-			JobID:           pgtype.UUID{Bytes: task.GetJobID(), Valid: true},
-			Status:          db.ScanTaskStatus(task.GetStatus()),
-			LastSequenceNum: task.GetLastSequenceNum(),
+			TaskID:          pgtype.UUID{Bytes: task.TaskID(), Valid: true},
+			JobID:           pgtype.UUID{Bytes: task.JobID(), Valid: true},
+			Status:          db.ScanTaskStatus(task.Status()),
+			LastSequenceNum: task.LastSequenceNum(),
 			StartTime:       pgtype.Timestamptz{Time: task.StartTime(), Valid: true},
 			LastUpdateTime:  lastUpdateTime,
-			ItemsProcessed:  task.GetItemsProcessed(),
+			ItemsProcessed:  task.ItemsProcessed(),
 			ProgressDetails: task.ProgressDetails(),
 			LastCheckpoint:  checkpointJSON,
 		}
@@ -150,16 +150,16 @@ func (s *taskStore) GetTask(ctx context.Context, taskID uuid.UUID) (*scanning.Ta
 func (s *taskStore) UpdateTask(ctx context.Context, task *scanning.Task) error {
 	dbAttrs := append(
 		defaultDBAttributes,
-		attribute.String("task_id", task.GetTaskID().String()),
-		attribute.String("status", string(task.GetStatus())),
+		attribute.String("task_id", task.TaskID().String()),
+		attribute.String("status", string(task.Status())),
 	)
 
 	return storage.ExecuteAndTrace(ctx, s.tracer, "postgres.update_task", dbAttrs, func(ctx context.Context) error {
 		span := trace.SpanFromContext(ctx)
 
 		var lastUpdateTime pgtype.Timestamptz
-		if !task.GetLastUpdateTime().IsZero() {
-			lastUpdateTime = pgtype.Timestamptz{Time: task.GetLastUpdateTime(), Valid: true}
+		if !task.LastUpdateTime().IsZero() {
+			lastUpdateTime = pgtype.Timestamptz{Time: task.LastUpdateTime(), Valid: true}
 			span.SetAttributes(attribute.String("last_update_time", lastUpdateTime.Time.String()))
 		}
 
@@ -169,14 +169,14 @@ func (s *taskStore) UpdateTask(ctx context.Context, task *scanning.Task) error {
 			span.SetAttributes(attribute.Bool("has_checkpoint", true))
 		}
 
-		sqlcStatus := db.ScanTaskStatus(task.GetStatus())
+		sqlcStatus := db.ScanTaskStatus(task.Status())
 
 		params := db.UpdateScanTaskParams{
-			TaskID:          pgtype.UUID{Bytes: task.GetTaskID(), Valid: true},
+			TaskID:          pgtype.UUID{Bytes: task.TaskID(), Valid: true},
 			Status:          sqlcStatus,
-			LastSequenceNum: task.GetLastSequenceNum(),
+			LastSequenceNum: task.LastSequenceNum(),
 			LastUpdateTime:  lastUpdateTime,
-			ItemsProcessed:  task.GetItemsProcessed(),
+			ItemsProcessed:  task.ItemsProcessed(),
 			ProgressDetails: task.ProgressDetails(),
 			LastCheckpoint:  checkpointJSON,
 		}

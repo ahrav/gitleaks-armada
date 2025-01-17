@@ -156,7 +156,7 @@ func TestPublishBatchWithError(t *testing.T) {
 
 	// Subscribe with a handler that fails on specific task.
 	err := broker.SubscribeTasks(ctx, func(task enumeration.Task) error {
-		if task.TaskID == failTaskID {
+		if task.ID == failTaskID {
 			return expectedErr
 		}
 		return nil
@@ -164,9 +164,9 @@ func TestPublishBatchWithError(t *testing.T) {
 	assert.NoError(t, err)
 
 	tasks := []enumeration.Task{
-		{CoreTask: shared.CoreTask{TaskID: task1ID}},
-		{CoreTask: shared.CoreTask{TaskID: failTaskID}},
-		{CoreTask: shared.CoreTask{TaskID: uuid.New()}}, // This should not be processed due to previous error
+		{CoreTask: shared.CoreTask{ID: task1ID}},
+		{CoreTask: shared.CoreTask{ID: failTaskID}},
+		{CoreTask: shared.CoreTask{ID: uuid.New()}}, // This should not be processed due to previous error
 	}
 
 	err = broker.PublishTasks(ctx, tasks)

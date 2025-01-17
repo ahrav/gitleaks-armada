@@ -30,7 +30,7 @@ func NewTask(
 ) *Task {
 	return &Task{
 		CoreTask: shared.CoreTask{
-			TaskID:     uuid.New(),
+			ID:         uuid.New(),
 			SourceType: sourceType,
 		},
 		sessionID:   sessionID,
@@ -51,7 +51,7 @@ func ReconstructTask(
 ) *Task {
 	return &Task{
 		CoreTask: shared.CoreTask{
-			TaskID:     taskID,
+			ID:         taskID,
 			SourceType: sourceType,
 		},
 		sessionID:   sessionID,

@@ -62,7 +62,7 @@ func (s *jobService) OnTaskStarted(ctx context.Context, jobID uuid.UUID, task *d
 	ctx, span := s.tracer.Start(ctx, "job_service.scanning.on_task_started",
 		trace.WithAttributes(
 			attribute.String("job_id", jobID.String()),
-			attribute.String("task_id", task.GetTaskID().String()),
+			attribute.String("task_id", task.TaskID().String()),
 		))
 	defer span.End()
 

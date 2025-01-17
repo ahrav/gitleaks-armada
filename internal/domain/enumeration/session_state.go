@@ -266,7 +266,7 @@ func (s *SessionState) UnmarshalJSON(data []byte) error {
 func (s *SessionState) CreateTask(resourceURI string, metadata map[string]string) *Task {
 	return &Task{
 		CoreTask: shared.CoreTask{
-			TaskID:     uuid.New(),
+			ID:         uuid.New(),
 			SourceType: shared.SourceType(s.sourceType),
 		},
 		sessionID:   s.sessionID,

@@ -21,7 +21,7 @@ func (acl EnumerationACL) ToScanRequest(task *enumeration.Task) *dtos.ScanReques
 	}
 
 	return &dtos.ScanRequest{
-		TaskID:      task.TaskID,
+		TaskID:      task.ID,
 		SourceType:  toScanningSourceType(task.SourceType),
 		SessionID:   task.SessionID(),
 		ResourceURI: task.ResourceURI(),

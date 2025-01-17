@@ -24,7 +24,7 @@ func NewTaskDomainService() TaskDomainService {
 // UpdateProgress applies domain rules to update a task with new progress.
 // e.g., ignore out-of-order updates, set fields, etc.
 func (ds *TaskDomainServiceImpl) UpdateProgress(task *Task, progress Progress) error {
-	if progress.SequenceNum <= task.GetLastSequenceNum() {
+	if progress.SequenceNum <= task.LastSequenceNum() {
 		// Domain rule: ignore out-of-order
 		return nil
 	}
@@ -35,7 +35,7 @@ func (ds *TaskDomainServiceImpl) UpdateProgress(task *Task, progress Progress) e
 // MarkTaskStale sets the task status to STALE, and applies any domain-level rules
 // (like storing the stall reason, last updated time).
 func (ds *TaskDomainServiceImpl) MarkTaskStale(task *Task, reason StallReason) error {
-	if task.GetStatus() == TaskStatusCompleted {
+	if task.Status() == TaskStatusCompleted {
 		return fmt.Errorf("cannot mark a completed task as stale")
 	}
 	task.ApplyProgress(Progress{
@@ -48,7 +48,7 @@ func (ds *TaskDomainServiceImpl) MarkTaskStale(task *Task, reason StallReason) e
 // RecoverTask is a domain-level operation that modifies the task to resume scanning.
 func (ds *TaskDomainServiceImpl) RecoverTask(task *Task) error {
 	// e.g., set status back to IN_PROGRESS if it was STALE
-	if task.GetStatus() == TaskStatusStale {
+	if task.Status() == TaskStatusStale {
 		task.ApplyProgress(Progress{
 			Status:    TaskStatusInProgress,
 			Timestamp: time.Now(),

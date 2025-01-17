@@ -66,15 +66,15 @@ func TestTaskStore_CreateAndGet(t *testing.T) {
 	err := taskStore.CreateTask(ctx, task)
 	require.NoError(t, err)
 
-	loaded, err := taskStore.GetTask(ctx, task.GetTaskID())
+	loaded, err := taskStore.GetTask(ctx, task.TaskID())
 	require.NoError(t, err)
 	require.NotNil(t, loaded)
 
-	assert.Equal(t, task.GetTaskID(), loaded.GetTaskID())
-	assert.Equal(t, task.GetJobID(), loaded.GetJobID())
-	assert.Equal(t, task.GetStatus(), loaded.GetStatus())
-	assert.Equal(t, task.GetLastSequenceNum(), loaded.GetLastSequenceNum())
-	assert.Equal(t, task.GetItemsProcessed(), loaded.GetItemsProcessed())
+	assert.Equal(t, task.TaskID(), loaded.TaskID())
+	assert.Equal(t, task.JobID(), loaded.JobID())
+	assert.Equal(t, task.Status(), loaded.Status())
+	assert.Equal(t, task.LastSequenceNum(), loaded.LastSequenceNum())
+	assert.Equal(t, task.ItemsProcessed(), loaded.ItemsProcessed())
 	assert.Equal(t, task.ProgressDetails(), loaded.ProgressDetails())
 }
 
@@ -91,14 +91,14 @@ func TestTaskStore_UpdateTask(t *testing.T) {
 
 	// Update task with new state.
 	checkpoint := scanning.NewCheckpoint(
-		task.GetTaskID(),
+		task.TaskID(),
 		[]byte("resume-token"),
 		map[string]string{"key": "value"},
 	)
 
 	updatedTask := scanning.ReconstructTask(
-		task.GetTaskID(),
-		task.GetJobID(),
+		task.TaskID(),
+		task.JobID(),
 		scanning.TaskStatusInProgress,
 		1,
 		task.StartTime(),
@@ -111,13 +111,13 @@ func TestTaskStore_UpdateTask(t *testing.T) {
 	err = taskStore.UpdateTask(ctx, updatedTask)
 	require.NoError(t, err)
 
-	loaded, err := taskStore.GetTask(ctx, task.GetTaskID())
+	loaded, err := taskStore.GetTask(ctx, task.TaskID())
 	require.NoError(t, err)
 	require.NotNil(t, loaded)
 
-	assert.Equal(t, scanning.TaskStatusInProgress, loaded.GetStatus())
-	assert.Equal(t, int64(100), loaded.GetItemsProcessed())
-	assert.Equal(t, int64(1), loaded.GetLastSequenceNum())
+	assert.Equal(t, scanning.TaskStatusInProgress, loaded.Status())
+	assert.Equal(t, int64(100), loaded.ItemsProcessed())
+	assert.Equal(t, int64(1), loaded.LastSequenceNum())
 	assert.JSONEq(t, `{"updated": "details"}`, string(loaded.ProgressDetails()))
 	assert.NotNil(t, loaded.LastCheckpoint())
 	assert.Equal(t, checkpoint.ResumeToken, loaded.LastCheckpoint().ResumeToken)
@@ -172,8 +172,8 @@ func TestTaskStore_ListTasksByJobAndStatus(t *testing.T) {
 	assert.Len(t, listed, 3)
 
 	for _, task := range listed {
-		assert.Equal(t, jobID, task.GetJobID())
-		assert.Equal(t, status, task.GetStatus())
+		assert.Equal(t, jobID, task.JobID())
+		assert.Equal(t, status, task.Status())
 	}
 }
 

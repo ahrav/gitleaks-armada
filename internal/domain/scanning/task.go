@@ -139,7 +139,7 @@ func ReconstructTask(
 ) *Task {
 	return &Task{
 		CoreTask: shared.CoreTask{
-			TaskID: taskID,
+			ID: taskID,
 		},
 		jobID:           jobID,
 		status:          status,
@@ -157,7 +157,7 @@ func ReconstructTask(
 func NewScanTask(jobID uuid.UUID, taskID uuid.UUID) *Task {
 	return &Task{
 		CoreTask: shared.CoreTask{
-			TaskID: taskID,
+			ID: taskID,
 		},
 		jobID:     jobID,
 		status:    TaskStatusInProgress,
@@ -165,23 +165,23 @@ func NewScanTask(jobID uuid.UUID, taskID uuid.UUID) *Task {
 	}
 }
 
-// GetJobID returns the identifier of the parent job containing this task.
-func (t *Task) GetJobID() uuid.UUID { return t.jobID }
+// JobID returns the identifier of the parent job containing this task.
+func (t *Task) JobID() uuid.UUID { return t.jobID }
 
-// GetStatus returns the current execution status of the scan task.
-func (t *Task) GetStatus() TaskStatus { return t.status }
+// Status returns the current execution status of the scan task.
+func (t *Task) Status() TaskStatus { return t.status }
 
-// GetLastSequenceNum returns the sequence number of the most recent progress update.
-func (t *Task) GetLastSequenceNum() int64 { return t.lastSequenceNum }
+// LastSequenceNum returns the sequence number of the most recent progress update.
+func (t *Task) LastSequenceNum() int64 { return t.lastSequenceNum }
 
-// GetLastUpdateTime returns when this task last reported progress.
-func (t *Task) GetLastUpdateTime() time.Time { return t.lastUpdate }
+// LastUpdateTime returns when this task last reported progress.
+func (t *Task) LastUpdateTime() time.Time { return t.lastUpdate }
 
-// GetItemsProcessed returns the total number of items scanned by this task.
-func (t *Task) GetItemsProcessed() int64 { return t.itemsProcessed }
+// ItemsProcessed returns the total number of items scanned by this task.
+func (t *Task) ItemsProcessed() int64 { return t.itemsProcessed }
 
-// GetTaskID returns the unique identifier for this scan task.
-func (t *Task) GetTaskID() uuid.UUID { return t.TaskID }
+// TaskID returns the unique identifier for this scan task.
+func (t *Task) TaskID() uuid.UUID { return t.ID }
 
 func (t *Task) LastCheckpoint() *Checkpoint { return t.lastCheckpoint }
 
@@ -215,7 +215,7 @@ func (e *OutOfOrderProgressError) Error() string {
 // It updates all monitoring metrics and preserves any checkpoint data.
 func (t *Task) ApplyProgress(progress Progress) error {
 	if !t.canApplyProgress(progress) {
-		return NewOutOfOrderProgressError(t.GetTaskID(), progress.SequenceNum, t.GetLastSequenceNum())
+		return NewOutOfOrderProgressError(t.TaskID(), progress.SequenceNum, t.LastSequenceNum())
 	}
 
 	t.updateProgress(progress)
@@ -243,7 +243,7 @@ func (t *Task) updateProgress(progress Progress) {
 // for this task's execution progress.
 func (t *Task) GetSummary(duration time.Duration) TaskSummary {
 	return TaskSummary{
-		taskID:          t.TaskID,
+		taskID:          t.ID,
 		status:          t.status,
 		itemsProcessed:  t.itemsProcessed,
 		duration:        duration,
@@ -284,7 +284,7 @@ type StalledTask struct {
 func (t *Task) ToStalledTask(reason StallReason, stallTime time.Time) *StalledTask {
 	return &StalledTask{
 		JobID:           t.jobID,
-		TaskID:          t.TaskID,
+		TaskID:          t.ID,
 		StallReason:     reason,
 		StalledDuration: time.Since(stallTime),
 		LastUpdate:      t.lastUpdate,

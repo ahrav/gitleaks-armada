@@ -66,11 +66,11 @@ func TestPGTaskStorage_SaveAndGet(t *testing.T) {
 	err := store.Save(ctx, task)
 	require.NoError(t, err)
 
-	loaded, err := store.GetByID(ctx, task.TaskID)
+	loaded, err := store.GetByID(ctx, task.ID)
 	require.NoError(t, err)
 	require.NotNil(t, loaded)
 
-	assert.Equal(t, task.TaskID, loaded.TaskID)
+	assert.Equal(t, task.ID, loaded.ID)
 	assert.Equal(t, task.SourceType, loaded.SourceType)
 	assert.Equal(t, task.SessionID(), loaded.SessionID())
 	assert.Equal(t, task.ResourceURI(), loaded.ResourceURI())
@@ -121,7 +121,7 @@ func TestPGTaskStorage_ConcurrentOperations(t *testing.T) {
 			err := store.Save(ctx, task)
 			require.NoError(t, err)
 
-			_, err = store.GetByID(ctx, task.TaskID)
+			_, err = store.GetByID(ctx, task.ID)
 			require.NoError(t, err)
 
 			done <- true
@@ -163,7 +163,7 @@ func TestPGTaskStorage_MetadataHandling(t *testing.T) {
 	err = store.Save(ctx, task)
 	require.NoError(t, err)
 
-	loaded, err := store.GetByID(ctx, task.TaskID)
+	loaded, err := store.GetByID(ctx, task.ID)
 	require.NoError(t, err)
 	require.NotNil(t, loaded)
 

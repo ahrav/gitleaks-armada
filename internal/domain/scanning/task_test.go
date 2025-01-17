@@ -79,9 +79,9 @@ func TestTask_ApplyProgress(t *testing.T) {
 			t.Parallel()
 
 			task := tt.setupTask()
-			tt.progress.TaskID = task.GetTaskID()
+			tt.progress.TaskID = task.TaskID()
 			if tt.progress.Checkpoint != nil {
-				tt.progress.Checkpoint.TaskID = task.GetTaskID()
+				tt.progress.Checkpoint.TaskID = task.TaskID()
 			}
 
 			err := task.ApplyProgress(tt.progress)
@@ -93,9 +93,9 @@ func TestTask_ApplyProgress(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			assert.Equal(t, tt.wantStatus, task.GetStatus())
-			assert.Equal(t, tt.wantItems, task.GetItemsProcessed())
-			assert.Equal(t, tt.wantSeqNum, task.GetLastSequenceNum())
+			assert.Equal(t, tt.wantStatus, task.Status())
+			assert.Equal(t, tt.wantItems, task.ItemsProcessed())
+			assert.Equal(t, tt.wantSeqNum, task.LastSequenceNum())
 			if tt.checkpoints {
 				assert.NotNil(t, task.LastCheckpoint())
 				assert.Equal(t, tt.progress.Checkpoint.ResumeToken, task.LastCheckpoint().ResumeToken)

@@ -117,7 +117,7 @@ func (e *JobStartError) Error() string {
 // AddTask registers a new scan task with this job and updates task counters.
 // In domain/ScanJob
 func (j *Job) AddTask(task *Task) error {
-	j.tasks[task.TaskID] = task
+	j.tasks[task.ID] = task
 	j.metrics.SetTotalTasks(len(j.tasks))
 
 	// If this is our first task and we're queued, transition to running.
