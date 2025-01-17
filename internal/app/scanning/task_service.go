@@ -36,9 +36,9 @@ type ScanTaskService interface {
 	RecoverTask(ctx context.Context, jobID, taskID string) error
 }
 
-// ScanTaskServiceImpl orchestrates task operations by coordinating between domain services,
+// TaskService orchestrates task operations by coordinating between domain services,
 // repositories, caching, and concurrency controls.
-type ScanTaskServiceImpl struct {
+type TaskService struct {
 	// tasksCache provides in-memory caching of active tasks to reduce database load.
 	mu         sync.RWMutex
 	tasksCache map[uuid.UUID]*domain.Task
@@ -63,9 +63,9 @@ func NewScanTaskServiceImpl(
 	domainSvc domain.TaskDomainService,
 	persistInterval time.Duration,
 	staleTimeout time.Duration,
-) *ScanTaskServiceImpl {
+) *TaskService {
 	const defaultTaskCacheSize = 1000
-	return &ScanTaskServiceImpl{
+	return &TaskService{
 		tasksCache: make(map[uuid.UUID]*domain.Task, defaultTaskCacheSize),
 		taskRepo:   taskRepo,
 		// checkpointRepo:    checkpointRepo,
@@ -77,7 +77,7 @@ func NewScanTaskServiceImpl(
 
 // UpdateProgress handles a task progress update by coordinating cache access,
 // domain logic, and persistence operations.
-func (s *ScanTaskServiceImpl) UpdateProgress(ctx context.Context, progress domain.Progress) error {
+func (s *TaskService) UpdateProgress(ctx context.Context, progress domain.Progress) error {
 	ctx, span := s.tracer.Start(ctx, "scan_task_service.update_progress",
 		trace.WithAttributes(
 			attribute.String("task_id", progress.TaskID.String()),
@@ -128,7 +128,7 @@ func (s *ScanTaskServiceImpl) UpdateProgress(ctx context.Context, progress domai
 }
 
 // loadTask retrieves a task from storage and adds it to the cache.
-func (s *ScanTaskServiceImpl) loadTask(ctx context.Context, taskID uuid.UUID) (*domain.Task, error) {
+func (s *TaskService) loadTask(ctx context.Context, taskID uuid.UUID) (*domain.Task, error) {
 	ctx, span := s.tracer.Start(ctx, "scan_task_service.load_task")
 	defer span.End()
 
@@ -150,7 +150,7 @@ func (s *ScanTaskServiceImpl) loadTask(ctx context.Context, taskID uuid.UUID) (*
 	return task, nil
 }
 
-func (s *ScanTaskServiceImpl) GetTask(ctx context.Context, jobID uuid.UUID, taskID uuid.UUID) (*domain.Task, error) {
+func (s *TaskService) GetTask(ctx context.Context, jobID uuid.UUID, taskID uuid.UUID) (*domain.Task, error) {
 	// // purely orchestration logic
 	// job, err := s.jobRepo.GetJob(ctx, jobID)
 	// if err != nil {
@@ -171,7 +171,7 @@ func (s *ScanTaskServiceImpl) GetTask(ctx context.Context, jobID uuid.UUID, task
 	return nil, nil
 }
 
-func (s *ScanTaskServiceImpl) MarkTaskStale(ctx context.Context, jobID uuid.UUID, taskID uuid.UUID, reason domain.StallReason) error {
+func (s *TaskService) MarkTaskStale(ctx context.Context, jobID uuid.UUID, taskID uuid.UUID, reason domain.StallReason) error {
 	// job, err := s.jobRepo.GetJob(ctx, jobID)
 	// if err != nil {
 	// 	return err
@@ -199,7 +199,7 @@ func (s *ScanTaskServiceImpl) MarkTaskStale(ctx context.Context, jobID uuid.UUID
 	return nil
 }
 
-func (s *ScanTaskServiceImpl) RecoverTask(ctx context.Context, jobID uuid.UUID, taskID uuid.UUID) error {
+func (s *TaskService) RecoverTask(ctx context.Context, jobID uuid.UUID, taskID uuid.UUID) error {
 	// job, err := s.jobRepo.GetJob(ctx, jobID)
 	// if err != nil {
 	// 	return err
