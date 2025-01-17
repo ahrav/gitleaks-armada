@@ -27,7 +27,7 @@ func setupTaskTest(t *testing.T) (context.Context, *pgxpool.Pool, *taskStore, *j
 	return ctx, db, taskStore, jobStore, cleanup
 }
 
-func createTestScanJob(t *testing.T, store *jobStore, ctx context.Context) *scanning.ScanJob {
+func createTestScanJob(t *testing.T, store *jobStore, ctx context.Context) *scanning.Job {
 	t.Helper()
 	job := scanning.ReconstructJob(
 		uuid.New(),
@@ -62,7 +62,7 @@ func TestTaskStore_CreateAndGet(t *testing.T) {
 
 	job := createTestScanJob(t, jobStore, ctx)
 
-	task := createTestTask(t, job.GetJobID(), scanning.TaskStatusInProgress)
+	task := createTestTask(t, job.JobID(), scanning.TaskStatusInProgress)
 	err := taskStore.CreateTask(ctx, task)
 	require.NoError(t, err)
 
@@ -85,7 +85,7 @@ func TestTaskStore_UpdateTask(t *testing.T) {
 
 	job := createTestScanJob(t, jobStore, ctx)
 
-	task := createTestTask(t, job.GetJobID(), scanning.TaskStatusInProgress)
+	task := createTestTask(t, job.JobID(), scanning.TaskStatusInProgress)
 	err := taskStore.CreateTask(ctx, task)
 	require.NoError(t, err)
 
@@ -130,7 +130,7 @@ func TestTaskStore_ListTasksByJobAndStatus(t *testing.T) {
 	defer cleanup()
 
 	job := createTestScanJob(t, jobStore, ctx)
-	jobID := job.GetJobID()
+	jobID := job.JobID()
 	status := scanning.TaskStatusInProgress
 
 	// Create multiple tasks.
@@ -194,7 +194,7 @@ func TestTaskStore_CreateDuplicate(t *testing.T) {
 
 	job := createTestScanJob(t, jobStore, ctx)
 
-	task := createTestTask(t, job.GetJobID(), scanning.TaskStatusInProgress)
+	task := createTestTask(t, job.JobID(), scanning.TaskStatusInProgress)
 
 	// First creation should succeed.
 	err := taskStore.CreateTask(ctx, task)
@@ -212,7 +212,7 @@ func TestTaskStore_UpdateNonExistent(t *testing.T) {
 
 	job := createTestScanJob(t, jobStore, ctx)
 
-	task := createTestTask(t, job.GetJobID(), scanning.TaskStatusCompleted)
+	task := createTestTask(t, job.JobID(), scanning.TaskStatusCompleted)
 	err := taskStore.UpdateTask(ctx, task)
 	require.Error(t, err)
 }
@@ -224,7 +224,7 @@ func TestTaskStore_ListTasksByJobAndStatus_EmptyResult(t *testing.T) {
 
 	job := createTestScanJob(t, jobStore, ctx)
 
-	listed, err := taskStore.ListTasksByJobAndStatus(ctx, job.GetJobID(), scanning.TaskStatusInProgress)
+	listed, err := taskStore.ListTasksByJobAndStatus(ctx, job.JobID(), scanning.TaskStatusInProgress)
 	require.NoError(t, err)
 	assert.Empty(t, listed)
 }

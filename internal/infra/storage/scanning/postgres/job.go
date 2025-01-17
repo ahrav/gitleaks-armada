@@ -42,18 +42,18 @@ var defaultDBAttributes = []attribute.KeyValue{
 }
 
 // CreateJob persists a new scan job to the database.
-func (r *jobStore) CreateJob(ctx context.Context, job *scanning.ScanJob) error {
+func (r *jobStore) CreateJob(ctx context.Context, job *scanning.Job) error {
 	dbAttrs := append(
 		defaultDBAttributes,
-		attribute.String("job_id", job.GetJobID().String()),
-		attribute.String("status", string(job.GetStatus())),
-		attribute.String("start_time", job.GetStartTime().String()),
+		attribute.String("job_id", job.JobID().String()),
+		attribute.String("status", string(job.Status())),
+		attribute.String("start_time", job.StartTime().String()),
 	)
 
 	return storage.ExecuteAndTrace(ctx, r.tracer, "postgres.create_job", dbAttrs, func(ctx context.Context) error {
 		err := r.q.CreateJob(ctx, db.CreateJobParams{
-			JobID:  pgtype.UUID{Bytes: job.GetJobID(), Valid: true},
-			Status: db.ScanJobStatus(job.GetStatus()),
+			JobID:  pgtype.UUID{Bytes: job.JobID(), Valid: true},
+			Status: db.ScanJobStatus(job.Status()),
 		})
 		if err != nil {
 			return fmt.Errorf("CreateJob insert error: %w", err)
@@ -63,26 +63,26 @@ func (r *jobStore) CreateJob(ctx context.Context, job *scanning.ScanJob) error {
 }
 
 // UpdateJob modifies an existing job's state in the database.
-func (r *jobStore) UpdateJob(ctx context.Context, job *scanning.ScanJob) error {
+func (r *jobStore) UpdateJob(ctx context.Context, job *scanning.Job) error {
 	dbAttrs := append(
 		defaultDBAttributes,
-		attribute.String("job_id", job.GetJobID().String()),
-		attribute.String("status", string(job.GetStatus())),
+		attribute.String("job_id", job.JobID().String()),
+		attribute.String("status", string(job.Status())),
 	)
 
 	return storage.ExecuteAndTrace(ctx, r.tracer, "postgres.update_job", dbAttrs, func(ctx context.Context) error {
 		span := trace.SpanFromContext(ctx)
 
-		endTime, hasEndTime := job.GetEndTime()
+		endTime, hasEndTime := job.EndTime()
 		dbEndTime := pgtype.Timestamptz{
 			Time:  endTime,
 			Valid: hasEndTime,
 		}
 
 		rowsAffected, err := r.q.UpdateJob(ctx, db.UpdateJobParams{
-			JobID:     pgtype.UUID{Bytes: job.GetJobID(), Valid: true},
-			Status:    db.ScanJobStatus(job.GetStatus()),
-			StartTime: pgtype.Timestamptz{Time: job.GetStartTime(), Valid: true},
+			JobID:     pgtype.UUID{Bytes: job.JobID(), Valid: true},
+			Status:    db.ScanJobStatus(job.Status()),
+			StartTime: pgtype.Timestamptz{Time: job.StartTime(), Valid: true},
 			EndTime:   dbEndTime,
 		})
 		if err != nil {
@@ -92,7 +92,7 @@ func (r *jobStore) UpdateJob(ctx context.Context, job *scanning.ScanJob) error {
 		if rowsAffected == 0 {
 			span.SetAttributes(attribute.Bool("job_not_found", true))
 			span.RecordError(errors.New("job not found"))
-			return fmt.Errorf("job not found: %s", job.GetJobID())
+			return fmt.Errorf("job not found: %s", job.JobID())
 		}
 
 		return nil
@@ -139,13 +139,13 @@ func (r *jobStore) AssociateTargets(ctx context.Context, jobID uuid.UUID, target
 // GetJob retrieves a scan job and its associated targets from the database. It reconstructs
 // the domain model from the stored data, handling the one-to-many relationship between
 // jobs and targets.
-func (r *jobStore) GetJob(ctx context.Context, jobID uuid.UUID) (*scanning.ScanJob, error) {
+func (r *jobStore) GetJob(ctx context.Context, jobID uuid.UUID) (*scanning.Job, error) {
 	dbAttrs := append(
 		defaultDBAttributes,
 		attribute.String("job_id", jobID.String()),
 	)
 
-	var job *scanning.ScanJob
+	var job *scanning.Job
 	err := storage.ExecuteAndTrace(ctx, r.tracer, "postgres.get_job", dbAttrs, func(ctx context.Context) error {
 		rows, err := r.q.GetJob(ctx, pgtype.UUID{Bytes: jobID, Valid: true})
 		if err != nil {

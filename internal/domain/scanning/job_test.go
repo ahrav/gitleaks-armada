@@ -15,23 +15,23 @@ func TestScanJob_AddTask(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		setupJob  func() *ScanJob
+		setupJob  func() *Job
 		wantErr   bool
 		wantState JobStatus
 	}{
 		{
 			name: "add first task to queued job",
-			setupJob: func() *ScanJob {
-				return NewScanJob()
+			setupJob: func() *Job {
+				return NewJob()
 			},
 			wantErr:   false,
 			wantState: JobStatusRunning,
 		},
 		{
 			name: "add task to already running job",
-			setupJob: func() *ScanJob {
-				job := NewScanJob()
-				task := NewScanTask(job.GetJobID(), uuid.New())
+			setupJob: func() *Job {
+				job := NewJob()
+				task := NewScanTask(job.JobID(), uuid.New())
 				_ = job.AddTask(task) // First task transitions to running
 				return job
 			},
@@ -40,8 +40,8 @@ func TestScanJob_AddTask(t *testing.T) {
 		},
 		{
 			name: "add task to completed job",
-			setupJob: func() *ScanJob {
-				job := NewScanJob()
+			setupJob: func() *Job {
+				job := NewJob()
 				job.status = JobStatusCompleted
 				return job
 			},
@@ -50,8 +50,8 @@ func TestScanJob_AddTask(t *testing.T) {
 		},
 		{
 			name: "add task to failed job",
-			setupJob: func() *ScanJob {
-				job := NewScanJob()
+			setupJob: func() *Job {
+				job := NewJob()
 				job.status = JobStatusFailed
 				return job
 			},
@@ -66,7 +66,7 @@ func TestScanJob_AddTask(t *testing.T) {
 
 			job := tt.setupJob()
 			beforeAdd := time.Now()
-			err := job.AddTask(NewScanTask(job.GetJobID(), uuid.New()))
+			err := job.AddTask(NewScanTask(job.JobID(), uuid.New()))
 			afterAdd := time.Now()
 
 			if tt.wantErr {
@@ -81,7 +81,7 @@ func TestScanJob_AddTask(t *testing.T) {
 					job.timeline.LastUpdate().Equal(afterAdd))
 			}
 
-			assert.Equal(t, tt.wantState, job.GetStatus())
+			assert.Equal(t, tt.wantState, job.Status())
 		})
 	}
 }
@@ -91,7 +91,7 @@ func TestScanJob_UpdateTask(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		job      *ScanJob
+		job      *Job
 		taskID   uuid.UUID
 		updateFn func(*Task)
 		want     struct {
@@ -104,7 +104,7 @@ func TestScanJob_UpdateTask(t *testing.T) {
 	}{
 		{
 			name: "update non-existent task",
-			job: &ScanJob{
+			job: &Job{
 				jobID:    uuid.New(),
 				timeline: NewTimeline(new(realTimeProvider)),
 				metrics:  NewJobMetrics(),
@@ -129,9 +129,9 @@ func TestScanJob_UpdateTask(t *testing.T) {
 		},
 		{
 			name: "update existing task to completed",
-			job: func() *ScanJob {
+			job: func() *Job {
 				taskID := uuid.New()
-				job := &ScanJob{
+				job := &Job{
 					jobID: uuid.New(),
 					tasks: map[uuid.UUID]*Task{
 						taskID: {
@@ -167,9 +167,9 @@ func TestScanJob_UpdateTask(t *testing.T) {
 		},
 		{
 			name: "update task to failed",
-			job: func() *ScanJob {
+			job: func() *Job {
 				taskID := uuid.New()
-				job := &ScanJob{
+				job := &Job{
 					jobID: uuid.New(),
 					tasks: map[uuid.UUID]*Task{
 						taskID: {
@@ -237,7 +237,7 @@ func TestScanJob_UpdateTask(t *testing.T) {
 func TestScanJob_AssociateTarget(t *testing.T) {
 	t.Parallel()
 
-	job := NewScanJob()
+	job := NewJob()
 	targetID := uuid.New()
 	job.AssociateTargets([]uuid.UUID{targetID})
 

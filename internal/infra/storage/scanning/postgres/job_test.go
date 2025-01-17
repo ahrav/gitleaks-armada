@@ -28,7 +28,7 @@ func setupJobTest(t *testing.T) (context.Context, *pgxpool.Pool, *jobStore, func
 	return ctx, db, store, cleanup
 }
 
-func createTestJob(t *testing.T, status scanning.JobStatus) *scanning.ScanJob {
+func createTestJob(t *testing.T, status scanning.JobStatus) *scanning.Job {
 	t.Helper()
 	return scanning.ReconstructJob(
 		uuid.New(),
@@ -47,13 +47,13 @@ func TestJobStore_CreateAndGet(t *testing.T) {
 	err := store.CreateJob(ctx, job)
 	require.NoError(t, err)
 
-	loaded, err := store.GetJob(ctx, job.GetJobID())
+	loaded, err := store.GetJob(ctx, job.JobID())
 	require.NoError(t, err)
 	require.NotNil(t, loaded)
 
-	assert.Equal(t, job.GetJobID(), loaded.GetJobID())
-	assert.Equal(t, job.GetStatus(), loaded.GetStatus())
-	assert.True(t, loaded.GetStartTime().IsZero(), "New jobs should not have a start time")
+	assert.Equal(t, job.JobID(), loaded.JobID())
+	assert.Equal(t, job.Status(), loaded.Status())
+	assert.True(t, loaded.StartTime().IsZero(), "New jobs should not have a start time")
 }
 
 type mockTimeProvider struct {
@@ -81,20 +81,20 @@ func TestJobStore_UpdateJob(t *testing.T) {
 	err := store.CreateJob(ctx, job)
 	require.NoError(t, err)
 
-	initialJob, err := store.GetJob(ctx, job.GetJobID())
+	initialJob, err := store.GetJob(ctx, job.JobID())
 	require.NoError(t, err)
 	require.NotNil(t, initialJob)
 
 	// Set completion time one hour later.
-	completionTime := initialJob.GetStartTime().Add(time.Hour)
+	completionTime := initialJob.StartTime().Add(time.Hour)
 	completionTimeline := scanning.ReconstructTimeline(
-		initialJob.GetStartTime(),
+		initialJob.StartTime(),
 		completionTime,
 		completionTime,
 	)
 
 	updatedJob := scanning.ReconstructJob(
-		job.GetJobID(),
+		job.JobID(),
 		scanning.JobStatusCompleted,
 		completionTimeline,
 		nil,
@@ -103,17 +103,17 @@ func TestJobStore_UpdateJob(t *testing.T) {
 	err = store.UpdateJob(ctx, updatedJob)
 	require.NoError(t, err)
 
-	loaded, err := store.GetJob(ctx, job.GetJobID())
+	loaded, err := store.GetJob(ctx, job.JobID())
 	require.NoError(t, err)
 	require.NotNil(t, loaded)
 
-	assert.Equal(t, scanning.JobStatusCompleted, loaded.GetStatus())
+	assert.Equal(t, scanning.JobStatusCompleted, loaded.Status())
 
-	endTime, hasEndTime := loaded.GetEndTime()
+	endTime, hasEndTime := loaded.EndTime()
 	assert.True(t, hasEndTime)
 	assert.Equal(t, completionTime.UTC(), endTime.UTC(),
 		"End time should match completion time")
-	assert.WithinDuration(t, time.Now().UTC(), loaded.GetLastUpdateTime(), time.Second,
+	assert.WithinDuration(t, time.Now().UTC(), loaded.LastUpdateTime(), time.Second,
 		"Last update time should be close to current time")
 }
 
@@ -146,14 +146,14 @@ func TestJobStore_AssociateTargets(t *testing.T) {
 	}
 
 	// Now associate the targets with the job.
-	err = store.AssociateTargets(ctx, job.GetJobID(), targetIDs)
+	err = store.AssociateTargets(ctx, job.JobID(), targetIDs)
 	require.NoError(t, err)
 
-	loaded, err := store.GetJob(ctx, job.GetJobID())
+	loaded, err := store.GetJob(ctx, job.JobID())
 	require.NoError(t, err)
 	require.NotNil(t, loaded)
 
-	assert.ElementsMatch(t, loaded.GetTargetIDs(), targetIDs)
+	assert.ElementsMatch(t, loaded.TargetIDs(), targetIDs)
 }
 
 func TestJobStore_GetNonExistent(t *testing.T) {
@@ -202,6 +202,6 @@ func TestJobStore_AssociateTargetsEmpty(t *testing.T) {
 	require.NoError(t, err)
 
 	// Associate empty target list should succeed.
-	err = store.AssociateTargets(ctx, job.GetJobID(), []uuid.UUID{})
+	err = store.AssociateTargets(ctx, job.JobID(), []uuid.UUID{})
 	require.NoError(t, err)
 }

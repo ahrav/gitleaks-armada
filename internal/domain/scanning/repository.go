@@ -14,16 +14,16 @@ import (
 // job state and history.
 type JobRepository interface {
 	// CreateJob inserts a new job record, setting status and initial timestamps.
-	CreateJob(ctx context.Context, job *ScanJob) error
+	CreateJob(ctx context.Context, job *Job) error
 
 	// UpdateJob modifies an existing job’s fields (status, end_time, etc.).
-	UpdateJob(ctx context.Context, job *ScanJob) error
+	UpdateJob(ctx context.Context, job *Job) error
 
 	// AssociateTargets associates scan targets with a job.
 	AssociateTargets(ctx context.Context, jobID uuid.UUID, targetIDs []uuid.UUID) error
 
 	// GetJob retrieves a job’s state (including associated tasks if needed).
-	GetJob(ctx context.Context, jobID uuid.UUID) (*ScanJob, error)
+	GetJob(ctx context.Context, jobID uuid.UUID) (*Job, error)
 }
 
 // TaskRepository defines the persistence operations for scan tasks.

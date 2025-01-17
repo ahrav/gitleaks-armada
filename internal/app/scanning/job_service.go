@@ -27,18 +27,18 @@ type ScanJobService interface {
 	MarkJobCompleted(ctx context.Context, jobID uuid.UUID) error
 
 	// GetJob retrieves the current state of a scan job and its tasks.
-	GetJob(ctx context.Context, jobID uuid.UUID) (*domain.ScanJob, error)
+	GetJob(ctx context.Context, jobID uuid.UUID) (*domain.Job, error)
 
 	// ListJobs retrieves a paginated list of jobs filtered by status.
 	// This enables monitoring and management of jobs across the system.
-	ListJobs(ctx context.Context, status []domain.JobStatus, limit, offset int) ([]*domain.ScanJob, error)
+	ListJobs(ctx context.Context, status []domain.JobStatus, limit, offset int) ([]*domain.Job, error)
 }
 
 // jobService implements the ScanJobService interface, providing concrete implementations
 // for job lifecycle management operations.
 type jobService struct {
 	mu       sync.RWMutex
-	jobCache map[uuid.UUID]*domain.ScanJob
+	jobCache map[uuid.UUID]*domain.Job
 
 	jobRepo domain.JobRepository
 
@@ -50,7 +50,7 @@ type jobService struct {
 func NewJobService(jobRepo domain.JobRepository, tracer trace.Tracer) *jobService {
 	const defaultJobCacheSize = 64
 	return &jobService{
-		jobCache: make(map[uuid.UUID]*domain.ScanJob, defaultJobCacheSize),
+		jobCache: make(map[uuid.UUID]*domain.Job, defaultJobCacheSize),
 		jobRepo:  jobRepo,
 		tracer:   tracer,
 	}
@@ -100,7 +100,7 @@ func (s *jobService) OnTaskStarted(ctx context.Context, jobID uuid.UUID, task *d
 	return nil
 }
 
-func (s *jobService) loadJob(ctx context.Context, jobID uuid.UUID) (*domain.ScanJob, error) {
+func (s *jobService) loadJob(ctx context.Context, jobID uuid.UUID) (*domain.Job, error) {
 	ctx, span := s.tracer.Start(ctx, "job_service.scanning.load_job",
 		trace.WithAttributes(
 			attribute.String("job_id", jobID.String()),
@@ -129,11 +129,11 @@ func (s *jobService) MarkJobCompleted(ctx context.Context, jobID uuid.UUID) erro
 }
 
 // GetJob is a no-op implementation for now
-func (s *jobService) GetJob(ctx context.Context, jobID uuid.UUID) (*domain.ScanJob, error) {
+func (s *jobService) GetJob(ctx context.Context, jobID uuid.UUID) (*domain.Job, error) {
 	return nil, nil
 }
 
 // ListJobs is a no-op implementation for now
-func (s *jobService) ListJobs(ctx context.Context, status []domain.JobStatus, limit, offset int) ([]*domain.ScanJob, error) {
+func (s *jobService) ListJobs(ctx context.Context, status []domain.JobStatus, limit, offset int) ([]*domain.Job, error) {
 	return nil, nil
 }
