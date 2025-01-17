@@ -28,7 +28,7 @@ func (ds *TaskDomainServiceImpl) UpdateProgress(task *Task, progress Progress) e
 		// Domain rule: ignore out-of-order
 		return nil
 	}
-	task.UpdateProgress(progress)
+	task.ApplyProgress(progress)
 	return nil
 }
 
@@ -38,7 +38,7 @@ func (ds *TaskDomainServiceImpl) MarkTaskStale(task *Task, reason StallReason) e
 	if task.GetStatus() == TaskStatusCompleted {
 		return fmt.Errorf("cannot mark a completed task as stale")
 	}
-	task.UpdateProgress(Progress{
+	task.ApplyProgress(Progress{
 		Status:    TaskStatusStale,
 		Timestamp: time.Now(),
 	})
@@ -49,7 +49,7 @@ func (ds *TaskDomainServiceImpl) MarkTaskStale(task *Task, reason StallReason) e
 func (ds *TaskDomainServiceImpl) RecoverTask(task *Task) error {
 	// e.g., set status back to IN_PROGRESS if it was STALE
 	if task.GetStatus() == TaskStatusStale {
-		task.UpdateProgress(Progress{
+		task.ApplyProgress(Progress{
 			Status:    TaskStatusInProgress,
 			Timestamp: time.Now(),
 		})

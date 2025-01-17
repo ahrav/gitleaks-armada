@@ -2,6 +2,7 @@ package scanning
 
 import (
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -167,19 +168,6 @@ func NewScanTask(jobID uuid.UUID, taskID uuid.UUID) *Task {
 	}
 }
 
-// UpdateProgress applies a progress update to this task's state.
-// It updates all monitoring metrics and preserves any checkpoint data.
-func (t *Task) UpdateProgress(progress Progress) {
-	t.lastSequenceNum = progress.SequenceNum
-	t.status = progress.Status
-	t.lastUpdate = progress.Timestamp
-	t.itemsProcessed += progress.ItemsProcessed
-	t.progressDetails = progress.ProgressDetails
-	if progress.Checkpoint != nil {
-		t.lastCheckpoint = progress.Checkpoint
-	}
-}
-
 // GetJobID returns the identifier of the parent job containing this task.
 func (t *Task) GetJobID() uuid.UUID { return t.jobID }
 
@@ -203,6 +191,56 @@ func (t *Task) LastCheckpoint() *Checkpoint { return t.lastCheckpoint }
 func (t *Task) ProgressDetails() []byte { return t.progressDetails }
 
 func (t *Task) StartTime() time.Time { return t.startTime }
+
+// OutOfOrderProgressError is an error type for indicating that a progress update
+// is out of order and should be ignored.
+type OutOfOrderProgressError struct {
+	taskID     uuid.UUID
+	seqNum     int64
+	lastSeqNum int64
+}
+
+// NewOutOfOrderProgressError creates a new OutOfOrderProgressError.
+func NewOutOfOrderProgressError(taskID uuid.UUID, seqNum, lastSeqNum int64) *OutOfOrderProgressError {
+	return &OutOfOrderProgressError{
+		taskID:     taskID,
+		seqNum:     seqNum,
+		lastSeqNum: lastSeqNum,
+	}
+}
+
+// Error returns a string representation of the error.
+func (e *OutOfOrderProgressError) Error() string {
+	return fmt.Sprintf("out of order progress update for task %s: sequence number %d is less than or equal to the last sequence number %d", e.taskID, e.seqNum, e.lastSeqNum)
+}
+
+// ApplyProgress applies a progress update to this task's state.
+// It updates all monitoring metrics and preserves any checkpoint data.
+func (t *Task) ApplyProgress(progress Progress) error {
+	if !t.canApplyProgress(progress) {
+		return NewOutOfOrderProgressError(t.GetTaskID(), progress.SequenceNum, t.GetLastSequenceNum())
+	}
+
+	t.updateProgress(progress)
+	return nil
+}
+
+func (t *Task) canApplyProgress(progress Progress) bool {
+	return progress.SequenceNum > t.lastSequenceNum
+}
+
+// UpdateProgress applies a progress update to this task's state.
+// It updates all monitoring metrics and preserves any checkpoint data.
+func (t *Task) updateProgress(progress Progress) {
+	t.lastSequenceNum = progress.SequenceNum
+	t.status = progress.Status
+	t.lastUpdate = progress.Timestamp
+	t.itemsProcessed += progress.ItemsProcessed
+	t.progressDetails = progress.ProgressDetails
+	if progress.Checkpoint != nil {
+		t.lastCheckpoint = progress.Checkpoint
+	}
+}
 
 // GetSummary returns a TaskSummary containing the key metrics and status
 // for this task's execution progress.
