@@ -13,13 +13,13 @@ import (
 // ProgressTracker provides a unified interface for progress tracking across the system
 type ProgressTracker interface {
 	// StartTracking begins monitoring a task's progress.
-	StartTracking(ctx context.Context, jobID, taskID uuid.UUID) error
-
-	// StopTracking ends monitoring for a task.
-	StopTracking(ctx context.Context, taskID uuid.UUID) error
+	StartTracking(ctx context.Context, evt scanning.TaskStartedEvent) error
 
 	// UpdateProgress handles incoming progress events.
 	UpdateProgress(ctx context.Context, evt scanning.TaskProgressedEvent) error
+
+	// StopTracking ends monitoring for a task.
+	StopTracking(ctx context.Context, evt scanning.TaskCompletedEvent) error
 
 	// GetJobProgress retrieves current job progress.
 	GetJobProgress(ctx context.Context, jobID uuid.UUID) (*scanning.Progress, error)
@@ -49,11 +49,11 @@ func NewProgressTracker(
 	}
 }
 
-func (t *progressTracker) StartTracking(ctx context.Context, jobID, taskID uuid.UUID) error {
+func (t *progressTracker) StartTracking(ctx context.Context, evt scanning.TaskStartedEvent) error {
 	return nil
 }
 
-func (t *progressTracker) StopTracking(ctx context.Context, taskID uuid.UUID) error {
+func (t *progressTracker) StopTracking(ctx context.Context, evt scanning.TaskCompletedEvent) error {
 	return nil
 }
 

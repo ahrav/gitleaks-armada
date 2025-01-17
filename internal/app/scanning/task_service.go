@@ -18,6 +18,9 @@ import (
 // It provides a high-level interface for task operations while handling the underlying
 // complexity of caching, persistence, and domain rules.
 type ScanTaskService interface {
+	// StartTask begins tracking a new task.
+	StartTask(ctx context.Context, task *domain.Task) error
+
 	// UpdateProgress processes a status update from a running scanner task.
 	// It maintains the task's execution state and enables monitoring of scan progress.
 	// The update is cached in memory and periodically persisted based on configured intervals.
@@ -44,7 +47,6 @@ type TaskService struct {
 	tasksCache map[uuid.UUID]*domain.Task
 
 	taskRepo domain.TaskRepository
-	// checkpointRepo   domain.CheckpointRepository
 
 	persistInterval  time.Duration // How often to persist task state to storage
 	staleTaskTimeout time.Duration // Duration after which a task is considered stale
@@ -55,30 +57,68 @@ type TaskService struct {
 	tracer trace.Tracer
 }
 
-// NewScanTaskServiceImpl creates a new task service with the provided dependencies.
+// NewTaskService creates a new task service with the provided dependencies.
 // It initializes an in-memory cache and configures persistence/timeout intervals.
-func NewScanTaskServiceImpl(
+func NewTaskService(
 	taskRepo domain.TaskRepository,
-	// checkpointRepo domain.CheckpointRepository,
 	domainSvc domain.TaskDomainService,
 	persistInterval time.Duration,
 	staleTimeout time.Duration,
+	tracer trace.Tracer,
 ) *TaskService {
 	const defaultTaskCacheSize = 1000
 	return &TaskService{
-		tasksCache: make(map[uuid.UUID]*domain.Task, defaultTaskCacheSize),
-		taskRepo:   taskRepo,
-		// checkpointRepo:    checkpointRepo,
+		tasksCache:        make(map[uuid.UUID]*domain.Task, defaultTaskCacheSize),
+		taskRepo:          taskRepo,
 		persistInterval:   persistInterval,
 		staleTaskTimeout:  staleTimeout,
 		taskDomainService: domainSvc,
+		tracer:            tracer,
 	}
+}
+
+func (s *TaskService) StartTask(ctx context.Context, task *domain.Task) error {
+	taskID, jobID := task.GetTaskID(), task.GetJobID()
+	ctx, span := s.tracer.Start(ctx, "task_service.scanning.start_task",
+		trace.WithAttributes(
+			attribute.String("task_id", taskID.String()),
+			attribute.String("job_id", jobID.String()),
+		))
+	defer span.End()
+
+	s.mu.RLock()
+	_, exists := s.tasksCache[taskID]
+	s.mu.RUnlock()
+	if exists {
+		span.AddEvent("task_already_exists")
+		span.SetStatus(codes.Error, "task already exists")
+		return fmt.Errorf("task %s already exists", taskID)
+	}
+
+	newTask := domain.NewScanTask(jobID, taskID)
+
+	if err := s.taskRepo.CreateTask(ctx, newTask); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to persist new task")
+		return fmt.Errorf("failed to persist new task: %w", err)
+	}
+	span.AddEvent("new_task_created")
+
+	s.mu.Lock()
+	s.tasksCache[taskID] = newTask
+	s.mu.Unlock()
+	span.AddEvent("new_task_cached")
+
+	span.AddEvent("new_task_started")
+	span.SetStatus(codes.Ok, "new task started")
+
+	return nil
 }
 
 // UpdateProgress handles a task progress update by coordinating cache access,
 // domain logic, and persistence operations.
 func (s *TaskService) UpdateProgress(ctx context.Context, progress domain.Progress) error {
-	ctx, span := s.tracer.Start(ctx, "scan_task_service.update_progress",
+	ctx, span := s.tracer.Start(ctx, "task_service.scanning.update_progress",
 		trace.WithAttributes(
 			attribute.String("task_id", progress.TaskID.String()),
 			attribute.Int64("sequence_num", progress.SequenceNum),
@@ -129,7 +169,7 @@ func (s *TaskService) UpdateProgress(ctx context.Context, progress domain.Progre
 
 // loadTask retrieves a task from storage and adds it to the cache.
 func (s *TaskService) loadTask(ctx context.Context, taskID uuid.UUID) (*domain.Task, error) {
-	ctx, span := s.tracer.Start(ctx, "scan_task_service.load_task")
+	ctx, span := s.tracer.Start(ctx, "task_service.scanning.load_task")
 	defer span.End()
 
 	task, err := s.taskRepo.GetTask(ctx, taskID)
