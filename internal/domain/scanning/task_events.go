@@ -3,6 +3,8 @@ package scanning
 import (
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 )
 
@@ -18,11 +20,11 @@ const (
 // TaskStartedEvent indicates a new task was added to a job.
 type TaskStartedEvent struct {
 	occurredAt time.Time
-	JobID      string
-	TaskID     string
+	JobID      uuid.UUID
+	TaskID     uuid.UUID
 }
 
-func NewTaskStartedEvent(jobID, taskID string) TaskStartedEvent {
+func NewTaskStartedEvent(jobID, taskID uuid.UUID) TaskStartedEvent {
 	return TaskStartedEvent{
 		occurredAt: time.Now(),
 		JobID:      jobID,
@@ -52,13 +54,13 @@ func (e TaskProgressedEvent) OccurredAt() time.Time       { return e.occurredAt 
 // TaskStaleEvent means the task was marked STALE (e.g., no progress updates).
 type TaskStaleEvent struct {
 	occurredAt   time.Time
-	JobID        string
-	TaskID       string
+	JobID        uuid.UUID
+	TaskID       uuid.UUID
 	Reason       StallReason
 	StalledSince time.Time
 }
 
-func NewTaskStaleEvent(jobID, taskID string, reason StallReason, since time.Time) TaskStaleEvent {
+func NewTaskStaleEvent(jobID, taskID uuid.UUID, reason StallReason, since time.Time) TaskStaleEvent {
 	return TaskStaleEvent{
 		occurredAt:   time.Now(),
 		JobID:        jobID,
@@ -74,11 +76,11 @@ func (e TaskStaleEvent) OccurredAt() time.Time       { return e.occurredAt }
 // TaskCompletedEvent means the task is done scanning successfully.
 type TaskCompletedEvent struct {
 	occurredAt time.Time
-	JobID      string
-	TaskID     string
+	JobID      uuid.UUID
+	TaskID     uuid.UUID
 }
 
-func NewTaskCompletedEvent(jobID, taskID string) TaskCompletedEvent {
+func NewTaskCompletedEvent(jobID, taskID uuid.UUID) TaskCompletedEvent {
 	return TaskCompletedEvent{
 		occurredAt: time.Now(),
 		JobID:      jobID,
@@ -92,12 +94,12 @@ func (e TaskCompletedEvent) OccurredAt() time.Time       { return e.occurredAt }
 // TaskFailedEvent means the task encountered a failure it can’t recover from.
 type TaskFailedEvent struct {
 	occurredAt time.Time
-	JobID      string
-	TaskID     string
+	JobID      uuid.UUID
+	TaskID     uuid.UUID
 	Reason     string
 }
 
-func NewTaskFailedEvent(jobID, taskID, reason string) TaskFailedEvent {
+func NewTaskFailedEvent(jobID, taskID uuid.UUID, reason string) TaskFailedEvent {
 	return TaskFailedEvent{
 		occurredAt: time.Now(),
 		JobID:      jobID,

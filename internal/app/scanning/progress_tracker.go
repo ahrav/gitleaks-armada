@@ -2,8 +2,11 @@ package scanning
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
@@ -50,6 +53,30 @@ func NewProgressTracker(
 }
 
 func (t *progressTracker) StartTracking(ctx context.Context, evt scanning.TaskStartedEvent) error {
+	taskID, jobID := evt.TaskID, evt.JobID
+	ctx, span := t.tracer.Start(ctx, "progress_tracker.scanning.start_tracking",
+		trace.WithAttributes(
+			attribute.String("task_id", taskID.String()),
+			attribute.String("job_id", jobID.String()),
+		))
+	defer span.End()
+
+	task, err := t.taskService.StartTask(ctx, jobID, taskID)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to start task tracking")
+		return fmt.Errorf("failed to start task tracking: %w", err)
+	}
+	span.AddEvent("task_started")
+
+	if err := t.jobService.OnTaskStarted(ctx, jobID, task); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to notify job service of task start")
+		return fmt.Errorf("failed to notify job service of task start: %w", err)
+	}
+	span.AddEvent("job_service_notified")
+	span.SetStatus(codes.Ok, "tracking started")
+
 	return nil
 }
 

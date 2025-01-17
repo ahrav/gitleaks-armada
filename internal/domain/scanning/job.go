@@ -1,6 +1,7 @@
 package scanning
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -99,14 +100,39 @@ func (j *ScanJob) GetTargetIDs() []uuid.UUID { return j.targetIDs }
 func (j *ScanJob) GetLastUpdateTime() time.Time { return j.timeline.LastUpdate() }
 
 // AssociateTargets links a scan target with this job.
-func (j *ScanJob) AssociateTargets(targetIDs []uuid.UUID) { j.targetIDs = append(j.targetIDs, targetIDs...) }
+func (j *ScanJob) AssociateTargets(targetIDs []uuid.UUID) {
+	j.targetIDs = append(j.targetIDs, targetIDs...)
+}
+
+// JobStartError is an error type for indicating that a job start operation failed.
+type JobStartError struct {
+	message string
+}
+
+// Error returns a string representation of the error.
+func (e *JobStartError) Error() string {
+	return fmt.Sprintf("job start error: %s", e.message)
+}
 
 // AddTask registers a new scan task with this job and updates task counters.
-func (j *ScanJob) AddTask(task *Task) {
+// In domain/ScanJob
+func (j *ScanJob) AddTask(task *Task) error {
 	j.tasks[task.TaskID] = task
 	j.metrics.SetTotalTasks(len(j.tasks))
+
+	// If this is our first task and we're queued, transition to running.
+	if len(j.tasks) == 1 {
+		if j.status != JobStatusQueued {
+			return &JobStartError{message: "job is not in a valid state to start"}
+		}
+		j.status = JobStatusRunning
+		j.timeline.MarkStarted()
+	}
+
 	j.updateStatusCounters()
 	j.timeline.UpdateLastUpdate()
+
+	return nil
 }
 
 // UpdateTask applies changes to a task's state via the provided update function.

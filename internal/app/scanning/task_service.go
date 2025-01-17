@@ -19,7 +19,7 @@ import (
 // complexity of caching, persistence, and domain rules.
 type ScanTaskService interface {
 	// StartTask begins tracking a new task.
-	StartTask(ctx context.Context, task *domain.Task) error
+	StartTask(ctx context.Context, jobID, taskID uuid.UUID) (*domain.Task, error)
 
 	// UpdateProgress processes a status update from a running scanner task.
 	// It maintains the task's execution state and enables monitoring of scan progress.
@@ -28,7 +28,7 @@ type ScanTaskService interface {
 
 	// GetTask retrieves the current state of a specific task within a job.
 	// This allows external components to monitor task execution and handle failures.
-	GetTask(ctx context.Context, jobID, taskID string) (*domain.Task, error)
+	GetTask(ctx context.Context, jobID, taskID uuid.UUID) (*domain.Task, error)
 
 	// MarkTaskStale flags a task that has become unresponsive or stopped reporting progress.
 	// This enables automated detection and recovery of failed tasks that require intervention.
@@ -77,8 +77,7 @@ func NewTaskService(
 	}
 }
 
-func (s *TaskService) StartTask(ctx context.Context, task *domain.Task) error {
-	taskID, jobID := task.GetTaskID(), task.GetJobID()
+func (s *TaskService) StartTask(ctx context.Context, jobID, taskID uuid.UUID) (*domain.Task, error) {
 	ctx, span := s.tracer.Start(ctx, "task_service.scanning.start_task",
 		trace.WithAttributes(
 			attribute.String("task_id", taskID.String()),
@@ -92,7 +91,7 @@ func (s *TaskService) StartTask(ctx context.Context, task *domain.Task) error {
 	if exists {
 		span.AddEvent("task_already_exists")
 		span.SetStatus(codes.Error, "task already exists")
-		return fmt.Errorf("task %s already exists", taskID)
+		return nil, fmt.Errorf("task %s already exists", taskID)
 	}
 
 	newTask := domain.NewScanTask(jobID, taskID)
@@ -100,7 +99,7 @@ func (s *TaskService) StartTask(ctx context.Context, task *domain.Task) error {
 	if err := s.taskRepo.CreateTask(ctx, newTask); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to persist new task")
-		return fmt.Errorf("failed to persist new task: %w", err)
+		return nil, fmt.Errorf("failed to persist new task: %w", err)
 	}
 	span.AddEvent("new_task_created")
 
@@ -112,7 +111,7 @@ func (s *TaskService) StartTask(ctx context.Context, task *domain.Task) error {
 	span.AddEvent("new_task_started")
 	span.SetStatus(codes.Ok, "new task started")
 
-	return nil
+	return newTask, nil
 }
 
 // UpdateProgress handles a task progress update by coordinating cache access,

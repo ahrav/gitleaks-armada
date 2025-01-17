@@ -14,65 +14,49 @@ func TestScanJob_AddTask(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
-		job  *ScanJob
-		task *Task
-		want struct {
-			totalTasks     int
-			completedTasks int
-			failedTasks    int
-			status         JobStatus
-		}
+		name      string
+		setupJob  func() *ScanJob
+		wantErr   bool
+		wantState JobStatus
 	}{
 		{
-			name: "add first task",
-			job:  NewScanJob(),
-			task: &Task{
-				CoreTask: shared.CoreTask{
-					TaskID: uuid.New(),
-				},
-				jobID:  uuid.New(),
-				status: TaskStatusInitialized,
+			name: "add first task to queued job",
+			setupJob: func() *ScanJob {
+				return NewScanJob()
 			},
-			want: struct {
-				totalTasks     int
-				completedTasks int
-				failedTasks    int
-				status         JobStatus
-			}{
-				totalTasks:     1,
-				completedTasks: 0,
-				failedTasks:    0,
-				status:         JobStatusQueued,
-			},
+			wantErr:   false,
+			wantState: JobStatusRunning,
 		},
 		{
-			name: "add completed task",
-			job: &ScanJob{
-				jobID:    uuid.New(),
-				tasks:    make(map[uuid.UUID]*Task),
-				metrics:  NewJobMetrics(),
-				timeline: NewTimeline(new(realTimeProvider)),
-				status:   JobStatusQueued,
+			name: "add task to already running job",
+			setupJob: func() *ScanJob {
+				job := NewScanJob()
+				task := NewScanTask(job.GetJobID(), uuid.New())
+				_ = job.AddTask(task) // First task transitions to running
+				return job
 			},
-			task: &Task{
-				CoreTask: shared.CoreTask{
-					TaskID: uuid.New(),
-				},
-				jobID:  uuid.New(),
-				status: TaskStatusCompleted,
+			wantErr:   false,
+			wantState: JobStatusRunning,
+		},
+		{
+			name: "add task to completed job",
+			setupJob: func() *ScanJob {
+				job := NewScanJob()
+				job.status = JobStatusCompleted
+				return job
 			},
-			want: struct {
-				totalTasks     int
-				completedTasks int
-				failedTasks    int
-				status         JobStatus
-			}{
-				totalTasks:     1,
-				completedTasks: 1,
-				failedTasks:    0,
-				status:         JobStatusCompleted,
+			wantErr:   true,
+			wantState: JobStatusCompleted,
+		},
+		{
+			name: "add task to failed job",
+			setupJob: func() *ScanJob {
+				job := NewScanJob()
+				job.status = JobStatusFailed
+				return job
 			},
+			wantErr:   true,
+			wantState: JobStatusFailed,
 		},
 	}
 
@@ -80,16 +64,24 @@ func TestScanJob_AddTask(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
+			job := tt.setupJob()
 			beforeAdd := time.Now()
-			tt.job.AddTask(tt.task)
+			err := job.AddTask(NewScanTask(job.GetJobID(), uuid.New()))
 			afterAdd := time.Now()
 
-			assert.Equal(t, tt.want.totalTasks, tt.job.metrics.TotalTasks())
-			assert.Equal(t, tt.want.completedTasks, tt.job.metrics.CompletedTasks())
-			assert.Equal(t, tt.want.failedTasks, tt.job.metrics.FailedTasks())
-			assert.Equal(t, tt.want.status, tt.job.status)
-			assert.True(t, tt.job.timeline.LastUpdate().After(beforeAdd) || tt.job.timeline.LastUpdate().Equal(beforeAdd))
-			assert.True(t, tt.job.timeline.LastUpdate().Before(afterAdd) || tt.job.timeline.LastUpdate().Equal(afterAdd))
+			if tt.wantErr {
+				assert.Error(t, err)
+				var jobStartErr *JobStartError
+				assert.ErrorAs(t, err, &jobStartErr)
+			} else {
+				assert.NoError(t, err)
+				assert.True(t, job.timeline.LastUpdate().After(beforeAdd) ||
+					job.timeline.LastUpdate().Equal(beforeAdd))
+				assert.True(t, job.timeline.LastUpdate().Before(afterAdd) ||
+					job.timeline.LastUpdate().Equal(afterAdd))
+			}
+
+			assert.Equal(t, tt.wantState, job.GetStatus())
 		})
 	}
 }

@@ -15,9 +15,6 @@ import (
 type TaskStatus string
 
 const (
-	// TaskStatusInitialized indicates a task is queued but not yet processing.
-	TaskStatusInitialized TaskStatus = "INITIALIZED"
-
 	// TaskStatusInProgress indicates a task is actively scanning.
 	TaskStatusInProgress TaskStatus = "IN_PROGRESS"
 
@@ -163,7 +160,7 @@ func NewScanTask(jobID uuid.UUID, taskID uuid.UUID) *Task {
 			TaskID: taskID,
 		},
 		jobID:     jobID,
-		status:    TaskStatusInitialized,
+		status:    TaskStatusInProgress,
 		startTime: time.Now(),
 	}
 }

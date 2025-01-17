@@ -62,7 +62,7 @@ func TestTaskStore_CreateAndGet(t *testing.T) {
 
 	job := createTestScanJob(t, jobStore, ctx)
 
-	task := createTestTask(t, job.GetJobID(), scanning.TaskStatusInitialized)
+	task := createTestTask(t, job.GetJobID(), scanning.TaskStatusInProgress)
 	err := taskStore.CreateTask(ctx, task)
 	require.NoError(t, err)
 
@@ -85,7 +85,7 @@ func TestTaskStore_UpdateTask(t *testing.T) {
 
 	job := createTestScanJob(t, jobStore, ctx)
 
-	task := createTestTask(t, job.GetJobID(), scanning.TaskStatusInitialized)
+	task := createTestTask(t, job.GetJobID(), scanning.TaskStatusInProgress)
 	err := taskStore.CreateTask(ctx, task)
 	require.NoError(t, err)
 
@@ -131,7 +131,7 @@ func TestTaskStore_ListTasksByJobAndStatus(t *testing.T) {
 
 	job := createTestScanJob(t, jobStore, ctx)
 	jobID := job.GetJobID()
-	status := scanning.TaskStatusInitialized
+	status := scanning.TaskStatusInProgress
 
 	// Create multiple tasks.
 	tasks := make([]*scanning.Task, 3)
@@ -194,7 +194,7 @@ func TestTaskStore_CreateDuplicate(t *testing.T) {
 
 	job := createTestScanJob(t, jobStore, ctx)
 
-	task := createTestTask(t, job.GetJobID(), scanning.TaskStatusInitialized)
+	task := createTestTask(t, job.GetJobID(), scanning.TaskStatusInProgress)
 
 	// First creation should succeed.
 	err := taskStore.CreateTask(ctx, task)
@@ -224,7 +224,7 @@ func TestTaskStore_ListTasksByJobAndStatus_EmptyResult(t *testing.T) {
 
 	job := createTestScanJob(t, jobStore, ctx)
 
-	listed, err := taskStore.ListTasksByJobAndStatus(ctx, job.GetJobID(), scanning.TaskStatusInitialized)
+	listed, err := taskStore.ListTasksByJobAndStatus(ctx, job.GetJobID(), scanning.TaskStatusInProgress)
 	require.NoError(t, err)
 	assert.Empty(t, listed)
 }
@@ -234,7 +234,7 @@ func TestTaskStore_CreateTask_NonExistentJob(t *testing.T) {
 	ctx, _, taskStore, _, cleanup := setupTaskTest(t)
 	defer cleanup()
 
-	task := createTestTask(t, uuid.New(), scanning.TaskStatusInitialized)
+	task := createTestTask(t, uuid.New(), scanning.TaskStatusInProgress)
 	err := taskStore.CreateTask(ctx, task)
 	require.Error(t, err, "should fail when parent job doesn't exist")
 }
