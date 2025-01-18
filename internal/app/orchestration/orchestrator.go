@@ -146,7 +146,7 @@ func (o *Orchestrator) Run(ctx context.Context) (<-chan struct{}, error) {
 	leaderCh := make(chan bool, 1)
 
 	// 3) Use an ephemeral span for subscribing to progress events.
-	_, subscribeSpan := o.tracer.Start(runCtx, "orchestrator.subscribe_events",
+	_, subscribeSpan := o.tracer.Start(orchestratorCtx, "orchestrator.subscribe_events",
 		trace.WithAttributes(
 			attribute.String("orchestrator_id", o.id),
 		))
