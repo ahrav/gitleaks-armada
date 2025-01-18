@@ -435,28 +435,72 @@ func (o *Orchestrator) resumeEnumerations(ctx context.Context, states []*enumera
 }
 
 func (o *Orchestrator) handleProgressEvent(ctx context.Context, evt events.EventEnvelope) error {
+	ctx, span := o.tracer.Start(ctx, "orchestrator.handle_progress_event",
+		trace.WithAttributes(
+			attribute.String("event_type", string(evt.Type)),
+		))
+	defer span.End()
+
 	handler, exists := o.progressHandlers[evt.Type]
 	if !exists {
+		span.SetStatus(codes.Error, "no handler registered for event type")
+		span.RecordError(fmt.Errorf("no handler registered for event type: %s", evt.Type))
 		return fmt.Errorf("no handler registered for event type: %s", evt.Type)
 	}
+	span.AddEvent("handler_found")
+
 	return handler(ctx, evt)
 }
 
-// Individual handlers stay focused and clean
 func (o *Orchestrator) handleTaskStarted(ctx context.Context, evt events.EventEnvelope) error {
+	ctx, span := o.tracer.Start(ctx, "orchestrator.handle_task_started")
+	defer span.End()
+
+	span.AddEvent("processing_task_started")
+
 	startedEvt, ok := evt.Payload.(scanning.TaskStartedEvent)
 	if !ok {
+		span.RecordError(fmt.Errorf("invalid event payload type: %T", evt.Payload))
+		span.SetStatus(codes.Error, "invalid event payload type")
 		return fmt.Errorf("invalid event payload type: %T", evt.Payload)
 	}
-	return o.progressTracker.StartTracking(ctx, startedEvt)
+	span.AddEvent("task_started_tracking", trace.WithAttributes(
+		attribute.String("task_id", startedEvt.TaskID.String()),
+		attribute.String("job_id", startedEvt.JobID.String()),
+	))
+
+	if err := o.progressTracker.StartTracking(ctx, startedEvt); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to start tracking task")
+		return fmt.Errorf("failed to start tracking task: %w", err)
+	}
+	span.AddEvent("task_started_tracking_completed")
+
+	return nil
 }
 
 func (o *Orchestrator) handleTaskProgressed(ctx context.Context, evt events.EventEnvelope) error {
+	ctx, span := o.tracer.Start(ctx, "orchestrator.handle_task_progressed")
+	defer span.End()
+
+	span.AddEvent("processing_task_progressed")
+
 	progressEvt, ok := evt.Payload.(scanning.TaskProgressedEvent)
 	if !ok {
+		span.RecordError(fmt.Errorf("invalid event payload type: %T", evt.Payload))
+		span.SetStatus(codes.Error, "invalid event payload type")
 		return fmt.Errorf("invalid event payload type: %T", evt.Payload)
 	}
-	return o.progressTracker.UpdateProgress(ctx, progressEvt)
+	span.AddEvent("task_progressed_event_valid")
+
+	if err := o.progressTracker.UpdateProgress(ctx, progressEvt); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to update progress")
+		return fmt.Errorf("failed to update progress: %w", err)
+	}
+	span.AddEvent("task_progressed_event_updated")
+
+	return nil
 }
 
 // Stop gracefully shuts down the controller if it is running.

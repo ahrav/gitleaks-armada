@@ -14,4 +14,4 @@ data:
   POSTGRES_DB: "secretscanner"
   POSTGRES_USER: "postgres"
   OTEL_EXPORTER_OTLP_ENDPOINT: "otel-collector.secret-scanner.svc.cluster.local:4317"
-  OTEL_SAMPLING_RATIO: "0.5"
+  OTEL_SAMPLING_RATIO: "1.0"

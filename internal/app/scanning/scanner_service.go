@@ -208,6 +208,8 @@ func (s *ScannerService) handleScanTask(ctx context.Context, req *dtos.ScanReque
 		trace.WithAttributes(
 			attribute.String("component", "scanner_service"),
 			attribute.String("resource_uri", req.ResourceURI),
+			attribute.String("task_id", req.TaskID.String()),
+			attribute.String("job_id", req.JobID.String()),
 		))
 	defer span.End()
 
@@ -216,15 +218,21 @@ func (s *ScannerService) handleScanTask(ctx context.Context, req *dtos.ScanReque
 
 	startedEvt := scanning.NewTaskStartedEvent(req.JobID, req.TaskID)
 	if err := s.domainPublisher.PublishDomainEvent(ctx, startedEvt, events.WithKey(req.TaskID.String())); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to publish task started event")
 		return fmt.Errorf("failed to publish task started event: %w", err)
 	}
+	span.AddEvent("task_started_event_published")
 
 	return s.metrics.TrackTask(ctx, func() error {
 		if err := s.secretScanner.Scan(ctx, req); err != nil {
 			span.RecordError(err)
-			return err
+			span.SetStatus(codes.Error, "failed to scan")
+			return fmt.Errorf("failed to scan: %w", err)
 		}
 		span.AddEvent("scan_completed")
+		span.SetStatus(codes.Ok, "scan completed")
+
 		return nil
 	})
 }
