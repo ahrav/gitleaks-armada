@@ -179,13 +179,14 @@ func main() {
 	}
 
 	kafkaCfg := &kafka.Config{
-		Brokers:       strings.Split(os.Getenv("KAFKA_BROKERS"), ","),
-		TaskTopic:     os.Getenv("KAFKA_TASK_TOPIC"),
-		ResultsTopic:  os.Getenv("KAFKA_RESULTS_TOPIC"),
-		RulesTopic:    os.Getenv("KAFKA_RULES_TOPIC"),
-		GroupID:       os.Getenv("KAFKA_GROUP_ID"),
-		ProgressTopic: os.Getenv("KAFKA_PROGRESS_TOPIC"),
-		ClientID:      fmt.Sprintf("controller-%s", hostname),
+		Brokers:              strings.Split(os.Getenv("KAFKA_BROKERS"), ","),
+		EnumerationTaskTopic: os.Getenv("KAFKA_ENUMERATION_TASK_TOPIC"),
+		ScanningTaskTopic:    os.Getenv("KAFKA_SCANNING_TASK_TOPIC"),
+		ResultsTopic:         os.Getenv("KAFKA_RESULTS_TOPIC"),
+		RulesTopic:           os.Getenv("KAFKA_RULES_TOPIC"),
+		GroupID:              os.Getenv("KAFKA_GROUP_ID"),
+		ProgressTopic:        os.Getenv("KAFKA_PROGRESS_TOPIC"),
+		ClientID:             fmt.Sprintf("controller-%s", hostname),
 	}
 	broker, err := kafka.ConnectWithRetry(kafkaCfg, log, metricCollector, tracer)
 	if err != nil {
@@ -203,7 +204,7 @@ func main() {
 	enumFactory := enumeration.NewEnumerationFactory(http.DefaultClient, tracer)
 	enumTaskStorage := enumStore.NewTaskStore(pool, tracer)
 	batchStorage := enumStore.NewBatchStore(pool, checkpointStorage, tracer)
-	enumService := enumeration.NewCoordinator(
+	enumCoord := enumeration.NewCoordinator(
 		scanTargetRepo,
 		githubTargetRepo,
 		urlTargetRepo,
@@ -212,7 +213,6 @@ func main() {
 		checkpointStorage,
 		enumTaskStorage,
 		enumFactory,
-		eventPublisher,
 		log,
 		metricCollector,
 		tracer,
@@ -226,7 +226,7 @@ func main() {
 		coord,
 		broker,
 		eventPublisher,
-		enumService,
+		enumCoord,
 		rulesService,
 		scanJobRepo,
 		enumStateStorage,

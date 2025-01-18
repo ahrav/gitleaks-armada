@@ -12,6 +12,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/rules"
+	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/internal/infra/eventbus/kafka/tracing"
 	"github.com/ahrav/gitleaks-armada/internal/infra/eventbus/serialization"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
@@ -32,8 +33,10 @@ type Config struct {
 	// Brokers is a list of Kafka broker addresses to connect to.
 	Brokers []string
 
-	// TaskTopic is the topic name for publishing scan tasks.
-	TaskTopic string
+	// EnumerationTaskTopic is the topic name for publishing enumeration tasks.
+	EnumerationTaskTopic string
+	// ScanningTaskTopic is the topic name for publishing scanning tasks.
+	ScanningTaskTopic string
 	// ResultsTopic is the topic name for publishing scan results.
 	ResultsTopic string
 	// ProgressTopic is the topic name for publishing scan progress updates.
@@ -55,7 +58,8 @@ type KafkaEventBus struct {
 	producer      sarama.SyncProducer
 	consumerGroup sarama.ConsumerGroup
 
-	taskTopic     string
+	enumTaskTopic string
+	scanTaskTopic string
 	resultsTopic  string
 	progressTopic string
 	rulesTopic    string
@@ -111,17 +115,19 @@ func NewKafkaEventBusFromConfig(
 	// Map domain events to their corresponding Kafka topics to enable
 	// type-safe event routing.
 	topicsMap := map[events.EventType]string{
-		enumeration.EventTypeTaskCreated:    cfg.TaskTopic,
+		enumeration.EventTypeTaskCreated:    cfg.EnumerationTaskTopic,
 		events.EventTypeScanResultReceived:  cfg.ResultsTopic,
 		events.EventTypeScanProgressUpdated: cfg.ProgressTopic,
 		rules.EventTypeRuleUpdated:          cfg.RulesTopic,
+		scanning.EventTypeTaskStarted:       cfg.ScanningTaskTopic,
 	}
 
 	bus := &KafkaEventBus{
 		producer:      producer,
 		consumerGroup: consumerGroup,
 
-		taskTopic:     cfg.TaskTopic,
+		enumTaskTopic: cfg.EnumerationTaskTopic,
+		scanTaskTopic: cfg.ScanningTaskTopic,
 		resultsTopic:  cfg.ResultsTopic,
 		progressTopic: cfg.ProgressTopic,
 		rulesTopic:    cfg.RulesTopic,

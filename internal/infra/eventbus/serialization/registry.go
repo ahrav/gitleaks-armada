@@ -17,6 +17,7 @@ package serialization
 import (
 	"fmt"
 
+	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
@@ -92,7 +93,7 @@ func serializeEnumerationTaskCreated(payload any) ([]byte, error) {
 	if !ok {
 		return nil, fmt.Errorf("serializeEnumerationTaskCreated: payload is not TaskCreatedEvent, got %T", payload)
 	}
-	pbTask := protobuf.TaskToProto(event.Task)
+	pbTask := protobuf.TaskToProto(event.Task, event.JobID)
 	return proto.Marshal(pbTask)
 }
 
@@ -103,7 +104,7 @@ func deserializeEnumerationTaskCreated(data []byte) (any, error) {
 		return nil, fmt.Errorf("unmarshal EnumerationTask: %w", err)
 	}
 	t := protobuf.ProtoToTask(&pbTask)
-	return enumeration.NewTaskCreatedEvent(t), nil
+	return enumeration.NewTaskCreatedEvent(uuid.MustParse(pbTask.JobId), t), nil
 }
 
 // serializeRuleUpdated converts a RuleUpdatedEvent to protobuf bytes.

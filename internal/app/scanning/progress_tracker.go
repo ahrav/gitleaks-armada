@@ -13,24 +13,33 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
 
-// ProgressTracker provides a unified interface for progress tracking across the system
+// ProgressTracker coordinates task and job progress monitoring across the system.
+// It provides a unified interface for tracking scan execution, enabling real-time
+// status updates and progress reporting for both individual tasks and overall jobs.
 type ProgressTracker interface {
-	// StartTracking begins monitoring a task's progress.
+	// StartTracking begins monitoring a task's progress and notifies the job service.
+	// This establishes initial tracking state and ensures proper job status transitions.
 	StartTracking(ctx context.Context, evt scanning.TaskStartedEvent) error
 
-	// UpdateProgress handles incoming progress events.
+	// UpdateProgress processes incoming progress events from running tasks.
+	// This maintains up-to-date execution state and enables progress monitoring.
 	UpdateProgress(ctx context.Context, evt scanning.TaskProgressedEvent) error
 
-	// StopTracking ends monitoring for a task.
+	// StopTracking finalizes monitoring for a completed task.
+	// This ensures proper cleanup and job status updates when tasks finish.
 	StopTracking(ctx context.Context, evt scanning.TaskCompletedEvent) error
 
-	// GetJobProgress retrieves current job progress.
+	// GetJobProgress retrieves aggregated progress metrics for an entire job.
+	// This provides a high-level view of overall job execution status.
 	GetJobProgress(ctx context.Context, jobID uuid.UUID) (*scanning.Progress, error)
 
-	// GetTaskProgress retrieves current task progress.
+	// GetTaskProgress retrieves detailed progress metrics for a specific task.
+	// This enables granular monitoring of individual scan operations.
 	GetTaskProgress(ctx context.Context, taskID uuid.UUID) (*scanning.Progress, error)
 }
 
+// progressTracker implements ProgressTracker by coordinating between task and job services
+// to maintain consistent progress state across the system.
 type progressTracker struct {
 	taskService ScanTaskService
 	jobService  ScanJobService
@@ -38,6 +47,8 @@ type progressTracker struct {
 	tracer      trace.Tracer
 }
 
+// NewProgressTracker creates a new progress tracker with the provided dependencies.
+// It establishes the core components needed for system-wide progress monitoring.
 func NewProgressTracker(
 	taskService ScanTaskService,
 	jobService ScanJobService,
@@ -61,6 +72,7 @@ func (t *progressTracker) StartTracking(ctx context.Context, evt scanning.TaskSt
 		))
 	defer span.End()
 
+	// Initialize task tracking state before notifying job service.
 	task, err := t.taskService.StartTask(ctx, jobID, taskID)
 	if err != nil {
 		span.RecordError(err)

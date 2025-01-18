@@ -3,6 +3,8 @@ package enumeration
 import (
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 )
 
@@ -18,14 +20,16 @@ const (
 // has been created. It references the actual Task struct from this package.
 type TaskCreatedEvent struct {
 	occurredAt time.Time
+	JobID      uuid.UUID
 	Task       *Task
 }
 
 // NewTaskCreatedEvent constructs a TaskCreatedEvent, capturing the current time
 // and embedding the new Task as part of the event payload.
-func NewTaskCreatedEvent(t *Task) TaskCreatedEvent {
+func NewTaskCreatedEvent(jobID uuid.UUID, t *Task) TaskCreatedEvent {
 	return TaskCreatedEvent{
 		occurredAt: time.Now(),
+		JobID:      jobID,
 		Task:       t,
 	}
 }

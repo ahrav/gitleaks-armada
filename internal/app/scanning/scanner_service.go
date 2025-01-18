@@ -153,7 +153,7 @@ func (s *ScannerService) handleTaskEvent(ctx context.Context, evt events.EventEn
 	span.AddEvent("routing_task")
 
 	select {
-	case s.taskEvent <- s.enumACL.ToScanRequest(tce.Task):
+	case s.taskEvent <- s.enumACL.ToScanRequest(&tce):
 		span.AddEvent("task_routed")
 		return nil
 	case <-ctx.Done():
@@ -215,6 +215,11 @@ func (s *ScannerService) handleScanTask(ctx context.Context, req *dtos.ScanReque
 
 	s.logger.Info(ctx, "Handling scan task", "resource_uri", req.ResourceURI)
 	span.AddEvent("starting_scan")
+
+	startedEvt := scanning.NewTaskStartedEvent(req.JobID, req.TaskID)
+	if err := s.domainPublisher.PublishDomainEvent(ctx, startedEvt, events.WithKey(req.TaskID.String())); err != nil {
+		return fmt.Errorf("failed to publish task started event: %w", err)
+	}
 
 	return s.metrics.TrackTask(ctx, func() error {
 		if err := s.secretScanner.Scan(ctx, req); err != nil {

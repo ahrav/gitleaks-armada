@@ -14,41 +14,41 @@ import (
 )
 
 // ScanJobService coordinates the lifecycle of scan jobs and their associated tasks.
-// It provides high-level operations for job management while abstracting the underlying
-// implementation details of task distribution and state management.
-// TODO: Add cleanup daemon to delete jobs. (requirements TBH)
+// It manages job state transitions, task distribution, and provides high-level operations
+// for monitoring job execution across the system. The service abstracts the underlying
+// implementation details to provide a clean interface for job management.
 type ScanJobService interface {
-	// OnTaskStarted is called when a task is started.
-	// This transitions the job to an in-progress state and initiates task distribution.
+	// OnTaskStarted transitions a job to an in-progress state when a new task begins.
+	// This ensures proper job state tracking and enables task distribution.
 	OnTaskStarted(ctx context.Context, jobID uuid.UUID, task *domain.Task) error
 
-	// MarkJobCompleted finalizes a job's execution state.
-	// The job transitions to completed if all tasks succeeded, or failed if any were unsuccessful.
+	// MarkJobCompleted finalizes a job's execution state based on task outcomes.
+	// A job is marked as completed only if all tasks succeeded, otherwise it is marked as failed.
 	MarkJobCompleted(ctx context.Context, jobID uuid.UUID) error
 
-	// GetJob retrieves the current state of a scan job and its tasks.
+	// GetJob retrieves the current state and task details for a specific scan job.
+	// This enables external components to monitor job progress and handle failures.
 	GetJob(ctx context.Context, jobID uuid.UUID) (*domain.Job, error)
 
-	// ListJobs retrieves a paginated list of jobs filtered by status.
-	// This enables monitoring and management of jobs across the system.
+	// ListJobs retrieves a paginated list of jobs filtered by their status.
+	// This supports system-wide job monitoring and management capabilities.
 	ListJobs(ctx context.Context, status []domain.JobStatus, limit, offset int) ([]*domain.Job, error)
 }
 
-// jobService implements the ScanJobService interface, providing concrete implementations
-// for job lifecycle management operations.
+// jobService implements ScanJobService by managing job state through a combination
+// of in-memory caching and persistent storage.
 type jobService struct {
 	mu       sync.RWMutex
-	jobCache map[uuid.UUID]*domain.Job
+	jobCache map[uuid.UUID]*domain.Job // Caches active jobs to reduce database load
 
 	jobRepo domain.JobRepository
-
-	// TODO: Add logger and metrics
-	tracer trace.Tracer
+	tracer  trace.Tracer
 }
 
-// NewJobService creates a new instance of the job service with required dependencies.
+// NewJobService creates a new job service instance with the provided dependencies.
+// It initializes an in-memory cache to optimize job state access.
 func NewJobService(jobRepo domain.JobRepository, tracer trace.Tracer) *jobService {
-	const defaultJobCacheSize = 64
+	const defaultJobCacheSize = 64 // Reasonable default for most workloads
 	return &jobService{
 		jobCache: make(map[uuid.UUID]*domain.Job, defaultJobCacheSize),
 		jobRepo:  jobRepo,
@@ -56,8 +56,7 @@ func NewJobService(jobRepo domain.JobRepository, tracer trace.Tracer) *jobServic
 	}
 }
 
-// OnTaskStarted is called when a task is started.
-// This transitions the job to an in-progress state and initiates task distribution.
+// OnTaskStarted handles the start of a new task within a job.
 func (s *jobService) OnTaskStarted(ctx context.Context, jobID uuid.UUID, task *domain.Task) error {
 	ctx, span := s.tracer.Start(ctx, "job_service.scanning.on_task_started",
 		trace.WithAttributes(
@@ -100,6 +99,8 @@ func (s *jobService) OnTaskStarted(ctx context.Context, jobID uuid.UUID, task *d
 	return nil
 }
 
+// loadJob retrieves a job from persistent storage and caches it for future access.
+// This helps optimize subsequent operations on the same job.
 func (s *jobService) loadJob(ctx context.Context, jobID uuid.UUID) (*domain.Job, error) {
 	ctx, span := s.tracer.Start(ctx, "job_service.scanning.load_job",
 		trace.WithAttributes(

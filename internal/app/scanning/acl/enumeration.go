@@ -12,21 +12,22 @@ import (
 // leakage of domain concepts between contexts.
 type EnumerationACL struct{}
 
-// ToScanRequest converts an enumeration.Task into a scanning domain ScanRequest.
+// ToScanRequest converts an enumeration.TaskCreatedEvent into a scanning domain ScanRequest.
 // This translation allows the scanning domain to remain decoupled from enumeration
 // domain concepts while preserving all necessary scanning information.
-func (acl EnumerationACL) ToScanRequest(task *enumeration.Task) *dtos.ScanRequest {
+func (acl EnumerationACL) ToScanRequest(task *enumeration.TaskCreatedEvent) *dtos.ScanRequest {
 	if task == nil {
 		return nil
 	}
 
 	return &dtos.ScanRequest{
-		TaskID:      task.ID,
-		SourceType:  toScanningSourceType(task.SourceType),
-		SessionID:   task.SessionID(),
-		ResourceURI: task.ResourceURI(),
-		Metadata:    task.Metadata(),
-		Credentials: toScanningCredentials(task.Credentials()),
+		TaskID:      task.Task.ID,
+		JobID:       task.JobID,
+		SourceType:  toScanningSourceType(task.Task.SourceType),
+		SessionID:   task.Task.SessionID(),
+		ResourceURI: task.Task.ResourceURI(),
+		Metadata:    task.Task.Metadata(),
+		Credentials: toScanningCredentials(task.Task.Credentials()),
 	}
 }
 

@@ -6,7 +6,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -273,65 +272,6 @@ func (o *Orchestrator) Enumerate(ctx context.Context) error {
 	return nil
 }
 
-var _ enumCoordinator.ScanTargetCallback = (*orchestratorCallback)(nil)
-
-// orchestratorCallback handles discovered scan targets during enumeration.
-type orchestratorCallback struct {
-	job     *scanning.Job
-	repo    scanning.JobRepository
-	tracer  trace.Tracer
-	logger  *logger.Logger
-	metrics OrchestrationMetrics
-}
-
-// OnScanTargetsDiscovered is called when scan targets are discovered during enumeration.
-// This allows the orchestrator to associate the targets with the job in batches as they are discovered.
-func (oc *orchestratorCallback) OnScanTargetsDiscovered(ctx context.Context, targetIDs []uuid.UUID) {
-	ctx, span := oc.tracer.Start(ctx, "orchestrator.associate_targets",
-		trace.WithAttributes(
-			attribute.String("job_id", oc.job.JobID().String()),
-			attribute.Int("num_targets", len(targetIDs)),
-		))
-	defer span.End()
-
-	oc.metrics.ObserveEnumerationBatchSize(ctx, len(targetIDs))
-	oc.job.AssociateTargets(targetIDs)
-
-	if err := oc.associateTargets(ctx, targetIDs); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to associate targets")
-		oc.logger.Error(ctx, "Failed to associate targets", "error", err)
-		return
-	}
-
-	oc.metrics.ObserveTargetsPerJob(ctx, len(targetIDs))
-	span.AddEvent("targets_associated")
-	span.SetStatus(codes.Ok, "targets associated successfully")
-	oc.logger.Info(ctx, "Targets associated successfully",
-		"job_id", oc.job.JobID(),
-		"num_targets", len(targetIDs))
-}
-
-// associateTargets persists the association of scan targets with a job.
-func (oc *orchestratorCallback) associateTargets(ctx context.Context, targetIDs []uuid.UUID) error {
-	ctx, span := oc.tracer.Start(ctx, "orchestrator.persist_target_associations",
-		trace.WithAttributes(
-			attribute.String("job_id", oc.job.JobID().String()),
-			attribute.Int("num_targets", len(targetIDs)),
-		))
-	defer span.End()
-
-	if err := oc.repo.AssociateTargets(ctx, oc.job.JobID(), targetIDs); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to persist target associations")
-		return fmt.Errorf("failed to persist target associations: %w", err)
-	}
-
-	span.AddEvent("target_associations_persisted")
-	span.SetStatus(codes.Ok, "target associations persisted successfully")
-	return nil
-}
-
 func (o *Orchestrator) startFreshEnumerations(ctx context.Context, cfg *config.Config) error {
 	ctx, span := o.tracer.Start(ctx, "orchestrator.start_fresh_enumerations")
 	defer span.End()
@@ -356,18 +296,52 @@ func (o *Orchestrator) startFreshEnumerations(ctx context.Context, cfg *config.C
 		}
 		o.metrics.IncJobsCreated(ctx)
 
-		cb := &orchestratorCallback{
-			job:     job,
-			repo:    o.jobRepo,
-			tracer:  o.tracer,
-			logger:  o.logger,
-			metrics: o.metrics,
-		}
+		// TODO: Maybe handle this in 2 goroutines?
+		scanTargetCh, taskCh, errCh := o.enumerationService.EnumerateTarget(ctx, target, cfg.Auth)
 
-		if err := o.enumerationService.EnumerateTarget(ctx, target, cfg.Auth, cb); err != nil {
-			o.metrics.IncEnumerationErrors(ctx)
-			targetSpan.RecordError(err)
-			continue
+		done := false
+		for !done {
+			select {
+			case scanTargetIDs, ok := <-scanTargetCh:
+				if !ok {
+					scanTargetCh = nil // channel closed
+				} else {
+					if err := o.jobRepo.AssociateTargets(ctx, job.JobID(), scanTargetIDs); err != nil {
+						o.logger.Error(ctx, "Failed to associate target", "error", err)
+					}
+				}
+
+			case task, ok := <-taskCh:
+				if !ok {
+					taskCh = nil // channel closed
+				} else {
+					if err := o.eventPublisher.PublishDomainEvent(
+						ctx,
+						enumeration.NewTaskCreatedEvent(job.JobID(), task),
+						events.WithKey(job.JobID().String()),
+					); err != nil {
+						o.logger.Error(ctx, "Failed to publish task event", "error", err)
+					}
+				}
+
+			case err, ok := <-errCh:
+				if ok && err != nil {
+					// We got an error from enumerator.
+					o.metrics.IncEnumerationErrors(ctx)
+					targetSpan.RecordError(err)
+					o.logger.Error(ctx, "Enumeration error", "error", err)
+					done = true // let's break out for this target
+				} else {
+					// If !ok, channel closed with no error.
+					errCh = nil
+				}
+
+			default:
+				// If all channels have been set to nil, we’re done reading.
+				if scanTargetCh == nil && taskCh == nil && errCh == nil {
+					done = true
+				}
+			}
 		}
 
 		duration := time.Since(startTime)
@@ -382,7 +356,7 @@ func (o *Orchestrator) startFreshEnumerations(ctx context.Context, cfg *config.C
 	return nil
 }
 
-// createJob persists a new scan job
+// createJob persists a new scan job.
 func (o *Orchestrator) createJob(ctx context.Context, job *scanning.Job) error {
 	ctx, span := o.tracer.Start(ctx, "orchestrator.create_job",
 		trace.WithAttributes(
@@ -417,17 +391,11 @@ func (o *Orchestrator) resumeEnumerations(ctx context.Context, states []*enumera
 			return fmt.Errorf("failed to create job for state %s: %w", state.SessionID(), err)
 		}
 
-		cb := &orchestratorCallback{
-			job:    job,
-			repo:   o.jobRepo,
-			tracer: o.tracer,
-			logger: o.logger,
-		}
-
-		if err := o.enumerationService.ResumeTarget(ctx, state, cb); err != nil {
-			stateSpan.RecordError(err)
-			continue
-		}
+		// TODO: Implement this.
+		// if err := o.enumerationService.ResumeTarget(ctx, state, cb); err != nil {
+		// 	stateSpan.RecordError(err)
+		// 	continue
+		// }
 
 		stateSpan.AddEvent("state_enumeration_completed")
 	}

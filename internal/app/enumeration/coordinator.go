@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"runtime"
 	"sync"
 	"time"
 
@@ -19,26 +20,51 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/config/credentials"
 	"github.com/ahrav/gitleaks-armada/internal/config/credentials/memory"
 	domain "github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
-	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
 
-// ScanTargetCallback is a callback interface for notifying listeners of scan targets discovered.
-type ScanTargetCallback interface {
-	OnScanTargetsDiscovered(ctx context.Context, targetIDs []uuid.UUID)
-}
-
-// Coordinator defines the core domain operations for target enumeration.
+// Coordinator orchestrates the discovery and enumeration of scan targets across different
+// source types. It manages the lifecycle of enumeration sessions to ensure reliable and
+// resumable target discovery, which is critical for handling large-scale scanning operations
+// that may be interrupted.
 type Coordinator interface {
-	// EnumerateTarget handles enumeration for a single target.
-	// It creates a new state record and initializes the enumeration process.
-	// The callback is invoked when scan targets are discovered during enumeration.
-	EnumerateTarget(ctx context.Context, target config.TargetSpec, auth map[string]config.AuthConfig, cb ScanTargetCallback) error
+	// EnumerateTarget initiates target discovery for a new scanning session. It processes
+	// the provided target specification and authentication configuration to discover and
+	// enumerate scannable resources. The operation streams discovered targets and tasks
+	// through channels to enable concurrent processing.
+	//
+	// Returns three channels:
+	// - A channel of target IDs for discovered scannable resources
+	// - A channel of enumeration tasks that need to be processed
+	// - An error channel for reporting any issues during enumeration
+	EnumerateTarget(
+		ctx context.Context,
+		target config.TargetSpec,
+		auth map[string]config.AuthConfig,
+	) (
+		<-chan []uuid.UUID,
+		<-chan *domain.Task,
+		<-chan error,
+	)
 
-	// ResumeTarget continues enumeration for a previously interrupted session.
-	// It picks up from the last checkpoint for the provided session state.
-	ResumeTarget(ctx context.Context, state *domain.SessionState, cb ScanTargetCallback) error
+	// ResumeTarget restarts an interrupted enumeration session from its last saved state.
+	// This enables fault tolerance by allowing long-running enumerations to recover from
+	// failures without losing progress. The operation continues streaming newly discovered
+	// targets and tasks from the last checkpoint.
+	//
+	// Returns three channels:
+	// - A channel of target IDs for newly discovered resources
+	// - A channel of enumeration tasks that need to be processed
+	// - An error channel for reporting any issues during resumption
+	ResumeTarget(
+		ctx context.Context,
+		state *domain.SessionState,
+	) (
+		<-chan []uuid.UUID,
+		<-chan *domain.Task,
+		<-chan error,
+	)
 }
 
 // metrics defines the interface for tracking enumeration-related metrics.
@@ -50,33 +76,25 @@ type metrics interface {
 	IncEnumerationTasksFailedToEnqueue(ctx context.Context)
 }
 
-// Orchestrator implements target enumeration by orchestrating domain logic, repository calls,
+// Coordinator implements target enumeration by orchestrating domain logic, repository calls,
 // and event publishing. It manages the lifecycle of enumeration sessions and coordinates
 // the overall enumeration process.
 type coordinator struct {
 	// Domain repositories.
-	scanTargetRepo domain.ScanTargetRepository
-	githubTargetRepo     domain.GithubRepository
-	urlTargetRepo  domain.URLRepository
-	batchRepo      domain.BatchRepository
-	stateRepo      domain.StateRepository
-	checkpointRepo domain.CheckpointRepository
-	taskRepo       domain.TaskRepository
+	scanTargetRepo   domain.ScanTargetRepository
+	githubTargetRepo domain.GithubRepository
+	urlTargetRepo    domain.URLRepository
+	batchRepo        domain.BatchRepository
+	stateRepo        domain.StateRepository
+	checkpointRepo   domain.CheckpointRepository
+	taskRepo         domain.TaskRepository
 
 	// Persistence handlers for different resource types.
 	enumeratorHandlers map[shared.TargetType]enumeration.ResourcePersister
 
-	// targetCollector manages the collection and notification of discovered scan targets
-	// during enumeration. It provides thread-safe operations for aggregating target IDs
-	// and notifying downstream consumers via callbacks when new targets are found.
-	targetCollector *targetEnumerationResults
-
 	// Creates enumerators for different target types.
 	enumFactory EnumeratorFactory
 	credStore   credentials.Store
-
-	// External dependencies.
-	eventPublisher events.DomainEventPublisher
 
 	logger  *logger.Logger
 	metrics metrics
@@ -95,206 +113,167 @@ func NewCoordinator(
 	checkpointRepo domain.CheckpointRepository,
 	taskRepo domain.TaskRepository,
 	enumFactory EnumeratorFactory,
-	eventPublisher events.DomainEventPublisher,
 	logger *logger.Logger,
 	metrics metrics,
 	tracer trace.Tracer,
 ) Coordinator {
 	return &coordinator{
-		scanTargetRepo: scanTargetRepo,
-		githubTargetRepo:     githubRepo,
-		urlTargetRepo:  urlTargetRepo,
-		batchRepo:      batchRepo,
-		stateRepo:      stateRepo,
-		checkpointRepo: checkpointRepo,
-		taskRepo:       taskRepo,
+		scanTargetRepo:   scanTargetRepo,
+		githubTargetRepo: githubRepo,
+		urlTargetRepo:    urlTargetRepo,
+		batchRepo:        batchRepo,
+		stateRepo:        stateRepo,
+		checkpointRepo:   checkpointRepo,
+		taskRepo:         taskRepo,
 		enumeratorHandlers: map[shared.TargetType]enumeration.ResourcePersister{
 			shared.TargetTypeGitHubRepo: github.NewRepoPersistence(githubRepo, tracer),
 			shared.TargetTypeURL:        url.NewURLPersistence(urlTargetRepo, tracer),
 		},
-		enumFactory:    enumFactory,
-		eventPublisher: eventPublisher,
-		logger:         logger,
-		metrics:        metrics,
-		tracer:         tracer,
+		enumFactory: enumFactory,
+		logger:      logger,
+		metrics:     metrics,
+		tracer:      tracer,
 	}
 }
 
-// EnumerateTarget begins new enumeration sessions for a single target.
-// It creates a new state record and initializes the enumeration process.
-// Returns an error if the enumeration session cannot be started.
+// EnumerateTarget begins a new enumeration session for the given target.
+// Instead of returning error or using a callback, we return 3 channels:
+//  1. scanTargetCh for discovered/persisted target IDs
+//  2. taskCh for newly created tasks
+//  3. errCh for fatal errors
 func (s *coordinator) EnumerateTarget(
 	ctx context.Context,
 	target config.TargetSpec,
 	auth map[string]config.AuthConfig,
-	cb ScanTargetCallback,
-) error {
-	ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.enumerate_target",
-		trace.WithAttributes(
-			attribute.String("component", "coordinator"),
-			attribute.String("operation", "enumerate_target"),
+) (<-chan []uuid.UUID, <-chan *domain.Task, <-chan error) {
+	numCPU := runtime.NumCPU()
+
+	scanTargetWriter := make(chan []uuid.UUID, 1)
+	taskWriter := make(chan *domain.Task, numCPU)
+	errorWriter := make(chan error, 1)
+
+	go func() {
+		defer close(scanTargetWriter)
+		defer close(taskWriter)
+		defer close(errorWriter)
+
+		ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.enumerate_target",
+			trace.WithAttributes(
+				attribute.String("component", "coordinator"),
+				attribute.String("operation", "enumerate_target"),
+				attribute.String("target_name", target.Name),
+				attribute.String("target_type", string(target.SourceType)),
+				attribute.String("auth_ref", target.AuthRef),
+			))
+		defer span.End()
+
+		start := time.Now()
+
+		credStore, err := memory.NewCredentialStore(auth)
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "failed to create credential store")
+			s.logger.Error(ctx, "Failed to create credential store", "error", err)
+			errorWriter <- fmt.Errorf("failed to create credential store: %w", err)
+			return
+		}
+		s.credStore = credStore
+		span.AddEvent("credential_store_initialized")
+
+		state := domain.NewState(string(target.SourceType), s.marshalConfig(ctx, target, auth))
+
+		if err := s.processTargetEnumeration(ctx, state, target, scanTargetWriter, taskWriter); err != nil {
+			errorWriter <- err
+			return
+		}
+
+		duration := time.Since(start)
+		s.metrics.ObserveTargetProcessingTime(ctx, duration)
+		s.metrics.IncTargetsProcessed(ctx)
+
+		span.AddEvent("target_processed", trace.WithAttributes(
+			attribute.Int64("processing_time_ms", duration.Milliseconds()),
 		))
-	defer span.End()
+		span.SetStatus(codes.Ok, "fresh enumeration completed")
+	}()
 
-	s.targetCollector = newEnumerationResults(cb)
-
-	var err error
-	s.credStore, err = memory.NewCredentialStore(auth)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to create credential store")
-		return fmt.Errorf("failed to create credential store: %w", err)
-	}
-	span.AddEvent("credential_store_initialized")
-
-	span.SetAttributes(
-		attribute.Int("auth_config_count", len(auth)),
-	)
-
-	targetSpan := trace.SpanFromContext(ctx)
-	targetSpan.AddEvent("processing_target", trace.WithAttributes(
-		attribute.String("target_name", target.Name),
-		attribute.String("target_type", string(target.SourceType)),
-		attribute.String("auth_ref", target.AuthRef),
-	))
-
-	start := time.Now()
-	state := domain.NewState(string(target.SourceType), s.marshalConfig(ctx, target, auth))
-
-	if err := s.processTargetEnumeration(ctx, state, target); err != nil {
-		targetSpan.RecordError(err)
-		targetSpan.SetStatus(codes.Error, "target enumeration failed")
-		s.logger.Error(ctx, "Target enumeration failed",
-			"target_type", target.SourceType,
-			"error", err)
-		return err
-	}
-
-	targetSpan.AddEvent("target_processed", trace.WithAttributes(
-		attribute.Int64("processing_time_ms", time.Since(start).Milliseconds()),
-	))
-	s.metrics.ObserveTargetProcessingTime(ctx, time.Since(start))
-	s.metrics.IncTargetsProcessed(ctx)
-
-	span.SetStatus(codes.Ok, "fresh enumeration completed")
-	return nil
+	return scanTargetWriter, taskWriter, errorWriter
 }
 
-// marshalConfig serializes the target configuration into a JSON raw message.
-// This allows storing the complete target configuration with the enumeration state.
-func (s *coordinator) marshalConfig(
-	ctx context.Context,
-	target config.TargetSpec,
-	auth map[string]config.AuthConfig,
-) json.RawMessage {
-	ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.marshal_config",
-		trace.WithAttributes(
-			attribute.String("source_type", string(target.SourceType)),
-			attribute.String("auth_ref", target.AuthRef),
-		))
-	defer span.End()
-
-	// Combine target configuration with its authentication details into a single config.
-	// This combined config is necessary for two reasons:
-	// 1. The target type is needed when creating an enumerator
-	// 2. The auth config must be preserved for session resumption since the original
-	//    auth configuration map is not available during resume operations
-	completeConfig := struct {
-		config.TargetSpec
-		Auth config.AuthConfig `json:"auth,omitempty"`
-	}{
-		TargetSpec: target,
-	}
-
-	// Include auth config if there's an auth reference.
-	if auth, ok := auth[target.AuthRef]; ok {
-		completeConfig.Auth = auth
-	}
-
-	data, err := json.Marshal(completeConfig)
-	if err != nil {
-		span.RecordError(err)
-		s.logger.Error(ctx, "Failed to marshal target config", "error", err)
-		return nil
-	}
-	return data
-}
-
-// ResumeTarget attempts to continue enumeration from previously saved states.
-// This allows recovery from interruptions and supports incremental enumeration.
+// ResumeTarget continues enumeration for a previously interrupted session.
+// Similar to EnumerateTarget, but we reconstruct the credential store from the saved state.
 func (s *coordinator) ResumeTarget(
 	ctx context.Context,
-	state *domain.SessionState,
-	cb ScanTargetCallback,
-) error {
-	ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.resume_target",
-		trace.WithAttributes(attribute.Int("state_count", 1)))
-	defer span.End()
+	savedState *domain.SessionState,
+) (<-chan []uuid.UUID, <-chan *domain.Task, <-chan error) {
+	scanTargetWriter := make(chan []uuid.UUID, 1)
+	taskWriter := make(chan *domain.Task, 20)
+	errorWriter := make(chan error, 1)
 
-	s.targetCollector = newEnumerationResults(cb)
+	go func() {
+		defer close(scanTargetWriter)
+		defer close(taskWriter)
+		defer close(errorWriter)
 
-	span.AddEvent("starting_enumeration_resume")
+		ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.resume_target",
+			trace.WithAttributes(
+				attribute.String("session_id", savedState.SessionID().String()),
+				attribute.String("source_type", savedState.SourceType()),
+			))
+		defer span.End()
 
-	stateSpan := trace.SpanFromContext(ctx)
-	stateSpan.AddEvent("processing_state", trace.WithAttributes(
-		attribute.String("session_id", state.SessionID().String()),
-		attribute.String("source_type", string(state.SourceType())),
-	))
-	defer stateSpan.End()
+		span.AddEvent("starting_enumeration_resume")
 
-	var combined struct {
-		config.TargetSpec
-		Auth config.AuthConfig `json:"auth,omitempty"`
-	}
-
-	if err := json.Unmarshal(state.Config(), &combined); err != nil {
-		stateSpan.RecordError(err)
-		stateSpan.SetStatus(codes.Error, "failed to unmarshal config")
-		s.logger.Error(ctx, "Failed to unmarshal target config",
-			"session_id", state.SessionID(),
-			"error", err)
-		stateSpan.End()
-		return fmt.Errorf("failed to unmarshal target config: %w", err)
-	}
-
-	if s.credStore == nil {
-		credSpan := trace.SpanFromContext(ctx)
-
-		var err error
-		s.credStore, err = memory.NewCredentialStore(map[string]config.AuthConfig{
-			combined.AuthRef: combined.Auth,
-		})
-		if err != nil {
-			credSpan.RecordError(err)
-			credSpan.SetStatus(codes.Error, "failed to create credential store")
-			stateSpan.End()
-			return fmt.Errorf("failed to create credential store: %w", err)
+		var combined struct {
+			config.TargetSpec
+			Auth config.AuthConfig `json:"auth,omitempty"`
 		}
-		credSpan.AddEvent("credential_store_initialized")
-	}
+		if err := json.Unmarshal(savedState.Config(), &combined); err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "failed to unmarshal config")
+			s.logger.Error(ctx, "Failed to unmarshal target config",
+				"session_id", savedState.SessionID(),
+				"error", err)
+			errorWriter <- fmt.Errorf("failed to unmarshal target config: %w", err)
+			return
+		}
 
-	if err := s.processTargetEnumeration(ctx, state, combined.TargetSpec); err != nil {
-		stateSpan.RecordError(err)
-		stateSpan.SetStatus(codes.Error, "enumeration failed")
-		s.logger.Error(ctx, "Resume enumeration failed",
-			"session_id", state.SessionID(),
-			"error", err)
-		stateSpan.End()
-		return err
-	}
+		if s.credStore == nil {
+			cStore, err := memory.NewCredentialStore(map[string]config.AuthConfig{
+				combined.AuthRef: combined.Auth,
+			})
+			if err != nil {
+				span.RecordError(err)
+				span.SetStatus(codes.Error, "failed to create credential store")
+				errorWriter <- fmt.Errorf("failed to create credential store: %w", err)
+				return
+			}
+			s.credStore = cStore
+			span.AddEvent("credential_store_initialized")
+		}
 
-	stateSpan.AddEvent("enumeration_resume_completed")
-	stateSpan.SetStatus(codes.Ok, "enumeration completed successfully")
+		// Reuse the savedState for enumeration.
+		if err := s.processTargetEnumeration(ctx, savedState, combined.TargetSpec, scanTargetWriter, taskWriter); err != nil {
+			errorWriter <- err
+			return
+		}
 
-	return nil
+		span.AddEvent("enumeration_resume_completed")
+		span.SetStatus(codes.Ok, "enumeration completed successfully")
+	}()
+
+	return scanTargetWriter, taskWriter, errorWriter
 }
 
-// processTargetEnumeration handles the lifecycle of a single target's enumeration,
-// including state transitions, enumerator creation, and streaming of results.
+// processTargetEnumeration encapsulates your existing enumeration logic, including
+// enumerator creation, state transitions, batch processing, etc. We now accept
+// the two writer channels so we can push discovered data out.
 func (s *coordinator) processTargetEnumeration(
 	ctx context.Context,
 	state *domain.SessionState,
 	target config.TargetSpec,
+	scanTargetWriter chan<- []uuid.UUID,
+	taskWriter chan<- *domain.Task,
 ) error {
 	ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.process_target_enumeration",
 		trace.WithAttributes(
@@ -343,7 +322,6 @@ func (s *coordinator) processTargetEnumeration(
 			span.RecordError(markErr)
 			s.logger.Error(ctx, "Failed to mark enumeration as failed", "error", markErr)
 		}
-
 		if saveErr := s.stateRepo.Save(ctx, state); saveErr != nil {
 			span.RecordError(saveErr)
 			s.logger.Error(ctx, "Failed to save failed state", "error", saveErr)
@@ -354,9 +332,6 @@ func (s *coordinator) processTargetEnumeration(
 	}
 	span.AddEvent("enumerator_created")
 
-	// TODO: This needs to be removed and places within the given enumerator.
-	// "endCursor" is specific to the github enumerator and should not be used explicitly
-	// by the coordinator.
 	var resumeCursor *string
 	if state.LastCheckpoint() != nil {
 		if c, ok := state.LastCheckpoint().Data()["endCursor"].(string); ok {
@@ -367,7 +342,7 @@ func (s *coordinator) processTargetEnumeration(
 		}
 	}
 
-	if err := s.streamEnumerate(ctx, enumerator, state, resumeCursor, creds); err != nil {
+	if err := s.streamEnumerate(ctx, enumerator, state, resumeCursor, creds, scanTargetWriter, taskWriter); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "enumeration stream failed")
 		s.logger.Error(ctx, "Enumeration failed",
@@ -377,19 +352,30 @@ func (s *coordinator) processTargetEnumeration(
 	}
 	span.AddEvent("enumeration_stream_completed")
 
+	if err := state.MarkCompleted(); err != nil {
+		span.RecordError(err)
+		s.logger.Error(ctx, "Failed to mark enumeration as completed", "error", err)
+	}
+	if err := s.stateRepo.Save(ctx, state); err != nil {
+		span.RecordError(err)
+		s.logger.Error(ctx, "Failed to save enumeration state", "error", err)
+		return err
+	}
+
 	span.SetStatus(codes.Ok, "enumeration completed successfully")
 	return nil
 }
 
-// streamEnumerate processes a target enumeration by streaming batches of tasks from the enumerator.
-// It handles checkpointing progress and publishing tasks while managing the enumeration lifecycle.
-// This enables efficient processing of large datasets by avoiding loading everything into memory.
+// streamEnumerate manages reading batches from the enumerator. Instead of publishing tasks
+// directly, it writes them to `taskWriter`.
 func (s *coordinator) streamEnumerate(
 	ctx context.Context,
 	enumerator enumeration.TargetEnumerator,
 	state *domain.SessionState,
 	startCursor *string,
 	creds *domain.TaskCredentials,
+	scanTargetWriter chan<- []uuid.UUID,
+	taskWriter chan<- *domain.Task,
 ) error {
 	ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.stream_enumerate",
 		trace.WithAttributes(
@@ -402,7 +388,7 @@ func (s *coordinator) streamEnumerate(
 	var wg sync.WaitGroup
 	wg.Add(1)
 
-	// Process batches asynchronously to avoid blocking the enumerator.
+	// Process batches asynchronously.
 	go func() {
 		defer wg.Done()
 		for batch := range batchCh {
@@ -413,7 +399,7 @@ func (s *coordinator) streamEnumerate(
 					attribute.String("next_cursor", batch.NextCursor),
 				))
 
-			if err := s.processBatch(batchCtx, batch, state, creds); err != nil {
+			if err := s.processBatch(batchCtx, batch, state, creds, scanTargetWriter, taskWriter); err != nil {
 				batchSpan.RecordError(err)
 				batchSpan.SetStatus(codes.Error, "failed to process batch")
 				batchSpan.End()
@@ -432,13 +418,13 @@ func (s *coordinator) streamEnumerate(
 
 	if err != nil {
 		span.RecordError(err)
-		if err := state.MarkFailed(err.Error()); err != nil {
-			span.RecordError(err)
-			s.logger.Error(ctx, "Failed to mark enumeration as failed", "error", err)
+		if markErr := state.MarkFailed(err.Error()); markErr != nil {
+			span.RecordError(markErr)
+			s.logger.Error(ctx, "Failed to mark enumeration as failed", "error", markErr)
 		}
-		if err := s.stateRepo.Save(ctx, state); err != nil {
-			span.RecordError(err)
-			s.logger.Error(ctx, "Failed to save enumeration state", "error", err)
+		if saveErr := s.stateRepo.Save(ctx, state); saveErr != nil {
+			span.RecordError(saveErr)
+			s.logger.Error(ctx, "Failed to save enumeration state", "error", saveErr)
 			return err
 		}
 		span.AddEvent("state_saved_successfully")
@@ -446,25 +432,18 @@ func (s *coordinator) streamEnumerate(
 	}
 
 	span.AddEvent("enumeration_completed")
-
-	if err := state.MarkCompleted(); err != nil {
-		span.RecordError(err)
-		s.logger.Error(ctx, "Failed to mark enumeration as completed", "error", err)
-	}
-
-	if err := s.stateRepo.Save(ctx, state); err != nil {
-		span.RecordError(err)
-		s.logger.Error(ctx, "Failed to save enumeration state", "error", err)
-	}
 	return nil
 }
 
 // processBatch handles the processing of a batch of enumerated targets.
+// Instead of publishing tasks, we create them and write them into the `taskWriter` channel.
 func (s *coordinator) processBatch(
 	ctx context.Context,
 	batch enumeration.EnumerateBatch,
 	state *domain.SessionState,
 	creds *domain.TaskCredentials,
+	scanTargetWriter chan<- []uuid.UUID,
+	taskWriter chan<- *domain.Task,
 ) error {
 	batchSpan := trace.SpanFromContext(ctx)
 	defer batchSpan.End()
@@ -506,7 +485,7 @@ func (s *coordinator) processBatch(
 		lastError      error
 	)
 	for _, target := range batch.Targets {
-		targetID, err := s.processTarget(ctx, target, state.SessionID(), creds)
+		targetID, err := s.processTarget(ctx, target)
 		if err != nil {
 			batchSpan.RecordError(err)
 			lastError = err
@@ -518,9 +497,20 @@ func (s *coordinator) processBatch(
 		}
 		processedCount++
 		s.metrics.IncEnumerationTasksEnqueued(ctx)
+
+		task := domain.NewTask(
+			target.TargetType.ToSourceType(),
+			state.SessionID(),
+			target.ResourceURI,
+			target.Metadata,
+			creds,
+		)
+
+		// **Push it onto the channel** for tasks, letting the caller handle publishing or further enrichment.
+		taskWriter <- task
 	}
 
-	s.targetCollector.AddTargets(ctx, scanTargetIDs)
+	scanTargetWriter <- scanTargetIDs
 
 	if lastError != nil {
 		if markErr := domainBatch.MarkFailed(lastError); markErr != nil {
@@ -555,13 +545,10 @@ func (s *coordinator) processBatch(
 	return lastError
 }
 
-// processTarget handles the processing of a single target and returns the created scan target ID
-func (s *coordinator) processTarget(
-	ctx context.Context,
-	target *enumeration.TargetInfo,
-	sessionID uuid.UUID,
-	creds *domain.TaskCredentials,
-) (uuid.UUID, error) {
+// processTarget handles the creation of a single "scan target" record in the DB.
+// We do NOT publish tasks here. Instead, we return the scan target ID so the
+// caller can push it onto the scanTargetWriter channel later.
+func (s *coordinator) processTarget(ctx context.Context, target *enumeration.TargetInfo) (uuid.UUID, error) {
 	ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.process_target",
 		trace.WithAttributes(
 			attribute.String("resource_uri", target.ResourceURI),
@@ -605,11 +592,7 @@ func (s *coordinator) processTarget(
 		return uuid.Nil, fmt.Errorf("failed to create scan target: %w", err)
 	}
 
-	if err := s.publishTask(ctx, target, sessionID, creds); err != nil {
-		span.RecordError(err)
-		return scanTargetID, fmt.Errorf("failed to publish task: %w", err)
-	}
-
+	// We only return the newly created scanTargetID. The caller processes tasks separately.
 	span.SetStatus(codes.Ok, "Target processed successfully")
 	return scanTargetID, nil
 }
@@ -636,59 +619,49 @@ func (s *coordinator) createScanTarget(
 		return uuid.Nil, fmt.Errorf("failed to create scan target domain object: %w", err)
 	}
 
-	createdTarget, err := s.scanTargetRepo.Create(ctx, st)
+	createdTargetID, err := s.scanTargetRepo.Create(ctx, st)
 	if err != nil {
 		span.RecordError(err)
 		return uuid.Nil, fmt.Errorf("failed to create scan target: %w", err)
 	}
 
 	span.AddEvent("scan_target_created_successfully", trace.WithAttributes(
-		attribute.String("scan_target_id", createdTarget.String()),
+		attribute.String("scan_target_id", createdTargetID.String()),
 	))
 
-	return createdTarget, nil
+	return createdTargetID, nil
 }
 
-// publishTask publishes a single task creation event and saves the task record.
-// It ensures tasks are durably recorded and can be processed by downstream consumers.
-// The session ID is used for correlation and tracking task lineage.
-// TODO: Handle partial failures.
-func (s *coordinator) publishTask(
+// marshalConfig is your existing helper that serializes the target & auth config.
+// We keep all tracing code here as well.
+func (s *coordinator) marshalConfig(
 	ctx context.Context,
-	target *enumeration.TargetInfo,
-	sessionID uuid.UUID,
-	creds *domain.TaskCredentials,
-) error {
-	ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.publish_task",
+	target config.TargetSpec,
+	auth map[string]config.AuthConfig,
+) json.RawMessage {
+	ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.marshal_config",
 		trace.WithAttributes(
-			attribute.String("resource_uri", target.ResourceURI),
-			attribute.String("target_type", target.TargetType.String()),
+			attribute.String("source_type", string(target.SourceType)),
+			attribute.String("auth_ref", target.AuthRef),
 		))
 	defer span.End()
 
-	task := domain.NewTask(
-		target.TargetType.ToSourceType(),
-		sessionID,
-		target.ResourceURI,
-		target.Metadata,
-		creds,
-	)
-
-	if err := s.eventPublisher.PublishDomainEvent(
-		ctx,
-		domain.NewTaskCreatedEvent(task),
-		events.WithKey(sessionID.String()),
-	); err != nil {
-		span.RecordError(err)
-		return fmt.Errorf("failed to publish task event: %w", err)
+	completeConfig := struct {
+		config.TargetSpec
+		Auth config.AuthConfig `json:"auth,omitempty"`
+	}{
+		TargetSpec: target,
 	}
-	span.AddEvent("task_published_successfully")
-
-	if err := s.taskRepo.Save(ctx, task); err != nil {
-		span.RecordError(err)
-		return fmt.Errorf("failed to save task: %w", err)
+	if authVal, ok := auth[target.AuthRef]; ok {
+		completeConfig.Auth = authVal
 	}
-	span.AddEvent("task_saved_successfully")
 
-	return nil
+	data, err := json.Marshal(completeConfig)
+	if err != nil {
+		span.RecordError(err)
+		s.logger.Error(ctx, "Failed to marshal target config", "error", err)
+		return nil
+	}
+
+	return data
 }

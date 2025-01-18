@@ -49,6 +49,8 @@ type ScanRequest struct {
 	TaskID uuid.UUID
 	// SourceType determines which external system contains the target resource.
 	SourceType SourceType
+	// JobID groups related scan tasks together.
+	JobID uuid.UUID
 	// SessionID groups related scan tasks together.
 	SessionID uuid.UUID
 	// ResourceURI is the location of the target to be scanned.

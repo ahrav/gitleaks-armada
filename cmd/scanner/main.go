@@ -93,12 +93,12 @@ func main() {
 	}
 
 	kafkaCfg := &kafka.Config{
-		Brokers:      strings.Split(os.Getenv("KAFKA_BROKERS"), ","),
-		TaskTopic:    os.Getenv("KAFKA_TASK_TOPIC"),
-		ResultsTopic: os.Getenv("KAFKA_RESULTS_TOPIC"),
-		RulesTopic:   os.Getenv("KAFKA_RULES_TOPIC"),
-		GroupID:      os.Getenv("KAFKA_GROUP_ID"),
-		ClientID:     fmt.Sprintf("scanner-%s", hostname),
+		Brokers:           strings.Split(os.Getenv("KAFKA_BROKERS"), ","),
+		ScanningTaskTopic: os.Getenv("KAFKA_SCANNING_TASK_TOPIC"),
+		ResultsTopic:      os.Getenv("KAFKA_RESULTS_TOPIC"),
+		RulesTopic:        os.Getenv("KAFKA_RULES_TOPIC"),
+		GroupID:           os.Getenv("KAFKA_GROUP_ID"),
+		ClientID:          fmt.Sprintf("scanner-%s", hostname),
 	}
 	broker, err := kafka.ConnectWithRetry(kafkaCfg, log, metricsCollector, tracer)
 	if err != nil {
