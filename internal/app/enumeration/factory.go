@@ -21,7 +21,7 @@ import (
 type EnumeratorFactory interface {
 	// CreateEnumerator constructs a new TargetEnumerator for the given target
 	// specification and authentication configuration.
-	CreateEnumerator(target config.TargetSpec, creds *domain.TaskCredentials) (shared.TargetEnumerator, error)
+	CreateEnumerator(ctx context.Context, target config.TargetSpec, creds *domain.TaskCredentials) (shared.TargetEnumerator, error)
 }
 
 // enumerationFactory creates target enumerators with required dependencies.
@@ -46,8 +46,7 @@ func NewEnumerationFactory(
 // It handles authentication and creates source-specific enumerators (e.g., GitHub, S3).
 // Returns an error if the target configuration is invalid or required credentials are missing.
 // TODO: Revist the use of this factory it's still a bit wonky with the credential store.
-func (f *enumerationFactory) CreateEnumerator(target config.TargetSpec, creds *domain.TaskCredentials) (shared.TargetEnumerator, error) {
-	ctx := context.Background()
+func (f *enumerationFactory) CreateEnumerator(ctx context.Context, target config.TargetSpec, creds *domain.TaskCredentials) (shared.TargetEnumerator, error) {
 	ctx, span := f.tracer.Start(ctx, "factory.enumeration.create_enumerator",
 		trace.WithAttributes(
 			attribute.String("source_type", string(target.SourceType)),

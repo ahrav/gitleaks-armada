@@ -344,7 +344,7 @@ func (s *coordinator) processTargetEnumeration(
 	}
 	span.AddEvent("credentials_retrieved")
 
-	enumerator, err := s.enumFactory.CreateEnumerator(target, creds)
+	enumerator, err := s.enumFactory.CreateEnumerator(ctx, target, creds)
 	if err != nil {
 		span.AddEvent("marking_enumeration_failed", trace.WithAttributes(
 			attribute.String("error", err.Error()),
