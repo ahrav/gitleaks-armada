@@ -1,4 +1,4 @@
-package protobuf
+package enumeration
 
 import (
 	"github.com/google/uuid"

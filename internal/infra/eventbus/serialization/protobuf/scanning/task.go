@@ -1,4 +1,4 @@
-package protobuf
+package scanning
 
 import (
 	"fmt"

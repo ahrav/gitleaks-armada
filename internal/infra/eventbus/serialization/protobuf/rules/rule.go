@@ -1,4 +1,4 @@
-package protobuf
+package rules
 
 import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/rules"

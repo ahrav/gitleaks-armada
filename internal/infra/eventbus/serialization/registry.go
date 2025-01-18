@@ -24,7 +24,9 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/rules"
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
-	"github.com/ahrav/gitleaks-armada/internal/infra/eventbus/serialization/protobuf"
+	serdeEnum "github.com/ahrav/gitleaks-armada/internal/infra/eventbus/serialization/protobuf/enumeration"
+	serdeRules "github.com/ahrav/gitleaks-armada/internal/infra/eventbus/serialization/protobuf/rules"
+	serdeScanning "github.com/ahrav/gitleaks-armada/internal/infra/eventbus/serialization/protobuf/scanning"
 	pb "github.com/ahrav/gitleaks-armada/proto/scanner"
 )
 
@@ -97,7 +99,7 @@ func serializeEnumerationTaskCreated(payload any) ([]byte, error) {
 	if !ok {
 		return nil, fmt.Errorf("serializeEnumerationTaskCreated: payload is not TaskCreatedEvent, got %T", payload)
 	}
-	pbTask := protobuf.TaskToProto(event.Task, event.JobID)
+	pbTask := serdeEnum.TaskToProto(event.Task, event.JobID)
 	return proto.Marshal(pbTask)
 }
 
@@ -107,7 +109,7 @@ func deserializeEnumerationTaskCreated(data []byte) (any, error) {
 	if err := proto.Unmarshal(data, &pbTask); err != nil {
 		return nil, fmt.Errorf("unmarshal EnumerationTask: %w", err)
 	}
-	t := protobuf.ProtoToTask(&pbTask)
+	t := serdeEnum.ProtoToTask(&pbTask)
 	return enumeration.NewTaskCreatedEvent(uuid.MustParse(pbTask.JobId), t), nil
 }
 
@@ -117,7 +119,7 @@ func serializeRuleUpdated(payload any) ([]byte, error) {
 	if !ok {
 		return nil, fmt.Errorf("serializeRuleUpdated: payload is not RuleUpdatedEvent, got %T", payload)
 	}
-	pbRule := protobuf.GitleaksRulesMessageToProto(event.Rule)
+	pbRule := serdeRules.GitleaksRulesMessageToProto(event.Rule)
 	return proto.Marshal(pbRule)
 }
 
@@ -127,7 +129,7 @@ func deserializeRuleUpdated(data []byte) (any, error) {
 	if err := proto.Unmarshal(data, &pbRule); err != nil {
 		return nil, fmt.Errorf("unmarshal RuleMessage: %w", err)
 	}
-	ruleMsg := protobuf.ProtoToGitleaksRuleMessage(&pbRule)
+	ruleMsg := serdeRules.ProtoToGitleaksRuleMessage(&pbRule)
 	return rules.NewRuleUpdatedEvent(ruleMsg), nil
 }
 
@@ -138,7 +140,7 @@ func serializeTaskStarted(payload any) ([]byte, error) {
 		return nil, fmt.Errorf("serializeTaskStarted: payload is not TaskStartedEvent, got %T", payload)
 	}
 
-	pbEvent := protobuf.TaskStartedEventToProto(event)
+	pbEvent := serdeScanning.TaskStartedEventToProto(event)
 	return proto.Marshal(pbEvent)
 }
 
@@ -149,7 +151,7 @@ func deserializeTaskStarted(data []byte) (any, error) {
 		return nil, fmt.Errorf("unmarshal TaskStartedEvent: %w", err)
 	}
 
-	event, err := protobuf.ProtoToTaskStartedEvent(&pbEvent)
+	event, err := serdeScanning.ProtoToTaskStartedEvent(&pbEvent)
 	if err != nil {
 		return nil, fmt.Errorf("convert proto to domain event: %w", err)
 	}
