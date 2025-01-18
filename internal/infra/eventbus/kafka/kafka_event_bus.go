@@ -120,6 +120,9 @@ func NewKafkaEventBusFromConfig(
 		events.EventTypeScanProgressUpdated: cfg.ProgressTopic,
 		rules.EventTypeRuleUpdated:          cfg.RulesTopic,
 		scanning.EventTypeTaskStarted:       cfg.ScanningTaskTopic,
+		scanning.EventTypeTaskProgressed:    cfg.ScanningTaskTopic,
+		scanning.EventTypeTaskCompleted:     cfg.ScanningTaskTopic,
+		scanning.EventTypeTaskFailed:        cfg.ScanningTaskTopic,
 	}
 
 	bus := &KafkaEventBus{
