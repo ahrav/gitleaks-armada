@@ -25,17 +25,6 @@ message EnumerationTask {
 
 message BatchEnumerationTask { repeated EnumerationTask tasks = 1; }
 
-message ScanProgress {
-  string task_id = 1;         // Matches the ScanTask task_id
-  float percent_complete = 2; // 0.0 to 100.0
-  // Optional: describe what is being scanned now (e.g., current file)
-  string current_item = 3;
-  // Optional: how many items (files/commits) processed so far
-  int64 items_processed = 4;
-  int64 total_items = 5;            // Optional: total items if known
-  map<string, string> metadata = 6; // Additional data as needed
-}
-
 // The final outcome of a scan, containing all discovered findings, status, etc.
 message ScanResult {
   // Ties back to the ScanTask this result belongs to.
@@ -91,4 +80,28 @@ message S3Credentials {
   string access_key = 1;
   string secret_key = 2;
   string session_token = 3; // Optional for temporary credentials
+}
+
+enum TaskStatus {
+  TASK_STATUS_UNSPECIFIED = 0;
+  TASK_STATUS_IN_PROGRESS = 1;
+  TASK_STATUS_COMPLETED = 2;
+  TASK_STATUS_FAILED = 3;
+}
+
+message TaskStartedEvent {
+  string job_id = 1;
+  string task_id = 2;
+  int64 timestamp = 3; // Unix timestamp in nanoseconds
+}
+
+message ScanProgress {
+  string task_id = 1;         // Matches the ScanTask task_id
+  float percent_complete = 2; // 0.0 to 100.0
+  // Optional: describe what is being scanned now (e.g., current file)
+  string current_item = 3;
+  // Optional: how many items (files/commits) processed so far
+  int64 items_processed = 4;
+  int64 total_items = 5;            // Optional: total items if known
+  map<string, string> metadata = 6; // Additional data as needed
 }

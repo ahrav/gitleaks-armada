@@ -14,7 +14,7 @@ var taskSourceTypeToProto = map[shared.SourceType]pb.SourceType{
 	shared.SourceTypeURL:    pb.SourceType_SOURCE_TYPE_URL,
 }
 
-// TaskToProto converts a domain Task to its protobuf representation (pb.EnumerationTask).
+// TaskToProto converts an enumeration.Task to its protobuf representation (pb.EnumerationTask).
 func TaskToProto(t *enumeration.Task, jobID uuid.UUID) *pb.EnumerationTask {
 	tsk := &pb.EnumerationTask{
 		TaskId:      t.ID.String(),

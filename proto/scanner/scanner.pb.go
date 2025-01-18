@@ -128,6 +128,58 @@ func (ScanJobStatus) EnumDescriptor() ([]byte, []int) {
 	return file_proto_scanner_scanner_proto_rawDescGZIP(), []int{1}
 }
 
+type TaskStatus int32
+
+const (
+	TaskStatus_TASK_STATUS_UNSPECIFIED TaskStatus = 0
+	TaskStatus_TASK_STATUS_IN_PROGRESS TaskStatus = 1
+	TaskStatus_TASK_STATUS_COMPLETED   TaskStatus = 2
+	TaskStatus_TASK_STATUS_FAILED      TaskStatus = 3
+)
+
+// Enum value maps for TaskStatus.
+var (
+	TaskStatus_name = map[int32]string{
+		0: "TASK_STATUS_UNSPECIFIED",
+		1: "TASK_STATUS_IN_PROGRESS",
+		2: "TASK_STATUS_COMPLETED",
+		3: "TASK_STATUS_FAILED",
+	}
+	TaskStatus_value = map[string]int32{
+		"TASK_STATUS_UNSPECIFIED": 0,
+		"TASK_STATUS_IN_PROGRESS": 1,
+		"TASK_STATUS_COMPLETED":   2,
+		"TASK_STATUS_FAILED":      3,
+	}
+)
+
+func (x TaskStatus) Enum() *TaskStatus {
+	p := new(TaskStatus)
+	*p = x
+	return p
+}
+
+func (x TaskStatus) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (TaskStatus) Descriptor() protoreflect.EnumDescriptor {
+	return file_proto_scanner_scanner_proto_enumTypes[2].Descriptor()
+}
+
+func (TaskStatus) Type() protoreflect.EnumType {
+	return &file_proto_scanner_scanner_proto_enumTypes[2]
+}
+
+func (x TaskStatus) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use TaskStatus.Descriptor instead.
+func (TaskStatus) EnumDescriptor() ([]byte, []int) {
+	return file_proto_scanner_scanner_proto_rawDescGZIP(), []int{2}
+}
+
 type EnumerationTask struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
@@ -270,95 +322,6 @@ func (x *BatchEnumerationTask) GetTasks() []*EnumerationTask {
 	return nil
 }
 
-type ScanProgress struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
-
-	TaskId          string  `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`                              // Matches the ScanTask task_id
-	PercentComplete float32 `protobuf:"fixed32,2,opt,name=percent_complete,json=percentComplete,proto3" json:"percent_complete,omitempty"` // 0.0 to 100.0
-	// Optional: describe what is being scanned now (e.g., current file)
-	CurrentItem string `protobuf:"bytes,3,opt,name=current_item,json=currentItem,proto3" json:"current_item,omitempty"`
-	// Optional: how many items (files/commits) processed so far
-	ItemsProcessed int64             `protobuf:"varint,4,opt,name=items_processed,json=itemsProcessed,proto3" json:"items_processed,omitempty"`
-	TotalItems     int64             `protobuf:"varint,5,opt,name=total_items,json=totalItems,proto3" json:"total_items,omitempty"`                                                                  // Optional: total items if known
-	Metadata       map[string]string `protobuf:"bytes,6,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"` // Additional data as needed
-}
-
-func (x *ScanProgress) Reset() {
-	*x = ScanProgress{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_proto_scanner_scanner_proto_msgTypes[2]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
-}
-
-func (x *ScanProgress) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ScanProgress) ProtoMessage() {}
-
-func (x *ScanProgress) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_scanner_scanner_proto_msgTypes[2]
-	if protoimpl.UnsafeEnabled && x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ScanProgress.ProtoReflect.Descriptor instead.
-func (*ScanProgress) Descriptor() ([]byte, []int) {
-	return file_proto_scanner_scanner_proto_rawDescGZIP(), []int{2}
-}
-
-func (x *ScanProgress) GetTaskId() string {
-	if x != nil {
-		return x.TaskId
-	}
-	return ""
-}
-
-func (x *ScanProgress) GetPercentComplete() float32 {
-	if x != nil {
-		return x.PercentComplete
-	}
-	return 0
-}
-
-func (x *ScanProgress) GetCurrentItem() string {
-	if x != nil {
-		return x.CurrentItem
-	}
-	return ""
-}
-
-func (x *ScanProgress) GetItemsProcessed() int64 {
-	if x != nil {
-		return x.ItemsProcessed
-	}
-	return 0
-}
-
-func (x *ScanProgress) GetTotalItems() int64 {
-	if x != nil {
-		return x.TotalItems
-	}
-	return 0
-}
-
-func (x *ScanProgress) GetMetadata() map[string]string {
-	if x != nil {
-		return x.Metadata
-	}
-	return nil
-}
-
 // The final outcome of a scan, containing all discovered findings, status, etc.
 type ScanResult struct {
 	state         protoimpl.MessageState
@@ -378,7 +341,7 @@ type ScanResult struct {
 func (x *ScanResult) Reset() {
 	*x = ScanResult{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_proto_scanner_scanner_proto_msgTypes[3]
+		mi := &file_proto_scanner_scanner_proto_msgTypes[2]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -391,7 +354,7 @@ func (x *ScanResult) String() string {
 func (*ScanResult) ProtoMessage() {}
 
 func (x *ScanResult) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_scanner_scanner_proto_msgTypes[3]
+	mi := &file_proto_scanner_scanner_proto_msgTypes[2]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -404,7 +367,7 @@ func (x *ScanResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ScanResult.ProtoReflect.Descriptor instead.
 func (*ScanResult) Descriptor() ([]byte, []int) {
-	return file_proto_scanner_scanner_proto_rawDescGZIP(), []int{3}
+	return file_proto_scanner_scanner_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *ScanResult) GetTaskId() string {
@@ -461,7 +424,7 @@ type Finding struct {
 func (x *Finding) Reset() {
 	*x = Finding{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_proto_scanner_scanner_proto_msgTypes[4]
+		mi := &file_proto_scanner_scanner_proto_msgTypes[3]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -474,7 +437,7 @@ func (x *Finding) String() string {
 func (*Finding) ProtoMessage() {}
 
 func (x *Finding) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_scanner_scanner_proto_msgTypes[4]
+	mi := &file_proto_scanner_scanner_proto_msgTypes[3]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -487,7 +450,7 @@ func (x *Finding) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Finding.ProtoReflect.Descriptor instead.
 func (*Finding) Descriptor() ([]byte, []int) {
-	return file_proto_scanner_scanner_proto_rawDescGZIP(), []int{4}
+	return file_proto_scanner_scanner_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *Finding) GetFingerprint() string {
@@ -555,7 +518,7 @@ type TaskCredentials struct {
 func (x *TaskCredentials) Reset() {
 	*x = TaskCredentials{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_proto_scanner_scanner_proto_msgTypes[5]
+		mi := &file_proto_scanner_scanner_proto_msgTypes[4]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -568,7 +531,7 @@ func (x *TaskCredentials) String() string {
 func (*TaskCredentials) ProtoMessage() {}
 
 func (x *TaskCredentials) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_scanner_scanner_proto_msgTypes[5]
+	mi := &file_proto_scanner_scanner_proto_msgTypes[4]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -581,7 +544,7 @@ func (x *TaskCredentials) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TaskCredentials.ProtoReflect.Descriptor instead.
 func (*TaskCredentials) Descriptor() ([]byte, []int) {
-	return file_proto_scanner_scanner_proto_rawDescGZIP(), []int{5}
+	return file_proto_scanner_scanner_proto_rawDescGZIP(), []int{4}
 }
 
 func (m *TaskCredentials) GetAuth() isTaskCredentials_Auth {
@@ -643,7 +606,7 @@ type UnauthenticatedCredentials struct {
 func (x *UnauthenticatedCredentials) Reset() {
 	*x = UnauthenticatedCredentials{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_proto_scanner_scanner_proto_msgTypes[6]
+		mi := &file_proto_scanner_scanner_proto_msgTypes[5]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -656,7 +619,7 @@ func (x *UnauthenticatedCredentials) String() string {
 func (*UnauthenticatedCredentials) ProtoMessage() {}
 
 func (x *UnauthenticatedCredentials) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_scanner_scanner_proto_msgTypes[6]
+	mi := &file_proto_scanner_scanner_proto_msgTypes[5]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -669,7 +632,7 @@ func (x *UnauthenticatedCredentials) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnauthenticatedCredentials.ProtoReflect.Descriptor instead.
 func (*UnauthenticatedCredentials) Descriptor() ([]byte, []int) {
-	return file_proto_scanner_scanner_proto_rawDescGZIP(), []int{6}
+	return file_proto_scanner_scanner_proto_rawDescGZIP(), []int{5}
 }
 
 type GitHubCredentials struct {
@@ -683,7 +646,7 @@ type GitHubCredentials struct {
 func (x *GitHubCredentials) Reset() {
 	*x = GitHubCredentials{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_proto_scanner_scanner_proto_msgTypes[7]
+		mi := &file_proto_scanner_scanner_proto_msgTypes[6]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -696,7 +659,7 @@ func (x *GitHubCredentials) String() string {
 func (*GitHubCredentials) ProtoMessage() {}
 
 func (x *GitHubCredentials) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_scanner_scanner_proto_msgTypes[7]
+	mi := &file_proto_scanner_scanner_proto_msgTypes[6]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -709,7 +672,7 @@ func (x *GitHubCredentials) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GitHubCredentials.ProtoReflect.Descriptor instead.
 func (*GitHubCredentials) Descriptor() ([]byte, []int) {
-	return file_proto_scanner_scanner_proto_rawDescGZIP(), []int{7}
+	return file_proto_scanner_scanner_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *GitHubCredentials) GetAuthToken() string {
@@ -732,7 +695,7 @@ type S3Credentials struct {
 func (x *S3Credentials) Reset() {
 	*x = S3Credentials{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_proto_scanner_scanner_proto_msgTypes[8]
+		mi := &file_proto_scanner_scanner_proto_msgTypes[7]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -745,7 +708,7 @@ func (x *S3Credentials) String() string {
 func (*S3Credentials) ProtoMessage() {}
 
 func (x *S3Credentials) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_scanner_scanner_proto_msgTypes[8]
+	mi := &file_proto_scanner_scanner_proto_msgTypes[7]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -758,7 +721,7 @@ func (x *S3Credentials) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use S3Credentials.ProtoReflect.Descriptor instead.
 func (*S3Credentials) Descriptor() ([]byte, []int) {
-	return file_proto_scanner_scanner_proto_rawDescGZIP(), []int{8}
+	return file_proto_scanner_scanner_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *S3Credentials) GetAccessKey() string {
@@ -780,6 +743,158 @@ func (x *S3Credentials) GetSessionToken() string {
 		return x.SessionToken
 	}
 	return ""
+}
+
+type TaskStartedEvent struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	JobId     string `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
+	TaskId    string `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	Timestamp int64  `protobuf:"varint,3,opt,name=timestamp,proto3" json:"timestamp,omitempty"` // Unix timestamp in nanoseconds
+}
+
+func (x *TaskStartedEvent) Reset() {
+	*x = TaskStartedEvent{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_proto_scanner_scanner_proto_msgTypes[8]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *TaskStartedEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TaskStartedEvent) ProtoMessage() {}
+
+func (x *TaskStartedEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_scanner_scanner_proto_msgTypes[8]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TaskStartedEvent.ProtoReflect.Descriptor instead.
+func (*TaskStartedEvent) Descriptor() ([]byte, []int) {
+	return file_proto_scanner_scanner_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *TaskStartedEvent) GetJobId() string {
+	if x != nil {
+		return x.JobId
+	}
+	return ""
+}
+
+func (x *TaskStartedEvent) GetTaskId() string {
+	if x != nil {
+		return x.TaskId
+	}
+	return ""
+}
+
+func (x *TaskStartedEvent) GetTimestamp() int64 {
+	if x != nil {
+		return x.Timestamp
+	}
+	return 0
+}
+
+type ScanProgress struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	TaskId          string  `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`                              // Matches the ScanTask task_id
+	PercentComplete float32 `protobuf:"fixed32,2,opt,name=percent_complete,json=percentComplete,proto3" json:"percent_complete,omitempty"` // 0.0 to 100.0
+	// Optional: describe what is being scanned now (e.g., current file)
+	CurrentItem string `protobuf:"bytes,3,opt,name=current_item,json=currentItem,proto3" json:"current_item,omitempty"`
+	// Optional: how many items (files/commits) processed so far
+	ItemsProcessed int64             `protobuf:"varint,4,opt,name=items_processed,json=itemsProcessed,proto3" json:"items_processed,omitempty"`
+	TotalItems     int64             `protobuf:"varint,5,opt,name=total_items,json=totalItems,proto3" json:"total_items,omitempty"`                                                                  // Optional: total items if known
+	Metadata       map[string]string `protobuf:"bytes,6,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"` // Additional data as needed
+}
+
+func (x *ScanProgress) Reset() {
+	*x = ScanProgress{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_proto_scanner_scanner_proto_msgTypes[9]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *ScanProgress) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ScanProgress) ProtoMessage() {}
+
+func (x *ScanProgress) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_scanner_scanner_proto_msgTypes[9]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ScanProgress.ProtoReflect.Descriptor instead.
+func (*ScanProgress) Descriptor() ([]byte, []int) {
+	return file_proto_scanner_scanner_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *ScanProgress) GetTaskId() string {
+	if x != nil {
+		return x.TaskId
+	}
+	return ""
+}
+
+func (x *ScanProgress) GetPercentComplete() float32 {
+	if x != nil {
+		return x.PercentComplete
+	}
+	return 0
+}
+
+func (x *ScanProgress) GetCurrentItem() string {
+	if x != nil {
+		return x.CurrentItem
+	}
+	return ""
+}
+
+func (x *ScanProgress) GetItemsProcessed() int64 {
+	if x != nil {
+		return x.ItemsProcessed
+	}
+	return 0
+}
+
+func (x *ScanProgress) GetTotalItems() int64 {
+	if x != nil {
+		return x.TotalItems
+	}
+	return 0
+}
+
+func (x *ScanProgress) GetMetadata() map[string]string {
+	if x != nil {
+		return x.Metadata
+	}
+	return nil
 }
 
 var File_proto_scanner_scanner_proto protoreflect.FileDescriptor
@@ -817,27 +932,7 @@ var file_proto_scanner_scanner_proto_rawDesc = []byte{
 	0x6e, 0x54, 0x61, 0x73, 0x6b, 0x12, 0x2e, 0x0a, 0x05, 0x74, 0x61, 0x73, 0x6b, 0x73, 0x18, 0x01,
 	0x20, 0x03, 0x28, 0x0b, 0x32, 0x18, 0x2e, 0x73, 0x63, 0x61, 0x6e, 0x6e, 0x65, 0x72, 0x2e, 0x45,
 	0x6e, 0x75, 0x6d, 0x65, 0x72, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x54, 0x61, 0x73, 0x6b, 0x52, 0x05,
-	0x74, 0x61, 0x73, 0x6b, 0x73, 0x22, 0xbd, 0x02, 0x0a, 0x0c, 0x53, 0x63, 0x61, 0x6e, 0x50, 0x72,
-	0x6f, 0x67, 0x72, 0x65, 0x73, 0x73, 0x12, 0x17, 0x0a, 0x07, 0x74, 0x61, 0x73, 0x6b, 0x5f, 0x69,
-	0x64, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x06, 0x74, 0x61, 0x73, 0x6b, 0x49, 0x64, 0x12,
-	0x29, 0x0a, 0x10, 0x70, 0x65, 0x72, 0x63, 0x65, 0x6e, 0x74, 0x5f, 0x63, 0x6f, 0x6d, 0x70, 0x6c,
-	0x65, 0x74, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x02, 0x52, 0x0f, 0x70, 0x65, 0x72, 0x63, 0x65,
-	0x6e, 0x74, 0x43, 0x6f, 0x6d, 0x70, 0x6c, 0x65, 0x74, 0x65, 0x12, 0x21, 0x0a, 0x0c, 0x63, 0x75,
-	0x72, 0x72, 0x65, 0x6e, 0x74, 0x5f, 0x69, 0x74, 0x65, 0x6d, 0x18, 0x03, 0x20, 0x01, 0x28, 0x09,
-	0x52, 0x0b, 0x63, 0x75, 0x72, 0x72, 0x65, 0x6e, 0x74, 0x49, 0x74, 0x65, 0x6d, 0x12, 0x27, 0x0a,
-	0x0f, 0x69, 0x74, 0x65, 0x6d, 0x73, 0x5f, 0x70, 0x72, 0x6f, 0x63, 0x65, 0x73, 0x73, 0x65, 0x64,
-	0x18, 0x04, 0x20, 0x01, 0x28, 0x03, 0x52, 0x0e, 0x69, 0x74, 0x65, 0x6d, 0x73, 0x50, 0x72, 0x6f,
-	0x63, 0x65, 0x73, 0x73, 0x65, 0x64, 0x12, 0x1f, 0x0a, 0x0b, 0x74, 0x6f, 0x74, 0x61, 0x6c, 0x5f,
-	0x69, 0x74, 0x65, 0x6d, 0x73, 0x18, 0x05, 0x20, 0x01, 0x28, 0x03, 0x52, 0x0a, 0x74, 0x6f, 0x74,
-	0x61, 0x6c, 0x49, 0x74, 0x65, 0x6d, 0x73, 0x12, 0x3f, 0x0a, 0x08, 0x6d, 0x65, 0x74, 0x61, 0x64,
-	0x61, 0x74, 0x61, 0x18, 0x06, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x23, 0x2e, 0x73, 0x63, 0x61, 0x6e,
-	0x6e, 0x65, 0x72, 0x2e, 0x53, 0x63, 0x61, 0x6e, 0x50, 0x72, 0x6f, 0x67, 0x72, 0x65, 0x73, 0x73,
-	0x2e, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x45, 0x6e, 0x74, 0x72, 0x79, 0x52, 0x08,
-	0x6d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x1a, 0x3b, 0x0a, 0x0d, 0x4d, 0x65, 0x74, 0x61,
-	0x64, 0x61, 0x74, 0x61, 0x45, 0x6e, 0x74, 0x72, 0x79, 0x12, 0x10, 0x0a, 0x03, 0x6b, 0x65, 0x79,
-	0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x03, 0x6b, 0x65, 0x79, 0x12, 0x14, 0x0a, 0x05, 0x76,
-	0x61, 0x6c, 0x75, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x05, 0x76, 0x61, 0x6c, 0x75,
-	0x65, 0x3a, 0x02, 0x38, 0x01, 0x22, 0x99, 0x01, 0x0a, 0x0a, 0x53, 0x63, 0x61, 0x6e, 0x52, 0x65,
+	0x74, 0x61, 0x73, 0x6b, 0x73, 0x22, 0x99, 0x01, 0x0a, 0x0a, 0x53, 0x63, 0x61, 0x6e, 0x52, 0x65,
 	0x73, 0x75, 0x6c, 0x74, 0x12, 0x17, 0x0a, 0x07, 0x74, 0x61, 0x73, 0x6b, 0x5f, 0x69, 0x64, 0x18,
 	0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x06, 0x74, 0x61, 0x73, 0x6b, 0x49, 0x64, 0x12, 0x2c, 0x0a,
 	0x08, 0x66, 0x69, 0x6e, 0x64, 0x69, 0x6e, 0x67, 0x73, 0x18, 0x02, 0x20, 0x03, 0x28, 0x0b, 0x32,
@@ -887,28 +982,62 @@ var file_proto_scanner_scanner_proto_rawDesc = []byte{
 	0x79, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x09, 0x73, 0x65, 0x63, 0x72, 0x65, 0x74, 0x4b,
 	0x65, 0x79, 0x12, 0x23, 0x0a, 0x0d, 0x73, 0x65, 0x73, 0x73, 0x69, 0x6f, 0x6e, 0x5f, 0x74, 0x6f,
 	0x6b, 0x65, 0x6e, 0x18, 0x03, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0c, 0x73, 0x65, 0x73, 0x73, 0x69,
-	0x6f, 0x6e, 0x54, 0x6f, 0x6b, 0x65, 0x6e, 0x2a, 0x6a, 0x0a, 0x0a, 0x53, 0x6f, 0x75, 0x72, 0x63,
-	0x65, 0x54, 0x79, 0x70, 0x65, 0x12, 0x1b, 0x0a, 0x17, 0x53, 0x4f, 0x55, 0x52, 0x43, 0x45, 0x5f,
-	0x54, 0x59, 0x50, 0x45, 0x5f, 0x55, 0x4e, 0x53, 0x50, 0x45, 0x43, 0x49, 0x46, 0x49, 0x45, 0x44,
-	0x10, 0x00, 0x12, 0x16, 0x0a, 0x12, 0x53, 0x4f, 0x55, 0x52, 0x43, 0x45, 0x5f, 0x54, 0x59, 0x50,
-	0x45, 0x5f, 0x47, 0x49, 0x54, 0x48, 0x55, 0x42, 0x10, 0x01, 0x12, 0x12, 0x0a, 0x0e, 0x53, 0x4f,
-	0x55, 0x52, 0x43, 0x45, 0x5f, 0x54, 0x59, 0x50, 0x45, 0x5f, 0x53, 0x33, 0x10, 0x02, 0x12, 0x13,
-	0x0a, 0x0f, 0x53, 0x4f, 0x55, 0x52, 0x43, 0x45, 0x5f, 0x54, 0x59, 0x50, 0x45, 0x5f, 0x55, 0x52,
-	0x4c, 0x10, 0x03, 0x2a, 0xa4, 0x01, 0x0a, 0x0d, 0x53, 0x63, 0x61, 0x6e, 0x4a, 0x6f, 0x62, 0x53,
-	0x74, 0x61, 0x74, 0x75, 0x73, 0x12, 0x1f, 0x0a, 0x1b, 0x53, 0x43, 0x41, 0x4e, 0x5f, 0x4a, 0x4f,
-	0x42, 0x5f, 0x53, 0x54, 0x41, 0x54, 0x55, 0x53, 0x5f, 0x55, 0x4e, 0x53, 0x50, 0x45, 0x43, 0x49,
-	0x46, 0x49, 0x45, 0x44, 0x10, 0x00, 0x12, 0x1a, 0x0a, 0x16, 0x53, 0x43, 0x41, 0x4e, 0x5f, 0x4a,
-	0x4f, 0x42, 0x5f, 0x53, 0x54, 0x41, 0x54, 0x55, 0x53, 0x5f, 0x51, 0x55, 0x45, 0x55, 0x45, 0x44,
-	0x10, 0x01, 0x12, 0x1b, 0x0a, 0x17, 0x53, 0x43, 0x41, 0x4e, 0x5f, 0x4a, 0x4f, 0x42, 0x5f, 0x53,
-	0x54, 0x41, 0x54, 0x55, 0x53, 0x5f, 0x52, 0x55, 0x4e, 0x4e, 0x49, 0x4e, 0x47, 0x10, 0x02, 0x12,
-	0x1d, 0x0a, 0x19, 0x53, 0x43, 0x41, 0x4e, 0x5f, 0x4a, 0x4f, 0x42, 0x5f, 0x53, 0x54, 0x41, 0x54,
-	0x55, 0x53, 0x5f, 0x43, 0x4f, 0x4d, 0x50, 0x4c, 0x45, 0x54, 0x45, 0x44, 0x10, 0x03, 0x12, 0x1a,
-	0x0a, 0x16, 0x53, 0x43, 0x41, 0x4e, 0x5f, 0x4a, 0x4f, 0x42, 0x5f, 0x53, 0x54, 0x41, 0x54, 0x55,
-	0x53, 0x5f, 0x46, 0x41, 0x49, 0x4c, 0x45, 0x44, 0x10, 0x04, 0x42, 0x38, 0x5a, 0x36, 0x67, 0x69,
-	0x74, 0x68, 0x75, 0x62, 0x2e, 0x63, 0x6f, 0x6d, 0x2f, 0x61, 0x68, 0x72, 0x61, 0x76, 0x2f, 0x67,
-	0x69, 0x74, 0x6c, 0x65, 0x61, 0x6b, 0x73, 0x2d, 0x61, 0x72, 0x6d, 0x61, 0x64, 0x61, 0x2f, 0x70,
-	0x72, 0x6f, 0x74, 0x6f, 0x2f, 0x73, 0x63, 0x61, 0x6e, 0x6e, 0x65, 0x72, 0x3b, 0x73, 0x63, 0x61,
-	0x6e, 0x6e, 0x65, 0x72, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
+	0x6f, 0x6e, 0x54, 0x6f, 0x6b, 0x65, 0x6e, 0x22, 0x60, 0x0a, 0x10, 0x54, 0x61, 0x73, 0x6b, 0x53,
+	0x74, 0x61, 0x72, 0x74, 0x65, 0x64, 0x45, 0x76, 0x65, 0x6e, 0x74, 0x12, 0x15, 0x0a, 0x06, 0x6a,
+	0x6f, 0x62, 0x5f, 0x69, 0x64, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x05, 0x6a, 0x6f, 0x62,
+	0x49, 0x64, 0x12, 0x17, 0x0a, 0x07, 0x74, 0x61, 0x73, 0x6b, 0x5f, 0x69, 0x64, 0x18, 0x02, 0x20,
+	0x01, 0x28, 0x09, 0x52, 0x06, 0x74, 0x61, 0x73, 0x6b, 0x49, 0x64, 0x12, 0x1c, 0x0a, 0x09, 0x74,
+	0x69, 0x6d, 0x65, 0x73, 0x74, 0x61, 0x6d, 0x70, 0x18, 0x03, 0x20, 0x01, 0x28, 0x03, 0x52, 0x09,
+	0x74, 0x69, 0x6d, 0x65, 0x73, 0x74, 0x61, 0x6d, 0x70, 0x22, 0xbd, 0x02, 0x0a, 0x0c, 0x53, 0x63,
+	0x61, 0x6e, 0x50, 0x72, 0x6f, 0x67, 0x72, 0x65, 0x73, 0x73, 0x12, 0x17, 0x0a, 0x07, 0x74, 0x61,
+	0x73, 0x6b, 0x5f, 0x69, 0x64, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x06, 0x74, 0x61, 0x73,
+	0x6b, 0x49, 0x64, 0x12, 0x29, 0x0a, 0x10, 0x70, 0x65, 0x72, 0x63, 0x65, 0x6e, 0x74, 0x5f, 0x63,
+	0x6f, 0x6d, 0x70, 0x6c, 0x65, 0x74, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x02, 0x52, 0x0f, 0x70,
+	0x65, 0x72, 0x63, 0x65, 0x6e, 0x74, 0x43, 0x6f, 0x6d, 0x70, 0x6c, 0x65, 0x74, 0x65, 0x12, 0x21,
+	0x0a, 0x0c, 0x63, 0x75, 0x72, 0x72, 0x65, 0x6e, 0x74, 0x5f, 0x69, 0x74, 0x65, 0x6d, 0x18, 0x03,
+	0x20, 0x01, 0x28, 0x09, 0x52, 0x0b, 0x63, 0x75, 0x72, 0x72, 0x65, 0x6e, 0x74, 0x49, 0x74, 0x65,
+	0x6d, 0x12, 0x27, 0x0a, 0x0f, 0x69, 0x74, 0x65, 0x6d, 0x73, 0x5f, 0x70, 0x72, 0x6f, 0x63, 0x65,
+	0x73, 0x73, 0x65, 0x64, 0x18, 0x04, 0x20, 0x01, 0x28, 0x03, 0x52, 0x0e, 0x69, 0x74, 0x65, 0x6d,
+	0x73, 0x50, 0x72, 0x6f, 0x63, 0x65, 0x73, 0x73, 0x65, 0x64, 0x12, 0x1f, 0x0a, 0x0b, 0x74, 0x6f,
+	0x74, 0x61, 0x6c, 0x5f, 0x69, 0x74, 0x65, 0x6d, 0x73, 0x18, 0x05, 0x20, 0x01, 0x28, 0x03, 0x52,
+	0x0a, 0x74, 0x6f, 0x74, 0x61, 0x6c, 0x49, 0x74, 0x65, 0x6d, 0x73, 0x12, 0x3f, 0x0a, 0x08, 0x6d,
+	0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x18, 0x06, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x23, 0x2e,
+	0x73, 0x63, 0x61, 0x6e, 0x6e, 0x65, 0x72, 0x2e, 0x53, 0x63, 0x61, 0x6e, 0x50, 0x72, 0x6f, 0x67,
+	0x72, 0x65, 0x73, 0x73, 0x2e, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x45, 0x6e, 0x74,
+	0x72, 0x79, 0x52, 0x08, 0x6d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x1a, 0x3b, 0x0a, 0x0d,
+	0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x45, 0x6e, 0x74, 0x72, 0x79, 0x12, 0x10, 0x0a,
+	0x03, 0x6b, 0x65, 0x79, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x03, 0x6b, 0x65, 0x79, 0x12,
+	0x14, 0x0a, 0x05, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x05,
+	0x76, 0x61, 0x6c, 0x75, 0x65, 0x3a, 0x02, 0x38, 0x01, 0x2a, 0x6a, 0x0a, 0x0a, 0x53, 0x6f, 0x75,
+	0x72, 0x63, 0x65, 0x54, 0x79, 0x70, 0x65, 0x12, 0x1b, 0x0a, 0x17, 0x53, 0x4f, 0x55, 0x52, 0x43,
+	0x45, 0x5f, 0x54, 0x59, 0x50, 0x45, 0x5f, 0x55, 0x4e, 0x53, 0x50, 0x45, 0x43, 0x49, 0x46, 0x49,
+	0x45, 0x44, 0x10, 0x00, 0x12, 0x16, 0x0a, 0x12, 0x53, 0x4f, 0x55, 0x52, 0x43, 0x45, 0x5f, 0x54,
+	0x59, 0x50, 0x45, 0x5f, 0x47, 0x49, 0x54, 0x48, 0x55, 0x42, 0x10, 0x01, 0x12, 0x12, 0x0a, 0x0e,
+	0x53, 0x4f, 0x55, 0x52, 0x43, 0x45, 0x5f, 0x54, 0x59, 0x50, 0x45, 0x5f, 0x53, 0x33, 0x10, 0x02,
+	0x12, 0x13, 0x0a, 0x0f, 0x53, 0x4f, 0x55, 0x52, 0x43, 0x45, 0x5f, 0x54, 0x59, 0x50, 0x45, 0x5f,
+	0x55, 0x52, 0x4c, 0x10, 0x03, 0x2a, 0xa4, 0x01, 0x0a, 0x0d, 0x53, 0x63, 0x61, 0x6e, 0x4a, 0x6f,
+	0x62, 0x53, 0x74, 0x61, 0x74, 0x75, 0x73, 0x12, 0x1f, 0x0a, 0x1b, 0x53, 0x43, 0x41, 0x4e, 0x5f,
+	0x4a, 0x4f, 0x42, 0x5f, 0x53, 0x54, 0x41, 0x54, 0x55, 0x53, 0x5f, 0x55, 0x4e, 0x53, 0x50, 0x45,
+	0x43, 0x49, 0x46, 0x49, 0x45, 0x44, 0x10, 0x00, 0x12, 0x1a, 0x0a, 0x16, 0x53, 0x43, 0x41, 0x4e,
+	0x5f, 0x4a, 0x4f, 0x42, 0x5f, 0x53, 0x54, 0x41, 0x54, 0x55, 0x53, 0x5f, 0x51, 0x55, 0x45, 0x55,
+	0x45, 0x44, 0x10, 0x01, 0x12, 0x1b, 0x0a, 0x17, 0x53, 0x43, 0x41, 0x4e, 0x5f, 0x4a, 0x4f, 0x42,
+	0x5f, 0x53, 0x54, 0x41, 0x54, 0x55, 0x53, 0x5f, 0x52, 0x55, 0x4e, 0x4e, 0x49, 0x4e, 0x47, 0x10,
+	0x02, 0x12, 0x1d, 0x0a, 0x19, 0x53, 0x43, 0x41, 0x4e, 0x5f, 0x4a, 0x4f, 0x42, 0x5f, 0x53, 0x54,
+	0x41, 0x54, 0x55, 0x53, 0x5f, 0x43, 0x4f, 0x4d, 0x50, 0x4c, 0x45, 0x54, 0x45, 0x44, 0x10, 0x03,
+	0x12, 0x1a, 0x0a, 0x16, 0x53, 0x43, 0x41, 0x4e, 0x5f, 0x4a, 0x4f, 0x42, 0x5f, 0x53, 0x54, 0x41,
+	0x54, 0x55, 0x53, 0x5f, 0x46, 0x41, 0x49, 0x4c, 0x45, 0x44, 0x10, 0x04, 0x2a, 0x79, 0x0a, 0x0a,
+	0x54, 0x61, 0x73, 0x6b, 0x53, 0x74, 0x61, 0x74, 0x75, 0x73, 0x12, 0x1b, 0x0a, 0x17, 0x54, 0x41,
+	0x53, 0x4b, 0x5f, 0x53, 0x54, 0x41, 0x54, 0x55, 0x53, 0x5f, 0x55, 0x4e, 0x53, 0x50, 0x45, 0x43,
+	0x49, 0x46, 0x49, 0x45, 0x44, 0x10, 0x00, 0x12, 0x1b, 0x0a, 0x17, 0x54, 0x41, 0x53, 0x4b, 0x5f,
+	0x53, 0x54, 0x41, 0x54, 0x55, 0x53, 0x5f, 0x49, 0x4e, 0x5f, 0x50, 0x52, 0x4f, 0x47, 0x52, 0x45,
+	0x53, 0x53, 0x10, 0x01, 0x12, 0x19, 0x0a, 0x15, 0x54, 0x41, 0x53, 0x4b, 0x5f, 0x53, 0x54, 0x41,
+	0x54, 0x55, 0x53, 0x5f, 0x43, 0x4f, 0x4d, 0x50, 0x4c, 0x45, 0x54, 0x45, 0x44, 0x10, 0x02, 0x12,
+	0x16, 0x0a, 0x12, 0x54, 0x41, 0x53, 0x4b, 0x5f, 0x53, 0x54, 0x41, 0x54, 0x55, 0x53, 0x5f, 0x46,
+	0x41, 0x49, 0x4c, 0x45, 0x44, 0x10, 0x03, 0x42, 0x38, 0x5a, 0x36, 0x67, 0x69, 0x74, 0x68, 0x75,
+	0x62, 0x2e, 0x63, 0x6f, 0x6d, 0x2f, 0x61, 0x68, 0x72, 0x61, 0x76, 0x2f, 0x67, 0x69, 0x74, 0x6c,
+	0x65, 0x61, 0x6b, 0x73, 0x2d, 0x61, 0x72, 0x6d, 0x61, 0x64, 0x61, 0x2f, 0x70, 0x72, 0x6f, 0x74,
+	0x6f, 0x2f, 0x73, 0x63, 0x61, 0x6e, 0x6e, 0x65, 0x72, 0x3b, 0x73, 0x63, 0x61, 0x6e, 0x6e, 0x65,
+	0x72, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
 }
 
 var (
@@ -923,36 +1052,38 @@ func file_proto_scanner_scanner_proto_rawDescGZIP() []byte {
 	return file_proto_scanner_scanner_proto_rawDescData
 }
 
-var file_proto_scanner_scanner_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_proto_scanner_scanner_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
+var file_proto_scanner_scanner_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
+var file_proto_scanner_scanner_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
 var file_proto_scanner_scanner_proto_goTypes = []interface{}{
 	(SourceType)(0),                    // 0: scanner.SourceType
 	(ScanJobStatus)(0),                 // 1: scanner.ScanJobStatus
-	(*EnumerationTask)(nil),            // 2: scanner.EnumerationTask
-	(*BatchEnumerationTask)(nil),       // 3: scanner.BatchEnumerationTask
-	(*ScanProgress)(nil),               // 4: scanner.ScanProgress
+	(TaskStatus)(0),                    // 2: scanner.TaskStatus
+	(*EnumerationTask)(nil),            // 3: scanner.EnumerationTask
+	(*BatchEnumerationTask)(nil),       // 4: scanner.BatchEnumerationTask
 	(*ScanResult)(nil),                 // 5: scanner.ScanResult
 	(*Finding)(nil),                    // 6: scanner.Finding
 	(*TaskCredentials)(nil),            // 7: scanner.TaskCredentials
 	(*UnauthenticatedCredentials)(nil), // 8: scanner.UnauthenticatedCredentials
 	(*GitHubCredentials)(nil),          // 9: scanner.GitHubCredentials
 	(*S3Credentials)(nil),              // 10: scanner.S3Credentials
-	nil,                                // 11: scanner.EnumerationTask.MetadataEntry
-	nil,                                // 12: scanner.ScanProgress.MetadataEntry
-	(*structpb.Struct)(nil),            // 13: google.protobuf.Struct
+	(*TaskStartedEvent)(nil),           // 11: scanner.TaskStartedEvent
+	(*ScanProgress)(nil),               // 12: scanner.ScanProgress
+	nil,                                // 13: scanner.EnumerationTask.MetadataEntry
+	nil,                                // 14: scanner.ScanProgress.MetadataEntry
+	(*structpb.Struct)(nil),            // 15: google.protobuf.Struct
 }
 var file_proto_scanner_scanner_proto_depIdxs = []int32{
 	0,  // 0: scanner.EnumerationTask.source_type:type_name -> scanner.SourceType
-	11, // 1: scanner.EnumerationTask.metadata:type_name -> scanner.EnumerationTask.MetadataEntry
+	13, // 1: scanner.EnumerationTask.metadata:type_name -> scanner.EnumerationTask.MetadataEntry
 	7,  // 2: scanner.EnumerationTask.credentials:type_name -> scanner.TaskCredentials
-	2,  // 3: scanner.BatchEnumerationTask.tasks:type_name -> scanner.EnumerationTask
-	12, // 4: scanner.ScanProgress.metadata:type_name -> scanner.ScanProgress.MetadataEntry
-	6,  // 5: scanner.ScanResult.findings:type_name -> scanner.Finding
-	1,  // 6: scanner.ScanResult.status:type_name -> scanner.ScanJobStatus
-	13, // 7: scanner.Finding.raw_finding:type_name -> google.protobuf.Struct
-	8,  // 8: scanner.TaskCredentials.unauthenticated:type_name -> scanner.UnauthenticatedCredentials
-	9,  // 9: scanner.TaskCredentials.github:type_name -> scanner.GitHubCredentials
-	10, // 10: scanner.TaskCredentials.s3:type_name -> scanner.S3Credentials
+	3,  // 3: scanner.BatchEnumerationTask.tasks:type_name -> scanner.EnumerationTask
+	6,  // 4: scanner.ScanResult.findings:type_name -> scanner.Finding
+	1,  // 5: scanner.ScanResult.status:type_name -> scanner.ScanJobStatus
+	15, // 6: scanner.Finding.raw_finding:type_name -> google.protobuf.Struct
+	8,  // 7: scanner.TaskCredentials.unauthenticated:type_name -> scanner.UnauthenticatedCredentials
+	9,  // 8: scanner.TaskCredentials.github:type_name -> scanner.GitHubCredentials
+	10, // 9: scanner.TaskCredentials.s3:type_name -> scanner.S3Credentials
+	14, // 10: scanner.ScanProgress.metadata:type_name -> scanner.ScanProgress.MetadataEntry
 	11, // [11:11] is the sub-list for method output_type
 	11, // [11:11] is the sub-list for method input_type
 	11, // [11:11] is the sub-list for extension type_name
@@ -991,18 +1122,6 @@ func file_proto_scanner_scanner_proto_init() {
 			}
 		}
 		file_proto_scanner_scanner_proto_msgTypes[2].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ScanProgress); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_proto_scanner_scanner_proto_msgTypes[3].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*ScanResult); i {
 			case 0:
 				return &v.state
@@ -1014,7 +1133,7 @@ func file_proto_scanner_scanner_proto_init() {
 				return nil
 			}
 		}
-		file_proto_scanner_scanner_proto_msgTypes[4].Exporter = func(v interface{}, i int) interface{} {
+		file_proto_scanner_scanner_proto_msgTypes[3].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*Finding); i {
 			case 0:
 				return &v.state
@@ -1026,7 +1145,7 @@ func file_proto_scanner_scanner_proto_init() {
 				return nil
 			}
 		}
-		file_proto_scanner_scanner_proto_msgTypes[5].Exporter = func(v interface{}, i int) interface{} {
+		file_proto_scanner_scanner_proto_msgTypes[4].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*TaskCredentials); i {
 			case 0:
 				return &v.state
@@ -1038,7 +1157,7 @@ func file_proto_scanner_scanner_proto_init() {
 				return nil
 			}
 		}
-		file_proto_scanner_scanner_proto_msgTypes[6].Exporter = func(v interface{}, i int) interface{} {
+		file_proto_scanner_scanner_proto_msgTypes[5].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*UnauthenticatedCredentials); i {
 			case 0:
 				return &v.state
@@ -1050,7 +1169,7 @@ func file_proto_scanner_scanner_proto_init() {
 				return nil
 			}
 		}
-		file_proto_scanner_scanner_proto_msgTypes[7].Exporter = func(v interface{}, i int) interface{} {
+		file_proto_scanner_scanner_proto_msgTypes[6].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*GitHubCredentials); i {
 			case 0:
 				return &v.state
@@ -1062,7 +1181,7 @@ func file_proto_scanner_scanner_proto_init() {
 				return nil
 			}
 		}
-		file_proto_scanner_scanner_proto_msgTypes[8].Exporter = func(v interface{}, i int) interface{} {
+		file_proto_scanner_scanner_proto_msgTypes[7].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*S3Credentials); i {
 			case 0:
 				return &v.state
@@ -1074,8 +1193,32 @@ func file_proto_scanner_scanner_proto_init() {
 				return nil
 			}
 		}
+		file_proto_scanner_scanner_proto_msgTypes[8].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*TaskStartedEvent); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_proto_scanner_scanner_proto_msgTypes[9].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*ScanProgress); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
 	}
-	file_proto_scanner_scanner_proto_msgTypes[5].OneofWrappers = []interface{}{
+	file_proto_scanner_scanner_proto_msgTypes[4].OneofWrappers = []interface{}{
 		(*TaskCredentials_Unauthenticated)(nil),
 		(*TaskCredentials_Github)(nil),
 		(*TaskCredentials_S3)(nil),
@@ -1085,8 +1228,8 @@ func file_proto_scanner_scanner_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_proto_scanner_scanner_proto_rawDesc,
-			NumEnums:      2,
-			NumMessages:   11,
+			NumEnums:      3,
+			NumMessages:   12,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

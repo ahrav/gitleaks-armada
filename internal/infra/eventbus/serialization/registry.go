@@ -23,6 +23,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/rules"
+	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/internal/infra/eventbus/serialization/protobuf"
 	pb "github.com/ahrav/gitleaks-armada/proto/scanner"
 )
@@ -85,6 +86,9 @@ func RegisterEventSerializers() {
 
 	RegisterSerializeFunc(rules.EventTypeRuleUpdated, serializeRuleUpdated)
 	RegisterDeserializeFunc(rules.EventTypeRuleUpdated, deserializeRuleUpdated)
+
+	RegisterSerializeFunc(scanning.EventTypeTaskStarted, serializeTaskStarted)
+	RegisterDeserializeFunc(scanning.EventTypeTaskStarted, deserializeTaskStarted)
 }
 
 // serializeEnumerationTaskCreated converts a TaskCreatedEvent to protobuf bytes.
@@ -125,4 +129,30 @@ func deserializeRuleUpdated(data []byte) (any, error) {
 	}
 	ruleMsg := protobuf.ProtoToGitleaksRuleMessage(&pbRule)
 	return rules.NewRuleUpdatedEvent(ruleMsg), nil
+}
+
+// serializeTaskStarted converts a TaskStartedEvent to protobuf bytes.
+func serializeTaskStarted(payload any) ([]byte, error) {
+	event, ok := payload.(scanning.TaskStartedEvent)
+	if !ok {
+		return nil, fmt.Errorf("serializeTaskStarted: payload is not TaskStartedEvent, got %T", payload)
+	}
+
+	pbEvent := protobuf.TaskStartedEventToProto(event)
+	return proto.Marshal(pbEvent)
+}
+
+// deserializeTaskStarted converts protobuf bytes back into a TaskStartedEvent.
+func deserializeTaskStarted(data []byte) (any, error) {
+	var pbEvent pb.TaskStartedEvent
+	if err := proto.Unmarshal(data, &pbEvent); err != nil {
+		return nil, fmt.Errorf("unmarshal TaskStartedEvent: %w", err)
+	}
+
+	event, err := protobuf.ProtoToTaskStartedEvent(&pbEvent)
+	if err != nil {
+		return nil, fmt.Errorf("convert proto to domain event: %w", err)
+	}
+
+	return event, nil
 }
