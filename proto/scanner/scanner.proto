@@ -6,6 +6,13 @@ import "google/protobuf/struct.proto";
 
 option go_package = "github.com/ahrav/gitleaks-armada/proto/scanner;scanner";
 
+// A universal envelope containing the actual domain event type
+// and its serialized bytes.
+message UniversalEnvelope {
+  string event_type = 1; // e.g. "TaskStarted", "TaskProgressed", etc.
+  bytes payload     = 2; // serialized domain event data
+}
+
 enum SourceType {
   SOURCE_TYPE_UNSPECIFIED = 0;
   SOURCE_TYPE_GITHUB = 1;

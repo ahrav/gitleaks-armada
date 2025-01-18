@@ -61,6 +61,7 @@ func ReconstructJob(
 		status:   status,
 		timeline: timeline,
 		tasks:    make(map[uuid.UUID]*Task),
+		metrics:  NewJobMetrics(), // TODO: this probably is wrong
 	}
 
 	if len(targetIDs) > 0 {

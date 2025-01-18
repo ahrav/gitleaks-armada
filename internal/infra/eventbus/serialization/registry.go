@@ -55,6 +55,39 @@ func RegisterDeserializeFunc(eventType events.EventType, fn DeserializeFunc) {
 	deserializerRegistry[eventType] = fn
 }
 
+// UnmarshalUniversalEnvelope takes the raw bytes from Kafka, unmarshals the
+// UniversalEnvelope proto, and returns:
+//   - the actual event type (like "TASK_STARTED")
+//   - the domain payload bytes (the second-level content)
+//   - any error encountered
+func UnmarshalUniversalEnvelope(kafkaValue []byte) (events.EventType, []byte, error) {
+	var ue pb.UniversalEnvelope
+	if err := proto.Unmarshal(kafkaValue, &ue); err != nil {
+		return "", nil, fmt.Errorf("failed to unmarshal universal envelope: %w", err)
+	}
+
+	actualEventType := events.EventType(ue.EventType)
+	return actualEventType, ue.Payload, nil
+}
+
+// SerializeEventEnvelope converts a domain object into a serialized event envelope.
+// It first serializes the domain object into bytes using the registered serializer for its event type,
+// then constructs a UniversalEnvelope with the event type and the serialized payload,
+// and finally marshals the envelope into a byte slice using Protocol Buffers.
+func SerializeEventEnvelope(eType events.EventType, domainObj any) ([]byte, error) {
+	domainBytes, err := SerializePayload(eType, domainObj)
+	if err != nil {
+		return nil, fmt.Errorf("serialize domain payload: %w", err)
+	}
+
+	envelope := pb.UniversalEnvelope{
+		EventType: string(eType), // Store the exact event type as a string, e.g., "TASK_STARTED"
+		Payload:   domainBytes,
+	}
+
+	return proto.Marshal(&envelope)
+}
+
 // SerializePayload converts a domain object into bytes using the registered serializer for its event type.
 // Returns an error if no serializer is registered for the given event type.
 func SerializePayload(eventType events.EventType, payload any) ([]byte, error) {

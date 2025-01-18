@@ -42,7 +42,7 @@ type Orchestrator struct {
 	stateRepo          enumeration.StateRepository
 
 	progressTracker  scan.ProgressTracker
-	progressHandlers map[events.EventType]progressEventHandler
+	progressHandlers map[events.EventType]eventHandler
 
 	// mu protects running and cancelFn state
 	mu       sync.Mutex
@@ -52,6 +52,9 @@ type Orchestrator struct {
 	logger  *logger.Logger
 	metrics OrchestrationMetrics
 
+	// TODO: this is hacky...
+	runSpan trace.Span // store the root or orchard span here
+
 	tracer trace.Tracer
 
 	// TODO: Use a ttl cache, or move this into its own pkg.
@@ -59,7 +62,7 @@ type Orchestrator struct {
 	rulesMutex     sync.RWMutex
 }
 
-type progressEventHandler func(context.Context, events.EventEnvelope) error
+type eventHandler func(context.Context, events.EventEnvelope) error
 
 // NewOrchestrator creates a Orchestrator instance that coordinates work distribution
 // using the provided coordinator for leader election and broker for task queuing.
@@ -107,7 +110,8 @@ func NewOrchestrator(
 		rulesMutex:         sync.RWMutex{},
 	}
 
-	o.progressHandlers = map[events.EventType]progressEventHandler{
+	o.progressHandlers = map[events.EventType]eventHandler{
+		rules.EventTypeRuleUpdated:       o.handleRule,
 		scanning.EventTypeTaskStarted:    o.handleTaskStarted,
 		scanning.EventTypeTaskProgressed: o.handleTaskProgressed,
 		// TODO: Add failures, stale tasks, completed tasks, etc.
@@ -124,49 +128,52 @@ func NewOrchestrator(
 // It returns a channel that is closed when initialization is complete and any startup error.
 // The channel allows callers to wait for the controller to be ready before proceeding.
 func (o *Orchestrator) Run(ctx context.Context) (<-chan struct{}, error) {
-	// Short-lived "Run" span; ends after basic setup
+	// 1) Create a short-lived span for the Run(...) call itself,
+	//    ending as soon as Run(...) returns.
 	runCtx, runSpan := o.tracer.Start(ctx, "orchestrator.run",
 		trace.WithAttributes(
 			attribute.String("component", "orchestrator"),
 			attribute.String("orchestrator_id", o.id),
 		))
-	// Make sure we end this span before long-lived operations.
 	defer runSpan.End()
 
-	// Initialization span.
-	initCtx, initSpan := o.tracer.Start(runCtx, "orchestrator.init")
-	defer initSpan.End()
+	orchardCtx, orchardSpan := o.tracer.Start(ctx, "orchestrator.root")
+	o.runSpan = orchardSpan
+
+	// 2) Create a long-lived context for the entire orchestration lifecycle.
+	//    We'll only cancel this context when shutting down.
+	orchestratorCtx, orchestratorCancel := context.WithCancel(trace.ContextWithSpan(orchardCtx, orchardSpan))
+
+	// Store the cancel function so we can call `Stop(...)` later if needed.
+	o.mu.Lock()
+	o.cancelFn = orchestratorCancel
+	o.mu.Unlock()
 
 	ready := make(chan struct{})
 	leaderCh := make(chan bool, 1)
 
-	if err := o.workQueue.Subscribe(initCtx, []events.EventType{rules.EventTypeRuleUpdated}, o.handleRule); err != nil {
-		initSpan.RecordError(err)
-		initSpan.SetStatus(codes.Error, "failed to subscribe to rules")
-		return nil, fmt.Errorf("orchestrator[%s]: failed to subscribe to rules: %v", o.id, err)
-	}
-	initSpan.AddEvent("subscribed_to_rules")
-
-	// Subscribe to progress tracking events.
-	progressEvents := []events.EventType{
+	// Subscribe to progress events (started/progressed/completed/failed).
+	events := []events.EventType{
+		rules.EventTypeRuleUpdated,
 		scanning.EventTypeTaskStarted,
-		scanning.EventTypeTaskProgressed,
-		scanning.EventTypeTaskCompleted,
-		scanning.EventTypeTaskFailed,
+		// scanning.EventTypeTaskProgressed,
+		// scanning.EventTypeTaskCompleted,
+		// scanning.EventTypeTaskFailed,
 	}
-
-	if err := o.workQueue.Subscribe(initCtx, progressEvents, o.handleProgressEvent); err != nil {
-		initSpan.RecordError(err)
+	if err := o.workQueue.Subscribe(
+		orchestratorCtx,
+		events,
+		o.handleProgressEvent,
+	); err != nil {
+		orchardSpan.RecordError(err)
+		orchardSpan.SetStatus(codes.Error, "failed to subscribe to progress events")
 		return nil, fmt.Errorf("orchestrator[%s]: failed to subscribe to progress events: %v", o.id, err)
 	}
-	initSpan.AddEvent("subscribed_to_progress_events")
+	orchardSpan.AddEvent("subscribed_to_events")
 
-	// Create a new context for long-running operations that inherits the trace.
-	longRunningCtx := trace.ContextWithSpan(ctx, initSpan)
-
-	// Hook up leadership change callback with the traced context.
+	// 4) Leadership callback. We create a short-lived span *each time* leadership changes.
 	o.coordinator.OnLeadershipChange(func(isLeader bool) {
-		leaderCtx, leaderSpan := o.tracer.Start(longRunningCtx, "orchestrator.leadership_change",
+		leaderCtx, leaderSpan := o.tracer.Start(orchestratorCtx, "orchestrator.leadership_change",
 			trace.WithAttributes(
 				attribute.String("orchestrator_id", o.id),
 				attribute.Bool("is_leader", isLeader),
@@ -187,58 +194,61 @@ func (o *Orchestrator) Run(ctx context.Context) (<-chan struct{}, error) {
 		select {
 		case leaderCh <- isLeader:
 			leaderSpan.AddEvent("leadership_status_sent")
-			o.logger.Info(leaderCtx, "Sent leadership status", "orchestrator_id", o.id, "is_leader", isLeader)
 		default:
 			leaderSpan.AddEvent("leadership_channel_full")
 			o.logger.Info(leaderCtx, "Warning: leadership channel full, skipping update", "orchestrator_id", o.id)
 		}
 	})
 
-	// Use the same longRunningCtx.
+	// 5) Main goroutine that waits for leadership signals and orchestrates enumerations, etc.
 	go func() {
 		readyClosed := false
-		o.logger.Info(longRunningCtx, "Waiting for leadership signal...", "orchestrator_id", o.id)
+		o.logger.Info(runCtx, "Waiting for leadership signal...", "orchestrator_id", o.id)
 
 		for {
 			select {
 			case isLeader := <-leaderCh:
-				loopCtx, loopSpan := o.tracer.Start(longRunningCtx, "orchestrator.handle_leadership",
-					trace.WithAttributes(
-						attribute.Bool("is_leader", isLeader),
-					))
+				// Short-lived span around "handle_leadership".
+				loopCtx, loopSpan := o.tracer.Start(orchestratorCtx, "orchestrator.handle_leadership",
+					trace.WithAttributes(attribute.Bool("is_leader", isLeader)))
 				if !isLeader {
 					o.logger.Info(loopCtx, "Not leader, waiting...", "orchestrator_id", o.id)
+					loopSpan.AddEvent("not_leader")
 					loopSpan.End()
 					continue
 				}
-
-				// Leader-specific processing.
 				o.logger.Info(loopCtx, "Leadership acquired, processing targets...", "orchestrator_id", o.id)
-				loopSpan.End()
+				loopSpan.AddEvent("leader_acquired")
 
-				enumCtx, enumSpan := o.tracer.Start(ctx, "orchestrator.track_enumeration")
-				err := o.metrics.TrackEnumeration(enumCtx, func() error {
-					return o.Enumerate(enumCtx)
+				// Short span around enumeration process.
+				enumSpan := trace.SpanFromContext(loopCtx)
+				err := o.metrics.TrackEnumeration(loopCtx, func() error {
+					return o.Enumerate(loopCtx)
 				})
 				if err != nil {
 					enumSpan.RecordError(err)
 					enumSpan.SetStatus(codes.Error, "enumeration failed")
-					o.logger.Error(enumCtx, "Failed to run enumeration process", "orchestrator_id", o.id, "error", err)
+					o.logger.Error(loopCtx, "Failed to run enumeration process", "orchestrator_id", o.id, "error", err)
 				}
+				enumSpan.AddEvent("enumeration_completed")
 				enumSpan.End()
+				loopSpan.End()
 
+				// Mark orchestrator as "ready" exactly once.
 				if !readyClosed {
-					// Mark orchestrator as ready.
-					_, readySpan := o.tracer.Start(ctx, "orchestrator.mark_ready")
+					markReadyCtx, markReadySpan := o.tracer.Start(orchestratorCtx, "orchestrator.mark_ready")
 					close(ready)
 					readyClosed = true
-					readySpan.AddEvent("ready_channel_closed")
-					readySpan.End()
+					markReadySpan.AddEvent("ready_channel_closed")
+					markReadySpan.End()
+					o.logger.Info(markReadyCtx, "Orchestrator is ready.", "orchestrator_id", o.id)
 				}
 
-			case <-ctx.Done(): // Shutdown.
-				shutdownCtx, shutdownSpan := o.tracer.Start(ctx, "orchestrator.shutdown")
+			case <-ctx.Done():
+				// Short span for shutdown.
+				shutdownCtx, shutdownSpan := o.tracer.Start(orchestratorCtx, "orchestrator.shutdown")
 				o.logger.Info(shutdownCtx, "Context cancelled, shutting down", "orchestrator_id", o.id)
+
 				if !readyClosed {
 					close(ready)
 					shutdownSpan.AddEvent("ready_channel_closed")
@@ -249,10 +259,10 @@ func (o *Orchestrator) Run(ctx context.Context) (<-chan struct{}, error) {
 		}
 	}()
 
-	// Start coordinator with its own span.
+	// 6) Coordinator startup uses another ephemeral span.
 	startCtx, startSpan := o.tracer.Start(ctx, "orchestrator.start_coordinator")
 	o.logger.Info(startCtx, "Starting coordinator...", "orchestrator_id", o.id)
-	if err := o.coordinator.Start(startCtx); err != nil {
+	if err := o.coordinator.Start(orchestratorCtx); err != nil {
 		startSpan.RecordError(err)
 		startSpan.SetStatus(codes.Error, "failed to start coordinator")
 		startSpan.End()
@@ -261,8 +271,8 @@ func (o *Orchestrator) Run(ctx context.Context) (<-chan struct{}, error) {
 	startSpan.AddEvent("coordinator_started")
 	startSpan.End()
 
-	// Because of the `defer` above, the runSpan from the top will end
-	// as soon as this function returns, avoiding a huge multi-hour parent span.
+	// The 'runSpan' ends when this function returns (due to `defer runSpan.End()`).
+	// The orchestratorCtx remains active in the background until canceled.
 	return ready, nil
 }
 
@@ -310,75 +320,114 @@ func (o *Orchestrator) startFreshEnumerations(ctx context.Context, cfg *config.C
 	span.AddEvent("fresh_enumeration_started")
 
 	for _, target := range cfg.Targets {
-		startTime := time.Now()
+		err := func() error {
+			startTime := time.Now()
+			targetCtx, targetSpan := o.tracer.Start(ctx, "orchestrator.processing_target",
+				trace.WithAttributes(
+					attribute.String("target_name", target.Name),
+					attribute.String("target_type", string(target.SourceType)),
+				))
+			defer targetSpan.End()
+			targetSpan.AddEvent("processing_target")
 
-		targetSpan := trace.SpanFromContext(ctx)
-		targetSpan.AddEvent("processing_target", trace.WithAttributes(
-			attribute.String("target_name", target.Name),
-			attribute.String("target_type", string(target.SourceType)),
-		))
+			job := scanning.NewJob()
+			if err := o.createJob(targetCtx, job); err != nil {
+				// TODO: Revist this we can make this more resilient to allow for failures.
+				o.metrics.IncEnumerationErrors(targetCtx)
+				targetSpan.RecordError(err)
+				return fmt.Errorf("failed to create job for target %s: %w", target.Name, err)
+			}
+			o.metrics.IncJobsCreated(targetCtx)
 
-		job := scanning.NewJob()
-		if err := o.createJob(ctx, job); err != nil {
-			o.metrics.IncEnumerationErrors(ctx)
-			targetSpan.RecordError(err)
-			return fmt.Errorf("failed to create job for target %s: %w", target.Name, err)
-		}
-		o.metrics.IncJobsCreated(ctx)
+			// TODO: Maybe handle this in 2 goroutines?
+			enumChannels := o.enumerationService.EnumerateTarget(targetCtx, target, cfg.Auth)
 
-		// TODO: Maybe handle this in 2 goroutines?
-		enumChannels := o.enumerationService.EnumerateTarget(ctx, target, cfg.Auth)
-
-		done := false
-		for !done {
-			select {
-			case scanTargetIDs, ok := <-enumChannels.ScanTargetCh:
-				if !ok {
-					enumChannels.ScanTargetCh = nil // channel closed
-				} else {
-					if err := o.jobRepo.AssociateTargets(ctx, job.JobID(), scanTargetIDs); err != nil {
-						o.logger.Error(ctx, "Failed to associate target", "error", err)
+			done := false
+			for !done {
+				select {
+				case <-targetCtx.Done():
+					targetSpan.AddEvent("target_context_cancelled")
+					done = true
+				case scanTargetIDs, ok := <-enumChannels.ScanTargetCh:
+					scanTargetIDCtx, scanTargetIDSpan := o.tracer.Start(targetCtx, "orchestrator.handle_scan_target_ids")
+					if !ok {
+						scanTargetIDSpan.AddEvent("scan_target_ids_channel_closed")
+						scanTargetIDSpan.SetStatus(codes.Ok, "scan target ids channel closed")
+						enumChannels.ScanTargetCh = nil // channel closed
+					} else {
+						if err := o.jobRepo.AssociateTargets(scanTargetIDCtx, job.JobID(), scanTargetIDs); err != nil {
+							scanTargetIDSpan.RecordError(err)
+							scanTargetIDSpan.SetStatus(codes.Error, "failed to associate targets")
+							o.logger.Error(scanTargetIDCtx, "Failed to associate target", "error", err)
+						}
+						scanTargetIDSpan.AddEvent("targets_associated")
+						scanTargetIDSpan.SetStatus(codes.Ok, "targets associated")
 					}
-				}
+					scanTargetIDSpan.End()
 
-			case task, ok := <-enumChannels.TaskCh:
-				if !ok {
-					enumChannels.TaskCh = nil // channel closed
-				} else {
+				case task, ok := <-enumChannels.TaskCh:
+					if !ok {
+						enumChannels.TaskCh = nil // channel closed
+						continue
+					}
+
+					taskCtx, taskSpan := o.tracer.Start(targetCtx, "orchestrator.handle_task_created",
+						trace.WithAttributes(
+							attribute.String("task_id", task.ID.String()),
+							attribute.String("job_id", job.JobID().String()),
+						))
+
 					if err := o.eventPublisher.PublishDomainEvent(
-						ctx,
+						taskCtx,
 						enumeration.NewTaskCreatedEvent(job.JobID(), task),
 						events.WithKey(job.JobID().String()),
 					); err != nil {
-						o.logger.Error(ctx, "Failed to publish task event", "error", err)
+						taskSpan.RecordError(err)
+						taskSpan.SetStatus(codes.Error, "failed to publish task event")
+						o.logger.Error(taskCtx, "Failed to publish task event", "error", err)
+					} else {
+						taskSpan.AddEvent("task_event_published")
+						taskSpan.SetStatus(codes.Ok, "task event published")
+					}
+					taskSpan.End()
+
+				case err, ok := <-enumChannels.ErrCh:
+					errCtx, errSpan := o.tracer.Start(targetCtx, "orchestrator.handle_enumeration_error")
+					if ok && err != nil {
+						// We got an error from enumerator.
+						o.metrics.IncEnumerationErrors(errCtx)
+						errSpan.RecordError(err)
+						errSpan.SetStatus(codes.Error, "enumeration error")
+						o.logger.Error(errCtx, "Enumeration error", "error", err)
+						done = true // let's break out for this target
+					} else {
+						// If !ok, channel closed with no error.
+						enumChannels.ErrCh = nil
+						errSpan.AddEvent("enumeration_error_channel_closed")
+						errSpan.SetStatus(codes.Ok, "enumeration error channel closed")
+					}
+					errSpan.End()
+				default:
+					if enumChannels.ScanTargetCh == nil && enumChannels.TaskCh == nil && enumChannels.ErrCh == nil {
+						done = true
 					}
 				}
 
-			case err, ok := <-enumChannels.ErrCh:
-				if ok && err != nil {
-					// We got an error from enumerator.
-					o.metrics.IncEnumerationErrors(ctx)
-					targetSpan.RecordError(err)
-					o.logger.Error(ctx, "Enumeration error", "error", err)
-					done = true // let's break out for this target
-				} else {
-					// If !ok, channel closed with no error.
-					enumChannels.ErrCh = nil
-				}
-
-			default:
-				// If all channels have been set to nil, we’re done reading.
-				if enumChannels.ScanTargetCh == nil && enumChannels.TaskCh == nil {
-					done = true
-				}
 			}
-		}
 
-		duration := time.Since(startTime)
-		o.metrics.ObserveTargetProcessingTime(ctx, duration)
-		targetSpan.AddEvent("target_enumeration_completed", trace.WithAttributes(
-			attribute.String("duration", duration.String()),
-		))
+			duration := time.Since(startTime)
+			o.metrics.ObserveTargetProcessingTime(targetCtx, duration)
+			targetSpan.AddEvent("target_enumeration_completed", trace.WithAttributes(
+				attribute.String("duration", duration.String()),
+			))
+			targetSpan.SetStatus(codes.Ok, "target enumeration completed")
+			targetSpan.End()
+
+			return nil
+		}()
+		if err != nil {
+			return err
+		}
 	}
 	span.AddEvent("fresh_enumeration_completed")
 
@@ -435,6 +484,7 @@ func (o *Orchestrator) resumeEnumerations(ctx context.Context, states []*enumera
 }
 
 func (o *Orchestrator) handleProgressEvent(ctx context.Context, evt events.EventEnvelope) error {
+	o.logger.Info(ctx, "HANDLEEEE!!!!!!!!!!!!!", "event_type", evt.Type)
 	ctx, span := o.tracer.Start(ctx, "orchestrator.handle_progress_event",
 		trace.WithAttributes(
 			attribute.String("event_type", string(evt.Type)),
@@ -516,6 +566,10 @@ func (o *Orchestrator) Stop(ctx context.Context) error {
 		o.cancelFn()
 	}
 	o.mu.Unlock()
+
+	if o.runSpan != nil {
+		o.runSpan.End()
+	}
 
 	o.logger.Info(ctx, "Stopped.", "orchestrator_id", o.id)
 	return nil

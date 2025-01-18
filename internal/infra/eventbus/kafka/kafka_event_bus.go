@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/IBM/sarama"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
@@ -82,12 +84,10 @@ func NewKafkaEventBusFromConfig(
 	metrics BrokerMetrics,
 	tracer trace.Tracer,
 ) (*KafkaEventBus, error) {
-	// Configure producer for synchronous, durable message delivery with
-	// round-robin partitioning for even load distribution.
 	producerConfig := sarama.NewConfig()
 	producerConfig.Producer.RequiredAcks = sarama.WaitForAll
 	producerConfig.Producer.Return.Successes = true
-	producerConfig.Producer.Partitioner = sarama.NewRoundRobinPartitioner
+	producerConfig.Producer.Partitioner = sarama.NewHashPartitioner
 	producerConfig.ClientID = cfg.ClientID
 
 	producer, err := sarama.NewSyncProducer(cfg.Brokers, producerConfig)
@@ -115,14 +115,14 @@ func NewKafkaEventBusFromConfig(
 	// Map domain events to their corresponding Kafka topics to enable
 	// type-safe event routing.
 	topicsMap := map[events.EventType]string{
-		enumeration.EventTypeTaskCreated:    cfg.EnumerationTaskTopic,
-		events.EventTypeScanResultReceived:  cfg.ResultsTopic,
-		events.EventTypeScanProgressUpdated: cfg.ProgressTopic,
-		rules.EventTypeRuleUpdated:          cfg.RulesTopic,
-		scanning.EventTypeTaskStarted:       cfg.ScanningTaskTopic,
-		scanning.EventTypeTaskProgressed:    cfg.ScanningTaskTopic,
-		scanning.EventTypeTaskCompleted:     cfg.ScanningTaskTopic,
-		scanning.EventTypeTaskFailed:        cfg.ScanningTaskTopic,
+		enumeration.EventTypeTaskCreated: cfg.EnumerationTaskTopic,
+		// events.EventTypeScanResultReceived:  cfg.ResultsTopic,
+		// events.EventTypeScanProgressUpdated: cfg.ProgressTopic,
+		rules.EventTypeRuleUpdated:    cfg.RulesTopic,
+		scanning.EventTypeTaskStarted: cfg.ScanningTaskTopic,
+		// scanning.EventTypeTaskProgressed:    cfg.ScanningTaskTopic,
+		// scanning.EventTypeTaskCompleted:     cfg.ScanningTaskTopic,
+		// scanning.EventTypeTaskFailed:        cfg.ScanningTaskTopic,
 	}
 
 	bus := &KafkaEventBus{
@@ -157,7 +157,18 @@ func (k *KafkaEventBus) Publish(ctx context.Context, event events.EventEnvelope,
 	ctx, span := tracing.StartProducerSpan(ctx, topic, k.tracer)
 	defer span.End()
 
-	msgBytes, err := serialization.SerializePayload(event.Type, event.Payload)
+	var pParams events.PublishParams
+	for _, opt := range opts {
+		opt(&pParams)
+	}
+
+	// TODO: Consider also handling headers here.
+	if pParams.Key != "" {
+		event.Key = pParams.Key
+		span.SetAttributes(attribute.String("event.key", event.Key))
+	}
+
+	msgBytes, err := serialization.SerializeEventEnvelope(event.Type, event.Payload)
 	if err != nil {
 		span.RecordError(err)
 
@@ -206,12 +217,20 @@ func (k *KafkaEventBus) Subscribe(
 	eventTypes []events.EventType,
 	handler func(context.Context, events.EventEnvelope) error,
 ) error {
+	ctx, span := k.tracer.Start(ctx, "kafka_event_bus.subscribe",
+		trace.WithAttributes(
+			attribute.String("component", "kafka_event_bus"),
+		))
+	defer span.End()
+
 	// Collect unique topics for the requested event types.
 	topicSet := make(map[string]struct{})
 	for _, et := range eventTypes {
 		if topic, ok := k.topics[et]; ok {
 			topicSet[topic] = struct{}{}
 		} else {
+			span.RecordError(fmt.Errorf("subscribe: unknown event type %s", et))
+			span.SetStatus(codes.Error, "unknown event type")
 			return fmt.Errorf("subscribe: unknown event type %s", et)
 		}
 	}
@@ -220,8 +239,10 @@ func (k *KafkaEventBus) Subscribe(
 	for t := range topicSet {
 		topics = append(topics, t)
 	}
+	span.AddEvent("topics_collected", trace.WithAttributes(attribute.StringSlice("topics", topics)))
 
 	go k.consumeLoop(ctx, topics, eventTypes, handler)
+	k.logger.Info(ctx, "Subscribed to events", "event_types", eventTypes)
 
 	return nil
 }
@@ -294,34 +315,32 @@ func (h *domainEventHandler) ConsumeClaim(
 		msgCtx := tracing.ExtractTraceContext(sess.Context(), msg)
 		msgCtx, span := tracing.StartConsumerSpan(msgCtx, msg, h.tracer)
 
-		eType := h.getEventTypeForTopic(msg.Topic)
-		if eType == "" {
+		evtType, domainBytes, err := serialization.UnmarshalUniversalEnvelope(msg.Value)
+		if err != nil {
 			sess.MarkMessage(msg, "")
+			span.RecordError(err)
 			continue
 		}
 
-		payload, err := serialization.DeserializePayload(eType, msg.Value)
+		payloadObj, err := serialization.DeserializePayload(evtType, domainBytes)
 		if err != nil {
-			if h.metrics != nil {
-				h.metrics.IncConsumeError(msgCtx, msg.Topic)
-			}
-			span.RecordError(err)
 			sess.MarkMessage(msg, "")
+			span.RecordError(err)
 			continue
 		}
 
 		dEvent := events.EventEnvelope{
-			Type:      eType,
+			Type:      evtType,
 			Key:       string(msg.Key),
 			Timestamp: time.Now(),
-			Payload:   payload,
+			Payload:   payloadObj,
 		}
 
 		h.logger.Info(msgCtx, "Received Kafka message",
 			"topic", msg.Topic,
 			"partition", claim.Partition(),
 			"offset", msg.Offset,
-			"event_type", eType,
+			"event_type", evtType,
 			"key", dEvent.Key,
 		)
 
@@ -349,15 +368,6 @@ func (h *domainEventHandler) logPartitionStart(ctx context.Context, partition in
 		"partition", partition,
 		"member_id", memberID,
 	)
-}
-
-func (h *domainEventHandler) getEventTypeForTopic(topic string) events.EventType {
-	for et, t := range h.eventBus.topics {
-		if t == topic {
-			return et
-		}
-	}
-	return ""
 }
 
 // Close gracefully shuts down the event bus by closing both producer and consumer connections.

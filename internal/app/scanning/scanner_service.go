@@ -78,29 +78,30 @@ func (s *ScannerService) Run(ctx context.Context) error {
 	// Create a shorter-lived span just for initialization.
 	// This is because Run is a long-running operation and we don't want to
 	// create a span for the entire operation.
-	ctx, initSpan := s.tracer.Start(ctx, "scanner_service.scanning.init",
+	initCtx, initSpan := s.tracer.Start(ctx, "scanner_service.scanning.init",
 		trace.WithAttributes(
 			attribute.String("component", "scanner_service"),
 			attribute.String("scanner_id", s.id),
 			attribute.Int("num_workers", s.workers),
 		))
 
-	s.logger.Info(ctx, "Starting scanner service", "id", s.id, "workers", s.workers)
+	s.logger.Info(initCtx, "Starting scanner service", "id", s.id, "workers", s.workers)
 
 	initSpan.AddEvent("starting_workers")
 	s.workerWg.Add(s.workers)
 	for i := 0; i < s.workers; i++ {
-		// Create a new context for each worker that inherits the trace
-		workerCtx := trace.ContextWithSpan(ctx, initSpan)
 		go func(workerID int) {
 			defer s.workerWg.Done()
-			s.workerLoop(workerCtx, workerID)
+			s.workerLoop(ctx, workerID)
 		}(i)
 	}
-	s.metrics.SetActiveWorkers(ctx, s.workers)
+	s.metrics.SetActiveWorkers(initCtx, s.workers)
 
-	err := s.eventBus.Subscribe(ctx, []events.EventType{enumeration.EventTypeTaskCreated},
-		s.handleTaskEvent)
+	err := s.eventBus.Subscribe(
+		initCtx,
+		[]events.EventType{enumeration.EventTypeTaskCreated},
+		s.handleTaskEvent,
+	)
 	if err != nil {
 		initSpan.RecordError(err)
 		initSpan.SetStatus(codes.Error, "failed to subscribe to events")
@@ -110,10 +111,10 @@ func (s *ScannerService) Run(ctx context.Context) error {
 	initSpan.AddEvent("subscribed_to_events")
 	initSpan.End()
 
-	<-ctx.Done()
-	s.logger.Info(ctx, "Scanner service stopping", "id", s.id)
+	<-initCtx.Done()
+	s.logger.Info(initCtx, "Scanner service stopping", "id", s.id)
 
-	_, shutdownSpan := s.tracer.Start(ctx, "scanner_service.scanning.shutdown")
+	_, shutdownSpan := s.tracer.Start(initCtx, "scanner_service.scanning.shutdown")
 	defer shutdownSpan.End()
 
 	shutdownSpan.AddEvent("initiating_shutdown")
@@ -122,7 +123,7 @@ func (s *ScannerService) Run(ctx context.Context) error {
 	s.workerWg.Wait()
 	shutdownSpan.AddEvent("shutdown_complete")
 
-	return ctx.Err()
+	return initCtx.Err()
 }
 
 // handleTaskEvent processes incoming task events and routes them to available workers.
@@ -179,7 +180,7 @@ func (s *ScannerService) workerLoop(ctx context.Context, workerID int) {
 			return
 
 		case task := <-s.taskEvent:
-			taskCtx, span := s.tracer.Start(ctx, "scanner_service.worker.process_task",
+			taskCtx, taskSpan := s.tracer.Start(ctx, "scanner_service.worker.process_task",
 				trace.WithAttributes(
 					attribute.Int("worker_id", workerID),
 					attribute.String("task_id", task.TaskID.String()),
@@ -188,14 +189,14 @@ func (s *ScannerService) workerLoop(ctx context.Context, workerID int) {
 
 			err := s.handleScanTask(taskCtx, task)
 			if err != nil {
-				span.RecordError(err)
-				span.SetStatus(codes.Error, "failed to handle scan task")
+				taskSpan.RecordError(err)
+				taskSpan.SetStatus(codes.Error, "failed to handle scan task")
 				s.logger.Error(taskCtx, "Failed to handle scan task",
 					"worker_id", workerID,
 					"task_id", task.TaskID,
 					"error", err)
 			}
-			span.End()
+			taskSpan.End()
 		}
 	}
 }
@@ -217,7 +218,7 @@ func (s *ScannerService) handleScanTask(ctx context.Context, req *dtos.ScanReque
 	span.AddEvent("starting_scan")
 
 	startedEvt := scanning.NewTaskStartedEvent(req.JobID, req.TaskID)
-	if err := s.domainPublisher.PublishDomainEvent(ctx, startedEvt, events.WithKey(req.TaskID.String())); err != nil {
+	if err := s.domainPublisher.PublishDomainEvent(ctx, startedEvt); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to publish task started event")
 		return fmt.Errorf("failed to publish task started event: %w", err)
