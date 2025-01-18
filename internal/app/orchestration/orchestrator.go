@@ -13,6 +13,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/app/cluster"
 	enumCoordinator "github.com/ahrav/gitleaks-armada/internal/app/enumeration"
 	rulessvc "github.com/ahrav/gitleaks-armada/internal/app/rules"
+	scan "github.com/ahrav/gitleaks-armada/internal/app/scanning"
 	"github.com/ahrav/gitleaks-armada/internal/config"
 	"github.com/ahrav/gitleaks-armada/internal/config/loaders"
 	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
@@ -40,6 +41,9 @@ type Orchestrator struct {
 	jobRepo            scanning.JobRepository
 	stateRepo          enumeration.StateRepository
 
+	progressTracker  scan.ProgressTracker
+	progressHandlers map[events.EventType]progressEventHandler
+
 	// mu protects running and cancelFn state
 	mu       sync.Mutex
 	running  bool
@@ -54,6 +58,8 @@ type Orchestrator struct {
 	processedRules map[string]time.Time // Map to track processed rule hashes
 	rulesMutex     sync.RWMutex
 }
+
+type progressEventHandler func(context.Context, events.EventEnvelope) error
 
 // NewOrchestrator creates a Orchestrator instance that coordinates work distribution
 // using the provided coordinator for leader election and broker for task queuing.
@@ -81,8 +87,9 @@ func NewOrchestrator(
 	logger *logger.Logger,
 	metrics OrchestrationMetrics,
 	tracer trace.Tracer,
+	progressTracker scan.ProgressTracker,
 ) *Orchestrator {
-	return &Orchestrator{
+	o := &Orchestrator{
 		id:                 id,
 		coordinator:        coord,
 		workQueue:          queue,
@@ -92,12 +99,21 @@ func NewOrchestrator(
 		jobRepo:            jobRepo,
 		stateRepo:          stateRepo,
 		cfgLoader:          cfgLoader,
+		progressTracker:    progressTracker,
 		metrics:            metrics,
 		logger:             logger,
 		tracer:             tracer,
 		processedRules:     make(map[string]time.Time),
 		rulesMutex:         sync.RWMutex{},
 	}
+
+	o.progressHandlers = map[events.EventType]progressEventHandler{
+		scanning.EventTypeTaskStarted:    o.handleTaskStarted,
+		scanning.EventTypeTaskProgressed: o.handleTaskProgressed,
+		// TODO: Add failures, stale tasks, completed tasks, etc.
+	}
+
+	return o
 }
 
 // Run starts the controller's leadership election process and target processing loop.
@@ -130,6 +146,20 @@ func (o *Orchestrator) Run(ctx context.Context) (<-chan struct{}, error) {
 		return nil, fmt.Errorf("orchestrator[%s]: failed to subscribe to rules: %v", o.id, err)
 	}
 	initSpan.AddEvent("subscribed_to_rules")
+
+	// Subscribe to progress tracking events.
+	progressEvents := []events.EventType{
+		scanning.EventTypeTaskStarted,
+		scanning.EventTypeTaskProgressed,
+		scanning.EventTypeTaskCompleted,
+		scanning.EventTypeTaskFailed,
+	}
+
+	if err := o.workQueue.Subscribe(initCtx, progressEvents, o.handleProgressEvent); err != nil {
+		initSpan.RecordError(err)
+		return nil, fmt.Errorf("orchestrator[%s]: failed to subscribe to progress events: %v", o.id, err)
+	}
+	initSpan.AddEvent("subscribed_to_progress_events")
 
 	// Create a new context for long-running operations that inherits the trace.
 	longRunningCtx := trace.ContextWithSpan(ctx, initSpan)
@@ -402,6 +432,31 @@ func (o *Orchestrator) resumeEnumerations(ctx context.Context, states []*enumera
 	span.AddEvent("resume_enumerations_completed")
 
 	return nil
+}
+
+func (o *Orchestrator) handleProgressEvent(ctx context.Context, evt events.EventEnvelope) error {
+	handler, exists := o.progressHandlers[evt.Type]
+	if !exists {
+		return fmt.Errorf("no handler registered for event type: %s", evt.Type)
+	}
+	return handler(ctx, evt)
+}
+
+// Individual handlers stay focused and clean
+func (o *Orchestrator) handleTaskStarted(ctx context.Context, evt events.EventEnvelope) error {
+	startedEvt, ok := evt.Payload.(scanning.TaskStartedEvent)
+	if !ok {
+		return fmt.Errorf("invalid event payload type: %T", evt.Payload)
+	}
+	return o.progressTracker.StartTracking(ctx, startedEvt)
+}
+
+func (o *Orchestrator) handleTaskProgressed(ctx context.Context, evt events.EventEnvelope) error {
+	progressEvt, ok := evt.Payload.(scanning.TaskProgressedEvent)
+	if !ok {
+		return fmt.Errorf("invalid event payload type: %T", evt.Payload)
+	}
+	return o.progressTracker.UpdateProgress(ctx, progressEvt)
 }
 
 // Stop gracefully shuts down the controller if it is running.

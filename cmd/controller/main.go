@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"syscall"
+	"time"
 
 	"github.com/exaring/otelpgx"
 	"github.com/golang-migrate/migrate/v4"
@@ -23,6 +24,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/app/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/app/orchestration"
 	"github.com/ahrav/gitleaks-armada/internal/app/rules"
+	"github.com/ahrav/gitleaks-armada/internal/app/scanning"
 	"github.com/ahrav/gitleaks-armada/internal/config/loaders/fileloader"
 	"github.com/ahrav/gitleaks-armada/internal/infra/cluster/kubernetes"
 	"github.com/ahrav/gitleaks-armada/internal/infra/eventbus/kafka"
@@ -219,6 +221,24 @@ func main() {
 	)
 	scanJobRepo := scanningStore.NewJobStore(pool, tracer)
 
+	scanTaskRepo := scanningStore.NewTaskStore(pool, tracer)
+	scanTaskSvc := scanning.NewTaskService(
+		scanTaskRepo,
+		time.Second*10,
+		time.Second*60,
+		tracer,
+	)
+	scanJobSvc := scanning.NewJobService(
+		scanJobRepo,
+		tracer,
+	)
+
+	progressTracker := scanning.NewProgressTracker(
+		scanTaskSvc,
+		scanJobSvc,
+		log,
+		tracer,
+	)
 	configLoader := fileloader.NewFileLoader("/etc/scanner/config/config.yaml")
 	rulesService := rules.NewService(rulesStore.NewStore(pool, tracer, metricCollector))
 	ctrl := orchestration.NewOrchestrator(
@@ -234,6 +254,7 @@ func main() {
 		log,
 		metricCollector,
 		tracer,
+		progressTracker,
 	)
 	defer ctrl.Stop(ctx)
 

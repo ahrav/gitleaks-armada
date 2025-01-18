@@ -32,11 +32,11 @@ type ScanTaskService interface {
 
 	// MarkTaskStale flags a task that has become unresponsive or stopped reporting progress.
 	// This enables automated detection and recovery of failed tasks that require intervention.
-	MarkTaskStale(ctx context.Context, jobID, taskID string, reason domain.StallReason) error
+	MarkTaskStale(ctx context.Context, jobID, taskID uuid.UUID, reason domain.StallReason) error
 
 	// RecoverTask attempts to resume execution of a previously stalled task.
 	// It uses the last recorded checkpoint to restart the task from its last known good state.
-	RecoverTask(ctx context.Context, jobID, taskID string) error
+	RecoverTask(ctx context.Context, jobID, taskID uuid.UUID) error
 }
 
 // TaskService orchestrates task operations by coordinating between domain services,
@@ -52,7 +52,7 @@ type TaskService struct {
 	staleTaskTimeout time.Duration // Duration after which a task is considered stale
 
 	// taskDomainService handles core business logic and rules for tasks.
-	taskDomainService domain.TaskDomainService
+	// taskDomainService domain.TaskDomainService
 
 	tracer trace.Tracer
 }
@@ -61,19 +61,19 @@ type TaskService struct {
 // It initializes an in-memory cache and configures persistence/timeout intervals.
 func NewTaskService(
 	taskRepo domain.TaskRepository,
-	domainSvc domain.TaskDomainService,
+	// domainSvc domain.TaskDomainService,
 	persistInterval time.Duration,
 	staleTimeout time.Duration,
 	tracer trace.Tracer,
 ) *TaskService {
 	const defaultTaskCacheSize = 1000
 	return &TaskService{
-		tasksCache:        make(map[uuid.UUID]*domain.Task, defaultTaskCacheSize),
-		taskRepo:          taskRepo,
-		persistInterval:   persistInterval,
-		staleTaskTimeout:  staleTimeout,
-		taskDomainService: domainSvc,
-		tracer:            tracer,
+		tasksCache:       make(map[uuid.UUID]*domain.Task, defaultTaskCacheSize),
+		taskRepo:         taskRepo,
+		persistInterval:  persistInterval,
+		staleTaskTimeout: staleTimeout,
+		// taskDomainService: domainSvc,
+		tracer: tracer,
 	}
 }
 
