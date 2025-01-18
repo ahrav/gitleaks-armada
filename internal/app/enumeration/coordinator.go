@@ -24,6 +24,13 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
 
+// This struct holds the channels for the outside world to consume.
+type EnumerationResult struct {
+	ScanTargetCh <-chan []uuid.UUID
+	TaskCh       <-chan *domain.Task
+	ErrCh        <-chan error
+}
+
 // Coordinator orchestrates the discovery and enumeration of scan targets across different
 // source types. It manages the lifecycle of enumeration sessions to ensure reliable and
 // resumable target discovery, which is critical for handling large-scale scanning operations
@@ -42,11 +49,7 @@ type Coordinator interface {
 		ctx context.Context,
 		target config.TargetSpec,
 		auth map[string]config.AuthConfig,
-	) (
-		<-chan []uuid.UUID,
-		<-chan *domain.Task,
-		<-chan error,
-	)
+	) EnumerationResult
 
 	// ResumeTarget restarts an interrupted enumeration session from its last saved state.
 	// This enables fault tolerance by allowing long-running enumerations to recover from
@@ -60,11 +63,7 @@ type Coordinator interface {
 	ResumeTarget(
 		ctx context.Context,
 		state *domain.SessionState,
-	) (
-		<-chan []uuid.UUID,
-		<-chan *domain.Task,
-		<-chan error,
-	)
+	) EnumerationResult
 }
 
 // metrics defines the interface for tracking enumeration-related metrics.
@@ -136,6 +135,56 @@ func NewCoordinator(
 	}
 }
 
+// Internal struct so we can close the writable channels inside the goroutine.
+type enumerationPipes struct {
+	scanTargetWriter chan []uuid.UUID
+	taskWriter       chan *domain.Task
+	errorWriter      chan error
+}
+
+// Helper that allocates our channels and returns both read and write references.
+func newEnumerationPipes(taskBuffer int) (EnumerationResult, enumerationPipes) {
+	scanTargets := make(chan []uuid.UUID, 1)
+	tasks := make(chan *domain.Task, taskBuffer)
+	errs := make(chan error, 1)
+
+	return EnumerationResult{
+			ScanTargetCh: scanTargets,
+			TaskCh:       tasks,
+			ErrCh:        errs,
+		}, enumerationPipes{
+			scanTargetWriter: scanTargets,
+			taskWriter:       tasks,
+			errorWriter:      errs,
+		}
+}
+
+func (s *coordinator) startSpan(
+	ctx context.Context,
+	spanName string,
+	extraAttrs ...attribute.KeyValue,
+) (context.Context, trace.Span) {
+	baseAttrs := []attribute.KeyValue{
+		attribute.String("component", "coordinator"),
+	}
+	baseAttrs = append(baseAttrs, extraAttrs...)
+	return s.tracer.Start(ctx, spanName, trace.WithAttributes(baseAttrs...))
+}
+
+// Central error-handling helper.
+func (s *coordinator) failEnumeration(
+	ctx context.Context,
+	span trace.Span,
+	errCh chan<- error,
+	userMsg string,
+	err error,
+) {
+	span.RecordError(err)
+	span.SetStatus(codes.Error, userMsg)
+	// s.logger.Error(ctx, userMsg, "error", err)
+	errCh <- fmt.Errorf("%s: %w", userMsg, err)
+}
+
 // EnumerateTarget begins a new enumeration session for the given target.
 // Instead of returning error or using a callback, we return 3 channels:
 //  1. scanTargetCh for discovered/persisted target IDs
@@ -145,36 +194,29 @@ func (s *coordinator) EnumerateTarget(
 	ctx context.Context,
 	target config.TargetSpec,
 	auth map[string]config.AuthConfig,
-) (<-chan []uuid.UUID, <-chan *domain.Task, <-chan error) {
+) EnumerationResult {
 	numCPU := runtime.NumCPU()
 
-	scanTargetWriter := make(chan []uuid.UUID, 1)
-	taskWriter := make(chan *domain.Task, numCPU)
-	errorWriter := make(chan error, 1)
+	res, pipes := newEnumerationPipes(numCPU)
 
 	go func() {
-		defer close(scanTargetWriter)
-		defer close(taskWriter)
-		defer close(errorWriter)
+		defer close(pipes.scanTargetWriter)
+		defer close(pipes.taskWriter)
+		defer close(pipes.errorWriter)
 
-		ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.enumerate_target",
-			trace.WithAttributes(
-				attribute.String("component", "coordinator"),
-				attribute.String("operation", "enumerate_target"),
-				attribute.String("target_name", target.Name),
-				attribute.String("target_type", string(target.SourceType)),
-				attribute.String("auth_ref", target.AuthRef),
-			))
+		ctx, span := s.startSpan(ctx, "coordinator.enumeration.enumerate_target",
+			attribute.String("operation", "enumerate_target"),
+			attribute.String("target_name", target.Name),
+			attribute.String("target_type", string(target.SourceType)),
+			attribute.String("auth_ref", target.AuthRef),
+		)
 		defer span.End()
 
 		start := time.Now()
 
 		credStore, err := memory.NewCredentialStore(auth)
 		if err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "failed to create credential store")
-			s.logger.Error(ctx, "Failed to create credential store", "error", err)
-			errorWriter <- fmt.Errorf("failed to create credential store: %w", err)
+			s.failEnumeration(ctx, span, pipes.errorWriter, "failed to create credential store", err)
 			return
 		}
 		s.credStore = credStore
@@ -182,8 +224,8 @@ func (s *coordinator) EnumerateTarget(
 
 		state := domain.NewState(string(target.SourceType), s.marshalConfig(ctx, target, auth))
 
-		if err := s.processTargetEnumeration(ctx, state, target, scanTargetWriter, taskWriter); err != nil {
-			errorWriter <- err
+		if err := s.processTargetEnumeration(ctx, state, target, pipes.scanTargetWriter, pipes.taskWriter); err != nil {
+			s.failEnumeration(ctx, span, pipes.errorWriter, "failed to process target enumeration", err)
 			return
 		}
 
@@ -197,7 +239,7 @@ func (s *coordinator) EnumerateTarget(
 		span.SetStatus(codes.Ok, "fresh enumeration completed")
 	}()
 
-	return scanTargetWriter, taskWriter, errorWriter
+	return res
 }
 
 // ResumeTarget continues enumeration for a previously interrupted session.
@@ -205,21 +247,18 @@ func (s *coordinator) EnumerateTarget(
 func (s *coordinator) ResumeTarget(
 	ctx context.Context,
 	savedState *domain.SessionState,
-) (<-chan []uuid.UUID, <-chan *domain.Task, <-chan error) {
-	scanTargetWriter := make(chan []uuid.UUID, 1)
-	taskWriter := make(chan *domain.Task, 20)
-	errorWriter := make(chan error, 1)
+) EnumerationResult {
+	res, pipes := newEnumerationPipes(20)
 
 	go func() {
-		defer close(scanTargetWriter)
-		defer close(taskWriter)
-		defer close(errorWriter)
+		defer close(pipes.scanTargetWriter)
+		defer close(pipes.taskWriter)
+		defer close(pipes.errorWriter)
 
-		ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.resume_target",
-			trace.WithAttributes(
-				attribute.String("session_id", savedState.SessionID().String()),
-				attribute.String("source_type", savedState.SourceType()),
-			))
+		ctx, span := s.startSpan(ctx, "coordinator.enumeration.resume_target",
+			attribute.String("session_id", savedState.SessionID().String()),
+			attribute.String("source_type", savedState.SourceType()),
+		)
 		defer span.End()
 
 		span.AddEvent("starting_enumeration_resume")
@@ -229,12 +268,7 @@ func (s *coordinator) ResumeTarget(
 			Auth config.AuthConfig `json:"auth,omitempty"`
 		}
 		if err := json.Unmarshal(savedState.Config(), &combined); err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "failed to unmarshal config")
-			s.logger.Error(ctx, "Failed to unmarshal target config",
-				"session_id", savedState.SessionID(),
-				"error", err)
-			errorWriter <- fmt.Errorf("failed to unmarshal target config: %w", err)
+			s.failEnumeration(ctx, span, pipes.errorWriter, "failed to unmarshal config", err)
 			return
 		}
 
@@ -243,9 +277,7 @@ func (s *coordinator) ResumeTarget(
 				combined.AuthRef: combined.Auth,
 			})
 			if err != nil {
-				span.RecordError(err)
-				span.SetStatus(codes.Error, "failed to create credential store")
-				errorWriter <- fmt.Errorf("failed to create credential store: %w", err)
+				s.failEnumeration(ctx, span, pipes.errorWriter, "failed to create credential store", err)
 				return
 			}
 			s.credStore = cStore
@@ -253,8 +285,8 @@ func (s *coordinator) ResumeTarget(
 		}
 
 		// Reuse the savedState for enumeration.
-		if err := s.processTargetEnumeration(ctx, savedState, combined.TargetSpec, scanTargetWriter, taskWriter); err != nil {
-			errorWriter <- err
+		if err := s.processTargetEnumeration(ctx, savedState, combined.TargetSpec, pipes.scanTargetWriter, pipes.taskWriter); err != nil {
+			s.failEnumeration(ctx, span, pipes.errorWriter, "failed to process target enumeration", err)
 			return
 		}
 
@@ -262,7 +294,7 @@ func (s *coordinator) ResumeTarget(
 		span.SetStatus(codes.Ok, "enumeration completed successfully")
 	}()
 
-	return scanTargetWriter, taskWriter, errorWriter
+	return res
 }
 
 // processTargetEnumeration encapsulates your existing enumeration logic, including
@@ -275,11 +307,10 @@ func (s *coordinator) processTargetEnumeration(
 	scanTargetWriter chan<- []uuid.UUID,
 	taskWriter chan<- *domain.Task,
 ) error {
-	ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.process_target_enumeration",
-		trace.WithAttributes(
-			attribute.String("source_type", string(target.SourceType)),
-			attribute.String("session_id", state.SessionID().String()),
-		))
+	ctx, span := s.startSpan(ctx, "coordinator.enumeration.process_target_enumeration",
+		attribute.String("source_type", string(target.SourceType)),
+		attribute.String("session_id", state.SessionID().String()),
+	)
 	defer span.End()
 
 	if err := s.stateRepo.Save(ctx, state); err != nil {
@@ -377,11 +408,10 @@ func (s *coordinator) streamEnumerate(
 	scanTargetWriter chan<- []uuid.UUID,
 	taskWriter chan<- *domain.Task,
 ) error {
-	ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.stream_enumerate",
-		trace.WithAttributes(
-			attribute.String("session_id", state.SessionID().String()),
-			attribute.String("source_type", state.SourceType()),
-		))
+	ctx, span := s.startSpan(ctx, "coordinator.enumeration.stream_enumerate",
+		attribute.String("session_id", state.SessionID().String()),
+		attribute.String("source_type", state.SourceType()),
+	)
 	defer span.End()
 
 	batchCh := make(chan enumeration.EnumerateBatch, 1)
@@ -392,12 +422,11 @@ func (s *coordinator) streamEnumerate(
 	go func() {
 		defer wg.Done()
 		for batch := range batchCh {
-			batchCtx, batchSpan := s.tracer.Start(ctx, "coordinator.enumeration.process_batch",
-				trace.WithAttributes(
-					attribute.String("session_id", state.SessionID().String()),
-					attribute.Int("batch_size", len(batch.Targets)),
-					attribute.String("next_cursor", batch.NextCursor),
-				))
+			batchCtx, batchSpan := s.startSpan(ctx, "coordinator.enumeration.process_batch",
+				attribute.String("session_id", state.SessionID().String()),
+				attribute.Int("batch_size", len(batch.Targets)),
+				attribute.String("next_cursor", batch.NextCursor),
+			)
 
 			if err := s.processBatch(batchCtx, batch, state, creds, scanTargetWriter, taskWriter); err != nil {
 				batchSpan.RecordError(err)
@@ -480,6 +509,8 @@ func (s *coordinator) processBatch(
 	batchSpan.AddEvent("batch_saved_successfully")
 
 	var (
+		// scanTargetIDs are collected in a slice so that when they are consumed
+		// by the orchestrator they can be batched together.
 		scanTargetIDs  []uuid.UUID
 		processedCount int
 		lastError      error
@@ -498,16 +529,13 @@ func (s *coordinator) processBatch(
 		processedCount++
 		s.metrics.IncEnumerationTasksEnqueued(ctx)
 
-		task := domain.NewTask(
+		taskWriter <- domain.NewTask(
 			target.TargetType.ToSourceType(),
 			state.SessionID(),
 			target.ResourceURI,
 			target.Metadata,
 			creds,
 		)
-
-		// **Push it onto the channel** for tasks, letting the caller handle publishing or further enrichment.
-		taskWriter <- task
 	}
 
 	scanTargetWriter <- scanTargetIDs
@@ -549,11 +577,11 @@ func (s *coordinator) processBatch(
 // We do NOT publish tasks here. Instead, we return the scan target ID so the
 // caller can push it onto the scanTargetWriter channel later.
 func (s *coordinator) processTarget(ctx context.Context, target *enumeration.TargetInfo) (uuid.UUID, error) {
-	ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.process_target",
-		trace.WithAttributes(
-			attribute.String("resource_uri", target.ResourceURI),
-			attribute.String("target_type", target.TargetType.String()),
-		))
+	ctx, span := s.startSpan(ctx, "coordinator.enumeration.process_target",
+		attribute.String("resource_uri", target.ResourceURI),
+		attribute.String("resource_uri", target.ResourceURI),
+		attribute.String("target_type", target.TargetType.String()),
+	)
 	defer span.End()
 
 	persister, ok := s.enumeratorHandlers[target.TargetType]
@@ -605,12 +633,11 @@ func (s *coordinator) createScanTarget(
 	targetID int64,
 	metadata map[string]any,
 ) (uuid.UUID, error) {
-	ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.create_scan_target",
-		trace.WithAttributes(
-			attribute.String("name", name),
-			attribute.String("target_type", string(targetType)),
-			attribute.Int64("target_id", targetID),
-		))
+	ctx, span := s.startSpan(ctx, "coordinator.enumeration.create_scan_target",
+		attribute.String("name", name),
+		attribute.String("target_type", string(targetType)),
+		attribute.Int64("target_id", targetID),
+	)
 	defer span.End()
 
 	st, err := domain.NewScanTarget(name, targetType, targetID, metadata)
@@ -639,11 +666,7 @@ func (s *coordinator) marshalConfig(
 	target config.TargetSpec,
 	auth map[string]config.AuthConfig,
 ) json.RawMessage {
-	ctx, span := s.tracer.Start(ctx, "coordinator.enumeration.marshal_config",
-		trace.WithAttributes(
-			attribute.String("source_type", string(target.SourceType)),
-			attribute.String("auth_ref", target.AuthRef),
-		))
+	span := trace.SpanFromContext(ctx)
 	defer span.End()
 
 	completeConfig := struct {

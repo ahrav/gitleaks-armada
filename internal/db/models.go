@@ -148,11 +148,10 @@ func (ns NullScanJobStatus) Value() (driver.Value, error) {
 type ScanTaskStatus string
 
 const (
-	ScanTaskStatusINITIALIZED ScanTaskStatus = "INITIALIZED"
-	ScanTaskStatusINPROGRESS  ScanTaskStatus = "IN_PROGRESS"
-	ScanTaskStatusCOMPLETED   ScanTaskStatus = "COMPLETED"
-	ScanTaskStatusFAILED      ScanTaskStatus = "FAILED"
-	ScanTaskStatusSTALE       ScanTaskStatus = "STALE"
+	ScanTaskStatusINPROGRESS ScanTaskStatus = "IN_PROGRESS"
+	ScanTaskStatusCOMPLETED  ScanTaskStatus = "COMPLETED"
+	ScanTaskStatusFAILED     ScanTaskStatus = "FAILED"
+	ScanTaskStatusSTALE      ScanTaskStatus = "STALE"
 )
 
 func (e *ScanTaskStatus) Scan(src interface{}) error {

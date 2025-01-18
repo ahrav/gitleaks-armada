@@ -297,23 +297,23 @@ func (o *Orchestrator) startFreshEnumerations(ctx context.Context, cfg *config.C
 		o.metrics.IncJobsCreated(ctx)
 
 		// TODO: Maybe handle this in 2 goroutines?
-		scanTargetCh, taskCh, errCh := o.enumerationService.EnumerateTarget(ctx, target, cfg.Auth)
+		enumChannels := o.enumerationService.EnumerateTarget(ctx, target, cfg.Auth)
 
 		done := false
 		for !done {
 			select {
-			case scanTargetIDs, ok := <-scanTargetCh:
+			case scanTargetIDs, ok := <-enumChannels.ScanTargetCh:
 				if !ok {
-					scanTargetCh = nil // channel closed
+					enumChannels.ScanTargetCh = nil // channel closed
 				} else {
 					if err := o.jobRepo.AssociateTargets(ctx, job.JobID(), scanTargetIDs); err != nil {
 						o.logger.Error(ctx, "Failed to associate target", "error", err)
 					}
 				}
 
-			case task, ok := <-taskCh:
+			case task, ok := <-enumChannels.TaskCh:
 				if !ok {
-					taskCh = nil // channel closed
+					enumChannels.TaskCh = nil // channel closed
 				} else {
 					if err := o.eventPublisher.PublishDomainEvent(
 						ctx,
@@ -324,7 +324,7 @@ func (o *Orchestrator) startFreshEnumerations(ctx context.Context, cfg *config.C
 					}
 				}
 
-			case err, ok := <-errCh:
+			case err, ok := <-enumChannels.ErrCh:
 				if ok && err != nil {
 					// We got an error from enumerator.
 					o.metrics.IncEnumerationErrors(ctx)
@@ -333,12 +333,12 @@ func (o *Orchestrator) startFreshEnumerations(ctx context.Context, cfg *config.C
 					done = true // let's break out for this target
 				} else {
 					// If !ok, channel closed with no error.
-					errCh = nil
+					enumChannels.ErrCh = nil
 				}
 
 			default:
 				// If all channels have been set to nil, we’re done reading.
-				if scanTargetCh == nil && taskCh == nil && errCh == nil {
+				if enumChannels.ScanTargetCh == nil && enumChannels.TaskCh == nil {
 					done = true
 				}
 			}
