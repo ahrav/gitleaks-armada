@@ -474,7 +474,11 @@ func (s *coordinator) processBatch(
 	scanTargetWriter chan<- []uuid.UUID,
 	taskWriter chan<- *domain.Task,
 ) error {
-	batchSpan := trace.SpanFromContext(ctx)
+	ctx, batchSpan := s.startSpan(ctx, "coordinator.enumeration.process_batch",
+		attribute.String("session_id", state.SessionID().String()),
+		attribute.Int("batch_size", len(batch.Targets)),
+		attribute.String("next_cursor", batch.NextCursor),
+	)
 	defer batchSpan.End()
 
 	batchSpan.AddEvent("starting_batch_processing")
@@ -529,13 +533,24 @@ func (s *coordinator) processBatch(
 		processedCount++
 		s.metrics.IncEnumerationTasksEnqueued(ctx)
 
-		taskWriter <- domain.NewTask(
+		task := domain.NewTask(
 			target.TargetType.ToSourceType(),
 			state.SessionID(),
 			target.ResourceURI,
 			target.Metadata,
 			creds,
 		)
+		taskWriter <- task
+
+		// TODO: This likely needs some sort of retry on failure.
+		// Otherwise, we'll be in a weird inconsistent state where the task
+		// is created but not saved.
+		if err := s.taskRepo.Save(ctx, task); err != nil {
+			batchSpan.RecordError(err)
+			batchSpan.SetStatus(codes.Error, "failed to save task")
+			return fmt.Errorf("failed to save task: %w", err)
+		}
+		batchSpan.AddEvent("task_saved_successfully")
 	}
 
 	scanTargetWriter <- scanTargetIDs
