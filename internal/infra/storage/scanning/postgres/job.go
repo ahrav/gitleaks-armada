@@ -80,10 +80,13 @@ func (r *jobStore) UpdateJob(ctx context.Context, job *scanning.Job) error {
 		}
 
 		rowsAffected, err := r.q.UpdateJob(ctx, db.UpdateJobParams{
-			JobID:     pgtype.UUID{Bytes: job.JobID(), Valid: true},
-			Status:    db.ScanJobStatus(job.Status()),
-			StartTime: pgtype.Timestamptz{Time: job.StartTime(), Valid: true},
-			EndTime:   dbEndTime,
+			JobID:          pgtype.UUID{Bytes: job.JobID(), Valid: true},
+			Status:         db.ScanJobStatus(job.Status()),
+			StartTime:      pgtype.Timestamptz{Time: job.StartTime(), Valid: true},
+			EndTime:        dbEndTime,
+			TotalTasks:     int32(job.Metrics().TotalTasks()),
+			CompletedTasks: int32(job.Metrics().CompletedTasks()),
+			FailedTasks:    int32(job.Metrics().FailedTasks()),
 		})
 		if err != nil {
 			return fmt.Errorf("UpdateJob query error: %w", err)
@@ -173,11 +176,18 @@ func (r *jobStore) GetJob(ctx context.Context, jobID uuid.UUID) (*scanning.Job, 
 			firstRow.UpdatedAt.Time,
 		)
 
+		metrics := scanning.ReconstructJobMetrics(
+			int(firstRow.TotalTasks),
+			int(firstRow.CompletedTasks),
+			int(firstRow.FailedTasks),
+		)
+
 		job = scanning.ReconstructJob(
 			firstRow.JobID.Bytes,
 			scanning.JobStatus(firstRow.Status),
 			timeline,
 			targetIDs,
+			metrics,
 		)
 		return nil
 	})

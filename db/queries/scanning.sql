@@ -14,6 +14,9 @@ UPDATE scan_jobs
 SET status = $2,
     start_time = $3,
     end_time = $4,
+    total_tasks = $5,
+    completed_tasks = $6,
+    failed_tasks = $7,
     updated_at = NOW()
 WHERE job_id = $1;
 
@@ -39,6 +42,9 @@ SELECT
     j.start_time,
     j.end_time,
     j.updated_at,
+    j.total_tasks,
+    j.completed_tasks,
+    j.failed_tasks,
     t.scan_target_id
 FROM scan_jobs j
 LEFT JOIN scan_job_targets t ON j.job_id = t.job_id

@@ -10,6 +10,15 @@ type JobMetrics struct {
 // NewJobMetrics creates a new JobMetrics instance.
 func NewJobMetrics() *JobMetrics { return new(JobMetrics) }
 
+// ReconstructJobMetrics creates a JobMetrics instance from stored fields.
+func ReconstructJobMetrics(totalTasks, completedTasks, failedTasks int) *JobMetrics {
+	return &JobMetrics{
+		totalTasks:     totalTasks,
+		completedTasks: completedTasks,
+		failedTasks:    failedTasks,
+	}
+}
+
 // TotalTasks returns the total number of tasks.
 func (m *JobMetrics) TotalTasks() int { return m.totalTasks }
 

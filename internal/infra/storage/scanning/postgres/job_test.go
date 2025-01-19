@@ -35,6 +35,7 @@ func createTestJob(t *testing.T, status scanning.JobStatus) *scanning.Job {
 		status,
 		scanning.NewTimeline(&mockTimeProvider{current: time.Now()}),
 		nil,
+		scanning.ReconstructJobMetrics(0, 0, 0),
 	)
 }
 
@@ -71,11 +72,15 @@ func TestJobStore_UpdateJob(t *testing.T) {
 
 	mockTime := &mockTimeProvider{current: time.Now().UTC()}
 	timeline := scanning.NewTimeline(mockTime)
+
+	// Initialize job with zero metrics.
+	initialMetrics := scanning.ReconstructJobMetrics(0, 0, 0)
 	job := scanning.ReconstructJob(
 		uuid.New(),
 		scanning.JobStatusQueued,
 		timeline,
 		nil,
+		initialMetrics,
 	)
 
 	err := store.CreateJob(ctx, job)
@@ -85,6 +90,10 @@ func TestJobStore_UpdateJob(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, initialJob)
 
+	assert.Equal(t, 0, initialJob.Metrics().TotalTasks())
+	assert.Equal(t, 0, initialJob.Metrics().CompletedTasks())
+	assert.Equal(t, 0, initialJob.Metrics().FailedTasks())
+
 	// Set completion time one hour later.
 	completionTime := initialJob.StartTime().Add(time.Hour)
 	completionTimeline := scanning.ReconstructTimeline(
@@ -93,11 +102,14 @@ func TestJobStore_UpdateJob(t *testing.T) {
 		completionTime,
 	)
 
+	// Create updated metrics.
+	updatedMetrics := scanning.ReconstructJobMetrics(10, 8, 2)
 	updatedJob := scanning.ReconstructJob(
 		job.JobID(),
 		scanning.JobStatusCompleted,
 		completionTimeline,
 		nil,
+		updatedMetrics,
 	)
 
 	err = store.UpdateJob(ctx, updatedJob)
@@ -107,14 +119,20 @@ func TestJobStore_UpdateJob(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, loaded)
 
+	// Verify status and timing.
 	assert.Equal(t, scanning.JobStatusCompleted, loaded.Status())
-
 	endTime, hasEndTime := loaded.EndTime()
 	assert.True(t, hasEndTime)
 	assert.Equal(t, completionTime.UTC(), endTime.UTC(),
 		"End time should match completion time")
 	assert.WithinDuration(t, time.Now().UTC(), loaded.LastUpdateTime(), time.Second,
 		"Last update time should be close to current time")
+
+	// Verify updated metrics.
+	assert.Equal(t, 10, loaded.Metrics().TotalTasks(), "Total tasks should match")
+	assert.Equal(t, 8, loaded.Metrics().CompletedTasks(), "Completed tasks should match")
+	assert.Equal(t, 2, loaded.Metrics().FailedTasks(), "Failed tasks should match")
+	assert.Equal(t, 80.0, loaded.Metrics().CompletionPercentage(), "Completion percentage should be 80%")
 }
 
 func TestJobStore_AssociateTargets(t *testing.T) {

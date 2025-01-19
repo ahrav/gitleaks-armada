@@ -116,6 +116,9 @@ SELECT
     j.start_time,
     j.end_time,
     j.updated_at,
+    j.total_tasks,
+    j.completed_tasks,
+    j.failed_tasks,
     t.scan_target_id
 FROM scan_jobs j
 LEFT JOIN scan_job_targets t ON j.job_id = t.job_id
@@ -123,12 +126,15 @@ WHERE j.job_id = $1
 `
 
 type GetJobRow struct {
-	JobID        pgtype.UUID
-	Status       ScanJobStatus
-	StartTime    pgtype.Timestamptz
-	EndTime      pgtype.Timestamptz
-	UpdatedAt    pgtype.Timestamptz
-	ScanTargetID pgtype.UUID
+	JobID          pgtype.UUID
+	Status         ScanJobStatus
+	StartTime      pgtype.Timestamptz
+	EndTime        pgtype.Timestamptz
+	UpdatedAt      pgtype.Timestamptz
+	TotalTasks     int32
+	CompletedTasks int32
+	FailedTasks    int32
+	ScanTargetID   pgtype.UUID
 }
 
 func (q *Queries) GetJob(ctx context.Context, jobID pgtype.UUID) ([]GetJobRow, error) {
@@ -146,6 +152,9 @@ func (q *Queries) GetJob(ctx context.Context, jobID pgtype.UUID) ([]GetJobRow, e
 			&i.StartTime,
 			&i.EndTime,
 			&i.UpdatedAt,
+			&i.TotalTasks,
+			&i.CompletedTasks,
+			&i.FailedTasks,
 			&i.ScanTargetID,
 		); err != nil {
 			return nil, err
@@ -255,15 +264,21 @@ UPDATE scan_jobs
 SET status = $2,
     start_time = $3,
     end_time = $4,
+    total_tasks = $5,
+    completed_tasks = $6,
+    failed_tasks = $7,
     updated_at = NOW()
 WHERE job_id = $1
 `
 
 type UpdateJobParams struct {
-	JobID     pgtype.UUID
-	Status    ScanJobStatus
-	StartTime pgtype.Timestamptz
-	EndTime   pgtype.Timestamptz
+	JobID          pgtype.UUID
+	Status         ScanJobStatus
+	StartTime      pgtype.Timestamptz
+	EndTime        pgtype.Timestamptz
+	TotalTasks     int32
+	CompletedTasks int32
+	FailedTasks    int32
 }
 
 func (q *Queries) UpdateJob(ctx context.Context, arg UpdateJobParams) (int64, error) {
@@ -272,6 +287,9 @@ func (q *Queries) UpdateJob(ctx context.Context, arg UpdateJobParams) (int64, er
 		arg.Status,
 		arg.StartTime,
 		arg.EndTime,
+		arg.TotalTasks,
+		arg.CompletedTasks,
+		arg.FailedTasks,
 	)
 	if err != nil {
 		return 0, err

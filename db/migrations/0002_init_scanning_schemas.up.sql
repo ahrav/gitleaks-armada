@@ -14,6 +14,9 @@ CREATE TABLE scan_jobs (
     status scan_job_status NOT NULL,
     start_time TIMESTAMPTZ,
     end_time TIMESTAMPTZ,
+    total_tasks INT NOT NULL DEFAULT 0,
+    completed_tasks INT NOT NULL DEFAULT 0,
+    failed_tasks INT NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

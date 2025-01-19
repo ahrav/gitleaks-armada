@@ -323,12 +323,15 @@ type Rule struct {
 }
 
 type ScanJob struct {
-	JobID     pgtype.UUID
-	Status    ScanJobStatus
-	StartTime pgtype.Timestamptz
-	EndTime   pgtype.Timestamptz
-	CreatedAt pgtype.Timestamptz
-	UpdatedAt pgtype.Timestamptz
+	JobID          pgtype.UUID
+	Status         ScanJobStatus
+	StartTime      pgtype.Timestamptz
+	EndTime        pgtype.Timestamptz
+	TotalTasks     int32
+	CompletedTasks int32
+	FailedTasks    int32
+	CreatedAt      pgtype.Timestamptz
+	UpdatedAt      pgtype.Timestamptz
 }
 
 type ScanJobTarget struct {

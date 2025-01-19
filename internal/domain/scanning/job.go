@@ -55,13 +55,14 @@ func ReconstructJob(
 	status JobStatus,
 	timeline *Timeline,
 	targetIDs []uuid.UUID,
+	metrics *JobMetrics,
 ) *Job {
 	job := &Job{
 		jobID:    jobID,
 		status:   status,
 		timeline: timeline,
 		tasks:    make(map[uuid.UUID]*Task),
-		metrics:  NewJobMetrics(), // TODO: this probably is wrong
+		metrics:  metrics,
 	}
 
 	if len(targetIDs) > 0 {
@@ -99,6 +100,9 @@ func (j *Job) TargetIDs() []uuid.UUID { return j.targetIDs }
 // LastUpdateTime returns when this job's state was last modified.
 // Access is synchronized to ensure thread-safe reads.
 func (j *Job) LastUpdateTime() time.Time { return j.timeline.LastUpdate() }
+
+// Metrics returns the job's metrics.
+func (j *Job) Metrics() *JobMetrics { return j.metrics }
 
 // AssociateTargets links a scan target with this job.
 func (j *Job) AssociateTargets(targetIDs []uuid.UUID) {
