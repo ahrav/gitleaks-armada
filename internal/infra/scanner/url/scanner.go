@@ -31,7 +31,12 @@ type Scanner struct {
 }
 
 // NewScanner creates a new Scanner instance.
-func NewScanner(detector *detect.Detector, logger *logger.Logger, tracer trace.Tracer, metrics scanning.SourceScanMetrics) *Scanner {
+func NewScanner(
+	detector *detect.Detector,
+	logger *logger.Logger,
+	tracer trace.Tracer,
+	metrics scanning.SourceScanMetrics,
+) *Scanner {
 	return &Scanner{
 		detector: detector,
 		logger:   logger,
@@ -43,7 +48,9 @@ func NewScanner(detector *detect.Detector, logger *logger.Logger, tracer trace.T
 // Scan is a method of the Scanner struct.
 // It fetches data from the URL, then streams it into the Gitleaks detector.
 // It also records the number of findings in a repository and logs the findings.
-func (s *Scanner) Scan(ctx context.Context, task *dtos.ScanRequest) error {
+// It reports progress to the reporter.
+// TODO: Implement progress reporting.
+func (s *Scanner) Scan(ctx context.Context, task *dtos.ScanRequest, reporter scanning.ProgressReporter) error {
 	ctx, span := s.tracer.Start(ctx, "gitleaks_url_scanner.scan",
 		trace.WithAttributes(
 			attribute.String("url", task.ResourceURI),

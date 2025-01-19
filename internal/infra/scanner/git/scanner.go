@@ -31,7 +31,12 @@ type Scanner struct {
 }
 
 // NewScanner creates a new Git scanner instance.
-func NewScanner(detector *detect.Detector, logger *logger.Logger, tracer trace.Tracer, metrics scanning.SourceScanMetrics) *Scanner {
+func NewScanner(
+	detector *detect.Detector,
+	logger *logger.Logger,
+	tracer trace.Tracer,
+	metrics scanning.SourceScanMetrics,
+) *Scanner {
 	return &Scanner{
 		detector: detector,
 		logger:   logger,
@@ -42,7 +47,9 @@ func NewScanner(detector *detect.Detector, logger *logger.Logger, tracer trace.T
 
 // Scan clones the repository to a temporary directory and scans it for secrets.
 // It ensures the cloned repository is cleaned up after scanning.
-func (s *Scanner) Scan(ctx context.Context, task *dtos.ScanRequest) error {
+// It reports progress to the reporter.
+// TODO: Implement progress reporting.
+func (s *Scanner) Scan(ctx context.Context, task *dtos.ScanRequest, reporter scanning.ProgressReporter) error {
 	ctx, span := s.tracer.Start(ctx, "gitleaks_scanner.scanning.scan_repository",
 		trace.WithAttributes(
 			attribute.String("repository.url", task.ResourceURI),

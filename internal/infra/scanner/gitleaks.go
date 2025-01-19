@@ -28,18 +28,6 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
 
-// SourceScanner defines a standardized interface for secret detection across different source types.
-// It abstracts the scanning logic, allowing pluggable implementations for various data sources
-// like Git repositories, URLs, and other potential scanning targets. Each implementation
-// must handle source-specific nuances while providing a consistent scanning contract.
-//
-// The Scan method takes a context for cancellation and tracing, and a scan request
-// containing metadata about the target. It returns an error to indicate scanning failures,
-// allowing for granular error handling and observability.
-type SourceScanner interface {
-	Scan(ctx context.Context, task *dtos.ScanRequest) error
-}
-
 var (
 	_ scanning.SecretScanner = (*Gitleaks)(nil)
 	_ scanning.RuleProvider  = (*Gitleaks)(nil)
@@ -164,30 +152,6 @@ func convertDetectorRuleToRule(rule config.Rule) rules.GitleaksRule {
 	}
 }
 
-// Scan clones the repository to a temporary directory and scans it for secrets.
-// It ensures the cloned repository is cleaned up after scanning.
-// TODO: Implement progress reporting.
-func (s *Gitleaks) Scan(ctx context.Context, task *dtos.ScanRequest, reporter scanning.ProgressReporter) error {
-	ctx, span := s.tracer.Start(ctx, "gitleaks_scanner.scanning.scan_repository",
-		trace.WithAttributes(
-			attribute.String("task.id", task.TaskID.String()),
-			attribute.String("source.type", string(task.SourceType)),
-		))
-	defer span.End()
-
-	var scanner SourceScanner
-	switch task.SourceType {
-	case dtos.SourceTypeGitHub:
-		scanner = git.NewScanner(s.detector, s.logger, s.tracer, s.metrics)
-	case dtos.SourceTypeURL:
-		scanner = url.NewScanner(s.detector, s.logger, s.tracer, s.metrics)
-	default:
-		return fmt.Errorf("unsupported source type: %s", task.SourceType)
-	}
-
-	return scanner.Scan(ctx, task)
-}
-
 // regexToString safely converts a compiled regular expression to its string pattern.
 // Returns an empty string if the regex is nil.
 func regexToString(re *regexp.Regexp) string {
@@ -238,4 +202,37 @@ func matchConditionToDomain(mc config.AllowlistMatchCondition) rules.AllowlistMa
 	default:
 		return rules.MatchConditionUnspecified
 	}
+}
+
+// SourceScanner defines a standardized interface for secret detection across different source types.
+// It abstracts the scanning logic, allowing pluggable implementations for various data sources
+// like Git repositories, URLs, and other potential scanning targets. Each implementation
+// must handle source-specific nuances while providing a consistent scanning contract.
+//
+// The Scan method accepts a task and a progress reporter to allow for progress reporting.
+type SourceScanner interface {
+	Scan(ctx context.Context, task *dtos.ScanRequest, reporter scanning.ProgressReporter) error
+}
+
+// Scan initiates the scanning process for a given task by selecting the appropriate scanner
+// based on the task's source type.
+func (s *Gitleaks) Scan(ctx context.Context, task *dtos.ScanRequest, reporter scanning.ProgressReporter) error {
+	ctx, span := s.tracer.Start(ctx, "gitleaks_scanner.scanning.scan_repository",
+		trace.WithAttributes(
+			attribute.String("task.id", task.TaskID.String()),
+			attribute.String("source.type", string(task.SourceType)),
+		))
+	defer span.End()
+
+	var scanner SourceScanner
+	switch task.SourceType {
+	case dtos.SourceTypeGitHub:
+		scanner = git.NewScanner(s.detector, s.logger, s.tracer, s.metrics)
+	case dtos.SourceTypeURL:
+		scanner = url.NewScanner(s.detector, s.logger, s.tracer, s.metrics)
+	default:
+		return fmt.Errorf("unsupported source type: %s", task.SourceType)
+	}
+
+	return scanner.Scan(ctx, task, reporter)
 }
