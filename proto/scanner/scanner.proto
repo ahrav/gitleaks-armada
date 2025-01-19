@@ -30,8 +30,6 @@ message EnumerationTask {
   TaskCredentials credentials = 7;
 }
 
-message BatchEnumerationTask { repeated EnumerationTask tasks = 1; }
-
 // The final outcome of a scan, containing all discovered findings, status, etc.
 message ScanResult {
   // Ties back to the ScanTask this result belongs to.
