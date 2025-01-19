@@ -20,7 +20,7 @@ K8S_MANIFESTS := k8s
 
 # Protobuf variables
 PROTO_DIR := proto
-PROTO_FILES := $(wildcard $(PROTO_DIR)/*/*.proto)
+PROTO_FILES := $(wildcard $(PROTO_DIR)/*.proto)
 PROTOC_GEN_GO := $(GOPATH)/bin/protoc-gen-go
 PROTOC_GEN_GO_GRPC := $(GOPATH)/bin/protoc-gen-go-grpc
 
@@ -156,11 +156,9 @@ proto-deps:
 
 proto-gen:
 	@for proto in $(PROTO_FILES); do \
-		dir=$$(dirname $$proto); \
-		pkg=$$(basename $$dir); \
 		echo "Generating protobuf code for $$proto..."; \
 		protoc --go_out=. --go_opt=paths=source_relative \
-			--go_opt=M$$proto=github.com/ahrav/gitleaks-armada/proto/$$pkg \
+			--go_opt=M$$proto=github.com/ahrav/gitleaks-armada/proto \
 			$$proto; \
 	done
 

@@ -4,31 +4,7 @@ package scanner;
 
 import "google/protobuf/struct.proto";
 
-option go_package = "github.com/ahrav/gitleaks-armada/proto/scanner;scanner";
-
-// A universal envelope containing the actual domain event type
-// and its serialized bytes.
-message UniversalEnvelope {
-  string event_type = 1; // e.g. "TaskStarted", "TaskProgressed", etc.
-  bytes payload = 2;     // serialized domain event data
-}
-
-enum SourceType {
-  SOURCE_TYPE_UNSPECIFIED = 0;
-  SOURCE_TYPE_GITHUB = 1;
-  SOURCE_TYPE_S3 = 2;
-  SOURCE_TYPE_URL = 3;
-}
-
-message EnumerationTask {
-  string task_id = 1;
-  SourceType source_type = 2;
-  string job_id = 3;
-  string session_id = 4;
-  string resource_uri = 5; // e.g., "git://github.com/org/repo"
-  map<string, string> metadata = 6;
-  TaskCredentials credentials = 7;
-}
+option go_package = "github.com/ahrav/gitleaks-armada/proto;proto";
 
 // The final outcome of a scan, containing all discovered findings, status, etc.
 message ScanResult {
@@ -67,24 +43,6 @@ enum ScanJobStatus {
   SCAN_JOB_STATUS_RUNNING = 2;
   SCAN_JOB_STATUS_COMPLETED = 3;
   SCAN_JOB_STATUS_FAILED = 4;
-}
-
-message TaskCredentials {
-  oneof auth {
-    UnauthenticatedCredentials unauthenticated = 1;
-    GitHubCredentials github = 2;
-    S3Credentials s3 = 3;
-  }
-}
-
-message UnauthenticatedCredentials {}
-
-message GitHubCredentials { string auth_token = 1; }
-
-message S3Credentials {
-  string access_key = 1;
-  string secret_key = 2;
-  string session_token = 3; // Optional for temporary credentials
 }
 
 enum TaskStatus {

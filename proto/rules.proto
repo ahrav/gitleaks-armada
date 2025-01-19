@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package scanner;
 
-option go_package = "github.com/ahrav/gitleaks-armada/proto/scanner;scanner";
+option go_package = "github.com/ahrav/gitleaks-armada/proto;proto";
 
 // MatchCondition matches your "AllowlistMatchCondition" enum in Go (OR / AND).
 enum AllowlistMatchCondition {

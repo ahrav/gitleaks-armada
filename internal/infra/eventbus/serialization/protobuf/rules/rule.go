@@ -2,7 +2,7 @@ package rules
 
 import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/rules"
-	pb "github.com/ahrav/gitleaks-armada/proto/scanner"
+	pb "github.com/ahrav/gitleaks-armada/proto"
 )
 
 // GitleaksRulesMessageToProto converts domain.GitleaksRuleMessage -> pb.RuleMessage.

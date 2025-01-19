@@ -7,7 +7,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
-	pb "github.com/ahrav/gitleaks-armada/proto/scanner"
+	pb "github.com/ahrav/gitleaks-armada/proto"
 )
 
 // TaskStartedEventToProto converts a domain TaskStartedEvent to its protobuf representation.

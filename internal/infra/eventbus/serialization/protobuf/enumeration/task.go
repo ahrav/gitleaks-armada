@@ -5,7 +5,7 @@ import (
 
 	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
-	pb "github.com/ahrav/gitleaks-armada/proto/scanner"
+	pb "github.com/ahrav/gitleaks-armada/proto"
 )
 
 var taskSourceTypeToProto = map[shared.SourceType]pb.SourceType{

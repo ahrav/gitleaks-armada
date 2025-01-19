@@ -27,7 +27,7 @@ import (
 	serdeEnum "github.com/ahrav/gitleaks-armada/internal/infra/eventbus/serialization/protobuf/enumeration"
 	serdeRules "github.com/ahrav/gitleaks-armada/internal/infra/eventbus/serialization/protobuf/rules"
 	serdeScanning "github.com/ahrav/gitleaks-armada/internal/infra/eventbus/serialization/protobuf/scanning"
-	pb "github.com/ahrav/gitleaks-armada/proto/scanner"
+	pb "github.com/ahrav/gitleaks-armada/proto"
 )
 
 // SerializeFunc converts a domain object into a serialized byte slice.
