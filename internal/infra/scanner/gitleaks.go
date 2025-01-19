@@ -250,13 +250,6 @@ func (s *Gitleaks) Scan(ctx context.Context, task *dtos.ScanRequest, reporter sc
 		))
 	defer span.End()
 
-	scannerParams := scannerParams{
-		detector: s.detector,
-		logger:   s.logger,
-		tracer:   s.tracer,
-		metrics:  s.metrics,
-	}
-
 	scannerFactory, ok := s.scannerFactories[task.SourceType]
 	if !ok {
 		span.SetStatus(codes.Error, "unsupported source type")
@@ -265,6 +258,19 @@ func (s *Gitleaks) Scan(ctx context.Context, task *dtos.ScanRequest, reporter sc
 	}
 	span.AddEvent("scanner_factory_selected")
 
-	scanner := scannerFactory(scannerParams)
-	return scanner.Scan(ctx, task, reporter)
+	scanner := scannerFactory(scannerParams{
+		detector: s.detector,
+		logger:   s.logger,
+		tracer:   s.tracer,
+		metrics:  s.metrics,
+	})
+	if err := scanner.Scan(ctx, task, reporter); err != nil {
+		span.SetStatus(codes.Error, "scan failed")
+		span.RecordError(err)
+		return err
+	}
+	span.AddEvent("scan_completed")
+	span.SetStatus(codes.Ok, "scan completed")
+
+	return nil
 }
