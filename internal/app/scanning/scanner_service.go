@@ -38,14 +38,17 @@ type RuleProvider interface {
 // It subscribes to enumeration events and distributes scanning work to maintain optimal
 // resource utilization.
 type ScannerService struct {
-	id              string
-	eventBus        events.EventBus
-	domainPublisher events.DomainEventPublisher
-	secretScanner   SecretScanner
-	taskRepo        scanning.TaskRepository
-	enumACL         acl.EnumerationACL
+	id string
 
-	ruleProvider RuleProvider
+	eventBus         events.EventBus
+	domainPublisher  events.DomainEventPublisher
+	progressReporter ProgressReporter
+
+	secretScanner SecretScanner
+	taskRepo      scanning.TaskRepository
+	enumACL       acl.EnumerationACL
+
+	ruleProvider RuleProvider // TODO: Figure out where this should live
 
 	workers   int
 	stopCh    chan struct{}
@@ -63,6 +66,7 @@ func NewScannerService(
 	id string,
 	eb events.EventBus,
 	dp events.DomainEventPublisher,
+	pr ProgressReporter,
 	scanner SecretScanner,
 	logger *logger.Logger,
 	metrics metrics,
@@ -71,18 +75,19 @@ func NewScannerService(
 	// Try to get rule provider if scanner supports it. (e.g. Gitleaks)
 	ruleProvider, _ := scanner.(RuleProvider)
 	return &ScannerService{
-		id:              id,
-		eventBus:        eb,
-		domainPublisher: dp,
-		secretScanner:   scanner,
-		ruleProvider:    ruleProvider,
-		enumACL:         acl.EnumerationACL{},
-		logger:          logger,
-		metrics:         metrics,
-		tracer:          tracer,
-		workers:         runtime.NumCPU(),
-		stopCh:          make(chan struct{}),
-		taskEvent:       make(chan *dtos.ScanRequest, 1),
+		id:               id,
+		eventBus:         eb,
+		domainPublisher:  dp,
+		secretScanner:    scanner,
+		progressReporter: pr,
+		ruleProvider:     ruleProvider,
+		enumACL:          acl.EnumerationACL{},
+		logger:           logger,
+		metrics:          metrics,
+		tracer:           tracer,
+		workers:          runtime.NumCPU(),
+		stopCh:           make(chan struct{}),
+		taskEvent:        make(chan *dtos.ScanRequest, 1),
 	}
 }
 
@@ -346,7 +351,7 @@ func (s *ScannerService) handleScanTask(ctx context.Context, req *dtos.ScanReque
 	span.AddEvent("task_started_event_published")
 
 	return s.metrics.TrackTask(ctx, func() error {
-		if err := s.secretScanner.Scan(ctx, req); err != nil {
+		if err := s.secretScanner.Scan(ctx, req, s.progressReporter); err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "failed to scan")
 			return fmt.Errorf("failed to scan: %w", err)

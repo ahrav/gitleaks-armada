@@ -15,6 +15,7 @@ import (
 
 	"github.com/ahrav/gitleaks-armada/internal/app/scanning"
 	"github.com/ahrav/gitleaks-armada/internal/infra/eventbus/kafka"
+	progressreporter "github.com/ahrav/gitleaks-armada/internal/infra/progress_reporter"
 	"github.com/ahrav/gitleaks-armada/internal/infra/scanner"
 	"github.com/ahrav/gitleaks-armada/pkg/common"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
@@ -106,12 +107,19 @@ func main() {
 		log.Error(ctx, "failed to create kafka broker", "error", err)
 		os.Exit(1)
 	}
-	eventPublisher := kafka.NewKafkaDomainEventPublisher(broker)
-
 	log.Info(ctx, "Scanner connected to Kafka")
 
-	scanner := scanner.NewGitLeaks(ctx, eventPublisher, log, tracer, metricsCollector)
-	scannerService := scanning.NewScannerService(hostname, broker, eventPublisher, scanner, log, metricsCollector, tracer)
+	eventPublisher := kafka.NewKafkaDomainEventPublisher(broker)
+	scannerService := scanning.NewScannerService(
+		hostname,
+		broker,
+		eventPublisher,
+		progressreporter.New(eventPublisher, tracer),
+		scanner.NewGitLeaks(ctx, eventPublisher, log, tracer, metricsCollector),
+		log,
+		metricsCollector,
+		tracer,
+	)
 
 	ready.Store(true)
 

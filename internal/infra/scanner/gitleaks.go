@@ -166,7 +166,8 @@ func convertDetectorRuleToRule(rule config.Rule) rules.GitleaksRule {
 
 // Scan clones the repository to a temporary directory and scans it for secrets.
 // It ensures the cloned repository is cleaned up after scanning.
-func (s *Gitleaks) Scan(ctx context.Context, task *dtos.ScanRequest) error {
+// TODO: Implement progress reporting.
+func (s *Gitleaks) Scan(ctx context.Context, task *dtos.ScanRequest, reporter scanning.ProgressReporter) error {
 	ctx, span := s.tracer.Start(ctx, "gitleaks_scanner.scanning.scan_repository",
 		trace.WithAttributes(
 			attribute.String("task.id", task.TaskID.String()),

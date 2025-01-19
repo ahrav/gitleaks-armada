@@ -22,6 +22,14 @@ type DomainEventProgressReporter struct {
 	tracer          trace.Tracer
 }
 
+// New creates a new DomainEventProgressReporter.
+func New(domainPublisher events.DomainEventPublisher, tracer trace.Tracer) *DomainEventProgressReporter {
+	return &DomainEventProgressReporter{
+		domainPublisher: domainPublisher,
+		tracer:          tracer,
+	}
+}
+
 // ReportProgress publishes a TaskProgressedEvent containing the current scan progress.
 // This allows other components to track scan status and detect stalled operations.
 // It returns an error if event publishing fails.
