@@ -63,6 +63,10 @@ func NewProgressTracker(
 	}
 }
 
+// StartTracking begins monitoring a new scan task and coordinates its initialization
+// across the system. It first establishes task-level tracking state and then notifies
+// the job service to ensure proper job status transitions. This two-phase initialization
+// helps maintain consistency between task and job state.
 func (t *progressTracker) StartTracking(ctx context.Context, evt scanning.TaskStartedEvent) error {
 	taskID, jobID := evt.TaskID, evt.JobID
 	ctx, span := t.tracer.Start(ctx, "progress_tracker.scanning.start_tracking",
@@ -72,7 +76,7 @@ func (t *progressTracker) StartTracking(ctx context.Context, evt scanning.TaskSt
 		))
 	defer span.End()
 
-	// Initialize task tracking state before notifying job service.
+	// Task state must be initialized before job notification to ensure proper ordering.
 	task, err := t.taskService.StartTask(ctx, jobID, taskID)
 	if err != nil {
 		span.RecordError(err)
