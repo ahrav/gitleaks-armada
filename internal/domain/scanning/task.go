@@ -142,6 +142,47 @@ func (c *Checkpoint) ResumeToken() []byte { return c.resumeToken }
 // Metadata returns any additional metadata associated with this checkpoint.
 func (c *Checkpoint) Metadata() map[string]string { return c.metadata }
 
+// MarshalJSON serializes the Checkpoint object into a JSON byte array.
+func (c *Checkpoint) MarshalJSON() ([]byte, error) {
+	return json.Marshal(&struct {
+		TaskID      string            `json:"task_id"`
+		Timestamp   time.Time         `json:"timestamp"`
+		ResumeToken []byte            `json:"resume_token"`
+		Metadata    map[string]string `json:"metadata"`
+	}{
+		TaskID:      c.taskID.String(),
+		Timestamp:   c.timestamp,
+		ResumeToken: c.resumeToken,
+		Metadata:    c.metadata,
+	})
+}
+
+// UnmarshalJSON deserializes JSON data into a Checkpoint object.
+func (c *Checkpoint) UnmarshalJSON(data []byte) error {
+	aux := &struct {
+		TaskID      string            `json:"task_id"`
+		Timestamp   time.Time         `json:"timestamp"`
+		ResumeToken []byte            `json:"resume_token"`
+		Metadata    map[string]string `json:"metadata"`
+	}{}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	taskID, err := uuid.Parse(aux.TaskID)
+	if err != nil {
+		return fmt.Errorf("invalid task ID: %w", err)
+	}
+
+	c.taskID = taskID
+	c.timestamp = aux.Timestamp
+	c.resumeToken = aux.ResumeToken
+	c.metadata = aux.Metadata
+
+	return nil
+}
+
 // Task tracks the full lifecycle and state of an individual scanning operation.
 // It maintains historical progress data and enables task recovery and monitoring.
 type Task struct {
