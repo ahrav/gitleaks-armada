@@ -147,7 +147,7 @@ func (o *Orchestrator) Run(ctx context.Context) (<-chan struct{}, error) {
 
 	o.setupLeadershipCallback(orchestratorCtx, leaderCh)
 
-	go o.runLeadershipLoop(orchestratorCtx, ctx, leaderCh, readyCh)
+	go o.startLeadershipLoop(orchestratorCtx, ctx, leaderCh, readyCh)
 
 	if err := o.startCoordinator(orchestratorCtx); err != nil {
 		return nil, err
@@ -235,9 +235,9 @@ func (o *Orchestrator) setupLeadershipCallback(ctx context.Context, leaderCh cha
 	})
 }
 
-// runLeadershipLoop handles the main leadership election loop, coordinating state changes
+// startLeadershipLoop handles the main leadership election loop, coordinating state changes
 // and enumeration processes based on leadership status.
-func (o *Orchestrator) runLeadershipLoop(
+func (o *Orchestrator) startLeadershipLoop(
 	orchestratorCtx context.Context,
 	requestCtx context.Context,
 	leaderCh <-chan bool,
