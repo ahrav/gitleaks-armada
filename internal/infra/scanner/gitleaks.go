@@ -38,9 +38,14 @@ var (
 // while providing observability through logging and tracing.
 type Gitleaks struct {
 	detector *detect.Detector
-	logger   *logger.Logger
-	tracer   trace.Tracer
-	metrics  scanning.ScannerMetrics
+
+	// scannerFactories is a map of source type to scanner factory.
+	// It is used to create scanners for different source types at runtime.
+	scannerFactories map[dtos.SourceType]SourceScannerFactory
+
+	logger  *logger.Logger
+	tracer  trace.Tracer
+	metrics scanning.ScannerMetrics
 }
 
 // NewGitLeaks creates a new Gitleaks scanner instance with a configured detector.
@@ -50,17 +55,27 @@ type Gitleaks struct {
 func NewGitLeaks(
 	ctx context.Context,
 	broker events.DomainEventPublisher,
-	logger *logger.Logger,
+	log *logger.Logger,
 	tracer trace.Tracer,
 	metrics scanning.ScannerMetrics,
 ) *Gitleaks {
 	detector := setupGitleaksDetector()
 
+	factories := map[dtos.SourceType]SourceScannerFactory{
+		dtos.SourceTypeGitHub: func(params scannerParams) SourceScanner {
+			return git.NewScanner(params.detector, params.logger, params.tracer, params.metrics)
+		},
+		dtos.SourceTypeURL: func(params scannerParams) SourceScanner {
+			return url.NewScanner(params.detector, params.logger, params.tracer, params.metrics)
+		},
+	}
+
 	return &Gitleaks{
-		detector: detector,
-		logger:   logger,
-		tracer:   tracer,
-		metrics:  metrics,
+		detector:         detector,
+		scannerFactories: factories,
+		logger:           log,
+		tracer:           tracer,
+		metrics:          metrics,
 	}
 }
 
@@ -214,6 +229,17 @@ type SourceScanner interface {
 	Scan(ctx context.Context, task *dtos.ScanRequest, reporter scanning.ProgressReporter) error
 }
 
+// scannerParams collects all the dependencies needed to construct a SourceScanner.
+type scannerParams struct {
+	detector *detect.Detector
+	logger   *logger.Logger
+	tracer   trace.Tracer
+	metrics  scanning.ScannerMetrics
+}
+
+// SourceScannerFactory is a function that constructs a SourceScanner.
+type SourceScannerFactory func(params scannerParams) SourceScanner
+
 // Scan initiates the scanning process for a given task by selecting the appropriate scanner
 // based on the task's source type.
 func (s *Gitleaks) Scan(ctx context.Context, task *dtos.ScanRequest, reporter scanning.ProgressReporter) error {
@@ -224,15 +250,21 @@ func (s *Gitleaks) Scan(ctx context.Context, task *dtos.ScanRequest, reporter sc
 		))
 	defer span.End()
 
-	var scanner SourceScanner
-	switch task.SourceType {
-	case dtos.SourceTypeGitHub:
-		scanner = git.NewScanner(s.detector, s.logger, s.tracer, s.metrics)
-	case dtos.SourceTypeURL:
-		scanner = url.NewScanner(s.detector, s.logger, s.tracer, s.metrics)
-	default:
-		return fmt.Errorf("unsupported source type: %s", task.SourceType)
+	scannerParams := scannerParams{
+		detector: s.detector,
+		logger:   s.logger,
+		tracer:   s.tracer,
+		metrics:  s.metrics,
 	}
 
+	scannerFactory, ok := s.scannerFactories[task.SourceType]
+	if !ok {
+		span.SetStatus(codes.Error, "unsupported source type")
+		span.RecordError(fmt.Errorf("unsupported source type: %s", task.SourceType))
+		return fmt.Errorf("unsupported source type: %s", task.SourceType)
+	}
+	span.AddEvent("scanner_factory_selected")
+
+	scanner := scannerFactory(scannerParams)
 	return scanner.Scan(ctx, task, reporter)
 }
