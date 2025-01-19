@@ -26,5 +26,6 @@ type ProgressReporter interface {
 	// ReportProgress updates the system with the current state of a scan operation.
 	// The provided Progress contains metrics and state information that help track
 	// the scan's execution and enable recovery in case of failures.
-	ReportProgress(ctx context.Context, progress scanning.Progress)
+	// Returns an error if the progress report fails.
+	ReportProgress(ctx context.Context, progress scanning.Progress) error
 }
