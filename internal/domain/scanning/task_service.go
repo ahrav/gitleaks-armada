@@ -24,7 +24,7 @@ func NewTaskDomainService() TaskDomainService {
 // UpdateProgress applies domain rules to update a task with new progress.
 // e.g., ignore out-of-order updates, set fields, etc.
 func (ds *TaskDomainServiceImpl) UpdateProgress(task *Task, progress Progress) error {
-	if progress.SequenceNum <= task.LastSequenceNum() {
+	if progress.SequenceNum() <= task.LastSequenceNum() {
 		// Domain rule: ignore out-of-order
 		return nil
 	}
@@ -39,8 +39,8 @@ func (ds *TaskDomainServiceImpl) MarkTaskStale(task *Task, reason StallReason) e
 		return fmt.Errorf("cannot mark a completed task as stale")
 	}
 	task.ApplyProgress(Progress{
-		Status:    TaskStatusStale,
-		Timestamp: time.Now(),
+		status:    TaskStatusStale,
+		timestamp: time.Now(),
 	})
 	return nil
 }
@@ -50,8 +50,8 @@ func (ds *TaskDomainServiceImpl) RecoverTask(task *Task) error {
 	// e.g., set status back to IN_PROGRESS if it was STALE
 	if task.Status() == TaskStatusStale {
 		task.ApplyProgress(Progress{
-			Status:    TaskStatusInProgress,
-			Timestamp: time.Now(),
+			status:    TaskStatusInProgress,
+			timestamp: time.Now(),
 		})
 	}
 	// domain logic might do more

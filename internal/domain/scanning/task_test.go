@@ -71,10 +71,10 @@ func TestTask_ApplyProgress(t *testing.T) {
 				return NewScanTask(uuid.New(), uuid.New())
 			},
 			progress: Progress{
-				SequenceNum:    1,
-				Status:         TaskStatusInProgress,
-				ItemsProcessed: 100,
-				Timestamp:      time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+				sequenceNum:    1,
+				status:         TaskStatusInProgress,
+				itemsProcessed: 100,
+				timestamp:      time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
 			},
 			wantStatus: TaskStatusInProgress,
 			wantItems:  100,
@@ -86,10 +86,10 @@ func TestTask_ApplyProgress(t *testing.T) {
 				return NewScanTask(uuid.New(), uuid.New())
 			},
 			progress: Progress{
-				SequenceNum: 1,
-				Status:      TaskStatusInProgress,
-				Checkpoint: &Checkpoint{
-					ResumeToken: []byte("token"),
+				sequenceNum: 1,
+				status:      TaskStatusInProgress,
+				checkpoint: &Checkpoint{
+					resumeToken: []byte("token"),
 				},
 			},
 			wantStatus:  TaskStatusInProgress,
@@ -101,14 +101,14 @@ func TestTask_ApplyProgress(t *testing.T) {
 			setupTask: func() *Task {
 				task := NewScanTask(uuid.New(), uuid.New())
 				_ = task.ApplyProgress(Progress{
-					SequenceNum: 2,
-					Status:      TaskStatusInProgress,
+					sequenceNum: 2,
+					status:      TaskStatusInProgress,
 				})
 				return task
 			},
 			progress: Progress{
-				SequenceNum: 1, // Lower than current
-				Status:      TaskStatusCompleted,
+				sequenceNum: 1, // Lower than current
+				status:      TaskStatusCompleted,
 			},
 			wantStatus: TaskStatusInProgress, // Should not change
 			wantSeqNum: 2,                    // Should not change
@@ -122,9 +122,9 @@ func TestTask_ApplyProgress(t *testing.T) {
 			t.Parallel()
 
 			task := tt.setupTask()
-			tt.progress.TaskID = task.TaskID()
-			if tt.progress.Checkpoint != nil {
-				tt.progress.Checkpoint.TaskID = task.TaskID()
+			tt.progress.taskID = task.TaskID()
+			if tt.progress.Checkpoint() != nil {
+				tt.progress.Checkpoint().taskID = task.TaskID()
 			}
 
 			err := task.ApplyProgress(tt.progress)
@@ -141,7 +141,7 @@ func TestTask_ApplyProgress(t *testing.T) {
 			assert.Equal(t, tt.wantSeqNum, task.LastSequenceNum())
 			if tt.checkpoints {
 				assert.NotNil(t, task.LastCheckpoint())
-				assert.Equal(t, tt.progress.Checkpoint.ResumeToken, task.LastCheckpoint().ResumeToken)
+				assert.Equal(t, tt.progress.Checkpoint().ResumeToken(), task.LastCheckpoint().ResumeToken())
 			}
 		})
 	}
@@ -158,11 +158,11 @@ func TestTask_GetSummary(t *testing.T) {
 	task := NewScanTask(jobID, taskID, WithTimeProvider(mockProvider))
 
 	progress := Progress{
-		TaskID:         taskID,
-		SequenceNum:    1,
-		Status:         TaskStatusInProgress,
-		ItemsProcessed: 100,
-		Timestamp:      mockTime,
+		taskID:         taskID,
+		sequenceNum:    1,
+		status:         TaskStatusInProgress,
+		itemsProcessed: 100,
+		timestamp:      mockTime,
 	}
 
 	err := task.ApplyProgress(progress)
@@ -175,7 +175,7 @@ func TestTask_GetSummary(t *testing.T) {
 	assert.Equal(t, TaskStatusInProgress, summary.GetStatus())
 	assert.Equal(t, int64(100), summary.itemsProcessed)
 	assert.Equal(t, duration, summary.duration)
-	assert.Equal(t, progress.Timestamp, summary.GetLastUpdateTimestamp())
+	assert.Equal(t, progress.Timestamp(), summary.GetLastUpdateTimestamp())
 }
 
 func TestTask_ToStalledTask(t *testing.T) {

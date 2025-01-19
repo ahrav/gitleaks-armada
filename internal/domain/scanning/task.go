@@ -32,15 +32,15 @@ const (
 // detailed metrics and state information to track scanning progress and enable
 // task recovery.
 type Progress struct {
-	TaskID          uuid.UUID       `json:"task_id"`
-	SequenceNum     int64           `json:"sequence_num"`
-	Timestamp       time.Time       `json:"timestamp"`
-	Status          TaskStatus      `json:"status"`
-	ItemsProcessed  int64           `json:"items_processed"`
-	ErrorCount      int32           `json:"error_count"`
-	Message         string          `json:"message,omitempty"`
-	ProgressDetails json.RawMessage `json:"progress_details,omitempty"`
-	Checkpoint      *Checkpoint     `json:"checkpoint,omitempty"`
+	taskID          uuid.UUID
+	sequenceNum     int64
+	timestamp       time.Time
+	status          TaskStatus
+	itemsProcessed  int64
+	errorCount      int32
+	message         string
+	progressDetails json.RawMessage
+	checkpoint      *Checkpoint
 }
 
 // ReconstructProgress creates a Progress instance from persisted data.
@@ -57,25 +57,46 @@ func ReconstructProgress(
 	checkpoint *Checkpoint,
 ) Progress {
 	return Progress{
-		TaskID:          taskID,
-		SequenceNum:     sequenceNum,
-		Timestamp:       timestamp,
-		Status:          status,
-		ItemsProcessed:  itemsProcessed,
-		ErrorCount:      errorCount,
-		Message:         message,
-		ProgressDetails: progressDetails,
-		Checkpoint:      checkpoint,
+		taskID:          taskID,
+		sequenceNum:     sequenceNum,
+		timestamp:       timestamp,
+		status:          status,
+		itemsProcessed:  itemsProcessed,
+		errorCount:      errorCount,
+		message:         message,
+		progressDetails: progressDetails,
+		checkpoint:      checkpoint,
 	}
 }
+
+// TaskID returns the unique identifier for this scan task.
+func (p Progress) TaskID() uuid.UUID { return p.taskID }
+
+// SequenceNum returns the sequence number of this progress update.
+func (p Progress) SequenceNum() int64 { return p.sequenceNum }
+
+// Timestamp returns the time the progress update was created.
+func (p Progress) Timestamp() time.Time { return p.timestamp }
+
+// Status returns the current execution status of the scan task.
+func (p Progress) Status() TaskStatus { return p.status }
+
+// ItemsProcessed returns the total number of items scanned by this task.
+func (p Progress) ItemsProcessed() int64 { return p.itemsProcessed }
+
+// ErrorCount returns the number of errors encountered by this task.
+func (p Progress) ErrorCount() int32                { return p.errorCount }
+func (p Progress) Message() string                  { return p.message }
+func (p Progress) ProgressDetails() json.RawMessage { return p.progressDetails }
+func (p Progress) Checkpoint() *Checkpoint          { return p.checkpoint }
 
 // Checkpoint contains the state needed to resume a scan after interruption.
 // This enables fault tolerance by preserving progress markers and context.
 type Checkpoint struct {
-	TaskID      uuid.UUID         `json:"task_id"`
-	Timestamp   time.Time         `json:"timestamp"`
-	ResumeToken []byte            `json:"resume_token"`
-	Metadata    map[string]string `json:"metadata"`
+	taskID      uuid.UUID
+	timestamp   time.Time
+	resumeToken []byte
+	metadata    map[string]string
 }
 
 // NewCheckpoint creates a new Checkpoint for tracking scan progress.
@@ -86,10 +107,10 @@ func NewCheckpoint(
 	metadata map[string]string,
 ) *Checkpoint {
 	return &Checkpoint{
-		TaskID:      taskID,
-		Timestamp:   time.Now(),
-		ResumeToken: resumeToken,
-		Metadata:    metadata,
+		taskID:      taskID,
+		timestamp:   time.Now(),
+		resumeToken: resumeToken,
+		metadata:    metadata,
 	}
 }
 
@@ -102,12 +123,24 @@ func ReconstructCheckpoint(
 	metadata map[string]string,
 ) *Checkpoint {
 	return &Checkpoint{
-		TaskID:      taskID,
-		Timestamp:   timestamp,
-		ResumeToken: resumeToken,
-		Metadata:    metadata,
+		taskID:      taskID,
+		timestamp:   timestamp,
+		resumeToken: resumeToken,
+		metadata:    metadata,
 	}
 }
+
+// TaskID returns the unique identifier for this scan task.
+func (c *Checkpoint) TaskID() uuid.UUID { return c.taskID }
+
+// Timestamp returns the time the checkpoint was created.
+func (c *Checkpoint) Timestamp() time.Time { return c.timestamp }
+
+// ResumeToken returns the token used to resume a scan after interruption.
+func (c *Checkpoint) ResumeToken() []byte { return c.resumeToken }
+
+// Metadata returns any additional metadata associated with this checkpoint.
+func (c *Checkpoint) Metadata() map[string]string { return c.metadata }
 
 // Task tracks the full lifecycle and state of an individual scanning operation.
 // It maintains historical progress data and enables task recovery and monitoring.
@@ -228,7 +261,7 @@ func (e *OutOfOrderProgressError) Error() string {
 // It updates all monitoring metrics and preserves any checkpoint data.
 func (t *Task) ApplyProgress(progress Progress) error {
 	if !t.canApplyProgress(progress) {
-		return NewOutOfOrderProgressError(t.TaskID(), progress.SequenceNum, t.LastSequenceNum())
+		return NewOutOfOrderProgressError(t.TaskID(), progress.SequenceNum(), t.LastSequenceNum())
 	}
 
 	t.updateProgress(progress)
@@ -236,19 +269,19 @@ func (t *Task) ApplyProgress(progress Progress) error {
 }
 
 func (t *Task) canApplyProgress(progress Progress) bool {
-	return progress.SequenceNum > t.lastSequenceNum
+	return progress.SequenceNum() > t.lastSequenceNum
 }
 
 // UpdateProgress applies a progress update to this task's state.
 // It updates all monitoring metrics and preserves any checkpoint data.
 func (t *Task) updateProgress(progress Progress) {
-	t.lastSequenceNum = progress.SequenceNum
-	t.status = progress.Status
+	t.lastSequenceNum = progress.SequenceNum()
+	t.status = progress.Status()
 	t.timeline.UpdateLastUpdate()
-	t.itemsProcessed += progress.ItemsProcessed
-	t.progressDetails = progress.ProgressDetails
-	if progress.Checkpoint != nil {
-		t.lastCheckpoint = progress.Checkpoint
+	t.itemsProcessed += progress.ItemsProcessed()
+	t.progressDetails = progress.ProgressDetails()
+	if progress.Checkpoint() != nil {
+		t.lastCheckpoint = progress.Checkpoint()
 	}
 }
 

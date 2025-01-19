@@ -119,19 +119,19 @@ func (s *TaskService) StartTask(ctx context.Context, jobID, taskID uuid.UUID) (*
 func (s *TaskService) UpdateProgress(ctx context.Context, progress domain.Progress) error {
 	ctx, span := s.tracer.Start(ctx, "task_service.scanning.update_progress",
 		trace.WithAttributes(
-			attribute.String("task_id", progress.TaskID.String()),
-			attribute.Int64("sequence_num", progress.SequenceNum),
+			attribute.String("task_id", progress.TaskID().String()),
+			attribute.Int64("sequence_num", progress.SequenceNum()),
 		))
 	defer span.End()
 
 	s.mu.RLock()
-	task, isCached := s.tasksCache[progress.TaskID]
+	task, isCached := s.tasksCache[progress.TaskID()]
 	s.mu.RUnlock()
 	span.AddEvent("task_cached", trace.WithAttributes(attribute.Bool("is_cached", isCached)))
 
 	if !isCached {
 		var err error
-		task, err = s.loadTask(ctx, progress.TaskID)
+		task, err = s.loadTask(ctx, progress.TaskID())
 		if err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "failed to get task")
@@ -149,7 +149,7 @@ func (s *TaskService) UpdateProgress(ctx context.Context, progress domain.Progre
 	}
 	span.AddEvent("progress_applied")
 
-	s.tasksCache[progress.TaskID] = task
+	s.tasksCache[progress.TaskID()] = task
 
 	shouldPersist := time.Since(task.LastUpdateTime()) >= s.persistInterval
 	if shouldPersist {
