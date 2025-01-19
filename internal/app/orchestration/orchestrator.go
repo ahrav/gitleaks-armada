@@ -117,13 +117,17 @@ func NewOrchestrator(
 	return o
 }
 
-// Run starts the controller's leadership election process and target processing loop.
-// It participates in leader election and, when elected leader, processes scan targets.
-// The controller will resume any in-progress enumerations if they exist, otherwise
-// it starts fresh from the configuration.
+// Run starts the orchestrator's leadership election and target processing loop. It manages
+// the lifecycle of scan target enumeration by participating in leader election and coordinating
+// scan target processing across the cluster. When elected leader, it will either resume
+// in-progress enumerations or start fresh ones based on configuration.
 //
-// It returns a channel that is closed when initialization is complete and any startup error.
-// The channel allows callers to wait for the controller to be ready before proceeding.
+// The orchestrator uses a distributed lock to ensure only one instance is processing targets
+// at a time, preventing duplicate work and race conditions. It also maintains internal state
+// to track leadership changes and handle graceful shutdowns.
+//
+// Returns a channel that closes when initialization is complete, signaling readiness, and
+// any startup errors. Callers should wait for the ready signal before proceeding.
 func (o *Orchestrator) Run(ctx context.Context) (<-chan struct{}, error) {
 	runCtx, runSpan := o.tracer.Start(ctx, "orchestrator.run",
 		trace.WithAttributes(
@@ -149,22 +153,25 @@ func (o *Orchestrator) Run(ctx context.Context) (<-chan struct{}, error) {
 		return nil, err
 	}
 
-	// Return a channel that signals "readiness" once leadership is established.
 	return readyCh, nil
 }
 
+// registerCancelFunc safely stores the cancellation function under lock.
 func (o *Orchestrator) registerCancelFunc(cancel context.CancelFunc) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.cancelFn = cancel
 }
 
+// makeOrchestrationChannels creates the channels needed for leadership coordination
+// and readiness signaling.
 func (o *Orchestrator) makeOrchestrationChannels() (chan struct{}, chan bool) {
 	ready := make(chan struct{})
 	leaderCh := make(chan bool, 1)
 	return ready, leaderCh
 }
 
+// subscribeToEvents sets up event subscriptions for tracking task progress and rule updates.
 func (o *Orchestrator) subscribeToEvents(ctx context.Context) error {
 	subCtx, subSpan := o.tracer.Start(ctx, "orchestrator.subscribe_events",
 		trace.WithAttributes(
@@ -194,6 +201,8 @@ func (o *Orchestrator) subscribeToEvents(ctx context.Context) error {
 	return nil
 }
 
+// setupLeadershipCallback configures the handler for leadership changes, managing
+// state transitions and metric updates when leadership status changes.
 func (o *Orchestrator) setupLeadershipCallback(ctx context.Context, leaderCh chan<- bool) {
 	o.coordinator.OnLeadershipChange(func(isLeader bool) {
 		leaderCtx, leaderSpan := o.tracer.Start(ctx, "orchestrator.leadership_change",
@@ -207,7 +216,6 @@ func (o *Orchestrator) setupLeadershipCallback(ctx context.Context, leaderCh cha
 			"orchestrator_id", o.id, "is_leader", isLeader)
 		o.metrics.SetLeaderStatus(leaderCtx, isLeader)
 
-		// Update internal state.
 		o.mu.Lock()
 		o.running = isLeader
 		if !isLeader && o.cancelFn != nil {
@@ -216,7 +224,6 @@ func (o *Orchestrator) setupLeadershipCallback(ctx context.Context, leaderCh cha
 		}
 		o.mu.Unlock()
 
-		// Send the new status if there's room in the channel.
 		select {
 		case leaderCh <- isLeader:
 			leaderSpan.AddEvent("leadership_status_sent")
@@ -228,6 +235,8 @@ func (o *Orchestrator) setupLeadershipCallback(ctx context.Context, leaderCh cha
 	})
 }
 
+// runLeadershipLoop handles the main leadership election loop, coordinating state changes
+// and enumeration processes based on leadership status.
 func (o *Orchestrator) runLeadershipLoop(
 	orchestratorCtx context.Context,
 	requestCtx context.Context,
@@ -248,6 +257,8 @@ func (o *Orchestrator) runLeadershipLoop(
 	}
 }
 
+// handleLeadership processes leadership state changes and triggers enumeration
+// when leadership is acquired.
 func (o *Orchestrator) handleLeadership(ctx context.Context, isLeader bool, readyClosed *bool, readyCh chan<- struct{}) {
 	leaderCtx, leaderSpan := o.tracer.Start(ctx, "orchestrator.handle_leadership",
 		trace.WithAttributes(attribute.Bool("is_leader", isLeader)))
@@ -262,7 +273,6 @@ func (o *Orchestrator) handleLeadership(ctx context.Context, isLeader bool, read
 	o.logger.Info(leaderCtx, "Leadership acquired, processing targets...", "orchestrator_id", o.id)
 	leaderSpan.AddEvent("leader_acquired")
 
-	// Run enumeration within a short-lived span.
 	err := o.metrics.TrackEnumeration(leaderCtx, func() error {
 		return o.Enumerate(leaderCtx)
 	})
@@ -273,21 +283,17 @@ func (o *Orchestrator) handleLeadership(ctx context.Context, isLeader bool, read
 	}
 	leaderSpan.AddEvent("enumeration_completed")
 
-	// Mark orchestrator as "ready" once.
 	if !*readyClosed {
 		close(readyCh)
 		*readyClosed = true
 		readySpan := trace.SpanFromContext(ctx)
 		readySpan.AddEvent("ready_channel_closed")
-		// Note: Typically you would *not* end a span acquired by SpanFromContext,
-		// but if you want an explicit ephemeral span for "mark_ready" you could do that here:
-		// readySpan.End()
 		o.logger.Info(ctx, "Orchestrator is ready.", "orchestrator_id", o.id)
 	}
 }
 
+// handleShutdown performs cleanup when the orchestrator is shutting down.
 func (o *Orchestrator) handleShutdown(ctx context.Context, readyClosed *bool, readyCh chan<- struct{}) {
-	// Short-lived span for shutdown.
 	shutdownCtx, shutdownSpan := o.tracer.Start(ctx, "orchestrator.shutdown")
 	defer shutdownSpan.End()
 
@@ -300,6 +306,7 @@ func (o *Orchestrator) handleShutdown(ctx context.Context, readyClosed *bool, re
 	}
 }
 
+// startCoordinator initializes the cluster coordinator component.
 func (o *Orchestrator) startCoordinator(ctx context.Context) error {
 	startSpan := trace.SpanFromContext(ctx)
 	startSpan.AddEvent("starting_coordinator", trace.WithAttributes(
@@ -310,8 +317,6 @@ func (o *Orchestrator) startCoordinator(ctx context.Context) error {
 	if err := o.coordinator.Start(ctx); err != nil {
 		startSpan.RecordError(err)
 		startSpan.SetStatus(codes.Error, "failed to start coordinator")
-		// In most cases, you wouldn't manually end a span from SpanFromContext.
-		// If you want a short-lived ephemeral span, create it explicitly with o.tracer.Start().
 		return fmt.Errorf("orchestrator[%s]: failed to start coordinator: %w", o.id, err)
 	}
 
