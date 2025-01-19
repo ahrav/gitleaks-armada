@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"runtime"
 	"sync"
+	"time"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -238,23 +239,64 @@ func (s *ScannerService) handleTaskEvent(ctx context.Context, evt events.EventEn
 	}
 }
 
-// workerLoop processes scan tasks until shutdown is signaled.
-// Each worker operates independently to maximize throughput while maintaining
-// ordered task processing within the worker.
+// workerLoop processes scan tasks until shutdown is signaled. It manages a single worker's lifecycle,
+// handling task processing and recovery from panics. Each worker operates independently to maximize
+// throughput while maintaining ordered task processing within its own queue.
+//
+// The worker will automatically restart after a panic with a small delay, ensuring service resilience.
+// It gracefully handles shutdown signals from both context cancellation and service stop channel.
 func (s *ScannerService) workerLoop(ctx context.Context, workerID int) {
-	// No parent span for the loop itself - we'll create spans per operation.
-	// This is because the loop is a long-running operation and we don't want to
-	// create a span for the entire loop.
 	s.logger.Info(ctx, "Starting scanner worker", "worker_id", workerID)
 
 	for {
+		func() {
+			defer func() {
+				// Recover from panics to prevent worker termination. This ensures service stability
+				// by containing failures to individual tasks rather than bringing down the worker.
+				if r := recover(); r != nil {
+					rctx, rspan := s.tracer.Start(ctx,
+						"scanner_service.worker.panic",
+						trace.WithAttributes(
+							attribute.Int("worker_id", workerID),
+						),
+					)
+					defer rspan.End()
+
+					err := fmt.Errorf("worker panic: %v", r)
+					s.logger.Error(rctx, "Worker panic",
+						"worker_id", workerID, "panic", r)
+					rspan.RecordError(err)
+					rspan.SetStatus(codes.Error, "worker panic")
+				}
+			}()
+
+			s.logger.Info(ctx, "Worker starting", "worker_id", workerID)
+			s.doWorkerLoop(ctx, workerID)
+		}()
+
 		select {
 		case <-ctx.Done():
 			s.logger.Info(ctx, "Worker stopping", "worker_id", workerID)
 			return
+		case <-s.stopCh:
+			s.logger.Info(ctx, "Worker stopping", "worker_id", workerID)
+			return
+		case <-time.After(1 * time.Second): // Delay restart to prevent tight loop on persistent panics
+		}
+	}
+}
 
+// doWorkerLoop handles the core task processing loop for a worker. It continuously pulls tasks
+// from the shared task channel and processes them with proper context management and tracing.
+// The loop continues until context cancellation signals shutdown.
+func (s *ScannerService) doWorkerLoop(ctx context.Context, workerID int) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
 		case task := <-s.taskEvent:
-			taskCtx, taskSpan := s.tracer.Start(ctx, "scanner_service.worker.process_task",
+			taskCtx, cancel := context.WithCancelCause(ctx)
+			taskCtx, taskSpan := s.tracer.Start(taskCtx, "scanner_service.worker.process_task",
 				trace.WithAttributes(
 					attribute.Int("worker_id", workerID),
 					attribute.String("task_id", task.TaskID.String()),
@@ -271,6 +313,7 @@ func (s *ScannerService) workerLoop(ctx context.Context, workerID int) {
 					"error", err)
 			}
 			taskSpan.End()
+			cancel(nil)
 		}
 	}
 }
