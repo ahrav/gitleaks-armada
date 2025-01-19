@@ -245,6 +245,9 @@ func (s *ScannerService) handleTaskEvent(ctx context.Context, evt events.EventEn
 //
 // The worker will automatically restart after a panic with a small delay, ensuring service resilience.
 // It gracefully handles shutdown signals from both context cancellation and service stop channel.
+// TODO: Add mechanism to consume from mutlple tasks with different priorities.
+// We need this in the event of a worker panicking, as we need to consume from the higher priority
+// resume task queue. This avoids having an in-progress task stuck behind other not started tasks.
 func (s *ScannerService) workerLoop(ctx context.Context, workerID int) {
 	s.logger.Info(ctx, "Starting scanner worker", "worker_id", workerID)
 
