@@ -46,7 +46,6 @@ type ScannerService struct {
 	progressReporter ProgressReporter
 
 	secretScanner SecretScanner
-	taskRepo      scanning.TaskRepository
 	enumACL       acl.EnumerationACL
 
 	ruleProvider RuleProvider // TODO: Figure out where this should live
