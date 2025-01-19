@@ -96,11 +96,11 @@ func (t *progressTracker) StartTracking(ctx context.Context, evt scanning.TaskSt
 	return nil
 }
 
-func (t *progressTracker) StopTracking(ctx context.Context, evt scanning.TaskCompletedEvent) error {
+func (t *progressTracker) UpdateProgress(ctx context.Context, evt scanning.TaskProgressedEvent) error {
 	return nil
 }
 
-func (t *progressTracker) UpdateProgress(ctx context.Context, evt scanning.TaskProgressedEvent) error {
+func (t *progressTracker) StopTracking(ctx context.Context, evt scanning.TaskCompletedEvent) error {
 	return nil
 }
 

@@ -260,7 +260,7 @@ func (e *OutOfOrderProgressError) Error() string {
 // ApplyProgress applies a progress update to this task's state.
 // It updates all monitoring metrics and preserves any checkpoint data.
 func (t *Task) ApplyProgress(progress Progress) error {
-	if !t.canApplyProgress(progress) {
+	if !t.isSeqNumValid(progress) {
 		return NewOutOfOrderProgressError(t.TaskID(), progress.SequenceNum(), t.LastSequenceNum())
 	}
 
@@ -268,7 +268,7 @@ func (t *Task) ApplyProgress(progress Progress) error {
 	return nil
 }
 
-func (t *Task) canApplyProgress(progress Progress) bool {
+func (t *Task) isSeqNumValid(progress Progress) bool {
 	return progress.SequenceNum() > t.lastSequenceNum
 }
 
