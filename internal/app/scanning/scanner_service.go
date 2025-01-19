@@ -28,6 +28,7 @@ type metrics interface {
 }
 
 // RuleProvider defines the interface for scanners that use rule-based detection.
+// TODO: IDK... what?
 type RuleProvider interface {
 	// GetRules streams converted rules ready for publishing.
 	// The channel will be closed when all rules have been sent.
