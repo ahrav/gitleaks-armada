@@ -9,6 +9,49 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestNewScanTask(t *testing.T) {
+	t.Parallel()
+
+	jobID := uuid.New()
+	taskID := uuid.New()
+	mockTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	mockProvider := &mockTimeProvider{currentTime: mockTime}
+
+	task := NewScanTask(jobID, taskID, WithTimeProvider(mockProvider))
+
+	assert.NotNil(t, task)
+	assert.Equal(t, jobID, task.JobID())
+	assert.Equal(t, taskID, task.TaskID())
+	assert.Equal(t, TaskStatusInProgress, task.Status())
+
+	assert.Equal(t, mockTime, task.StartTime())
+	assert.Equal(t, mockTime, task.LastUpdateTime())
+
+	assert.Equal(t, int64(0), task.LastSequenceNum())
+	assert.Equal(t, int64(0), task.ItemsProcessed())
+	assert.Nil(t, task.LastCheckpoint())
+	assert.Nil(t, task.ProgressDetails())
+}
+
+func TestNewScanTask_DefaultTimeProvider(t *testing.T) {
+	t.Parallel()
+
+	jobID := uuid.New()
+	taskID := uuid.New()
+	beforeCreate := time.Now()
+
+	task := NewScanTask(jobID, taskID) // No time provider specified
+
+	assert.NotNil(t, task)
+	assert.True(t, task.StartTime().After(beforeCreate) || task.StartTime().Equal(beforeCreate))
+	assert.True(t, task.LastUpdateTime().After(beforeCreate) || task.LastUpdateTime().Equal(beforeCreate))
+}
+
+// mockTimeProvider implements TimeProvider for testing
+type mockTimeProvider struct{ currentTime time.Time }
+
+func (m *mockTimeProvider) Now() time.Time { return m.currentTime }
+
 func TestTask_ApplyProgress(t *testing.T) {
 	t.Parallel()
 
@@ -107,16 +150,19 @@ func TestTask_ApplyProgress(t *testing.T) {
 func TestTask_GetSummary(t *testing.T) {
 	t.Parallel()
 
+	mockTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	mockProvider := &mockTimeProvider{currentTime: mockTime}
+
 	taskID := uuid.New()
 	jobID := uuid.New()
-	task := NewScanTask(jobID, taskID)
+	task := NewScanTask(jobID, taskID, WithTimeProvider(mockProvider))
 
 	progress := Progress{
 		TaskID:         taskID,
 		SequenceNum:    1,
 		Status:         TaskStatusInProgress,
 		ItemsProcessed: 100,
-		Timestamp:      time.Now(),
+		Timestamp:      mockTime,
 	}
 
 	err := task.ApplyProgress(progress)

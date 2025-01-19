@@ -116,8 +116,7 @@ type Task struct {
 	jobID           uuid.UUID
 	status          TaskStatus
 	lastSequenceNum int64
-	startTime       time.Time
-	lastUpdate      time.Time
+	timeline        *Timeline
 	itemsProcessed  int64
 	progressDetails json.RawMessage
 	lastCheckpoint  *Checkpoint
@@ -144,25 +143,38 @@ func ReconstructTask(
 		jobID:           jobID,
 		status:          status,
 		lastSequenceNum: lastSequenceNum,
-		startTime:       startTime,
-		lastUpdate:      lastUpdate,
+		timeline:        ReconstructTimeline(startTime, time.Time{}, lastUpdate),
 		itemsProcessed:  itemsProcessed,
 		progressDetails: progressDetails,
 		lastCheckpoint:  lastCheckpoint,
 	}
 }
 
+// TaskOption defines functional options for configuring a new Task.
+type TaskOption func(*Task)
+
+// WithTimeProvider sets a custom time provider for the task.
+func WithTimeProvider(tp TimeProvider) TaskOption {
+	return func(t *Task) { t.timeline = NewTimeline(tp) }
+}
+
 // NewScanTask creates a new ScanTask instance for tracking an individual scan operation.
 // It establishes the task's relationship to its parent job and initializes monitoring state.
-func NewScanTask(jobID uuid.UUID, taskID uuid.UUID) *Task {
-	return &Task{
+func NewScanTask(jobID uuid.UUID, taskID uuid.UUID, opts ...TaskOption) *Task {
+	task := &Task{
 		CoreTask: shared.CoreTask{
 			ID: taskID,
 		},
-		jobID:     jobID,
-		status:    TaskStatusInProgress,
-		startTime: time.Now(),
+		jobID:    jobID,
+		status:   TaskStatusInProgress,
+		timeline: NewTimeline(new(realTimeProvider)),
 	}
+
+	for _, opt := range opts {
+		opt(task)
+	}
+
+	return task
 }
 
 // JobID returns the identifier of the parent job containing this task.
@@ -175,7 +187,7 @@ func (t *Task) Status() TaskStatus { return t.status }
 func (t *Task) LastSequenceNum() int64 { return t.lastSequenceNum }
 
 // LastUpdateTime returns when this task last reported progress.
-func (t *Task) LastUpdateTime() time.Time { return t.lastUpdate }
+func (t *Task) LastUpdateTime() time.Time { return t.timeline.LastUpdate() }
 
 // ItemsProcessed returns the total number of items scanned by this task.
 func (t *Task) ItemsProcessed() int64 { return t.itemsProcessed }
@@ -187,7 +199,8 @@ func (t *Task) LastCheckpoint() *Checkpoint { return t.lastCheckpoint }
 
 func (t *Task) ProgressDetails() []byte { return t.progressDetails }
 
-func (t *Task) StartTime() time.Time { return t.startTime }
+// StartTime returns the time the task was started.
+func (t *Task) StartTime() time.Time { return t.timeline.StartedAt() }
 
 // OutOfOrderProgressError is an error type for indicating that a progress update
 // is out of order and should be ignored.
@@ -231,7 +244,7 @@ func (t *Task) canApplyProgress(progress Progress) bool {
 func (t *Task) updateProgress(progress Progress) {
 	t.lastSequenceNum = progress.SequenceNum
 	t.status = progress.Status
-	t.lastUpdate = progress.Timestamp
+	t.timeline.UpdateLastUpdate()
 	t.itemsProcessed += progress.ItemsProcessed
 	t.progressDetails = progress.ProgressDetails
 	if progress.Checkpoint != nil {
@@ -247,7 +260,7 @@ func (t *Task) GetSummary(duration time.Duration) TaskSummary {
 		status:          t.status,
 		itemsProcessed:  t.itemsProcessed,
 		duration:        duration,
-		lastUpdateTs:    t.lastUpdate,
+		lastUpdateTs:    t.timeline.LastUpdate(),
 		progressDetails: t.progressDetails,
 	}
 }
@@ -287,7 +300,7 @@ func (t *Task) ToStalledTask(reason StallReason, stallTime time.Time) *StalledTa
 		TaskID:          t.ID,
 		StallReason:     reason,
 		StalledDuration: time.Since(stallTime),
-		LastUpdate:      t.lastUpdate,
+		LastUpdate:      t.timeline.LastUpdate(),
 		ProgressDetails: t.progressDetails,
 		LastCheckpoint:  t.lastCheckpoint,
 	}
