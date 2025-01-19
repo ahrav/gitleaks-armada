@@ -10,7 +10,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"log"
 
 	"github.com/spf13/viper"
 	regexp "github.com/wasilibs/go-re2"
@@ -68,9 +67,6 @@ func NewGitLeaks(
 	metrics scanning.ScannerMetrics,
 ) *Gitleaks {
 	detector := setupGitleaksDetector()
-	// if err := publishRulesOnStartup(ctx, broker, detector, logger, tracer); err != nil {
-	// 	logger.Error(ctx, "failed to publish rules on startup", "error", err)
-	// }
 
 	return &Gitleaks{
 		detector: detector,
@@ -78,6 +74,26 @@ func NewGitLeaks(
 		tracer:   tracer,
 		metrics:  metrics,
 	}
+}
+
+// setupGitleaksDetector initializes the Gitleaks detector using the embedded default configuration.
+func setupGitleaksDetector() *detect.Detector {
+	viper.SetConfigType("toml")
+	if err := viper.ReadConfig(bytes.NewBufferString(config.DefaultConfig)); err != nil {
+		panic(fmt.Errorf("failed to read embedded config: %w", err))
+	}
+
+	var vc config.ViperConfig
+	if err := viper.Unmarshal(&vc); err != nil {
+		panic(fmt.Errorf("failed to unmarshal embedded config: %w", err))
+	}
+
+	cfg, err := vc.Translate()
+	if err != nil {
+		panic(fmt.Errorf("failed to translate ViperConfig to Config: %w", err))
+	}
+
+	return detect.NewDetector(cfg)
 }
 
 // GetRules implements the scanning.RuleProvider interface by streaming converted rules
@@ -171,71 +187,6 @@ func (s *Gitleaks) Scan(ctx context.Context, task *dtos.ScanRequest) error {
 	return scanner.Scan(ctx, task)
 }
 
-// setupGitleaksDetector initializes the Gitleaks detector using the embedded default configuration.
-func setupGitleaksDetector() *detect.Detector {
-	viper.SetConfigType("toml")
-	err := viper.ReadConfig(bytes.NewBufferString(config.DefaultConfig))
-	checkError("Failed to read embedded config", err)
-
-	var vc config.ViperConfig
-	err = viper.Unmarshal(&vc)
-	checkError("Failed to unmarshal embedded config", err)
-
-	cfg, err := vc.Translate()
-	checkError("Failed to translate ViperConfig to Config", err)
-
-	return detect.NewDetector(cfg)
-}
-
-// publishRulesOnStartup sends the current Gitleaks detection rules to the message broker
-// when the scanner starts up. This ensures all components have access to the latest
-// rule definitions for consistent secret detection.
-func publishRulesOnStartup(
-	ctx context.Context,
-	broker events.DomainEventPublisher,
-	detector *detect.Detector,
-	logger *logger.Logger,
-	tracer trace.Tracer,
-) error {
-	ctx, span := tracer.Start(ctx, "gitleaks_scanner.scanning.publish_rules",
-		trace.WithAttributes(
-			attribute.Int("rules.count", len(detector.Config.Rules)),
-		))
-	defer span.End()
-
-	// Convert and publish rules individually
-	for _, rule := range detector.Config.Rules {
-		domainRule := convertDetectorRuleToMessage(rule)
-		err := broker.PublishDomainEvent(ctx, rules.NewRuleUpdatedEvent(domainRule), events.WithKey(domainRule.Hash))
-		if err != nil {
-			span.RecordError(err)
-			return fmt.Errorf("failed to publish rule %s: %w", rule.RuleID, err)
-		}
-	}
-
-	logger.Info(ctx, "Published rules individually", "rules_count", len(detector.Config.Rules))
-	return nil
-}
-
-func convertDetectorRuleToMessage(rule config.Rule) rules.GitleaksRuleMessage {
-	domainRule := rules.GitleaksRule{
-		RuleID:      rule.RuleID,
-		Description: rule.Description,
-		Entropy:     rule.Entropy,
-		SecretGroup: rule.SecretGroup,
-		Regex:       regexToString(rule.Regex),
-		Path:        regexToString(rule.Path),
-		Tags:        rule.Tags,
-		Keywords:    rule.Keywords,
-		Allowlists:  convertAllowlists(rule.Allowlists),
-	}
-
-	return rules.GitleaksRuleMessage{
-		GitleaksRule: domainRule,
-		Hash:         domainRule.GenerateHash(),
-	}
-}
-
 // regexToString safely converts a compiled regular expression to its string pattern.
 // Returns an empty string if the regex is nil.
 func regexToString(re *regexp.Regexp) string {
@@ -285,13 +236,5 @@ func matchConditionToDomain(mc config.AllowlistMatchCondition) rules.AllowlistMa
 		return rules.MatchConditionAND
 	default:
 		return rules.MatchConditionUnspecified
-	}
-}
-
-// checkError terminates the program if an error is encountered during critical setup.
-// This is used during initialization where recovery is not possible.
-func checkError(msg string, err error) {
-	if err != nil {
-		log.Fatalf("%s: %v", msg, err)
 	}
 }
