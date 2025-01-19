@@ -10,7 +10,7 @@ option go_package = "github.com/ahrav/gitleaks-armada/proto/scanner;scanner";
 // and its serialized bytes.
 message UniversalEnvelope {
   string event_type = 1; // e.g. "TaskStarted", "TaskProgressed", etc.
-  bytes payload     = 2; // serialized domain event data
+  bytes payload = 2;     // serialized domain event data
 }
 
 enum SourceType {
@@ -102,13 +102,21 @@ message TaskStartedEvent {
   int64 timestamp = 3; // Unix timestamp in nanoseconds
 }
 
-message ScanProgress {
-  string task_id = 1;         // Matches the ScanTask task_id
-  float percent_complete = 2; // 0.0 to 100.0
-  // Optional: describe what is being scanned now (e.g., current file)
-  string current_item = 3;
-  // Optional: how many items (files/commits) processed so far
-  int64 items_processed = 4;
-  int64 total_items = 5;            // Optional: total items if known
-  map<string, string> metadata = 6; // Additional data as needed
+message TaskProgressedEvent {
+  string task_id = 1;
+  int64 sequence_num = 2;
+  int64 timestamp = 3;
+  string status = 4;
+  int64 items_processed = 5;
+  int32 error_count = 6;
+  string message = 7;
+  bytes progress_details = 8;
+  Checkpoint checkpoint = 9;
+}
+
+message Checkpoint {
+  string task_id = 1;
+  int64 timestamp = 2;
+  bytes resume_token = 3;
+  map<string, string> metadata = 4;
 }

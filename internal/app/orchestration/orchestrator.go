@@ -179,9 +179,9 @@ func (o *Orchestrator) subscribeToEvents(ctx context.Context) error {
 		rules.EventTypeRulesUpdated,
 		rules.EventTypeRulesPublished,
 		scanning.EventTypeTaskStarted,
-		// scanning.EventTypeTaskProgressed,
-		// scanning.EventTypeTaskCompleted,
-		// scanning.EventTypeTaskFailed,
+		scanning.EventTypeTaskProgressed,
+		scanning.EventTypeTaskCompleted,
+		scanning.EventTypeTaskFailed,
 	}
 
 	if err := o.eventBus.Subscribe(

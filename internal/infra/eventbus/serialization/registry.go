@@ -124,6 +124,9 @@ func RegisterEventSerializers() {
 	RegisterSerializeFunc(scanning.EventTypeTaskStarted, serializeTaskStarted)
 	RegisterDeserializeFunc(scanning.EventTypeTaskStarted, deserializeTaskStarted)
 
+	RegisterSerializeFunc(scanning.EventTypeTaskProgressed, serializeTaskProgressed)
+	RegisterDeserializeFunc(scanning.EventTypeTaskProgressed, deserializeTaskProgressed)
+
 	// Rules.
 	RegisterSerializeFunc(rules.EventTypeRulesUpdated, serializeRuleUpdated)
 	RegisterDeserializeFunc(rules.EventTypeRulesUpdated, deserializeRuleUpdated)
@@ -133,6 +136,7 @@ func RegisterEventSerializers() {
 
 	RegisterSerializeFunc(rules.EventTypeRulesPublished, serializeRulePublishingCompleted)
 	RegisterDeserializeFunc(rules.EventTypeRulesPublished, deserializeRulePublishingCompleted)
+
 }
 
 // serializeEnumerationTaskCreated converts a TaskCreatedEvent to protobuf bytes.
@@ -235,4 +239,30 @@ func deserializeRulePublishingCompleted(data []byte) (any, error) {
 		return nil, fmt.Errorf("unmarshal RulePublishingCompletedEvent: %w", err)
 	}
 	return rules.NewRulePublishingCompletedEvent(), nil
+}
+
+// serializeTaskProgressed converts a TaskProgressedEvent to protobuf bytes
+func serializeTaskProgressed(payload any) ([]byte, error) {
+	event, ok := payload.(scanning.TaskProgressedEvent)
+	if !ok {
+		return nil, fmt.Errorf("serializeTaskProgressed: payload is not TaskProgressedEvent, got %T", payload)
+	}
+
+	pbEvent := serdeScanning.TaskProgressedEventToProto(event)
+	return proto.Marshal(pbEvent)
+}
+
+// deserializeTaskProgressed converts protobuf bytes back into a TaskProgressedEvent
+func deserializeTaskProgressed(data []byte) (any, error) {
+	var pbEvent pb.TaskProgressedEvent
+	if err := proto.Unmarshal(data, &pbEvent); err != nil {
+		return nil, fmt.Errorf("unmarshal TaskProgressedEvent: %w", err)
+	}
+
+	event, err := serdeScanning.ProtoToTaskProgressedEvent(&pbEvent)
+	if err != nil {
+		return nil, fmt.Errorf("convert proto to domain event: %w", err)
+	}
+
+	return event, nil
 }

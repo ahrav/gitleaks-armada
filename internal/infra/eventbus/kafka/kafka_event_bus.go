@@ -116,15 +116,13 @@ func NewKafkaEventBusFromConfig(
 	// type-safe event routing.
 	topicsMap := map[events.EventType]string{
 		enumeration.EventTypeTaskCreated: cfg.EnumerationTaskTopic,
-		// events.EventTypeScanResultReceived:  cfg.ResultsTopic,
-		// events.EventTypeScanProgressUpdated: cfg.ProgressTopic,
-		rules.EventTypeRulesUpdated:   cfg.RulesTopic,
-		rules.EventTypeRulesRequested: cfg.RulesTopic,
-		rules.EventTypeRulesPublished: cfg.RulesTopic,
-		scanning.EventTypeTaskStarted: cfg.ScanningTaskTopic,
-		// scanning.EventTypeTaskProgressed:    cfg.ScanningTaskTopic,
-		// scanning.EventTypeTaskCompleted:     cfg.ScanningTaskTopic,
-		// scanning.EventTypeTaskFailed:        cfg.ScanningTaskTopic,
+		rules.EventTypeRulesUpdated:      cfg.RulesTopic,
+		rules.EventTypeRulesRequested:    cfg.RulesTopic,
+		rules.EventTypeRulesPublished:    cfg.RulesTopic,
+		scanning.EventTypeTaskStarted:    cfg.ScanningTaskTopic,
+		scanning.EventTypeTaskProgressed: cfg.ScanningTaskTopic,
+		scanning.EventTypeTaskCompleted:  cfg.ScanningTaskTopic,
+		scanning.EventTypeTaskFailed:     cfg.ScanningTaskTopic,
 	}
 
 	bus := &KafkaEventBus{
