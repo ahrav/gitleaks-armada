@@ -122,8 +122,8 @@ func TestTaskStore_UpdateTask(t *testing.T) {
 	assert.Equal(t, int64(1), loaded.LastSequenceNum())
 	assert.JSONEq(t, `{"updated": "details"}`, string(loaded.ProgressDetails()))
 	assert.NotNil(t, loaded.LastCheckpoint())
-	assert.Equal(t, checkpoint.ResumeToken, loaded.LastCheckpoint().ResumeToken)
-	assert.Equal(t, checkpoint.Metadata, loaded.LastCheckpoint().Metadata)
+	assert.Equal(t, checkpoint.ResumeToken(), loaded.LastCheckpoint().ResumeToken())
+	assert.Equal(t, checkpoint.Metadata(), loaded.LastCheckpoint().Metadata())
 }
 
 func TestTaskStore_ListTasksByJobAndStatus(t *testing.T) {
