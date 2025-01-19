@@ -1,11 +1,6 @@
 # Rules Model Diagram
 
 ```mermaid
----
-config:
-  theme: base
-  look: handDrawn
----
 classDiagram
     class GitleaksRule {
         <<AggregateRoot>>
