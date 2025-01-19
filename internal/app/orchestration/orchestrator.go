@@ -532,7 +532,6 @@ func (o *Orchestrator) resumeEnumerations(ctx context.Context, states []*enumera
 }
 
 func (o *Orchestrator) handleProgressEvent(ctx context.Context, evt events.EventEnvelope) error {
-	o.logger.Info(ctx, "HANDLEEEE!!!!!!!!!!!!!", "event_type", evt.Type)
 	ctx, span := o.tracer.Start(ctx, "orchestrator.handle_progress_event",
 		trace.WithAttributes(
 			attribute.String("event_type", string(evt.Type)),
