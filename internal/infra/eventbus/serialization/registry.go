@@ -116,14 +116,23 @@ func init() {
 // RegisterEventSerializers initializes the serialization system by registering handlers for all supported event types.
 // This must be called during system startup before any event processing can occur.
 func RegisterEventSerializers() {
+	// Enumeration.
 	RegisterSerializeFunc(enumeration.EventTypeTaskCreated, serializeEnumerationTaskCreated)
 	RegisterDeserializeFunc(enumeration.EventTypeTaskCreated, deserializeEnumerationTaskCreated)
 
-	RegisterSerializeFunc(rules.EventTypeRuleUpdated, serializeRuleUpdated)
-	RegisterDeserializeFunc(rules.EventTypeRuleUpdated, deserializeRuleUpdated)
-
+	// Scanning.
 	RegisterSerializeFunc(scanning.EventTypeTaskStarted, serializeTaskStarted)
 	RegisterDeserializeFunc(scanning.EventTypeTaskStarted, deserializeTaskStarted)
+
+	// Rules.
+	RegisterSerializeFunc(rules.EventTypeRulesUpdated, serializeRuleUpdated)
+	RegisterDeserializeFunc(rules.EventTypeRulesUpdated, deserializeRuleUpdated)
+
+	RegisterSerializeFunc(rules.EventTypeRulesRequested, serializeRuleRequested)
+	RegisterDeserializeFunc(rules.EventTypeRulesRequested, deserializeRuleRequested)
+
+	RegisterSerializeFunc(rules.EventTypeRulesPublished, serializeRulePublishingCompleted)
+	RegisterDeserializeFunc(rules.EventTypeRulesPublished, deserializeRulePublishingCompleted)
 }
 
 // serializeEnumerationTaskCreated converts a TaskCreatedEvent to protobuf bytes.
@@ -190,4 +199,40 @@ func deserializeTaskStarted(data []byte) (any, error) {
 	}
 
 	return event, nil
+}
+
+// serializeRuleRequested converts a RuleRequestedEvent to protobuf bytes.
+func serializeRuleRequested(payload any) ([]byte, error) {
+	_, ok := payload.(rules.RuleRequestedEvent)
+	if !ok {
+		return nil, fmt.Errorf("serializeRuleRequested: payload is not RuleRequestedEvent, got %T", payload)
+	}
+	return proto.Marshal(&pb.RuleRequestedEvent{})
+}
+
+// deserializeRuleRequested converts protobuf bytes back into a RuleRequestedEvent.
+func deserializeRuleRequested(data []byte) (any, error) {
+	var pbEvent pb.RuleRequestedEvent
+	if err := proto.Unmarshal(data, &pbEvent); err != nil {
+		return nil, fmt.Errorf("unmarshal RuleRequestedEvent: %w", err)
+	}
+	return rules.NewRuleRequestedEvent(), nil
+}
+
+// serializeRulePublishingCompleted converts a RulePublishingCompletedEvent to protobuf bytes.
+func serializeRulePublishingCompleted(payload any) ([]byte, error) {
+	_, ok := payload.(rules.RulePublishingCompletedEvent)
+	if !ok {
+		return nil, fmt.Errorf("serializeRulePublishingCompleted: payload is not RulePublishingCompletedEvent, got %T", payload)
+	}
+	return proto.Marshal(&pb.RulePublishingCompletedEvent{})
+}
+
+// deserializeRulePublishingCompleted converts protobuf bytes back into a RulePublishingCompletedEvent.
+func deserializeRulePublishingCompleted(data []byte) (any, error) {
+	var pbEvent pb.RulePublishingCompletedEvent
+	if err := proto.Unmarshal(data, &pbEvent); err != nil {
+		return nil, fmt.Errorf("unmarshal RulePublishingCompletedEvent: %w", err)
+	}
+	return rules.NewRulePublishingCompletedEvent(), nil
 }

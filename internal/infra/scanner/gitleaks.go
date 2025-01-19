@@ -17,6 +17,7 @@ import (
 	"github.com/zricethezav/gitleaks/v8/config"
 	"github.com/zricethezav/gitleaks/v8/detect"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/ahrav/gitleaks-armada/internal/app/scanning"
@@ -40,6 +41,11 @@ type SourceScanner interface {
 	Scan(ctx context.Context, task *dtos.ScanRequest) error
 }
 
+var (
+	_ scanning.SecretScanner = (*Gitleaks)(nil)
+	_ scanning.RuleProvider  = (*Gitleaks)(nil)
+)
+
 // Gitleaks provides secret scanning functionality by wrapping the Gitleaks detection engine.
 // It handles scanning repositories for potential secrets and sensitive information leaks
 // while providing observability through logging and tracing.
@@ -62,15 +68,83 @@ func NewGitLeaks(
 	metrics scanning.ScannerMetrics,
 ) *Gitleaks {
 	detector := setupGitleaksDetector()
-	if err := publishRulesOnStartup(ctx, broker, detector, logger, tracer); err != nil {
-		logger.Error(ctx, "failed to publish rules on startup", "error", err)
-	}
+	// if err := publishRulesOnStartup(ctx, broker, detector, logger, tracer); err != nil {
+	// 	logger.Error(ctx, "failed to publish rules on startup", "error", err)
+	// }
 
 	return &Gitleaks{
 		detector: detector,
 		logger:   logger,
 		tracer:   tracer,
 		metrics:  metrics,
+	}
+}
+
+// GetRules implements the scanning.RuleProvider interface by streaming converted rules
+// through a channel. It processes each rule from the Gitleaks detector and converts
+// them to our domain model before sending.
+func (s *Gitleaks) GetRules(ctx context.Context) (<-chan rules.GitleaksRuleMessage, error) {
+	ctx, span := s.tracer.Start(ctx, "gitleaks_scanner.get_rules")
+	defer span.End()
+
+	ruleChan := make(chan rules.GitleaksRuleMessage, 1)
+
+	go func() {
+		defer close(ruleChan)
+
+		for _, rule := range s.detector.Config.Rules {
+			select {
+			case <-ctx.Done():
+				span.SetStatus(codes.Error, "context cancelled")
+				span.RecordError(ctx.Err())
+				s.logger.Warn(ctx, "Context cancelled while streaming rules")
+				return
+			default:
+			}
+
+			domainRule := convertDetectorRuleToRule(rule)
+			msg := rules.GitleaksRuleMessage{
+				GitleaksRule: domainRule,
+				Hash:         domainRule.GenerateHash(),
+			}
+
+			select {
+			case <-ctx.Done():
+				span.SetStatus(codes.Error, "context cancelled")
+				span.RecordError(ctx.Err())
+				s.logger.Warn(ctx, "Context cancelled while streaming rules")
+				return
+			case ruleChan <- msg:
+				span.AddEvent("rule_streamed", trace.WithAttributes(
+					attribute.String("rule_id", rule.RuleID),
+					attribute.String("hash", msg.Hash),
+				))
+			}
+		}
+
+		span.AddEvent("rules_streamed", trace.WithAttributes(
+			attribute.Int("rule_count", len(s.detector.Config.Rules)),
+		))
+		span.SetStatus(codes.Ok, "rules streamed")
+	}()
+
+	span.AddEvent("rule_streaming_started", trace.WithAttributes(
+		attribute.Int("total_rules", len(s.detector.Config.Rules)),
+	))
+	return ruleChan, nil
+}
+
+func convertDetectorRuleToRule(rule config.Rule) rules.GitleaksRule {
+	return rules.GitleaksRule{
+		RuleID:      rule.RuleID,
+		Description: rule.Description,
+		Entropy:     rule.Entropy,
+		SecretGroup: rule.SecretGroup,
+		Regex:       regexToString(rule.Regex),
+		Path:        regexToString(rule.Path),
+		Tags:        rule.Tags,
+		Keywords:    rule.Keywords,
+		Allowlists:  convertAllowlists(rule.Allowlists),
 	}
 }
 

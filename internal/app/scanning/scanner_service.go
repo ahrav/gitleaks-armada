@@ -15,6 +15,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/app/scanning/dtos"
 	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
+	"github.com/ahrav/gitleaks-armada/internal/domain/rules"
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
@@ -23,6 +24,13 @@ import (
 type metrics interface {
 	TrackTask(ctx context.Context, f func() error) error
 	SetActiveWorkers(ctx context.Context, count int)
+}
+
+// RuleProvider defines the interface for scanners that use rule-based detection.
+type RuleProvider interface {
+	// GetRules streams converted rules ready for publishing.
+	// The channel will be closed when all rules have been sent.
+	GetRules(ctx context.Context) (<-chan rules.GitleaksRuleMessage, error)
 }
 
 // ScannerService coordinates the execution of secret scanning tasks across multiple workers.
@@ -35,6 +43,8 @@ type ScannerService struct {
 	secretScanner   SecretScanner
 	taskRepo        scanning.TaskRepository
 	enumACL         acl.EnumerationACL
+
+	ruleProvider RuleProvider
 
 	workers   int
 	stopCh    chan struct{}
@@ -52,16 +62,19 @@ func NewScannerService(
 	id string,
 	eb events.EventBus,
 	dp events.DomainEventPublisher,
-	secretScanner SecretScanner,
+	scanner SecretScanner,
 	logger *logger.Logger,
 	metrics metrics,
 	tracer trace.Tracer,
 ) *ScannerService {
+	// Try to get rule provider if scanner supports it. (e.g. Gitleaks)
+	ruleProvider, _ := scanner.(RuleProvider)
 	return &ScannerService{
 		id:              id,
 		eventBus:        eb,
 		domainPublisher: dp,
-		secretScanner:   secretScanner,
+		secretScanner:   scanner,
+		ruleProvider:    ruleProvider,
 		enumACL:         acl.EnumerationACL{},
 		logger:          logger,
 		metrics:         metrics,
@@ -99,8 +112,11 @@ func (s *ScannerService) Run(ctx context.Context) error {
 
 	err := s.eventBus.Subscribe(
 		initCtx,
-		[]events.EventType{enumeration.EventTypeTaskCreated},
-		s.handleTaskEvent,
+		[]events.EventType{
+			enumeration.EventTypeTaskCreated,
+			rules.EventTypeRulesRequested,
+		},
+		s.handleEvent,
 	)
 	if err != nil {
 		initSpan.RecordError(err)
@@ -124,6 +140,64 @@ func (s *ScannerService) Run(ctx context.Context) error {
 	shutdownSpan.AddEvent("shutdown_complete")
 
 	return initCtx.Err()
+}
+
+// handleEvent routes events to appropriate handlers.
+// TODO: Replace this with an event handler registry.
+func (s *ScannerService) handleEvent(ctx context.Context, evt events.EventEnvelope) error {
+	switch evt.Type {
+	case enumeration.EventTypeTaskCreated:
+		return s.handleTaskEvent(ctx, evt)
+	case rules.EventTypeRulesRequested:
+		return s.handleRuleRequest(ctx, evt)
+	default:
+		return fmt.Errorf("unknown event type: %s", evt.Type)
+	}
+}
+
+// handleRuleRequest processes rule request events and publishes current rules
+func (s *ScannerService) handleRuleRequest(ctx context.Context, evt events.EventEnvelope) error {
+	ctx, span := s.tracer.Start(ctx, "scanner_service.scanning.handle_rule_request",
+		trace.WithAttributes(
+			attribute.String("component", "scanner_service"),
+			attribute.String("scanner_id", s.id),
+			attribute.String("event_type", string(evt.Type)),
+		))
+	defer span.End()
+
+	// Get rule channel from the scanner if it supports them.
+	ruleChan, err := s.ruleProvider.GetRules(ctx)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to get rules from scanner")
+		return fmt.Errorf("failed to get rules: %w", err)
+	}
+
+	ruleCount := 0
+	for rule := range ruleChan {
+		err := s.domainPublisher.PublishDomainEvent(
+			ctx,
+			rules.NewRuleUpdatedEvent(rule),
+			events.WithKey(rule.Hash),
+		)
+		if err != nil {
+			span.RecordError(err)
+			return fmt.Errorf("failed to publish rule: %w", err)
+		}
+		ruleCount++
+	}
+
+	span.SetAttributes(attribute.Int("rules_published", ruleCount))
+
+	if err := s.domainPublisher.PublishDomainEvent(ctx,
+		rules.NewRulePublishingCompletedEvent(),
+		events.WithKey("rules_completed")); err != nil {
+		span.RecordError(err)
+		return fmt.Errorf("failed to publish completion event: %w", err)
+	}
+
+	span.AddEvent("rules_published")
+	return nil
 }
 
 // handleTaskEvent processes incoming task events and routes them to available workers.

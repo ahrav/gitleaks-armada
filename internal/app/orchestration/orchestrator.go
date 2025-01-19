@@ -31,7 +31,7 @@ type Orchestrator struct {
 	id string
 
 	coordinator    cluster.Coordinator
-	workQueue      events.EventBus
+	eventBus       events.EventBus
 	eventPublisher events.DomainEventPublisher
 
 	cfgLoader loaders.Loader
@@ -41,8 +41,10 @@ type Orchestrator struct {
 	jobRepo            scanning.JobRepository
 	stateRepo          enumeration.StateRepository
 
-	progressTracker  scan.ProgressTracker
-	progressHandlers map[events.EventType]eventHandler
+	// eventHandlerRegistry maps event types to their corresponding handlers.
+	eventHandlerRegistry map[events.EventType]eventHandler
+
+	progressTracker scan.ProgressTracker
 
 	// mu protects running and cancelFn state
 	mu       sync.Mutex
@@ -51,12 +53,7 @@ type Orchestrator struct {
 
 	logger  *logger.Logger
 	metrics OrchestrationMetrics
-
-	tracer trace.Tracer
-
-	// TODO: Use a ttl cache, or move this into its own pkg.
-	processedRules map[string]time.Time // Map to track processed rule hashes
-	rulesMutex     sync.RWMutex
+	tracer  trace.Tracer
 }
 
 type eventHandler func(context.Context, events.EventEnvelope) error
@@ -92,7 +89,7 @@ func NewOrchestrator(
 	o := &Orchestrator{
 		id:                 id,
 		coordinator:        coord,
-		workQueue:          queue,
+		eventBus:           queue,
 		eventPublisher:     eventPublisher,
 		enumerationService: enumerationService,
 		rulesService:       rulesService,
@@ -103,12 +100,11 @@ func NewOrchestrator(
 		metrics:            metrics,
 		logger:             logger,
 		tracer:             tracer,
-		processedRules:     make(map[string]time.Time),
-		rulesMutex:         sync.RWMutex{},
 	}
 
-	o.progressHandlers = map[events.EventType]eventHandler{
-		rules.EventTypeRuleUpdated:       o.handleRule,
+	o.eventHandlerRegistry = map[events.EventType]eventHandler{
+		rules.EventTypeRulesUpdated:      o.handleRule,
+		rules.EventTypeRulesPublished:    o.handleRulesPublished,
 		scanning.EventTypeTaskStarted:    o.handleTaskStarted,
 		scanning.EventTypeTaskProgressed: o.handleTaskProgressed,
 		// TODO: Add failures, stale tasks, completed tasks, etc.
@@ -180,17 +176,18 @@ func (o *Orchestrator) subscribeToEvents(ctx context.Context) error {
 	defer subSpan.End()
 
 	events := []events.EventType{
-		rules.EventTypeRuleUpdated,
+		rules.EventTypeRulesUpdated,
+		rules.EventTypeRulesPublished,
 		scanning.EventTypeTaskStarted,
 		// scanning.EventTypeTaskProgressed,
 		// scanning.EventTypeTaskCompleted,
 		// scanning.EventTypeTaskFailed,
 	}
 
-	if err := o.workQueue.Subscribe(
+	if err := o.eventBus.Subscribe(
 		subCtx,
 		events,
-		o.handleProgressEvent,
+		o.handleEvent,
 	); err != nil {
 		subSpan.RecordError(err)
 		subSpan.SetStatus(codes.Error, "failed to subscribe to progress events")
@@ -273,6 +270,16 @@ func (o *Orchestrator) handleLeadership(ctx context.Context, isLeader bool, read
 	o.logger.Info(leaderCtx, "Leadership acquired, processing targets...", "orchestrator_id", o.id)
 	leaderSpan.AddEvent("leader_acquired")
 
+	// TODO: Figure out an overall strategy to reslient publishing of events across the system.
+	if err := o.requestRulesUpdate(ctx); err != nil {
+		leaderSpan.RecordError(err)
+		leaderSpan.SetStatus(codes.Error, "failed to request rules update")
+		o.logger.Error(leaderCtx, "Failed to request rules update", "orchestrator_id", o.id, "error", err)
+	} else {
+		// TODO: come back to this to determine if we should return if we fail to request rules update.
+		leaderSpan.AddEvent("rules_update_requested")
+	}
+
 	err := o.metrics.TrackEnumeration(leaderCtx, func() error {
 		return o.Enumerate(leaderCtx)
 	})
@@ -321,6 +328,20 @@ func (o *Orchestrator) startCoordinator(ctx context.Context) error {
 	}
 
 	startSpan.AddEvent("coordinator_started")
+	return nil
+}
+
+// requestRulesUpdate initiates a rule update request and waits for completion
+func (o *Orchestrator) requestRulesUpdate(ctx context.Context) error {
+	ctx, span := o.tracer.Start(ctx, "orchestrator.request_rules_update")
+	defer span.End()
+
+	if err := o.eventPublisher.PublishDomainEvent(ctx, rules.NewRuleRequestedEvent()); err != nil {
+		span.RecordError(err)
+		return fmt.Errorf("failed to publish rules request: %w", err)
+	}
+
+	span.AddEvent("rules_update_requested")
 	return nil
 }
 
@@ -531,14 +552,14 @@ func (o *Orchestrator) resumeEnumerations(ctx context.Context, states []*enumera
 	return nil
 }
 
-func (o *Orchestrator) handleProgressEvent(ctx context.Context, evt events.EventEnvelope) error {
+func (o *Orchestrator) handleEvent(ctx context.Context, evt events.EventEnvelope) error {
 	ctx, span := o.tracer.Start(ctx, "orchestrator.handle_progress_event",
 		trace.WithAttributes(
 			attribute.String("event_type", string(evt.Type)),
 		))
 	defer span.End()
 
-	handler, exists := o.progressHandlers[evt.Type]
+	handler, exists := o.eventHandlerRegistry[evt.Type]
 	if !exists {
 		span.SetStatus(codes.Error, "no handler registered for event type")
 		span.RecordError(fmt.Errorf("no handler registered for event type: %s", evt.Type))
@@ -618,54 +639,49 @@ func (o *Orchestrator) Stop(ctx context.Context) error {
 	return nil
 }
 
-// handleRule processes incoming rule update events. It deduplicates rules based on their hash
-// to prevent unnecessary processing of duplicate rules within a short time window.
+// handleRule processes individual rule updates from scanners
 func (o *Orchestrator) handleRule(ctx context.Context, evt events.EventEnvelope) error {
-	ctx, span := o.tracer.Start(ctx, "orchestrator.handle_rule")
+	_, span := o.tracer.Start(ctx, "orchestrator.handle_rule",
+		trace.WithAttributes(
+			attribute.String("orchestrator_id", o.id),
+		))
 	defer span.End()
 
-	span.AddEvent("processing_rule_update")
-
-	ruleEvent, ok := evt.Payload.(rules.RuleUpdatedEvent)
+	ruleEvt, ok := evt.Payload.(rules.RuleUpdatedEvent)
 	if !ok {
-		span.RecordError(fmt.Errorf("handleRule: payload is not RuleUpdatedEvent, got %T", evt.Payload))
-		span.SetStatus(codes.Error, "payload is not RuleUpdatedEvent")
-		return fmt.Errorf("handleRule: payload is not RuleUpdatedEvent, got %T", evt.Payload)
+		span.SetStatus(codes.Error, "invalid event payload")
+		return fmt.Errorf("expected RuleUpdatedEvent, got %T", evt.Payload)
 	}
 
-	// Check ephemeral duplicate skip (controller-level).
-	o.rulesMutex.RLock()
-	lastProcessed, exists := o.processedRules[ruleEvent.Rule.Hash]
-	o.rulesMutex.RUnlock()
-
-	if exists && time.Since(lastProcessed) < time.Minute*5 {
-		span.AddEvent("skipping_duplicate_rule")
-		o.logger.Info(ctx, "Skipping duplicate rule",
-			"rule_id", ruleEvent.Rule.RuleID,
-			"hash", ruleEvent.Rule.Hash,
-			"occurred_at", ruleEvent.OccurredAt())
-		return nil
-	}
-
-	// Delegate to domain-level service for real domain logic (persisting rule).
-	if err := o.rulesService.SaveRule(ctx, ruleEvent.Rule.GitleaksRule); err != nil {
+	if err := o.rulesService.SaveRule(ctx, ruleEvt.Rule.GitleaksRule); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to persist rule")
 		return fmt.Errorf("failed to persist rule: %w", err)
 	}
+	span.AddEvent("rule_persisted")
 
-	// Mark processed, do some ephemeral cleanup.
-	o.rulesMutex.Lock()
-	o.processedRules[ruleEvent.Rule.Hash] = time.Now()
-	o.rulesMutex.Unlock()
+	span.AddEvent("rule_processed", trace.WithAttributes(
+		attribute.String("rule_id", ruleEvt.Rule.RuleID),
+		attribute.String("rule_hash", ruleEvt.Rule.Hash),
+	))
 
-	span.AddEvent("rule_processed")
-	span.SetStatus(codes.Ok, "rule processed")
+	return nil
+}
 
-	o.logger.Info(ctx, "Stored new rule",
-		"rule_id", ruleEvent.Rule.RuleID,
-		"hash", ruleEvent.Rule.Hash,
-		"occurred_at", ruleEvent.OccurredAt())
+// handleRulesPublished processes the completion event for rule updates
+func (o *Orchestrator) handleRulesPublished(ctx context.Context, evt events.EventEnvelope) error {
+	_, span := o.tracer.Start(ctx, "orchestrator.handle_rule_publishing_completed",
+		trace.WithAttributes(
+			attribute.String("orchestrator_id", o.id),
+		))
+	defer span.End()
+
+	_, ok := evt.Payload.(rules.RulePublishingCompletedEvent)
+	if !ok {
+		span.SetStatus(codes.Error, "invalid event payload")
+		return fmt.Errorf("expected RulePublishingCompletedEvent, got %T", evt.Payload)
+	}
+	span.AddEvent("rules_update_completed")
 
 	return nil
 }

@@ -35,6 +35,10 @@ message Allowlist {
   repeated string stop_words = 7;
 }
 
+message RuleRequestedEvent {}
+
+message RulePublishingCompletedEvent {}
+
 // Represents a single scanning rule.
 message Rule {
   // Unique ID for the rule (DB: rules.rule_id).
