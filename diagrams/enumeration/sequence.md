@@ -12,15 +12,13 @@ sequenceDiagram
     participant TENUM as TargetEnumerator
     participant EVPB as DomainEventPublisher
 
-    rect rgb(240,248,255)
-        note over ORCH: Orchestrator decides<br/>to start fresh or resume
-        alt Fresh Enumeration
-            ORCH->>COORD: EnumerateTarget(ctx, target, auth)
-        else Resume Enumeration
-            ORCH->>COORD: ResumeTarget(ctx, sessionState)
-        end
-        COORD-->>ORCH: returns EnumerationResult{ScanTargetCh, TaskCh, ErrCh} (async)
+    note over ORCH: Orchestrator decides<br/>to start fresh or resume
+    alt Fresh Enumeration
+        ORCH->>COORD: EnumerateTarget(ctx, target, auth)
+    else Resume Enumeration
+        ORCH->>COORD: ResumeTarget(ctx, sessionState)
     end
+    COORD-->>ORCH: returns EnumerationResult{ScanTargetCh, TaskCh, ErrCh} (async)
 
     par Producer: Coordinator Goroutine
         note over COORD: 1) Persist or update SessionState<br/>2) Create enumerator & read batches<br/>3) For each batch, persist tasks<br/>4) Write discovered data to channels
