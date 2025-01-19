@@ -1,3 +1,10 @@
+// Package progressreporter provides infrastructure for tracking and reporting progress
+// of long-running scan operations through domain events. It implements the scanning.ProgressReporter
+// interface to enable asynchronous monitoring of scan tasks across system boundaries.
+//
+// The package uses OpenTelemetry for tracing and observability, allowing detailed
+// tracking of progress reporting operations. It serves as a bridge between the scanning
+// domain and the event publishing infrastructure.
 package progressreporter
 
 import (
@@ -24,10 +31,7 @@ type DomainEventProgressReporter struct {
 
 // New creates a new DomainEventProgressReporter.
 func New(domainPublisher events.DomainEventPublisher, tracer trace.Tracer) *DomainEventProgressReporter {
-	return &DomainEventProgressReporter{
-		domainPublisher: domainPublisher,
-		tracer:          tracer,
-	}
+	return &DomainEventProgressReporter{domainPublisher: domainPublisher, tracer: tracer}
 }
 
 // ReportProgress publishes a TaskProgressedEvent containing the current scan progress.
