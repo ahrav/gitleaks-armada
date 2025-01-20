@@ -80,10 +80,7 @@ func (svc *jobService) CreateJob(ctx context.Context) (*domain.Job, error) {
 	span.AddEvent("job_created")
 	span.SetStatus(codes.Ok, "job created successfully")
 
-	svc.mu.Lock()
-	svc.jobCache[job.JobID()] = job
-	svc.mu.Unlock()
-	span.AddEvent("new_job_cached")
+	svc.storeJobInCache(ctx, job)
 
 	return job, nil
 }
@@ -177,6 +174,31 @@ func (s *jobService) OnTaskProgressed(ctx context.Context, jobID uuid.UUID, task
 	return nil
 }
 
+// lookupJobInCache retrieves a job from the cache if it exists.
+// Returns the job and a boolean indicating if it was found.
+func (s *jobService) lookupJobInCache(ctx context.Context, jobID uuid.UUID) (*domain.Job, bool) {
+	_, span := s.tracer.Start(ctx, "job_service.scanning.lookup_job_cache")
+	defer span.End()
+
+	s.mu.RLock()
+	job, exists := s.jobCache[jobID]
+	s.mu.RUnlock()
+	span.AddEvent("job_cached", trace.WithAttributes(attribute.Bool("exists", exists)))
+
+	return job, exists
+}
+
+// storeJobInCache stores a job in the cache.
+func (s *jobService) storeJobInCache(ctx context.Context, job *domain.Job) {
+	_, span := s.tracer.Start(ctx, "job_service.scanning.store_job_in_cache")
+	defer span.End()
+
+	s.mu.Lock()
+	s.jobCache[job.JobID()] = job
+	s.mu.Unlock()
+	span.AddEvent("job_cached")
+}
+
 // loadJob retrieves a job from persistent storage and caches it for future access.
 // This helps optimize subsequent operations on the same job.
 func (s *jobService) loadJob(ctx context.Context, jobID uuid.UUID) (*domain.Job, error) {
@@ -186,17 +208,12 @@ func (s *jobService) loadJob(ctx context.Context, jobID uuid.UUID) (*domain.Job,
 		))
 	defer span.End()
 
-	s.mu.RLock()
-	job, isCached := s.jobCache[jobID]
-	s.mu.RUnlock()
-	span.AddEvent("job_cached", trace.WithAttributes(attribute.Bool("exists", isCached)))
-
-	if isCached {
+	if job, exists := s.lookupJobInCache(ctx, jobID); exists {
+		span.AddEvent("job_cached")
 		return job, nil
 	}
 
-	var err error
-	job, err = s.jobRepo.GetJob(ctx, jobID)
+	job, err := s.jobRepo.GetJob(ctx, jobID)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to get job")
@@ -204,9 +221,7 @@ func (s *jobService) loadJob(ctx context.Context, jobID uuid.UUID) (*domain.Job,
 	}
 	span.AddEvent("job_retrieved")
 
-	s.mu.Lock()
-	s.jobCache[jobID] = job
-	s.mu.Unlock()
+	s.storeJobInCache(ctx, job)
 	span.AddEvent("job_cached")
 
 	return job, nil

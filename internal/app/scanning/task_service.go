@@ -154,7 +154,7 @@ func (s *TaskService) UpdateProgress(ctx context.Context, progress domain.Progre
 // lookupTaskInCache retrieves a task from the cache if it exists.
 // Returns the task and a boolean indicating if it was found.
 func (s *TaskService) lookupTaskInCache(ctx context.Context, taskID uuid.UUID) (*domain.Task, bool) {
-	ctx, span := s.tracer.Start(ctx, "task_service.scanning.lookup_task_cache")
+	_, span := s.tracer.Start(ctx, "task_service.scanning.lookup_task_cache")
 	defer span.End()
 
 	s.mu.RLock()
