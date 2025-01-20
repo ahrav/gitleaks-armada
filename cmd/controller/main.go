@@ -48,7 +48,18 @@ func main() {
 
 	events := logger.Events{
 		Error: func(ctx context.Context, r logger.Record) {
-			log.Info(ctx, "******* SEND ALERT *******")
+			errorAttrs := map[string]any{
+				"error_message": r.Message,
+				"error_time":    r.Time.Format(time.RFC3339),
+				"trace_id":      otel.GetTraceID(ctx),
+			}
+
+			// Add any error-specific attributes.
+			for k, v := range r.Attributes {
+				errorAttrs[k] = v
+			}
+
+			log.Error(ctx, "Error event triggered", "error_details", errorAttrs)
 		},
 	}
 
@@ -57,7 +68,15 @@ func main() {
 	}
 
 	svcName := fmt.Sprintf("CONTROLLER-%s", hostname)
-	log = logger.NewWithEvents(os.Stdout, logger.LevelInfo, svcName, traceIDFn, events)
+	metadata := map[string]string{
+		"service":   svcName,
+		"hostname":  hostname,
+		"pod":       os.Getenv("POD_NAME"),
+		"namespace": os.Getenv("POD_NAMESPACE"),
+		"app":       "controller",
+	}
+
+	log = logger.NewWithMetadata(os.Stdout, logger.LevelInfo, svcName, traceIDFn, events, metadata)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

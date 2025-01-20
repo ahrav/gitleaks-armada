@@ -108,7 +108,7 @@ func (t *progressTracker) UpdateProgress(ctx context.Context, evt scanning.TaskP
 		))
 	defer span.End()
 
-	// Update task state first to maintain causal ordering
+	// Update task state first to maintain causal ordering.
 	task, err := t.taskService.UpdateProgress(ctx, evt.Progress)
 	if err != nil {
 		span.RecordError(err)

@@ -10,11 +10,15 @@ CONTROLLER_IMAGE := $(CONTROLLER_APP):latest
 SCANNER_APP := scanner
 SCANNER_IMAGE := $(SCANNER_APP):latest
 
-# Add monitoring variables
 PROMETHEUS_IMAGE := prom/prometheus:v3.1.0
 GRAFANA_IMAGE := grafana/grafana:11.4.0
 TEMPO_IMAGE := grafana/tempo:2.6.1
+LOKI            := grafana/loki:3.2.0
+PROMTAIL        := grafana/promtail:3.2.0
 OTEL_COLLECTOR_IMAGE := otel/opentelemetry-collector-contrib:0.116.1
+POSTGRES_IMAGE := postgres:17.2
+KAFKA_IMAGE := bitnami/kafka:latest
+ZOOKEEPER_IMAGE := bitnami/zookeeper:latest
 
 K8S_MANIFESTS := k8s
 
@@ -24,16 +28,12 @@ PROTO_FILES := $(wildcard $(PROTO_DIR)/*.proto)
 PROTOC_GEN_GO := $(GOPATH)/bin/protoc-gen-go
 PROTOC_GEN_GO_GRPC := $(GOPATH)/bin/protoc-gen-go-grpc
 
-# Kafka variables
-KAFKA_IMAGE := bitnami/kafka:latest
-ZOOKEEPER_IMAGE := bitnami/zookeeper:latest
 
 # Config variables
 CONFIG_FILE ?= config.yaml
 SECRET_NAME ?= scanner-targets
 
 # Add to Variables section
-POSTGRES_IMAGE := postgres:17.2
 KAFKA_ENUMERATION_TASK_TOPIC := enumeration-tasks
 KAFKA_SCANNING_TASK_TOPIC := scanning-tasks
 KAFKA_RESULTS_TOPIC := results
@@ -98,6 +98,9 @@ dev-apply:
 	kubectl apply -f $(K8S_MANIFESTS)/prometheus.yaml -n $(NAMESPACE)
 	kubectl apply -f $(K8S_MANIFESTS)/tempo.yaml -n $(NAMESPACE)
 	kubectl apply -f $(K8S_MANIFESTS)/grafana.yaml -n $(NAMESPACE)
+	kubectl apply -f $(K8S_MANIFESTS)/grafana-dashboards.yaml -n $(NAMESPACE)
+	kubectl apply -f $(K8S_MANIFESTS)/loki.yaml -n $(NAMESPACE)
+	kubectl apply -f $(K8S_MANIFESTS)/promtail.yaml -n $(NAMESPACE)
 
 # Show status
 dev-status:
@@ -300,20 +303,29 @@ monitoring-setup:
 	docker pull $(PROMETHEUS_IMAGE)
 	docker pull $(GRAFANA_IMAGE)
 	docker pull $(TEMPO_IMAGE)
+	docker pull $(LOKI)
+	docker pull $(PROMTAIL)
 	docker pull $(OTEL_COLLECTOR_IMAGE)
 	kind load docker-image $(PROMETHEUS_IMAGE) --name $(KIND_CLUSTER)
 	kind load docker-image $(GRAFANA_IMAGE) --name $(KIND_CLUSTER)
 	kind load docker-image $(TEMPO_IMAGE) --name $(KIND_CLUSTER)
+	kind load docker-image $(LOKI) --name $(KIND_CLUSTER)
+	kind load docker-image $(PROMTAIL) --name $(KIND_CLUSTER)
 	kind load docker-image $(OTEL_COLLECTOR_IMAGE) --name $(KIND_CLUSTER)
 	kubectl apply -f $(K8S_MANIFESTS)/otel.yaml -n $(NAMESPACE)
 	kubectl apply -f $(K8S_MANIFESTS)/prometheus.yaml -n $(NAMESPACE)
 	kubectl apply -f $(K8S_MANIFESTS)/tempo.yaml -n $(NAMESPACE)
 	kubectl apply -f $(K8S_MANIFESTS)/grafana.yaml -n $(NAMESPACE)
+	kubectl apply -f $(K8S_MANIFESTS)/grafana-dashboards.yaml -n $(NAMESPACE)
+	kubectl apply -f $(K8S_MANIFESTS)/loki.yaml -n $(NAMESPACE)
+	kubectl apply -f $(K8S_MANIFESTS)/promtail.yaml -n $(NAMESPACE)
 	@echo "Waiting for monitoring services to be ready..."
 	kubectl wait --for=condition=ready pod -l app=otel-collector --timeout=120s -n $(NAMESPACE) || true
 	kubectl wait --for=condition=ready pod -l app=prometheus --timeout=120s -n $(NAMESPACE) || true
 	kubectl wait --for=condition=ready pod -l app=grafana --timeout=120s -n $(NAMESPACE) || true
 	kubectl wait --for=condition=ready pod -l app=tempo --timeout=120s -n $(NAMESPACE) || true
+	kubectl wait --for=condition=ready pod -l app=loki --timeout=120s -n $(NAMESPACE) || true
+	kubectl wait --for=condition=ready pod -l app=promtail --timeout=120s -n $(NAMESPACE) || true
 	@echo "Verifying Tempo connectivity..."
 	kubectl run -n $(NAMESPACE) tempo-test --rm -i --restart=Never --image=busybox -- nc -zvw 1 tempo 4317 || true
 
@@ -339,6 +351,9 @@ monitoring-cleanup:
 	kubectl delete -f $(K8S_MANIFESTS)/prometheus.yaml -n $(NAMESPACE) || true
 	kubectl delete -f $(K8S_MANIFESTS)/tempo.yaml -n $(NAMESPACE) || true
 	kubectl delete -f $(K8S_MANIFESTS)/grafana.yaml -n $(NAMESPACE) || true
+	kubectl delete -f $(K8S_MANIFESTS)/grafana-dashboards.yaml -n $(NAMESPACE) || true
+	kubectl delete -f $(K8S_MANIFESTS)/loki.yaml -n $(NAMESPACE) || true
+	kubectl delete -f $(K8S_MANIFESTS)/promtail.yaml -n $(NAMESPACE) || true
 
 # Add new postgres targets
 postgres-setup:
@@ -460,3 +475,10 @@ otel-logs:
 
 otel-restart:
 	kubectl rollout restart deployment/otel-collector -n $(NAMESPACE)
+
+# Add new targets for Loki and Promtail
+loki-logs:
+	kubectl logs -l app=loki -n $(NAMESPACE) --tail=100 -f
+
+promtail-logs:
+	kubectl logs -l app=promtail -n $(NAMESPACE) --tail=100 -f

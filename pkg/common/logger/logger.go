@@ -188,3 +188,25 @@ func new(w io.Writer, minLevel Level, serviceName string, traceIDFn TraceIDFn, e
 		traceIDFn: traceIDFn,
 	}
 }
+
+// NewWithMetadata creates a new logger with consistent metadata for log ingestion.
+func NewWithMetadata(
+	w io.Writer,
+	level Level,
+	serviceName string,
+	traceIDFn TraceIDFn,
+	events Events,
+	metadata map[string]string,
+) *Logger {
+	log := NewWithEvents(w, level, serviceName, traceIDFn, events)
+
+	attrs := make([]slog.Attr, 0, len(metadata))
+	for k, v := range metadata {
+		attrs = append(attrs, slog.String(k, v))
+	}
+
+	return &Logger{
+		handler:   log.handler.WithAttrs(attrs),
+		traceIDFn: traceIDFn,
+	}
+}
