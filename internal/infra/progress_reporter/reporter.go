@@ -43,7 +43,6 @@ func (r *DomainEventProgressReporter) ReportProgress(ctx context.Context, p scan
 		"progress_reporter.report_progress",
 		trace.WithAttributes(
 			attribute.String("task_id", p.TaskID().String()),
-			attribute.String("status", string(p.Status())),
 			attribute.Int("seq_num", int(p.SequenceNum())),
 		),
 	)

@@ -133,6 +133,13 @@ func (t *progressTracker) UpdateProgress(ctx context.Context, evt scanning.TaskP
 }
 
 func (t *progressTracker) StopTracking(ctx context.Context, evt scanning.TaskCompletedEvent) error {
+	taskID := evt.TaskID
+	ctx, span := t.tracer.Start(ctx, "progress_tracker.scanning.stop_tracking",
+		trace.WithAttributes(
+			attribute.String("task_id", taskID.String()),
+		))
+	defer span.End()
+
 	return nil
 }
 

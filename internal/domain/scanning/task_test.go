@@ -72,7 +72,6 @@ func TestTask_ApplyProgress(t *testing.T) {
 			},
 			progress: Progress{
 				sequenceNum:    1,
-				status:         TaskStatusInProgress,
 				itemsProcessed: 100,
 				timestamp:      time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
 			},
@@ -87,7 +86,6 @@ func TestTask_ApplyProgress(t *testing.T) {
 			},
 			progress: Progress{
 				sequenceNum: 1,
-				status:      TaskStatusInProgress,
 				checkpoint: &Checkpoint{
 					resumeToken: []byte("token"),
 				},
@@ -102,13 +100,11 @@ func TestTask_ApplyProgress(t *testing.T) {
 				task := NewScanTask(uuid.New(), uuid.New())
 				_ = task.ApplyProgress(Progress{
 					sequenceNum: 2,
-					status:      TaskStatusInProgress,
 				})
 				return task
 			},
 			progress: Progress{
 				sequenceNum: 1, // Lower than current
-				status:      TaskStatusCompleted,
 			},
 			wantStatus: TaskStatusInProgress, // Should not change
 			wantSeqNum: 2,                    // Should not change
@@ -160,7 +156,6 @@ func TestTask_GetSummary(t *testing.T) {
 	progress := Progress{
 		taskID:         taskID,
 		sequenceNum:    1,
-		status:         TaskStatusInProgress,
 		itemsProcessed: 100,
 		timestamp:      mockTime,
 	}
@@ -192,4 +187,74 @@ func TestTask_ToStalledTask(t *testing.T) {
 	assert.Equal(t, jobID, stalledTask.JobID)
 	assert.Equal(t, StallReasonNoProgress, stalledTask.StallReason)
 	assert.True(t, stalledTask.StalledDuration >= 10*time.Minute)
+}
+
+func TestTask_Complete(t *testing.T) {
+	t.Parallel()
+
+	mockTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name           string
+		setupTask      func(*mockTimeProvider) *Task
+		expectedError  error
+		expectedReason TaskInvalidStateReason
+	}{
+		{
+			name: "successful completion",
+			setupTask: func(tp *mockTimeProvider) *Task {
+				task := NewScanTask(uuid.New(), uuid.New(), WithTimeProvider(tp))
+				task.itemsProcessed = 100
+				return task
+			},
+		},
+		{
+			name: "already completed task",
+			setupTask: func(tp *mockTimeProvider) *Task {
+				task := NewScanTask(uuid.New(), uuid.New(), WithTimeProvider(tp))
+				task.status = TaskStatusCompleted
+				return task
+			},
+			expectedReason: TaskInvalidStateReasonWrongStatus,
+		},
+		{
+			name: "failed task",
+			setupTask: func(tp *mockTimeProvider) *Task {
+				task := NewScanTask(uuid.New(), uuid.New(), WithTimeProvider(tp))
+				task.status = TaskStatusFailed
+				return task
+			},
+			expectedReason: TaskInvalidStateReasonWrongStatus,
+		},
+		{
+			name: "no items processed",
+			setupTask: func(tp *mockTimeProvider) *Task {
+				return NewScanTask(uuid.New(), uuid.New(), WithTimeProvider(tp))
+			},
+			expectedReason: TaskInvalidStateReasonNoProgress,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			tp := &mockTimeProvider{currentTime: mockTime}
+			task := tt.setupTask(tp)
+
+			tp.currentTime = tp.currentTime.Add(time.Second)
+			err := task.Complete()
+
+			if tt.expectedReason != "" {
+				require.Error(t, err)
+				var stateErr TaskInvalidStateError
+				require.ErrorAs(t, err, &stateErr)
+				assert.Equal(t, tt.expectedReason, stateErr.Reason())
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, TaskStatusCompleted, task.Status())
+				assert.Equal(t, tp.Now(), task.LastUpdateTime())
+			}
+		})
+	}
 }

@@ -29,13 +29,11 @@ const (
 )
 
 // Progress represents a point-in-time status update from a scanner. It provides
-// detailed metrics and state information to track scanning progress and enable
-// task recovery.
+// detailed metrics about the current scanning progress without maintaining task state.
 type Progress struct {
 	taskID          uuid.UUID
 	sequenceNum     int64
 	timestamp       time.Time
-	status          TaskStatus
 	itemsProcessed  int64
 	errorCount      int32
 	message         string
@@ -49,7 +47,6 @@ func ReconstructProgress(
 	taskID uuid.UUID,
 	sequenceNum int64,
 	timestamp time.Time,
-	status TaskStatus,
 	itemsProcessed int64,
 	errorCount int32,
 	message string,
@@ -60,7 +57,6 @@ func ReconstructProgress(
 		taskID:          taskID,
 		sequenceNum:     sequenceNum,
 		timestamp:       timestamp,
-		status:          status,
 		itemsProcessed:  itemsProcessed,
 		errorCount:      errorCount,
 		message:         message,
@@ -77,9 +73,6 @@ func (p Progress) SequenceNum() int64 { return p.sequenceNum }
 
 // Timestamp returns the time the progress update was created.
 func (p Progress) Timestamp() time.Time { return p.timestamp }
-
-// Status returns the current execution status of the scan task.
-func (p Progress) Status() TaskStatus { return p.status }
 
 // ItemsProcessed returns the total number of items scanned by this task.
 func (p Progress) ItemsProcessed() int64 { return p.itemsProcessed }
@@ -317,13 +310,69 @@ func (t *Task) isSeqNumValid(progress Progress) bool {
 // It updates all monitoring metrics and preserves any checkpoint data.
 func (t *Task) updateProgress(progress Progress) {
 	t.lastSequenceNum = progress.SequenceNum()
-	t.status = progress.Status()
 	t.timeline.UpdateLastUpdate()
 	t.itemsProcessed += progress.ItemsProcessed()
 	t.progressDetails = progress.ProgressDetails()
+
+	// Update task status based on progress metrics
+	// if progress.ErrorCount() > someThreshold {
+	// 	t.status = TaskStatusFailed
+	// }
+
 	if progress.Checkpoint() != nil {
 		t.lastCheckpoint = progress.Checkpoint()
 	}
+}
+
+// TaskInvalidStateError is an error type for indicating that a task is in an invalid state.
+type TaskInvalidStateError struct {
+	taskID uuid.UUID
+	status TaskStatus
+	reason TaskInvalidStateReason
+}
+
+// TaskInvalidStateReason represents the specific reason why a task state is invalid
+type TaskInvalidStateReason string
+
+const (
+	// TaskInvalidStateReasonWrongStatus indicates the task is not in the correct status for the operation
+	TaskInvalidStateReasonWrongStatus TaskInvalidStateReason = "WRONG_STATUS"
+
+	// TaskInvalidStateReasonNoProgress indicates the task hasn't processed any items
+	TaskInvalidStateReasonNoProgress TaskInvalidStateReason = "NO_PROGRESS"
+)
+
+// Error returns a string representation of the error.
+func (e TaskInvalidStateError) Error() string {
+	return fmt.Sprintf("task %s is in invalid state %s: %s", e.taskID, e.status, e.reason)
+}
+
+// Reason returns the specific reason for the invalid state
+func (e TaskInvalidStateError) Reason() TaskInvalidStateReason {
+	return e.reason
+}
+
+// Complete marks a task as completed.
+func (t *Task) Complete() error {
+	if t.status != TaskStatusInProgress {
+		return TaskInvalidStateError{
+			taskID: t.ID,
+			status: t.status,
+			reason: TaskInvalidStateReasonWrongStatus,
+		}
+	}
+
+	if t.itemsProcessed == 0 {
+		return TaskInvalidStateError{
+			taskID: t.ID,
+			status: t.status,
+			reason: TaskInvalidStateReasonNoProgress,
+		}
+	}
+
+	t.status = TaskStatusCompleted
+	t.timeline.UpdateLastUpdate()
+	return nil
 }
 
 // GetSummary returns a TaskSummary containing the key metrics and status

@@ -62,12 +62,11 @@ message TaskProgressedEvent {
   string task_id = 1;
   int64 sequence_num = 2;
   int64 timestamp = 3;
-  string status = 4;
-  int64 items_processed = 5;
-  int32 error_count = 6;
-  string message = 7;
-  bytes progress_details = 8;
-  Checkpoint checkpoint = 9;
+  int64 items_processed = 4;
+  int32 error_count = 5;
+  string message = 6;
+  bytes progress_details = 7;
+  Checkpoint checkpoint = 8;
 }
 
 message Checkpoint {

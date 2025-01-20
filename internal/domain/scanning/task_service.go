@@ -39,7 +39,7 @@ func (ds *TaskDomainServiceImpl) MarkTaskStale(task *Task, reason StallReason) e
 		return fmt.Errorf("cannot mark a completed task as stale")
 	}
 	task.ApplyProgress(Progress{
-		status:    TaskStatusStale,
+		// status:    TaskStatusStale,
 		timestamp: time.Now(),
 	})
 	return nil
@@ -50,7 +50,7 @@ func (ds *TaskDomainServiceImpl) RecoverTask(task *Task) error {
 	// e.g., set status back to IN_PROGRESS if it was STALE
 	if task.Status() == TaskStatusStale {
 		task.ApplyProgress(Progress{
-			status:    TaskStatusInProgress,
+			// status:    TaskStatusInProgress,
 			timestamp: time.Now(),
 		})
 	}

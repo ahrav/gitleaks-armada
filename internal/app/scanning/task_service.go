@@ -27,6 +27,9 @@ type ScanTaskService interface {
 	// Returns the updated task, or nil if the task is not found.
 	UpdateProgress(ctx context.Context, progress domain.Progress) (*domain.Task, error)
 
+	// CompleteTask marks a task as completed.
+	CompleteTask(ctx context.Context, jobID, taskID uuid.UUID) error
+
 	// GetTask retrieves the current state of a specific task within a job.
 	// This allows external components to monitor task execution and handle failures.
 	GetTask(ctx context.Context, jobID, taskID uuid.UUID) (*domain.Task, error)
@@ -193,6 +196,10 @@ func (s *TaskService) loadTask(ctx context.Context, taskID uuid.UUID) (*domain.T
 	span.SetStatus(codes.Ok, "task loaded")
 
 	return task, nil
+}
+
+func (s *TaskService) CompleteTask(ctx context.Context, jobID, taskID uuid.UUID) error {
+	return nil
 }
 
 func (s *TaskService) GetTask(ctx context.Context, jobID uuid.UUID, taskID uuid.UUID) (*domain.Task, error) {
