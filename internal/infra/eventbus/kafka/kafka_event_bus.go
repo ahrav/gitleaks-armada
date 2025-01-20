@@ -43,8 +43,10 @@ type Config struct {
 	ResultsTopic string
 	// ProgressTopic is the topic name for publishing scan progress updates.
 	ProgressTopic string
-	// RulesTopic is the topic name for publishing scanning rules.
-	RulesTopic string
+
+	// Split rules topic into two for clear direction of flow.
+	RulesRequestTopic  string // controller -> scanner
+	RulesResponseTopic string // scanner -> controller (updates & published)
 
 	// GroupID identifies the consumer group for this broker instance.
 	GroupID string
@@ -60,11 +62,12 @@ type KafkaEventBus struct {
 	producer      sarama.SyncProducer
 	consumerGroup sarama.ConsumerGroup
 
-	enumTaskTopic string
-	scanTaskTopic string
-	resultsTopic  string
-	progressTopic string
-	rulesTopic    string
+	enumTaskTopic      string
+	scanTaskTopic      string
+	resultsTopic       string
+	progressTopic      string
+	rulesRequestTopic  string
+	rulesResponseTopic string
 
 	// Maps domain event types to Kafka topic names.
 	topics map[events.EventType]string
@@ -116,9 +119,9 @@ func NewKafkaEventBusFromConfig(
 	// type-safe event routing.
 	topicsMap := map[events.EventType]string{
 		enumeration.EventTypeTaskCreated: cfg.EnumerationTaskTopic,
-		rules.EventTypeRulesUpdated:      cfg.RulesTopic,
-		rules.EventTypeRulesRequested:    cfg.RulesTopic,
-		rules.EventTypeRulesPublished:    cfg.RulesTopic,
+		rules.EventTypeRulesRequested:    cfg.RulesRequestTopic,  // controller -> scanner
+		rules.EventTypeRulesUpdated:      cfg.RulesResponseTopic, // scanner -> controller
+		rules.EventTypeRulesPublished:    cfg.RulesResponseTopic, // scanner -> controller
 		scanning.EventTypeTaskStarted:    cfg.ScanningTaskTopic,
 		scanning.EventTypeTaskProgressed: cfg.ScanningTaskTopic,
 		scanning.EventTypeTaskCompleted:  cfg.ScanningTaskTopic,
@@ -129,11 +132,12 @@ func NewKafkaEventBusFromConfig(
 		producer:      producer,
 		consumerGroup: consumerGroup,
 
-		enumTaskTopic: cfg.EnumerationTaskTopic,
-		scanTaskTopic: cfg.ScanningTaskTopic,
-		resultsTopic:  cfg.ResultsTopic,
-		progressTopic: cfg.ProgressTopic,
-		rulesTopic:    cfg.RulesTopic,
+		enumTaskTopic:      cfg.EnumerationTaskTopic,
+		scanTaskTopic:      cfg.ScanningTaskTopic,
+		resultsTopic:       cfg.ResultsTopic,
+		progressTopic:      cfg.ProgressTopic,
+		rulesRequestTopic:  cfg.RulesRequestTopic,
+		rulesResponseTopic: cfg.RulesResponseTopic,
 
 		topics: topicsMap,
 
@@ -241,7 +245,7 @@ func (k *KafkaEventBus) Subscribe(
 	}
 	span.AddEvent("topics_collected", trace.WithAttributes(attribute.StringSlice("topics", topics)))
 
-	go k.consumeLoop(ctx, topics, eventTypes, handler)
+	go k.consumeLoop(ctx, topics, handler)
 	k.logger.Info(ctx, "Subscribed to events", "event_types", eventTypes)
 
 	return nil
@@ -251,12 +255,10 @@ func (k *KafkaEventBus) Subscribe(
 func (k *KafkaEventBus) consumeLoop(
 	ctx context.Context,
 	topics []string,
-	eventTypes []events.EventType,
 	handler func(context.Context, events.EventEnvelope) error,
 ) {
 	cgHandler := &domainEventHandler{
 		eventBus:    k,
-		eventTypes:  eventTypes,
 		userHandler: handler,
 		logger:      k.logger,
 		tracer:      k.tracer,
@@ -277,7 +279,6 @@ func (k *KafkaEventBus) consumeLoop(
 // and convert them into domain events for the application.
 type domainEventHandler struct {
 	eventBus    *KafkaEventBus
-	eventTypes  []events.EventType
 	userHandler func(context.Context, events.EventEnvelope) error
 
 	logger  *logger.Logger
