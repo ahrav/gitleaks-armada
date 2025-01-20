@@ -48,6 +48,7 @@ type ScanJobService interface {
 // jobService implements ScanJobService by managing job state through a combination
 // of in-memory caching and persistent storage.
 type jobService struct {
+	// TODO: consider using a proper cache.
 	mu       sync.RWMutex
 	jobCache map[uuid.UUID]*domain.Job // Caches active jobs to reduce database load
 
