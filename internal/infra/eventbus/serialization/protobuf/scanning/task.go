@@ -97,3 +97,27 @@ func ProtoToTaskProgressedEvent(pbEvent *pb.TaskProgressedEvent) (scanning.TaskP
 
 	return scanning.NewTaskProgressedEvent(progress), nil
 }
+
+// TaskCompletedEventToProto converts a domain TaskCompletedEvent to its protobuf representation.
+func TaskCompletedEventToProto(event scanning.TaskCompletedEvent) *pb.TaskCompletedEvent {
+	return &pb.TaskCompletedEvent{
+		JobId:     event.JobID.String(),
+		TaskId:    event.TaskID.String(),
+		Timestamp: event.OccurredAt().UnixNano(),
+	}
+}
+
+// ProtoToTaskCompletedEvent converts a protobuf TaskCompletedEvent to its domain representation.
+func ProtoToTaskCompletedEvent(pbEvent *pb.TaskCompletedEvent) (scanning.TaskCompletedEvent, error) {
+	jobID, err := uuid.Parse(pbEvent.JobId)
+	if err != nil {
+		return scanning.TaskCompletedEvent{}, fmt.Errorf("parse job ID: %w", err)
+	}
+
+	taskID, err := uuid.Parse(pbEvent.TaskId)
+	if err != nil {
+		return scanning.TaskCompletedEvent{}, fmt.Errorf("parse task ID: %w", err)
+	}
+
+	return scanning.NewTaskCompletedEvent(jobID, taskID), nil
+}

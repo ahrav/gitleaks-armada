@@ -76,3 +76,9 @@ message Checkpoint {
   bytes resume_token = 3;
   map<string, string> metadata = 4;
 }
+
+message TaskCompletedEvent {
+  string job_id = 1;
+  string task_id = 2;
+  int64 timestamp = 3;
+}
