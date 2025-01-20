@@ -159,26 +159,6 @@ func deserializeEnumerationTaskCreated(data []byte) (any, error) {
 	return enumeration.NewTaskCreatedEvent(uuid.MustParse(pbTask.JobId), t), nil
 }
 
-// serializeRuleUpdated converts a RuleUpdatedEvent to protobuf bytes.
-func serializeRuleUpdated(payload any) ([]byte, error) {
-	event, ok := payload.(rules.RuleUpdatedEvent)
-	if !ok {
-		return nil, fmt.Errorf("serializeRuleUpdated: payload is not RuleUpdatedEvent, got %T", payload)
-	}
-	pbRule := serdeRules.GitleaksRulesMessageToProto(event.Rule)
-	return proto.Marshal(pbRule)
-}
-
-// deserializeRuleUpdated converts protobuf bytes back into a RuleUpdatedEvent.
-func deserializeRuleUpdated(data []byte) (any, error) {
-	var pbRule pb.RuleMessage
-	if err := proto.Unmarshal(data, &pbRule); err != nil {
-		return nil, fmt.Errorf("unmarshal RuleMessage: %w", err)
-	}
-	ruleMsg := serdeRules.ProtoToGitleaksRuleMessage(&pbRule)
-	return rules.NewRuleUpdatedEvent(ruleMsg), nil
-}
-
 // serializeTaskStarted converts a TaskStartedEvent to protobuf bytes.
 func serializeTaskStarted(payload any) ([]byte, error) {
 	event, ok := payload.(scanning.TaskStartedEvent)
@@ -203,6 +183,52 @@ func deserializeTaskStarted(data []byte) (any, error) {
 	}
 
 	return event, nil
+}
+
+// serializeTaskProgressed converts a TaskProgressedEvent to protobuf bytes
+func serializeTaskProgressed(payload any) ([]byte, error) {
+	event, ok := payload.(scanning.TaskProgressedEvent)
+	if !ok {
+		return nil, fmt.Errorf("serializeTaskProgressed: payload is not TaskProgressedEvent, got %T", payload)
+	}
+
+	pbEvent := serdeScanning.TaskProgressedEventToProto(event)
+	return proto.Marshal(pbEvent)
+}
+
+// deserializeTaskProgressed converts protobuf bytes back into a TaskProgressedEvent
+func deserializeTaskProgressed(data []byte) (any, error) {
+	var pbEvent pb.TaskProgressedEvent
+	if err := proto.Unmarshal(data, &pbEvent); err != nil {
+		return nil, fmt.Errorf("unmarshal TaskProgressedEvent: %w", err)
+	}
+
+	event, err := serdeScanning.ProtoToTaskProgressedEvent(&pbEvent)
+	if err != nil {
+		return nil, fmt.Errorf("convert proto to domain event: %w", err)
+	}
+
+	return event, nil
+}
+
+// serializeRuleUpdated converts a RuleUpdatedEvent to protobuf bytes.
+func serializeRuleUpdated(payload any) ([]byte, error) {
+	event, ok := payload.(rules.RuleUpdatedEvent)
+	if !ok {
+		return nil, fmt.Errorf("serializeRuleUpdated: payload is not RuleUpdatedEvent, got %T", payload)
+	}
+	pbRule := serdeRules.GitleaksRulesMessageToProto(event.Rule)
+	return proto.Marshal(pbRule)
+}
+
+// deserializeRuleUpdated converts protobuf bytes back into a RuleUpdatedEvent.
+func deserializeRuleUpdated(data []byte) (any, error) {
+	var pbRule pb.RuleMessage
+	if err := proto.Unmarshal(data, &pbRule); err != nil {
+		return nil, fmt.Errorf("unmarshal RuleMessage: %w", err)
+	}
+	ruleMsg := serdeRules.ProtoToGitleaksRuleMessage(&pbRule)
+	return rules.NewRuleUpdatedEvent(ruleMsg), nil
 }
 
 // serializeRuleRequested converts a RuleRequestedEvent to protobuf bytes.
@@ -239,30 +265,4 @@ func deserializeRulePublishingCompleted(data []byte) (any, error) {
 		return nil, fmt.Errorf("unmarshal RulePublishingCompletedEvent: %w", err)
 	}
 	return rules.NewRulePublishingCompletedEvent(), nil
-}
-
-// serializeTaskProgressed converts a TaskProgressedEvent to protobuf bytes
-func serializeTaskProgressed(payload any) ([]byte, error) {
-	event, ok := payload.(scanning.TaskProgressedEvent)
-	if !ok {
-		return nil, fmt.Errorf("serializeTaskProgressed: payload is not TaskProgressedEvent, got %T", payload)
-	}
-
-	pbEvent := serdeScanning.TaskProgressedEventToProto(event)
-	return proto.Marshal(pbEvent)
-}
-
-// deserializeTaskProgressed converts protobuf bytes back into a TaskProgressedEvent
-func deserializeTaskProgressed(data []byte) (any, error) {
-	var pbEvent pb.TaskProgressedEvent
-	if err := proto.Unmarshal(data, &pbEvent); err != nil {
-		return nil, fmt.Errorf("unmarshal TaskProgressedEvent: %w", err)
-	}
-
-	event, err := serdeScanning.ProtoToTaskProgressedEvent(&pbEvent)
-	if err != nil {
-		return nil, fmt.Errorf("convert proto to domain event: %w", err)
-	}
-
-	return event, nil
 }

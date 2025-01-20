@@ -195,9 +195,7 @@ func (s *ScannerService) handleRuleRequest(ctx context.Context, evt events.Event
 
 	span.SetAttributes(attribute.Int("rules_published", ruleCount))
 
-	if err := s.domainPublisher.PublishDomainEvent(ctx,
-		rules.NewRulePublishingCompletedEvent(),
-		events.WithKey("rules_completed")); err != nil {
+	if err := s.domainPublisher.PublishDomainEvent(ctx, rules.NewRulePublishingCompletedEvent()); err != nil {
 		span.RecordError(err)
 		return fmt.Errorf("failed to publish completion event: %w", err)
 	}

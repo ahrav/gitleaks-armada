@@ -199,7 +199,7 @@ func (o *Orchestrator) subscribeToEvents(ctx context.Context) error {
 }
 
 func (o *Orchestrator) handleEvent(ctx context.Context, evt events.EventEnvelope) error {
-	ctx, span := o.tracer.Start(ctx, "orchestrator.handle_progress_event",
+	ctx, span := o.tracer.Start(ctx, "orchestrator.handle_event",
 		trace.WithAttributes(
 			attribute.String("event_type", string(evt.Type)),
 		))
