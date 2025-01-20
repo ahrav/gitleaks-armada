@@ -24,7 +24,8 @@ type ScanTaskService interface {
 	// UpdateProgress processes a status update from a running scanner task.
 	// It maintains the task's execution state and enables monitoring of scan progress.
 	// The update is cached in memory and periodically persisted based on configured intervals.
-	UpdateProgress(ctx context.Context, progress domain.Progress) error
+	// Returns the updated task, or nil if the task is not found.
+	UpdateProgress(ctx context.Context, progress domain.Progress) (*domain.Task, error)
 
 	// GetTask retrieves the current state of a specific task within a job.
 	// This allows external components to monitor task execution and handle failures.
@@ -116,7 +117,7 @@ func (s *TaskService) StartTask(ctx context.Context, jobID, taskID uuid.UUID) (*
 
 // UpdateProgress handles a task progress update by coordinating cache access,
 // domain logic, and persistence operations.
-func (s *TaskService) UpdateProgress(ctx context.Context, progress domain.Progress) error {
+func (s *TaskService) UpdateProgress(ctx context.Context, progress domain.Progress) (*domain.Task, error) {
 	ctx, span := s.tracer.Start(ctx, "task_service.scanning.update_progress",
 		trace.WithAttributes(
 			attribute.String("task_id", progress.TaskID().String()),
@@ -135,7 +136,7 @@ func (s *TaskService) UpdateProgress(ctx context.Context, progress domain.Progre
 		if err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "failed to get task")
-			return fmt.Errorf("failed to get task: %w", err)
+			return nil, fmt.Errorf("failed to get task: %w", err)
 		}
 	}
 
@@ -145,7 +146,7 @@ func (s *TaskService) UpdateProgress(ctx context.Context, progress domain.Progre
 	if err := task.ApplyProgress(progress); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to apply progress update")
-		return fmt.Errorf("failed to apply progress update: %w", err)
+		return nil, fmt.Errorf("failed to apply progress update: %w", err)
 	}
 	span.AddEvent("progress_applied")
 
@@ -156,14 +157,14 @@ func (s *TaskService) UpdateProgress(ctx context.Context, progress domain.Progre
 		if err := s.taskRepo.UpdateTask(ctx, task); err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "failed to persist task update")
-			return fmt.Errorf("failed to persist task update: %w", err)
+			return nil, fmt.Errorf("failed to persist task update: %w", err)
 		}
 		span.AddEvent("task_persisted")
 	}
 	span.AddEvent("task_update_complete")
 	span.SetStatus(codes.Ok, "task update complete")
 
-	return nil
+	return task, nil
 }
 
 // loadTask retrieves a task from storage and adds it to the cache.

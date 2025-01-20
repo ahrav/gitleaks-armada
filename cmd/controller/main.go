@@ -248,7 +248,7 @@ func main() {
 		eventPublisher,
 		enumCoord,
 		rulesService,
-		scanJobRepo,
+		scanJobSvc,
 		enumStateStorage,
 		configLoader,
 		log,

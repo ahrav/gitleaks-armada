@@ -96,7 +96,39 @@ func (t *progressTracker) StartTracking(ctx context.Context, evt scanning.TaskSt
 	return nil
 }
 
+// UpdateProgress processes a task progress event by updating both task and job state.
+// It maintains system-wide consistency by first updating the task's progress metrics,
+// then notifying the job service to update aggregated job statistics. This ordering
+// ensures that job-level metrics accurately reflect the latest task state.
 func (t *progressTracker) UpdateProgress(ctx context.Context, evt scanning.TaskProgressedEvent) error {
+	taskID := evt.Progress.TaskID()
+	ctx, span := t.tracer.Start(ctx, "progress_tracker.scanning.update_progress",
+		trace.WithAttributes(
+			attribute.String("task_id", taskID.String()),
+		))
+	defer span.End()
+
+	// Update task state first to maintain causal ordering
+	task, err := t.taskService.UpdateProgress(ctx, evt.Progress)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to update task progress")
+		return fmt.Errorf("failed to update task progress: %w", err)
+	}
+
+	if task != nil {
+		// Notify the job service of the current task's progress. This step is crucial
+		// as it enables the job service to accurately track the completion status of
+		// all tasks associated with the job, which is essential for updating the
+		// overall job status accordingly.
+		if err := t.jobService.OnTaskProgressed(ctx, task.JobID(), task); err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "failed to notify job service of task progress")
+			return fmt.Errorf("failed to notify job service of task progress: %w", err)
+		}
+	}
+	span.AddEvent("task_progress_updated")
+
 	return nil
 }
 

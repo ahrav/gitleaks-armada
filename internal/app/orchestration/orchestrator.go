@@ -38,7 +38,7 @@ type Orchestrator struct {
 
 	enumerationService enumCoordinator.Coordinator
 	rulesService       rulessvc.Service
-	jobRepo            scanning.JobRepository
+	jobService         scan.ScanJobService
 	stateRepo          enumeration.StateRepository
 
 	// eventHandlerRegistry maps event types to their corresponding handlers.
@@ -78,7 +78,7 @@ func NewOrchestrator(
 	eventPublisher events.DomainEventPublisher,
 	enumerationService enumCoordinator.Coordinator,
 	rulesService rulessvc.Service,
-	jobRepo scanning.JobRepository,
+	jobService scan.ScanJobService,
 	stateRepo enumeration.StateRepository,
 	cfgLoader loaders.Loader,
 	logger *logger.Logger,
@@ -93,7 +93,7 @@ func NewOrchestrator(
 		eventPublisher:     eventPublisher,
 		enumerationService: enumerationService,
 		rulesService:       rulesService,
-		jobRepo:            jobRepo,
+		jobService:         jobService,
 		stateRepo:          stateRepo,
 		cfgLoader:          cfgLoader,
 		progressTracker:    progressTracker,
@@ -468,8 +468,8 @@ func (o *Orchestrator) startFreshEnumerations(ctx context.Context, cfg *config.C
 			defer targetSpan.End()
 			targetSpan.AddEvent("processing_target")
 
-			job := scanning.NewJob()
-			if err := o.createJob(targetCtx, job); err != nil {
+			job, err := o.jobService.CreateJob(targetCtx)
+			if err != nil {
 				// TODO: Revist this we can make this more resilient to allow for failures.
 				o.metrics.IncEnumerationErrors(targetCtx)
 				targetSpan.RecordError(err)
@@ -493,7 +493,7 @@ func (o *Orchestrator) startFreshEnumerations(ctx context.Context, cfg *config.C
 						scanTargetIDSpan.SetStatus(codes.Ok, "scan target ids channel closed")
 						enumChannels.ScanTargetCh = nil // channel closed
 					} else {
-						if err := o.jobRepo.AssociateTargets(scanTargetIDCtx, job.JobID(), scanTargetIDs); err != nil {
+						if err := o.jobService.LinkTargets(scanTargetIDCtx, job.JobID(), scanTargetIDs); err != nil {
 							scanTargetIDSpan.RecordError(err)
 							scanTargetIDSpan.SetStatus(codes.Error, "failed to associate targets")
 							o.logger.Error(scanTargetIDCtx, "Failed to associate target", "error", err)
@@ -582,7 +582,8 @@ func (o *Orchestrator) createJob(ctx context.Context, job *scanning.Job) error {
 		))
 	defer span.End()
 
-	if err := o.jobRepo.CreateJob(ctx, job); err != nil {
+	_, err := o.jobService.CreateJob(ctx)
+	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to create job")
 		return fmt.Errorf("failed to create job: %w", err)

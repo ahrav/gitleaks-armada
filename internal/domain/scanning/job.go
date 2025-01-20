@@ -140,18 +140,11 @@ func (j *Job) AddTask(task *Task) error {
 	return nil
 }
 
-// UpdateTask applies changes to a task's state via the provided update function.
-// It returns false if the task doesn't exist, true if the update was successful.
-func (j *Job) UpdateTask(taskID uuid.UUID, updateFn func(*Task)) bool {
-	task, exists := j.tasks[taskID]
-	if !exists {
-		return false
-	}
-
-	updateFn(task)
+// UpdateJobProgress updates the job's status counters and last update time based on the task's progress.
+func (j *Job) UpdateJobProgress() error {
 	j.updateStatusCounters()
 	j.timeline.UpdateLastUpdate()
-	return true
+	return nil
 }
 
 // updateStatusCounters recalculates task completion metrics and overall job status.
@@ -162,7 +155,7 @@ func (j *Job) updateStatusCounters() {
 	inProgress := 0
 
 	for _, task := range j.tasks {
-		switch task.status {
+		switch task.Status() {
 		case TaskStatusCompleted:
 			completed++
 		case TaskStatusFailed:
