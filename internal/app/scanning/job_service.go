@@ -28,9 +28,10 @@ type ScanJobService interface {
 	// This ensures proper job state tracking and enables task distribution.
 	OnTaskStarted(ctx context.Context, jobID uuid.UUID, task *domain.Task) error
 
-	// OnTaskProgressed updates a job's progress state when a task reports new progress.
-	// This helps maintain accurate job status and allows for external monitoring.
-	OnTaskProgressed(ctx context.Context, jobID uuid.UUID, task *domain.Task) error
+	// OnTaskUpdated handles any task state change, updating the job's progress
+	// and state accordingly. This method maintains job status consistency
+	// as tasks progress through their lifecycle.
+	OnTaskUpdated(ctx context.Context, jobID uuid.UUID, task *domain.Task) error
 
 	// MarkJobCompleted finalizes a job's execution state based on task outcomes.
 	// A job is marked as completed only if all tasks succeeded, otherwise it is marked as failed.
@@ -65,6 +66,59 @@ func NewJobService(jobRepo domain.JobRepository, tracer trace.Tracer) *jobServic
 		jobRepo:  jobRepo,
 		tracer:   tracer,
 	}
+}
+
+// storeJobInCache stores a job in the cache.
+func (s *jobService) storeJobInCache(ctx context.Context, job *domain.Job) {
+	_, span := s.tracer.Start(ctx, "job_service.scanning.store_job_in_cache")
+	defer span.End()
+
+	s.mu.Lock()
+	s.jobCache[job.JobID()] = job
+	s.mu.Unlock()
+	span.AddEvent("job_cached")
+}
+
+// loadJob retrieves a job from persistent storage and caches it for future access.
+// This helps optimize subsequent operations on the same job.
+func (s *jobService) loadJob(ctx context.Context, jobID uuid.UUID) (*domain.Job, error) {
+	ctx, span := s.tracer.Start(ctx, "job_service.scanning.load_job",
+		trace.WithAttributes(
+			attribute.String("job_id", jobID.String()),
+		))
+	defer span.End()
+
+	if job, exists := s.lookupJobInCache(ctx, jobID); exists {
+		span.AddEvent("job_cached")
+		return job, nil
+	}
+
+	job, err := s.jobRepo.GetJob(ctx, jobID)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to get job")
+		return nil, err
+	}
+	span.AddEvent("job_retrieved")
+
+	s.storeJobInCache(ctx, job)
+	span.AddEvent("job_cached")
+
+	return job, nil
+}
+
+// lookupJobInCache retrieves a job from the cache if it exists.
+// Returns the job and a boolean indicating if it was found.
+func (s *jobService) lookupJobInCache(ctx context.Context, jobID uuid.UUID) (*domain.Job, bool) {
+	_, span := s.tracer.Start(ctx, "job_service.scanning.lookup_job_cache")
+	defer span.End()
+
+	s.mu.RLock()
+	job, exists := s.jobCache[jobID]
+	s.mu.RUnlock()
+	span.AddEvent("job_cached", trace.WithAttributes(attribute.Bool("exists", exists)))
+
+	return job, exists
 }
 
 // CreateJob creates a new job and returns it.
@@ -140,13 +194,15 @@ func (s *jobService) OnTaskStarted(ctx context.Context, jobID uuid.UUID, task *d
 	return nil
 }
 
-// OnTaskProgressed updates a job's progress state when a task reports new progress.
-// This helps maintain accurate job status and allows for external monitoring.
-func (s *jobService) OnTaskProgressed(ctx context.Context, jobID uuid.UUID, task *domain.Task) error {
-	ctx, span := s.tracer.Start(ctx, "job_service.scanning.on_task_progressed",
+// OnTaskUpdated handles any task state change, updating the job's progress
+// and state accordingly. This method maintains job status consistency
+// as tasks progress through their lifecycle.
+func (s *jobService) OnTaskUpdated(ctx context.Context, jobID uuid.UUID, task *domain.Task) error {
+	ctx, span := s.tracer.Start(ctx, "job_service.scanning.on_task_updated",
 		trace.WithAttributes(
 			attribute.String("job_id", jobID.String()),
 			attribute.String("task_id", task.TaskID().String()),
+			attribute.String("task_status", string(task.Status())),
 		))
 	defer span.End()
 
@@ -157,12 +213,12 @@ func (s *jobService) OnTaskProgressed(ctx context.Context, jobID uuid.UUID, task
 		return fmt.Errorf("failed to load job: %w", err)
 	}
 
-	if err := job.UpdateJobProgress(); err != nil {
+	if err := job.UpdateTask(task); err != nil {
 		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to update job progress")
-		return fmt.Errorf("failed to update job progress: %w", err)
+		span.SetStatus(codes.Error, "failed to update job task")
+		return fmt.Errorf("failed to update job task: %w", err)
 	}
-	span.AddEvent("job_progress_updated")
+	span.AddEvent("job_task_updated")
 
 	if err := s.jobRepo.UpdateJob(ctx, job); err != nil {
 		span.RecordError(err)
@@ -173,59 +229,6 @@ func (s *jobService) OnTaskProgressed(ctx context.Context, jobID uuid.UUID, task
 	span.SetStatus(codes.Ok, "job updated successfully")
 
 	return nil
-}
-
-// lookupJobInCache retrieves a job from the cache if it exists.
-// Returns the job and a boolean indicating if it was found.
-func (s *jobService) lookupJobInCache(ctx context.Context, jobID uuid.UUID) (*domain.Job, bool) {
-	_, span := s.tracer.Start(ctx, "job_service.scanning.lookup_job_cache")
-	defer span.End()
-
-	s.mu.RLock()
-	job, exists := s.jobCache[jobID]
-	s.mu.RUnlock()
-	span.AddEvent("job_cached", trace.WithAttributes(attribute.Bool("exists", exists)))
-
-	return job, exists
-}
-
-// storeJobInCache stores a job in the cache.
-func (s *jobService) storeJobInCache(ctx context.Context, job *domain.Job) {
-	_, span := s.tracer.Start(ctx, "job_service.scanning.store_job_in_cache")
-	defer span.End()
-
-	s.mu.Lock()
-	s.jobCache[job.JobID()] = job
-	s.mu.Unlock()
-	span.AddEvent("job_cached")
-}
-
-// loadJob retrieves a job from persistent storage and caches it for future access.
-// This helps optimize subsequent operations on the same job.
-func (s *jobService) loadJob(ctx context.Context, jobID uuid.UUID) (*domain.Job, error) {
-	ctx, span := s.tracer.Start(ctx, "job_service.scanning.load_job",
-		trace.WithAttributes(
-			attribute.String("job_id", jobID.String()),
-		))
-	defer span.End()
-
-	if job, exists := s.lookupJobInCache(ctx, jobID); exists {
-		span.AddEvent("job_cached")
-		return job, nil
-	}
-
-	job, err := s.jobRepo.GetJob(ctx, jobID)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to get job")
-		return nil, err
-	}
-	span.AddEvent("job_retrieved")
-
-	s.storeJobInCache(ctx, job)
-	span.AddEvent("job_cached")
-
-	return job, nil
 }
 
 // MarkJobCompleted is a no-op implementation for now

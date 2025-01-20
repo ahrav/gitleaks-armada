@@ -121,7 +121,7 @@ func (t *progressTracker) UpdateProgress(ctx context.Context, evt scanning.TaskP
 		// as it enables the job service to accurately track the completion status of
 		// all tasks associated with the job, which is essential for updating the
 		// overall job status accordingly.
-		if err := t.jobService.OnTaskProgressed(ctx, task.JobID(), task); err != nil {
+		if err := t.jobService.OnTaskUpdated(ctx, task.JobID(), task); err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "failed to notify job service of task progress")
 			return fmt.Errorf("failed to notify job service of task progress: %w", err)
@@ -139,6 +139,21 @@ func (t *progressTracker) StopTracking(ctx context.Context, evt scanning.TaskCom
 			attribute.String("task_id", taskID.String()),
 		))
 	defer span.End()
+
+	task, err := t.taskService.CompleteTask(ctx, taskID)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to complete task")
+		return fmt.Errorf("failed to complete task: %w", err)
+	}
+
+	if err := t.jobService.OnTaskUpdated(ctx, task.JobID(), task); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to notify job service of task completion")
+		return fmt.Errorf("failed to notify job service of task completion: %w", err)
+	}
+	span.AddEvent("task_completed")
+	span.SetStatus(codes.Ok, "task tracking stopped")
 
 	return nil
 }

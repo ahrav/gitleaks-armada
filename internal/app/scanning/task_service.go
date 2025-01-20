@@ -28,7 +28,7 @@ type ScanTaskService interface {
 	UpdateProgress(ctx context.Context, progress domain.Progress) (*domain.Task, error)
 
 	// CompleteTask marks a task as completed.
-	CompleteTask(ctx context.Context, jobID, taskID uuid.UUID) error
+	CompleteTask(ctx context.Context, taskID uuid.UUID) (*domain.Task, error)
 
 	// GetTask retrieves the current state of a specific task within a job.
 	// This allows external components to monitor task execution and handle failures.
@@ -82,6 +82,56 @@ func NewTaskService(
 	}
 }
 
+// loadTask retrieves a task from storage and adds it to the cache.
+func (s *TaskService) loadTask(ctx context.Context, taskID uuid.UUID) (*domain.Task, error) {
+	ctx, span := s.tracer.Start(ctx, "task_service.scanning.load_task")
+	defer span.End()
+
+	if task, exists := s.lookupTaskInCache(ctx, taskID); exists {
+		span.AddEvent("task_loaded_from_cache")
+		return task, nil
+	}
+
+	task, err := s.taskRepo.GetTask(ctx, taskID)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to get task")
+		return nil, err
+	}
+
+	s.mu.Lock()
+	s.tasksCache[taskID] = task
+	s.mu.Unlock()
+	span.AddEvent("task_cached")
+
+	span.AddEvent("task_loaded")
+	span.SetStatus(codes.Ok, "task loaded")
+
+	return task, nil
+}
+
+// lookupTaskInCache retrieves a task from the cache if it exists.
+// Returns the task and a boolean indicating if it was found.
+func (s *TaskService) lookupTaskInCache(ctx context.Context, taskID uuid.UUID) (*domain.Task, bool) {
+	_, span := s.tracer.Start(ctx, "task_service.scanning.lookup_task_cache")
+	defer span.End()
+
+	s.mu.RLock()
+	task, exists := s.tasksCache[taskID]
+	s.mu.RUnlock()
+
+	span.AddEvent("cache_lookup_complete", trace.WithAttributes(
+		attribute.Bool("found_in_cache", exists),
+	))
+	return task, exists
+}
+
+// StartTask initializes a new scan task for tracking within the system. It ensures
+// the task is properly registered and persisted before monitoring can begin. This
+// method should be called before any progress updates can be processed for the task.
+//
+// Returns the newly created task or an error if initialization fails. Will return
+// an error if a task with the given ID already exists to prevent duplicate tracking.
 func (s *TaskService) StartTask(ctx context.Context, jobID, taskID uuid.UUID) (*domain.Task, error) {
 	ctx, span := s.tracer.Start(ctx, "task_service.scanning.start_task",
 		trace.WithAttributes(
@@ -115,8 +165,13 @@ func (s *TaskService) StartTask(ctx context.Context, jobID, taskID uuid.UUID) (*
 	return newTask, nil
 }
 
-// UpdateProgress handles a task progress update by coordinating cache access,
-// domain logic, and persistence operations.
+// UpdateProgress processes a progress update for an active scan task. This allows the
+// system to track task execution and maintain accurate status information. Progress
+// updates are cached in memory and periodically persisted based on configured intervals
+// to optimize performance while ensuring durability.
+//
+// Returns the updated task state or an error if the update cannot be processed. The
+// task must exist and be in a valid state to accept progress updates.
 func (s *TaskService) UpdateProgress(ctx context.Context, progress domain.Progress) (*domain.Task, error) {
 	ctx, span := s.tracer.Start(ctx, "task_service.scanning.update_progress",
 		trace.WithAttributes(
@@ -154,52 +209,43 @@ func (s *TaskService) UpdateProgress(ctx context.Context, progress domain.Progre
 	return task, nil
 }
 
-// lookupTaskInCache retrieves a task from the cache if it exists.
-// Returns the task and a boolean indicating if it was found.
-func (s *TaskService) lookupTaskInCache(ctx context.Context, taskID uuid.UUID) (*domain.Task, bool) {
-	_, span := s.tracer.Start(ctx, "task_service.scanning.lookup_task_cache")
+// CompleteTask marks a scan task as finished, finalizing its execution state. This
+// should be called when a task has successfully processed all of its assigned work.
+// The task must have processed at least one item and be in an in-progress state
+// to be completed successfully.
+//
+// Returns the updated task state or an error if the task cannot be completed due to
+// invalid state or persistence failures.
+func (s *TaskService) CompleteTask(ctx context.Context, taskID uuid.UUID) (*domain.Task, error) {
+	ctx, span := s.tracer.Start(ctx, "task_service.scanning.complete_task",
+		trace.WithAttributes(
+			attribute.String("task_id", taskID.String()),
+		))
 	defer span.End()
 
-	s.mu.RLock()
-	task, exists := s.tasksCache[taskID]
-	s.mu.RUnlock()
-
-	span.AddEvent("cache_lookup_complete", trace.WithAttributes(
-		attribute.Bool("found_in_cache", exists),
-	))
-	return task, exists
-}
-
-// loadTask retrieves a task from storage and adds it to the cache.
-func (s *TaskService) loadTask(ctx context.Context, taskID uuid.UUID) (*domain.Task, error) {
-	ctx, span := s.tracer.Start(ctx, "task_service.scanning.load_task")
-	defer span.End()
-
-	if task, exists := s.lookupTaskInCache(ctx, taskID); exists {
-		span.AddEvent("task_loaded_from_cache")
-		return task, nil
-	}
-
-	task, err := s.taskRepo.GetTask(ctx, taskID)
+	task, err := s.loadTask(ctx, taskID)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to get task")
 		return nil, err
 	}
 
-	s.mu.Lock()
-	s.tasksCache[taskID] = task
-	s.mu.Unlock()
-	span.AddEvent("task_cached")
+	if err := task.Complete(); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to complete task")
+		return nil, err
+	}
+	span.AddEvent("task_completed")
 
-	span.AddEvent("task_loaded")
-	span.SetStatus(codes.Ok, "task loaded")
+	if err := s.taskRepo.UpdateTask(ctx, task); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to persist task update")
+		return nil, err
+	}
+	span.AddEvent("task_persisted")
+	span.SetStatus(codes.Ok, "task completed")
 
 	return task, nil
-}
-
-func (s *TaskService) CompleteTask(ctx context.Context, jobID, taskID uuid.UUID) error {
-	return nil
 }
 
 func (s *TaskService) GetTask(ctx context.Context, jobID uuid.UUID, taskID uuid.UUID) (*domain.Task, error) {

@@ -2,6 +2,7 @@ package scanning
 
 import (
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -32,6 +33,7 @@ type Job struct {
 	targetIDs []uuid.UUID
 	status    JobStatus
 	timeline  *Timeline
+	mu        sync.Mutex
 	metrics   *JobMetrics
 	tasks     map[uuid.UUID]*Task
 }
@@ -119,68 +121,112 @@ func (e *JobStartError) Error() string {
 	return fmt.Sprintf("job start error: %s", e.message)
 }
 
-// AddTask registers a new scan task with this job and updates task counters.
-// In domain/ScanJob
+// AddTask registers a new task to this job, updating metrics and status.
 func (j *Job) AddTask(task *Task) error {
-	j.tasks[task.ID] = task
-	j.metrics.SetTotalTasks(len(j.tasks))
+	j.mu.Lock()
+	defer j.mu.Unlock()
 
-	// If this is our first task and we're queued, transition to running.
-	if len(j.tasks) == 1 {
-		if j.status != JobStatusQueued {
-			return &JobStartError{message: "job is not in a valid state to start"}
-		}
+	j.tasks[task.TaskID()] = task
+	j.metrics.OnTaskAdded(task.Status())
+
+	// If this is the first task and we were QUEUED, switch to RUNNING.
+	if j.metrics.TotalTasks() == 1 && j.status == JobStatusQueued {
 		j.status = JobStatusRunning
-		j.timeline.MarkStarted()
 	}
 
-	j.updateStatusCounters()
-	j.timeline.UpdateLastUpdate()
-
+	j.updateJobStatusLocked()
 	return nil
 }
 
-// UpdateJobProgress updates the job's status counters and last update time based on the task's progress.
-func (j *Job) UpdateJobProgress() error {
-	j.updateStatusCounters()
-	j.timeline.UpdateLastUpdate()
+// UpdateTask updates an existing task's status, adjusting metrics accordingly.
+func (j *Job) UpdateTask(updatedTask *Task) error {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+
+	oldTask, found := j.tasks[updatedTask.TaskID()]
+	if !found {
+		return fmt.Errorf("task %s not found in job", updatedTask.TaskID())
+	}
+
+	oldStatus := oldTask.Status()
+	newStatus := updatedTask.Status()
+
+	if oldStatus != newStatus && !isValidTransition(oldStatus, newStatus) {
+		return TaskInvalidTransitionError{oldStatus: oldStatus, newStatus: newStatus}
+	}
+
+	// Replace the stored task with the updated one.
+	j.tasks[updatedTask.TaskID()] = updatedTask
+
+	if oldStatus != newStatus {
+		j.metrics.OnTaskStatusChanged(oldStatus, newStatus)
+	}
+
+	j.updateJobStatusLocked()
 	return nil
 }
 
-// updateStatusCounters recalculates task completion metrics and overall job status.
-// This should be called after any task state changes to maintain consistency.
-func (j *Job) updateStatusCounters() {
-	completed := 0
-	failed := 0
-	inProgress := 0
+// TaskInvalidTransitionError is an error type for disallowed status changes.
+type TaskInvalidTransitionError struct {
+	oldStatus TaskStatus
+	newStatus TaskStatus
+}
 
-	for _, task := range j.tasks {
-		switch task.Status() {
-		case TaskStatusCompleted:
-			completed++
-		case TaskStatusFailed:
-			failed++
-		case TaskStatusInProgress, TaskStatusStale:
-			inProgress++
-		}
+func (e TaskInvalidTransitionError) Error() string {
+	return fmt.Sprintf("invalid transition: cannot go from %s to %s", e.oldStatus, e.newStatus)
+}
+
+// isValidTransition holds the domain logic for which status changes are allowed.
+func isValidTransition(oldStatus, newStatus TaskStatus) bool {
+	// Example rules:
+	// - We allow IN_PROGRESS -> COMPLETED, IN_PROGRESS -> FAILED, STALE -> COMPLETED, etc.
+	// - We disallow COMPLETED -> IN_PROGRESS, COMPLETED -> STALE, FAILED -> IN_PROGRESS, etc.
+	// This is entirely your domain’s choice—below is just an example.
+
+	switch oldStatus {
+	case TaskStatusInProgress, TaskStatusStale:
+		// Allowed new states: Completed, Failed, or remain InProgress/Stale
+		return newStatus == TaskStatusInProgress ||
+			newStatus == TaskStatusStale ||
+			newStatus == TaskStatusCompleted ||
+			newStatus == TaskStatusFailed
+
+	case TaskStatusCompleted:
+		// Once completed, do not allow going back to in-progress or stale.
+		return newStatus == TaskStatusCompleted
+
+	case TaskStatusFailed:
+		// Once failed, the task must remain failed.
+		return newStatus == TaskStatusFailed
 	}
 
-	j.metrics.UpdateTaskCounts(completed, failed)
+	// If you have more statuses, handle them here.
+	return true
+}
 
-	switch {
-	case completed+failed == len(j.tasks) && len(j.tasks) > 0:
-		if failed == len(j.tasks) {
+// updateJobStatusLocked recalculates job status based on current metrics.
+// Must be called while holding j.mu.
+func (j *Job) updateJobStatusLocked() {
+	total := j.metrics.TotalTasks()
+	completed := j.metrics.CompletedTasks()
+	failed := j.metrics.FailedTasks()
+	inProgress := j.metrics.InProgressTasks()
+
+	// If all tasks are in a terminal state (completed or failed).
+	if completed+failed == total && total > 0 {
+		if failed == total {
 			j.status = JobStatusFailed
-			j.timeline.MarkCompleted()
 		} else {
 			j.status = JobStatusCompleted
-			j.timeline.MarkCompleted()
 		}
-	case inProgress > 0 || completed > 0 || failed > 0:
+	} else if inProgress > 0 || (completed+failed > 0) {
+		// At least one task is in progress, or some have completed/failed, so job is running.
 		j.status = JobStatusRunning
-	default:
+	} else {
+		// No tasks or no progress -> job stays queued.
 		j.status = JobStatusQueued
 	}
+	j.timeline.UpdateLastUpdate()
 }
 
 // GetAllTaskSummaries returns summaries for all tasks in this job.

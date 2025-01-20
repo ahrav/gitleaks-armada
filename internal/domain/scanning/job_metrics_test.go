@@ -180,6 +180,8 @@ func TestJobMetrics_CompletionPercentage(t *testing.T) {
 }
 
 func TestJobMetrics_Getters(t *testing.T) {
+	t.Parallel()
+
 	metrics := NewJobMetrics()
 
 	metrics.SetTotalTasks(10)
@@ -188,4 +190,113 @@ func TestJobMetrics_Getters(t *testing.T) {
 	assert.Equal(t, 10, metrics.TotalTasks())
 	assert.Equal(t, 5, metrics.CompletedTasks())
 	assert.Equal(t, 2, metrics.FailedTasks())
+}
+
+func TestJobMetrics_OnTaskAdded(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name               string
+		status             TaskStatus
+		expectedTotal      int
+		expectedInProgress int
+		expectedCompleted  int
+		expectedFailed     int
+	}{
+		{
+			name:               "Add IN_PROGRESS",
+			status:             TaskStatusInProgress,
+			expectedTotal:      1,
+			expectedInProgress: 1,
+			expectedCompleted:  0,
+			expectedFailed:     0,
+		},
+		{
+			name:               "Add COMPLETED",
+			status:             TaskStatusCompleted,
+			expectedTotal:      1,
+			expectedInProgress: 0,
+			expectedCompleted:  1,
+			expectedFailed:     0,
+		},
+		{
+			name:               "Add FAILED",
+			status:             TaskStatusFailed,
+			expectedTotal:      1,
+			expectedInProgress: 0,
+			expectedCompleted:  0,
+			expectedFailed:     1,
+		},
+		{
+			name:               "Add STALE",
+			status:             TaskStatusStale,
+			expectedTotal:      1,
+			expectedInProgress: 1,
+			expectedCompleted:  0,
+			expectedFailed:     0,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			m := NewJobMetrics()
+
+			m.OnTaskAdded(tc.status)
+
+			assert.Equal(t, tc.expectedTotal, m.TotalTasks())
+			assert.Equal(t, tc.expectedInProgress, m.InProgressTasks())
+			assert.Equal(t, tc.expectedCompleted, m.CompletedTasks())
+			assert.Equal(t, tc.expectedFailed, m.FailedTasks())
+		})
+	}
+}
+
+func TestJobMetrics_OnTaskStatusChanged(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name               string
+		oldStatus          TaskStatus
+		newStatus          TaskStatus
+		setupIncrements    []TaskStatus // optional statuses to call OnTaskAdded first
+		expectedTotal      int
+		expectedInProgress int
+		expectedCompleted  int
+		expectedFailed     int
+	}{
+		{
+			name:      "IN_PROGRESS -> COMPLETED",
+			oldStatus: TaskStatusInProgress,
+			newStatus: TaskStatusCompleted,
+			setupIncrements: []TaskStatus{
+				TaskStatusInProgress, // create 1 existing in-progress
+			},
+			expectedTotal:      1,
+			expectedInProgress: 0,
+			expectedCompleted:  1,
+			expectedFailed:     0,
+		},
+		// add more transitions ...
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			m := NewJobMetrics()
+
+			for _, s := range tc.setupIncrements {
+				m.OnTaskAdded(s)
+			}
+
+			m.OnTaskStatusChanged(tc.oldStatus, tc.newStatus)
+
+			assert.Equal(t, tc.expectedTotal, m.TotalTasks())
+			assert.Equal(t, tc.expectedInProgress, m.InProgressTasks())
+			assert.Equal(t, tc.expectedCompleted, m.CompletedTasks())
+			assert.Equal(t, tc.expectedFailed, m.FailedTasks())
+		})
+	}
 }

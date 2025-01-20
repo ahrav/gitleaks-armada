@@ -2,9 +2,10 @@ package scanning
 
 // JobMetrics tracks quantitative measures for a scan job.
 type JobMetrics struct {
-	totalTasks     int
-	completedTasks int
-	failedTasks    int
+	totalTasks      int
+	inProgressTasks int
+	completedTasks  int
+	failedTasks     int
 }
 
 // NewJobMetrics creates a new JobMetrics instance.
@@ -30,6 +31,57 @@ func (m *JobMetrics) FailedTasks() int { return m.failedTasks }
 
 // SetTotalTasks updates the total number of tasks.
 func (m *JobMetrics) SetTotalTasks(total int) { m.totalTasks = total }
+
+// InProgressTasks returns the number of in progress tasks.
+func (m *JobMetrics) InProgressTasks() int { return m.inProgressTasks }
+
+// OnTaskAdded updates metrics for a newly created task with the given status.
+func (m *JobMetrics) OnTaskAdded(status TaskStatus) {
+	m.totalTasks++
+	switch status {
+	case TaskStatusInProgress, TaskStatusStale:
+		m.inProgressTasks++
+	case TaskStatusCompleted:
+		m.completedTasks++
+	case TaskStatusFailed:
+		m.failedTasks++
+	}
+}
+
+// OnTaskRemoved updates metrics if a task was removed entirely from the job.
+func (m *JobMetrics) OnTaskRemoved(status TaskStatus) {
+	m.totalTasks--
+	switch status {
+	case TaskStatusInProgress, TaskStatusStale:
+		m.inProgressTasks--
+	case TaskStatusCompleted:
+		m.completedTasks--
+	case TaskStatusFailed:
+		m.failedTasks--
+	}
+}
+
+// OnTaskStatusChanged updates metrics after a task changes from oldStatus to newStatus.
+func (m *JobMetrics) OnTaskStatusChanged(oldStatus, newStatus TaskStatus) {
+	// Decrement old
+	switch oldStatus {
+	case TaskStatusInProgress, TaskStatusStale:
+		m.inProgressTasks--
+	case TaskStatusCompleted:
+		m.completedTasks--
+	case TaskStatusFailed:
+		m.failedTasks--
+	}
+	// Increment new
+	switch newStatus {
+	case TaskStatusInProgress, TaskStatusStale:
+		m.inProgressTasks++
+	case TaskStatusCompleted:
+		m.completedTasks++
+	case TaskStatusFailed:
+		m.failedTasks++
+	}
+}
 
 // UpdateTaskCounts updates the completed and failed task counts.
 func (m *JobMetrics) UpdateTaskCounts(completed, failed int) {
