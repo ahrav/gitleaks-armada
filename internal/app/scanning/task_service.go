@@ -43,6 +43,7 @@ type ScanTaskService interface {
 // TaskService orchestrates task operations by coordinating between domain services,
 // repositories, caching, and concurrency controls.
 type TaskService struct {
+	// TODO: consider using an actual cache.
 	// tasksCache provides in-memory caching of active tasks to reduce database load.
 	mu         sync.RWMutex
 	tasksCache map[uuid.UUID]*domain.Task
@@ -86,17 +87,13 @@ func (s *TaskService) StartTask(ctx context.Context, jobID, taskID uuid.UUID) (*
 		))
 	defer span.End()
 
-	s.mu.RLock()
-	_, exists := s.tasksCache[taskID]
-	s.mu.RUnlock()
-	if exists {
+	if _, exists := s.lookupTaskInCache(ctx, taskID); exists {
 		span.AddEvent("task_already_exists")
 		span.SetStatus(codes.Error, "task already exists")
 		return nil, fmt.Errorf("task %s already exists", taskID)
 	}
 
 	newTask := domain.NewScanTask(jobID, taskID)
-
 	if err := s.taskRepo.CreateTask(ctx, newTask); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to persist new task")
@@ -125,23 +122,12 @@ func (s *TaskService) UpdateProgress(ctx context.Context, progress domain.Progre
 		))
 	defer span.End()
 
-	s.mu.RLock()
-	task, isCached := s.tasksCache[progress.TaskID()]
-	s.mu.RUnlock()
-	span.AddEvent("task_cached", trace.WithAttributes(attribute.Bool("is_cached", isCached)))
-
-	if !isCached {
-		var err error
-		task, err = s.loadTask(ctx, progress.TaskID())
-		if err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "failed to get task")
-			return nil, fmt.Errorf("failed to get task: %w", err)
-		}
+	task, err := s.loadTask(ctx, progress.TaskID())
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to get task")
+		return nil, fmt.Errorf("failed to get task: %w", err)
 	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	if err := task.ApplyProgress(progress); err != nil {
 		span.RecordError(err)
@@ -149,8 +135,6 @@ func (s *TaskService) UpdateProgress(ctx context.Context, progress domain.Progre
 		return nil, fmt.Errorf("failed to apply progress update: %w", err)
 	}
 	span.AddEvent("progress_applied")
-
-	s.tasksCache[progress.TaskID()] = task
 
 	shouldPersist := time.Since(task.LastUpdateTime()) >= s.persistInterval
 	if shouldPersist {
@@ -167,10 +151,31 @@ func (s *TaskService) UpdateProgress(ctx context.Context, progress domain.Progre
 	return task, nil
 }
 
+// lookupTaskInCache retrieves a task from the cache if it exists.
+// Returns the task and a boolean indicating if it was found.
+func (s *TaskService) lookupTaskInCache(ctx context.Context, taskID uuid.UUID) (*domain.Task, bool) {
+	ctx, span := s.tracer.Start(ctx, "task_service.scanning.lookup_task_cache")
+	defer span.End()
+
+	s.mu.RLock()
+	task, exists := s.tasksCache[taskID]
+	s.mu.RUnlock()
+
+	span.AddEvent("cache_lookup_complete", trace.WithAttributes(
+		attribute.Bool("found_in_cache", exists),
+	))
+	return task, exists
+}
+
 // loadTask retrieves a task from storage and adds it to the cache.
 func (s *TaskService) loadTask(ctx context.Context, taskID uuid.UUID) (*domain.Task, error) {
 	ctx, span := s.tracer.Start(ctx, "task_service.scanning.load_task")
 	defer span.End()
+
+	if task, exists := s.lookupTaskInCache(ctx, taskID); exists {
+		span.AddEvent("task_loaded_from_cache")
+		return task, nil
+	}
 
 	task, err := s.taskRepo.GetTask(ctx, taskID)
 	if err != nil {
