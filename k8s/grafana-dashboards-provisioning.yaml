@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards-provisioning
+  namespace: secret-scanner
+data:
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: 'Secret Scanner Dashboards'
+        type: file
+        folder: ''
+        disableDeletion: false
+        editable: true
+        allowUiUpdates: true
+        options:
+          path: /etc/grafana/dashboards

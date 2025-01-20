@@ -16,10 +16,7 @@ data:
       "liveNow": false,
       "panels": [
         {
-          "datasource": {
-            "type": "loki",
-            "uid": "loki"
-          },
+          "datasource": "Loki",
           "gridPos": {
             "h": 8,
             "w": 24,

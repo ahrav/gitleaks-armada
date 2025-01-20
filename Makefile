@@ -99,6 +99,7 @@ dev-apply:
 	kubectl apply -f $(K8S_MANIFESTS)/tempo.yaml -n $(NAMESPACE)
 	kubectl apply -f $(K8S_MANIFESTS)/grafana.yaml -n $(NAMESPACE)
 	kubectl apply -f $(K8S_MANIFESTS)/grafana-dashboards.yaml -n $(NAMESPACE)
+	kubectl apply -f $(K8S_MANIFESTS)/grafana-dashboards-provisioning.yaml -n $(NAMESPACE)
 	kubectl apply -f $(K8S_MANIFESTS)/loki.yaml -n $(NAMESPACE)
 	kubectl apply -f $(K8S_MANIFESTS)/promtail.yaml -n $(NAMESPACE)
 
@@ -317,6 +318,7 @@ monitoring-setup:
 	kubectl apply -f $(K8S_MANIFESTS)/tempo.yaml -n $(NAMESPACE)
 	kubectl apply -f $(K8S_MANIFESTS)/grafana.yaml -n $(NAMESPACE)
 	kubectl apply -f $(K8S_MANIFESTS)/grafana-dashboards.yaml -n $(NAMESPACE)
+	kubectl apply -f $(K8S_MANIFESTS)/grafana-dashboards-provisioning.yaml -n $(NAMESPACE)
 	kubectl apply -f $(K8S_MANIFESTS)/loki.yaml -n $(NAMESPACE)
 	kubectl apply -f $(K8S_MANIFESTS)/promtail.yaml -n $(NAMESPACE)
 	@echo "Waiting for monitoring services to be ready..."
@@ -352,6 +354,7 @@ monitoring-cleanup:
 	kubectl delete -f $(K8S_MANIFESTS)/tempo.yaml -n $(NAMESPACE) || true
 	kubectl delete -f $(K8S_MANIFESTS)/grafana.yaml -n $(NAMESPACE) || true
 	kubectl delete -f $(K8S_MANIFESTS)/grafana-dashboards.yaml -n $(NAMESPACE) || true
+	kubectl delete -f $(K8S_MANIFESTS)/grafana-dashboards-provisioning.yaml -n $(NAMESPACE) || true
 	kubectl delete -f $(K8S_MANIFESTS)/loki.yaml -n $(NAMESPACE) || true
 	kubectl delete -f $(K8S_MANIFESTS)/promtail.yaml -n $(NAMESPACE) || true
 
@@ -446,12 +449,21 @@ tempo-restart:
 # Individual monitoring service restart targets
 grafana-restart:
 	kubectl rollout restart deployment/grafana -n $(NAMESPACE)
+	kubectl apply -f $(K8S_MANIFESTS)/grafana-dashboards.yaml -n $(NAMESPACE)
+	kubectl apply -f $(K8S_MANIFESTS)/grafana-dashboards-provisioning.yaml -n $(NAMESPACE)
 
 prometheus-restart:
 	kubectl rollout restart deployment/prometheus -n $(NAMESPACE)
 
+loki-restart:
+	kubectl rollout restart deployment/loki -n $(NAMESPACE)
+
+promtail-restart:
+	kubectl rollout restart deployment/promtail -n $(NAMESPACE)
+
 # Restart all monitoring services
-monitoring-restart: tempo-restart grafana-restart prometheus-restart otel-restart
+monitoring-restart: tempo-restart grafana-restart prometheus-restart otel-restart loki-restart promtail-restart
+
 	@echo "All monitoring services restarted"
 
 # Restart everything (monitoring + application)
