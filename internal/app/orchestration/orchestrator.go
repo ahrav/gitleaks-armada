@@ -48,7 +48,7 @@ type Orchestrator struct {
 	jobService         scan.ScanJobService
 	stateRepo          enumeration.StateRepository
 
-	dispatcher *eventdispatcher.EventDispatcher
+	dispatcher *eventdispatcher.Dispatcher
 
 	// mu protects running and cancelFn state
 	mu       sync.Mutex
@@ -123,7 +123,7 @@ func NewOrchestrator(
 	)
 
 	eventsFacilitator := NewEventsFacilitator(progressTracker, rulesService, tracer)
-	dispatcher := eventdispatcher.NewEventDispatcher(tracer)
+	dispatcher := eventdispatcher.New(tracer)
 	dispatcher.RegisterHandler(scanning.EventTypeTaskStarted, eventsFacilitator.HandleTaskStarted)
 	dispatcher.RegisterHandler(scanning.EventTypeTaskProgressed, eventsFacilitator.HandleTaskProgressed)
 	dispatcher.RegisterHandler(scanning.EventTypeTaskCompleted, eventsFacilitator.HandleTaskCompleted)

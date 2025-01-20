@@ -15,7 +15,7 @@ import (
 // EventHandler is a function type that processes an event given its context.
 type EventHandler func(context.Context, events.EventEnvelope) error
 
-// EventDispatcher manages an event-handler registry and handles event dispatching.
+// Dispatcher manages an event-handler registry and handles event dispatching.
 // It creates a trace span for each dispatched event, looks up the corresponding
 // handler, and invokes it. If no handler is found or the handler encounters an error,
 // the dispatcher records the error on the span and returns it to the caller.
@@ -26,17 +26,17 @@ type EventHandler func(context.Context, events.EventEnvelope) error
 //	dispatcher.RegisterHandler(events.EventTypeXYZ, myHandlerFunc)
 //	...
 //	err := dispatcher.Dispatch(ctx, someEnvelope)
-type EventDispatcher struct {
+type Dispatcher struct {
 	mu       sync.RWMutex
 	handlers map[events.EventType]EventHandler
 	tracer   trace.Tracer
 }
 
-// NewEventDispatcher constructs a new EventDispatcher that uses the provided tracer
+// New constructs a new EventDispatcher that uses the provided tracer
 // for instrumentation. The dispatcher starts with an empty registry; handlers must
 // be registered before Dispatching any events.
-func NewEventDispatcher(tracer trace.Tracer) *EventDispatcher {
-	return &EventDispatcher{
+func New(tracer trace.Tracer) *Dispatcher {
+	return &Dispatcher{
 		handlers: make(map[events.EventType]EventHandler),
 		tracer:   tracer,
 	}
@@ -46,7 +46,7 @@ func NewEventDispatcher(tracer trace.Tracer) *EventDispatcher {
 // If a handler is already registered for this event type, it will be overwritten.
 //
 // This method is safe to call concurrently.
-func (d *EventDispatcher) RegisterHandler(eventType events.EventType, handler EventHandler) {
+func (d *Dispatcher) RegisterHandler(eventType events.EventType, handler EventHandler) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.handlers[eventType] = handler
@@ -65,7 +65,7 @@ func (d *EventDispatcher) RegisterHandler(eventType events.EventType, handler Ev
 //	if err != nil {
 //	    // handle or log error
 //	}
-func (d *EventDispatcher) Dispatch(ctx context.Context, evt events.EventEnvelope) error {
+func (d *Dispatcher) Dispatch(ctx context.Context, evt events.EventEnvelope) error {
 	// Start a tracing span that includes the event type as an attribute.
 	ctx, span := d.tracer.Start(ctx, "event_dispatcher.handle_event",
 		trace.WithAttributes(
