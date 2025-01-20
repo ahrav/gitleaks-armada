@@ -92,6 +92,91 @@ func TestAddTask(t *testing.T) {
 	}
 }
 
+func TestAddTask_MultipleTasks(t *testing.T) {
+	t.Parallel()
+
+	type testCase struct {
+		name               string
+		existingTasks      []TaskStatus // tasks to add first
+		newTaskStatus      TaskStatus   // status of the newly added task
+		expectedTotal      int
+		expectedInProgress int
+		expectedCompleted  int
+		expectedFailed     int
+		expectedJobStatus  JobStatus
+	}
+
+	tests := []testCase{
+		{
+			name:               "Add second IN_PROGRESS when one FAILED already exists",
+			existingTasks:      []TaskStatus{TaskStatusFailed},
+			newTaskStatus:      TaskStatusInProgress,
+			expectedTotal:      2,
+			expectedInProgress: 1,
+			expectedCompleted:  0,
+			expectedFailed:     1,
+			// Not all tasks are in terminal states => job is RUNNING
+			expectedJobStatus: JobStatusRunning,
+		},
+		{
+			name:          "Add a COMPLETED task when one is IN_PROGRESS, one is FAILED",
+			existingTasks: []TaskStatus{TaskStatusInProgress, TaskStatusFailed},
+			newTaskStatus: TaskStatusCompleted,
+			// So final total=3, inprogress=1, completed=1, failed=1 => job is RUNNING
+			expectedTotal:      3,
+			expectedInProgress: 1,
+			expectedCompleted:  1,
+			expectedFailed:     1,
+			expectedJobStatus:  JobStatusRunning,
+		},
+		{
+			name:               "All tasks FAILED, adding another FAILED => job stays FAILED or becomes FAILED (depending on logic)",
+			existingTasks:      []TaskStatus{TaskStatusFailed, TaskStatusFailed},
+			newTaskStatus:      TaskStatusFailed,
+			expectedTotal:      3,
+			expectedInProgress: 0,
+			expectedCompleted:  0,
+			expectedFailed:     3,
+			// If all tasks are failed => job is FAILED
+			expectedJobStatus: JobStatusFailed,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			job := NewJob()
+
+			for _, status := range tc.existingTasks {
+				task := &Task{
+					CoreTask: shared.CoreTask{ID: uuid.New()},
+					status:   status,
+				}
+				err := job.AddTask(task)
+				require.NoError(t, err)
+			}
+
+			newTask := &Task{
+				CoreTask: shared.CoreTask{ID: uuid.New()},
+				status:   tc.newTaskStatus,
+			}
+			err := job.AddTask(newTask)
+			require.NoError(t, err)
+
+			// Verify the metrics.
+			metrics := job.Metrics()
+			require.Equal(t, tc.expectedTotal, metrics.TotalTasks())
+			require.Equal(t, tc.expectedInProgress, metrics.InProgressTasks())
+			require.Equal(t, tc.expectedCompleted, metrics.CompletedTasks())
+			require.Equal(t, tc.expectedFailed, metrics.FailedTasks())
+
+			// Verify the job's final status.
+			require.Equal(t, tc.expectedJobStatus, job.Status())
+		})
+	}
+}
+
 func TestUpdateTask(t *testing.T) {
 	t.Parallel()
 
@@ -198,6 +283,90 @@ func TestUpdateTask(t *testing.T) {
 			require.Equal(t, tc.expectedFailed, metrics.FailedTasks(), "Failed mismatch")
 
 			require.Equal(t, tc.expectedJobStatus, job.Status(), "Job status mismatch")
+		})
+	}
+}
+
+func TestUpdateTask_MultipleTasks(t *testing.T) {
+	t.Parallel()
+
+	type testCase struct {
+		name                 string
+		existingTaskStatuses []TaskStatus // statuses for the tasks we pre-load
+		taskToChangeIndex    int          // which of those tasks to update
+		newStatus            TaskStatus   // the new status for that one task
+		expectedInProgress   int
+		expectedCompleted    int
+		expectedFailed       int
+		expectedJobStatus    JobStatus
+	}
+
+	tests := []testCase{
+		{
+			name:                 "Update one of three tasks from IN_PROGRESS -> COMPLETED",
+			existingTaskStatuses: []TaskStatus{TaskStatusInProgress, TaskStatusFailed, TaskStatusCompleted},
+			taskToChangeIndex:    0, // the first one
+			newStatus:            TaskStatusCompleted,
+			// We start with total=3 => inprogress=1, failed=1, completed=1 => job=RUNNING
+			// After updating the first from IN_PROGRESS->COMPLETED => inprogress=0, completed=2, failed=1 => total=3
+			// Because not all are failed or completed (some are failed, some are completed, but there's no in-progress left),
+			// this might mark job as COMPLETED if your logic says "completed+failed == total => if failed < total => COMPLETED".
+			// Let's see the standard snippet: that means job is COMPLETED because (2 completed + 1 failed) == 3 total, and not all are failed => job=COMPLETED
+			expectedInProgress: 0,
+			expectedCompleted:  2,
+			expectedFailed:     1,
+			expectedJobStatus:  JobStatusCompleted,
+		},
+		{
+			name:                 "Update one STALE -> FAILED when multiple tasks exist",
+			existingTaskStatuses: []TaskStatus{TaskStatusStale, TaskStatusCompleted, TaskStatusInProgress},
+			taskToChangeIndex:    0, // the STALE one
+			newStatus:            TaskStatusFailed,
+			// Start: total=3 => inprogress=2 (STALE + IN_PROGRESS), completed=1, failed=0
+			// After STALE->FAILED => inprogress=1, failed=1, completed=1 => total=3 => job=RUNNING
+			// Not all tasks are terminal states => job=RUNNING
+			expectedInProgress: 1,
+			expectedCompleted:  1,
+			expectedFailed:     1,
+			expectedJobStatus:  JobStatusRunning,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			job := NewJob()
+
+			// Add the existing tasks.
+			var tasks []Task
+			for _, st := range tc.existingTaskStatuses {
+				tasks = append(tasks, Task{
+					CoreTask: shared.CoreTask{ID: uuid.New()},
+					status:   st,
+				})
+			}
+			for i := range tasks {
+				err := job.AddTask(&tasks[i])
+				require.NoError(t, err)
+			}
+
+			//  Now update the chosen task.
+			oldTask := tasks[tc.taskToChangeIndex]
+			updatedTask := Task{
+				CoreTask: shared.CoreTask{ID: oldTask.ID},
+				status:   tc.newStatus,
+			}
+
+			err := job.UpdateTask(&updatedTask)
+			require.NoError(t, err)
+
+			metrics := job.Metrics()
+			require.Equal(t, len(tc.existingTaskStatuses), metrics.TotalTasks(), "Total tasks mismatch")
+			require.Equal(t, tc.expectedInProgress, metrics.InProgressTasks())
+			require.Equal(t, tc.expectedCompleted, metrics.CompletedTasks())
+			require.Equal(t, tc.expectedFailed, metrics.FailedTasks())
+			require.Equal(t, tc.expectedJobStatus, job.Status())
 		})
 	}
 }

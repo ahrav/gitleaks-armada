@@ -195,45 +195,65 @@ func TestJobMetrics_Getters(t *testing.T) {
 func TestJobMetrics_OnTaskAdded(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
+	type testCase struct {
 		name               string
-		status             TaskStatus
+		statusesToAdd      []TaskStatus
 		expectedTotal      int
 		expectedInProgress int
 		expectedCompleted  int
 		expectedFailed     int
-	}{
+	}
+
+	tests := []testCase{
 		{
-			name:               "Add IN_PROGRESS",
-			status:             TaskStatusInProgress,
+			name:               "Single IN_PROGRESS",
+			statusesToAdd:      []TaskStatus{TaskStatusInProgress},
 			expectedTotal:      1,
 			expectedInProgress: 1,
 			expectedCompleted:  0,
 			expectedFailed:     0,
 		},
 		{
-			name:               "Add COMPLETED",
-			status:             TaskStatusCompleted,
+			name:               "Single COMPLETED",
+			statusesToAdd:      []TaskStatus{TaskStatusCompleted},
 			expectedTotal:      1,
 			expectedInProgress: 0,
 			expectedCompleted:  1,
 			expectedFailed:     0,
 		},
 		{
-			name:               "Add FAILED",
-			status:             TaskStatusFailed,
+			name:               "Single FAILED",
+			statusesToAdd:      []TaskStatus{TaskStatusFailed},
 			expectedTotal:      1,
 			expectedInProgress: 0,
 			expectedCompleted:  0,
 			expectedFailed:     1,
 		},
 		{
-			name:               "Add STALE",
-			status:             TaskStatusStale,
+			name:               "Single STALE",
+			statusesToAdd:      []TaskStatus{TaskStatusStale},
 			expectedTotal:      1,
 			expectedInProgress: 1,
 			expectedCompleted:  0,
 			expectedFailed:     0,
+		},
+		{
+			name: "Multiple Mixed",
+			statusesToAdd: []TaskStatus{
+				TaskStatusInProgress,
+				TaskStatusInProgress,
+				TaskStatusCompleted,
+				TaskStatusFailed,
+				TaskStatusStale,
+			},
+			// total = 5
+			// in-progress = 3 (two IN_PROGRESS + one STALE)
+			// completed = 1
+			// failed = 1
+			expectedTotal:      5,
+			expectedInProgress: 3,
+			expectedCompleted:  1,
+			expectedFailed:     1,
 		},
 	}
 
@@ -243,7 +263,9 @@ func TestJobMetrics_OnTaskAdded(t *testing.T) {
 
 			m := NewJobMetrics()
 
-			m.OnTaskAdded(tc.status)
+			for _, status := range tc.statusesToAdd {
+				m.OnTaskAdded(status)
+			}
 
 			assert.Equal(t, tc.expectedTotal, m.TotalTasks())
 			assert.Equal(t, tc.expectedInProgress, m.InProgressTasks())
@@ -256,29 +278,76 @@ func TestJobMetrics_OnTaskAdded(t *testing.T) {
 func TestJobMetrics_OnTaskStatusChanged(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
+	type testCase struct {
 		name               string
+		setupStatuses      []TaskStatus // tasks to add before we do the change
 		oldStatus          TaskStatus
 		newStatus          TaskStatus
-		setupIncrements    []TaskStatus // optional statuses to call OnTaskAdded first
 		expectedTotal      int
 		expectedInProgress int
 		expectedCompleted  int
 		expectedFailed     int
-	}{
+	}
+
+	tests := []testCase{
 		{
-			name:      "IN_PROGRESS -> COMPLETED",
-			oldStatus: TaskStatusInProgress,
-			newStatus: TaskStatusCompleted,
-			setupIncrements: []TaskStatus{
-				TaskStatusInProgress, // create 1 existing in-progress
-			},
+			name:          "IN_PROGRESS -> COMPLETED (single task)",
+			setupStatuses: []TaskStatus{TaskStatusInProgress},
+			oldStatus:     TaskStatusInProgress,
+			newStatus:     TaskStatusCompleted,
+			// Initially: total=1, inprogress=1, completed=0, failed=0
+			// After transition: inprogress=0, completed=1
 			expectedTotal:      1,
 			expectedInProgress: 0,
 			expectedCompleted:  1,
 			expectedFailed:     0,
 		},
-		// add more transitions ...
+		{
+			name: "Multiple Tasks, transition one from STALE->FAILED",
+			setupStatuses: []TaskStatus{
+				TaskStatusInProgress,
+				TaskStatusCompleted,
+				TaskStatusStale, // We'll change this one
+				TaskStatusFailed,
+			},
+			oldStatus: TaskStatusStale,
+			newStatus: TaskStatusFailed,
+			// Setup:
+			// total=4
+			// inprogress=2 (IN_PROGRESS + STALE)
+			// completed=1
+			// failed=1
+			// Then STALE->FAILED => inprogress=1, failed=2
+			// (The stale was 1, so that decrements inprogress by 1, increments failed by 1)
+			// Final:
+			// total=4, inprogress=1, completed=1, failed=2
+			expectedTotal:      4,
+			expectedInProgress: 1,
+			expectedCompleted:  1,
+			expectedFailed:     2,
+		},
+		{
+			name: "Multiple Tasks, transition an IN_PROGRESS to COMPLETED",
+			setupStatuses: []TaskStatus{
+				TaskStatusInProgress,
+				TaskStatusInProgress,
+				TaskStatusCompleted,
+				TaskStatusFailed,
+				TaskStatusStale,
+			},
+			oldStatus: TaskStatusInProgress,
+			newStatus: TaskStatusCompleted,
+			// Setup:
+			// total=5,
+			// inprogress=3 (two IN_PROGRESS + one STALE),
+			// completed=1,
+			// failed=1
+			// After IN_PROGRESS->COMPLETED => inprogress=2, completed=2, failed=1
+			expectedTotal:      5,
+			expectedInProgress: 2,
+			expectedCompleted:  2,
+			expectedFailed:     1,
+		},
 	}
 
 	for _, tc := range tests {
@@ -287,12 +356,15 @@ func TestJobMetrics_OnTaskStatusChanged(t *testing.T) {
 
 			m := NewJobMetrics()
 
-			for _, s := range tc.setupIncrements {
+			// Seed the metrics with some tasks of various statuses.
+			for _, s := range tc.setupStatuses {
 				m.OnTaskAdded(s)
 			}
 
+			// Change one task from oldStatus -> newStatus.
 			m.OnTaskStatusChanged(tc.oldStatus, tc.newStatus)
 
+			// Verify final counters.
 			assert.Equal(t, tc.expectedTotal, m.TotalTasks())
 			assert.Equal(t, tc.expectedInProgress, m.InProgressTasks())
 			assert.Equal(t, tc.expectedCompleted, m.CompletedTasks())
