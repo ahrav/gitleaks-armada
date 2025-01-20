@@ -315,6 +315,7 @@ func (t *Task) updateProgress(progress Progress) {
 	t.progressDetails = progress.ProgressDetails()
 
 	// Update task status based on progress metrics
+	// TODO: This could be nice to have...
 	// if progress.ErrorCount() > someThreshold {
 	// 	t.status = TaskStatusFailed
 	// }
