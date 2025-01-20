@@ -325,8 +325,7 @@ func (s *ScannerService) doWorkerLoop(ctx context.Context, workerID int) {
 }
 
 // handleScanTask executes an individual scanning task.
-// TODO: Implement task state management through the repository.
-// TODO: Create |TaskStartedEvent| and then begin tracking progress (|TaskProgressedEvent|)
+// TODO: tracking progress (|TaskProgressedEvent|)
 func (s *ScannerService) handleScanTask(ctx context.Context, req *dtos.ScanRequest) error {
 	ctx, span := s.tracer.Start(ctx, "scanner_service.scanning.handle_scan_task",
 		trace.WithAttributes(
@@ -348,7 +347,7 @@ func (s *ScannerService) handleScanTask(ctx context.Context, req *dtos.ScanReque
 	}
 	span.AddEvent("task_started_event_published")
 
-	return s.metrics.TrackTask(ctx, func() error {
+	err := s.metrics.TrackTask(ctx, func() error {
 		if err := s.secretScanner.Scan(ctx, req, s.progressReporter); err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "failed to scan")
@@ -359,4 +358,21 @@ func (s *ScannerService) handleScanTask(ctx context.Context, req *dtos.ScanReque
 
 		return nil
 	})
+	if err != nil {
+		// TODO: Emit a |TaskFailedEvent|
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to track task")
+		return fmt.Errorf("failed to track task: %w", err)
+	}
+
+	completedEvt := scanning.NewTaskCompletedEvent(req.JobID, req.TaskID)
+	if err := s.domainPublisher.PublishDomainEvent(ctx, completedEvt); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to publish task completed event")
+		return fmt.Errorf("failed to publish task completed event: %w", err)
+	}
+	span.AddEvent("task_completed_event_published")
+	span.SetStatus(codes.Ok, "task completed")
+
+	return nil
 }

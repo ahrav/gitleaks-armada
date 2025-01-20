@@ -1,9 +1,15 @@
+// Package orchestration provides a distributed work coordination system that manages
+// scan jobs across a cluster of workers. It handles leader election, work distribution,
+// and maintains system-wide scanning state.
 package orchestration
 
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/signal"
 	"sync"
+	"syscall"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -20,6 +26,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/rules"
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
+	eventdispatcher "github.com/ahrav/gitleaks-armada/internal/infra/event_dispatcher"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
 
@@ -41,10 +48,7 @@ type Orchestrator struct {
 	jobService         scan.ScanJobService
 	stateRepo          enumeration.StateRepository
 
-	// eventHandlerRegistry maps event types to their corresponding handlers.
-	eventHandlerRegistry map[events.EventType]eventHandler
-
-	progressTracker scan.ProgressTracker
+	dispatcher *eventdispatcher.EventDispatcher
 
 	// mu protects running and cancelFn state
 	mu       sync.Mutex
@@ -56,21 +60,31 @@ type Orchestrator struct {
 	tracer  trace.Tracer
 }
 
-type eventHandler func(context.Context, events.EventEnvelope) error
-
-// NewOrchestrator creates a Orchestrator instance that coordinates work distribution
-// using the provided coordinator for leader election and broker for task queuing.
-// It requires several dependencies to handle different aspects of the system:
-//   - coordinator: Manages leader election across the cluster
-//   - queue: Distributes work items to workers
-//   - eventPublisher: Broadcasts domain events
-//   - enumerationService: Handles target scanning logic
-//   - rulesService: Manages scanning rules
-//   - stateRepo: Manages enumeration state
-//   - configLoader: Loads system configuration
-//   - logger: Structured logging
-//   - metrics: Runtime metrics collection
-//   - tracer: Distributed tracing
+// NewOrchestrator creates an Orchestrator instance that coordinates scanning operations
+// across a distributed cluster of workers. It implements the leader-follower pattern
+// where only one instance actively manages work distribution while others stand by as
+// hot backups.
+//
+// The constructor requires several dependencies to handle different aspects of the system:
+//
+//   - id: Unique identifier for this orchestrator instance in the cluster
+//   - coord: Implements leader election using distributed locks
+//   - queue: Reliable message queue for distributing work items
+//   - eventPublisher: Broadcasts domain events for system observability
+//   - enumerationService: Implements scanning logic and target discovery
+//   - rulesService: Manages scanning rules and their updates
+//   - jobService: Handles job lifecycle (creation, updates, completion)
+//   - taskService: Manages individual task execution and state
+//   - stateRepo: Persists enumeration state for crash recovery
+//   - cfgLoader: Loads system configuration dynamically
+//   - logger: Structured logging for debugging and audit trails
+//   - metrics: Runtime metrics for monitoring and alerting
+//   - tracer: Distributed tracing for request flow analysis
+//
+// The constructor sets up internal event handlers for:
+//   - Task lifecycle events (started, progressed, completed)
+//   - Rule updates and publishing events
+//   - Leadership change notifications
 func NewOrchestrator(
 	id string,
 	coord cluster.Coordinator,
@@ -79,12 +93,12 @@ func NewOrchestrator(
 	enumerationService enumCoordinator.Coordinator,
 	rulesService rulessvc.Service,
 	jobService scan.ScanJobService,
+	taskService scan.ScanTaskService,
 	stateRepo enumeration.StateRepository,
 	cfgLoader loaders.Loader,
 	logger *logger.Logger,
 	metrics OrchestrationMetrics,
 	tracer trace.Tracer,
-	progressTracker scan.ProgressTracker,
 ) *Orchestrator {
 	o := &Orchestrator{
 		id:                 id,
@@ -96,19 +110,27 @@ func NewOrchestrator(
 		jobService:         jobService,
 		stateRepo:          stateRepo,
 		cfgLoader:          cfgLoader,
-		progressTracker:    progressTracker,
 		metrics:            metrics,
 		logger:             logger,
 		tracer:             tracer,
 	}
 
-	o.eventHandlerRegistry = map[events.EventType]eventHandler{
-		rules.EventTypeRulesUpdated:      o.handleRule,
-		rules.EventTypeRulesPublished:    o.handleRulesPublished,
-		scanning.EventTypeTaskStarted:    o.handleTaskStarted,
-		scanning.EventTypeTaskProgressed: o.handleTaskProgressed,
-		// TODO: Add failures, stale tasks, completed tasks, etc.
-	}
+	progressTracker := scan.NewProgressTracker(
+		taskService,
+		jobService,
+		logger,
+		tracer,
+	)
+
+	eventsFacilitator := NewEventsFacilitator(progressTracker, rulesService, tracer)
+	dispatcher := eventdispatcher.NewEventDispatcher(tracer)
+	dispatcher.RegisterHandler(scanning.EventTypeTaskStarted, eventsFacilitator.HandleTaskStarted)
+	dispatcher.RegisterHandler(scanning.EventTypeTaskProgressed, eventsFacilitator.HandleTaskProgressed)
+	dispatcher.RegisterHandler(scanning.EventTypeTaskCompleted, eventsFacilitator.HandleTaskCompleted)
+	dispatcher.RegisterHandler(rules.EventTypeRulesUpdated, eventsFacilitator.HandleRule)
+	dispatcher.RegisterHandler(rules.EventTypeRulesPublished, eventsFacilitator.HandleRulesPublished)
+
+	o.dispatcher = dispatcher
 
 	return o
 }
@@ -124,7 +146,7 @@ func NewOrchestrator(
 //
 // Returns a channel that closes when initialization is complete, signaling readiness, and
 // any startup errors. Callers should wait for the ready signal before proceeding.
-func (o *Orchestrator) Run(ctx context.Context) (<-chan struct{}, error) {
+func (o *Orchestrator) Run(ctx context.Context) error {
 	runCtx, runSpan := o.tracer.Start(ctx, "orchestrator.run",
 		trace.WithAttributes(
 			attribute.String("component", "orchestrator"),
@@ -138,7 +160,7 @@ func (o *Orchestrator) Run(ctx context.Context) (<-chan struct{}, error) {
 	readyCh, leaderCh := o.makeOrchestrationChannels()
 
 	if err := o.subscribeToEvents(orchestratorCtx); err != nil {
-		return nil, err
+		return err
 	}
 
 	o.setupLeadershipCallback(orchestratorCtx, leaderCh)
@@ -146,10 +168,26 @@ func (o *Orchestrator) Run(ctx context.Context) (<-chan struct{}, error) {
 	go o.startLeadershipLoop(orchestratorCtx, ctx, leaderCh, readyCh)
 
 	if err := o.startCoordinator(orchestratorCtx); err != nil {
-		return nil, err
+		return err
 	}
 
-	return readyCh, nil
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sigCh)
+
+	// Wait for shutdown trigger or context cancellation.
+	select {
+	case <-ctx.Done():
+		o.logger.Info(orchestratorCtx, "Context cancelled, shutting down",
+			"orchestrator_id", o.id)
+		return ctx.Err()
+
+	case sig := <-sigCh:
+		o.logger.Info(orchestratorCtx, "Received shutdown signal",
+			"signal", sig,
+			"orchestrator_id", o.id)
+		return nil
+	}
 }
 
 // registerCancelFunc safely stores the cancellation function under lock.
@@ -175,7 +213,7 @@ func (o *Orchestrator) subscribeToEvents(ctx context.Context) error {
 		))
 	defer subSpan.End()
 
-	events := []events.EventType{
+	eventTypes := []events.EventType{
 		rules.EventTypeRulesUpdated,
 		rules.EventTypeRulesPublished,
 		scanning.EventTypeTaskStarted,
@@ -186,8 +224,10 @@ func (o *Orchestrator) subscribeToEvents(ctx context.Context) error {
 
 	if err := o.eventBus.Subscribe(
 		subCtx,
-		events,
-		o.handleEvent,
+		eventTypes,
+		func(ctx context.Context, evt events.EventEnvelope) error {
+			return o.dispatcher.Dispatch(ctx, evt)
+		},
 	); err != nil {
 		subSpan.RecordError(err)
 		subSpan.SetStatus(codes.Error, "failed to subscribe to progress events")
@@ -195,75 +235,6 @@ func (o *Orchestrator) subscribeToEvents(ctx context.Context) error {
 	}
 
 	subSpan.AddEvent("subscribed_to_events")
-	return nil
-}
-
-func (o *Orchestrator) handleEvent(ctx context.Context, evt events.EventEnvelope) error {
-	ctx, span := o.tracer.Start(ctx, "orchestrator.handle_event",
-		trace.WithAttributes(
-			attribute.String("event_type", string(evt.Type)),
-		))
-	defer span.End()
-
-	handler, exists := o.eventHandlerRegistry[evt.Type]
-	if !exists {
-		span.SetStatus(codes.Error, "no handler registered for event type")
-		span.RecordError(fmt.Errorf("no handler registered for event type: %s", evt.Type))
-		return fmt.Errorf("no handler registered for event type: %s", evt.Type)
-	}
-	span.AddEvent("handler_found")
-
-	return handler(ctx, evt)
-}
-
-func (o *Orchestrator) handleTaskStarted(ctx context.Context, evt events.EventEnvelope) error {
-	ctx, span := o.tracer.Start(ctx, "orchestrator.handle_task_started")
-	defer span.End()
-
-	span.AddEvent("processing_task_started")
-
-	startedEvt, ok := evt.Payload.(scanning.TaskStartedEvent)
-	if !ok {
-		span.RecordError(fmt.Errorf("invalid event payload type: %T", evt.Payload))
-		span.SetStatus(codes.Error, "invalid event payload type")
-		return fmt.Errorf("invalid event payload type: %T", evt.Payload)
-	}
-	span.AddEvent("task_started_tracking", trace.WithAttributes(
-		attribute.String("task_id", startedEvt.TaskID.String()),
-		attribute.String("job_id", startedEvt.JobID.String()),
-	))
-
-	if err := o.progressTracker.StartTracking(ctx, startedEvt); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to start tracking task")
-		return fmt.Errorf("failed to start tracking task: %w", err)
-	}
-	span.AddEvent("task_started_tracking_completed")
-
-	return nil
-}
-
-func (o *Orchestrator) handleTaskProgressed(ctx context.Context, evt events.EventEnvelope) error {
-	ctx, span := o.tracer.Start(ctx, "orchestrator.handle_task_progressed")
-	defer span.End()
-
-	span.AddEvent("processing_task_progressed")
-
-	progressEvt, ok := evt.Payload.(scanning.TaskProgressedEvent)
-	if !ok {
-		span.RecordError(fmt.Errorf("invalid event payload type: %T", evt.Payload))
-		span.SetStatus(codes.Error, "invalid event payload type")
-		return fmt.Errorf("invalid event payload type: %T", evt.Payload)
-	}
-	span.AddEvent("task_progressed_event_valid")
-
-	if err := o.progressTracker.UpdateProgress(ctx, progressEvt); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to update progress")
-		return fmt.Errorf("failed to update progress: %w", err)
-	}
-	span.AddEvent("task_progressed_event_updated")
-
 	return nil
 }
 

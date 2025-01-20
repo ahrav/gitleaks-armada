@@ -6,11 +6,9 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"os/signal"
 	"strconv"
 	"strings"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	"github.com/exaring/otelpgx"
@@ -253,15 +251,9 @@ func main() {
 		tracer,
 	)
 
-	progressTracker := scanning.NewProgressTracker(
-		scanTaskSvc,
-		scanJobSvc,
-		log,
-		tracer,
-	)
 	configLoader := fileloader.NewFileLoader("/etc/scanner/config/config.yaml")
 	rulesService := rules.NewService(rulesStore.NewStore(pool, tracer, metricCollector))
-	ctrl := orchestration.NewOrchestrator(
+	orchestrator := orchestration.NewOrchestrator(
 		hostname,
 		coord,
 		broker,
@@ -269,40 +261,21 @@ func main() {
 		enumCoord,
 		rulesService,
 		scanJobSvc,
+		scanTaskSvc,
 		enumStateStorage,
 		configLoader,
 		log,
 		metricCollector,
 		tracer,
-		progressTracker,
 	)
-	defer ctrl.Stop(ctx)
+	defer orchestrator.Stop(ctx)
 
-	log.Info(ctx, "Controller initialized")
-
+	log.Info(ctx, "Orchestrator initialized")
 	ready.Store(true)
 
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-
-	log.Info(ctx, "Starting controller...")
-	leaderChan, err := ctrl.Run(ctx)
-	if err != nil {
-		log.Error(ctx, "failed to run controller", "error", err)
+	if err := orchestrator.Run(ctx); err != nil {
+		log.Error(ctx, "failed to run orchestrator", "error", err)
 		os.Exit(1)
-	}
-
-	// Wait for shutdown signal or leadership.
-	select {
-	case <-leaderChan:
-		log.Info(ctx, "Leadership acquired, controller running...")
-		// Wait for shutdown signal
-		<-sigChan
-		log.Info(ctx, "Shutdown signal received, stopping controller...")
-	case <-sigChan:
-		log.Info(ctx, "Shutdown signal received before leadership, stopping...")
-	case <-ctx.Done():
-		log.Info(ctx, "Context cancelled, stopping controller...")
 	}
 }
 
