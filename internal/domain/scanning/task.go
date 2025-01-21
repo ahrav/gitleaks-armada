@@ -363,13 +363,14 @@ func (t *Task) Complete() error {
 		}
 	}
 
-	if t.itemsProcessed == 0 {
-		return TaskInvalidStateError{
-			taskID: t.ID,
-			status: t.status,
-			reason: TaskInvalidStateReasonNoProgress,
-		}
-	}
+	// TODO: Uncomment once progress is tracked in source scanners.
+	// if t.itemsProcessed == 0 {
+	// 	return TaskInvalidStateError{
+	// 		taskID: t.ID,
+	// 		status: t.status,
+	// 		reason: TaskInvalidStateReasonNoProgress,
+	// 	}
+	// }
 
 	t.status = TaskStatusCompleted
 	t.timeline.UpdateLastUpdate()

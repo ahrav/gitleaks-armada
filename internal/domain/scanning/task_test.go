@@ -225,13 +225,14 @@ func TestTask_Complete(t *testing.T) {
 			},
 			expectedReason: TaskInvalidStateReasonWrongStatus,
 		},
-		{
-			name: "no items processed",
-			setupTask: func(tp *mockTimeProvider) *Task {
-				return NewScanTask(uuid.New(), uuid.New(), WithTimeProvider(tp))
-			},
-			expectedReason: TaskInvalidStateReasonNoProgress,
-		},
+		// TODO: Uncomment once progress is tracked in source scanners.
+		// {
+		// 	name: "no items processed",
+		// 	setupTask: func(tp *mockTimeProvider) *Task {
+		// 		return NewScanTask(uuid.New(), uuid.New(), WithTimeProvider(tp))
+		// 	},
+		// 	expectedReason: TaskInvalidStateReasonNoProgress,
+		// },
 	}
 
 	for _, tt := range tests {
