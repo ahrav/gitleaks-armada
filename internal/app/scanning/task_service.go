@@ -30,6 +30,9 @@ type ScanTaskService interface {
 	// CompleteTask marks a task as completed.
 	CompleteTask(ctx context.Context, taskID uuid.UUID) (*domain.Task, error)
 
+	// FailTask marks a task as failed.
+	FailTask(ctx context.Context, taskID uuid.UUID) (*domain.Task, error)
+
 	// GetTask retrieves the current state of a specific task within a job.
 	// This allows external components to monitor task execution and handle failures.
 	GetTask(ctx context.Context, jobID, taskID uuid.UUID) (*domain.Task, error)
@@ -152,15 +155,15 @@ func (s *TaskService) StartTask(ctx context.Context, jobID, taskID uuid.UUID) (*
 		span.SetStatus(codes.Error, "failed to persist new task")
 		return nil, fmt.Errorf("failed to persist new task: %w", err)
 	}
-	span.AddEvent("new_task_created")
+	span.AddEvent("task_created")
 
 	s.mu.Lock()
 	s.tasksCache[taskID] = newTask
 	s.mu.Unlock()
-	span.AddEvent("new_task_cached")
+	span.AddEvent("task_cached")
 
-	span.AddEvent("new_task_started")
-	span.SetStatus(codes.Ok, "new task started")
+	span.AddEvent("task_started")
+	span.SetStatus(codes.Ok, "task started")
 
 	return newTask, nil
 }
@@ -183,8 +186,8 @@ func (s *TaskService) UpdateProgress(ctx context.Context, progress domain.Progre
 	task, err := s.loadTask(ctx, progress.TaskID())
 	if err != nil {
 		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to get task")
-		return nil, fmt.Errorf("failed to get task: %w", err)
+		span.SetStatus(codes.Error, "failed to load task")
+		return nil, fmt.Errorf("failed to load task: %w", err)
 	}
 
 	if err := task.ApplyProgress(progress); err != nil {
@@ -192,19 +195,19 @@ func (s *TaskService) UpdateProgress(ctx context.Context, progress domain.Progre
 		span.SetStatus(codes.Error, "failed to apply progress update")
 		return nil, fmt.Errorf("failed to apply progress update: %w", err)
 	}
-	span.AddEvent("progress_applied")
+	span.AddEvent("progress_update_applied")
 
 	shouldPersist := time.Since(task.LastUpdateTime()) >= s.persistInterval
 	if shouldPersist {
 		if err := s.taskRepo.UpdateTask(ctx, task); err != nil {
 			span.RecordError(err)
-			span.SetStatus(codes.Error, "failed to persist task update")
-			return nil, fmt.Errorf("failed to persist task update: %w", err)
+			span.SetStatus(codes.Error, "failed to persist progress update")
+			return nil, fmt.Errorf("failed to persist progress update: %w", err)
 		}
-		span.AddEvent("task_persisted")
+		span.AddEvent("progress_update_persisted")
 	}
-	span.AddEvent("task_update_complete")
-	span.SetStatus(codes.Ok, "task update complete")
+	span.AddEvent("progress_update_complete")
+	span.SetStatus(codes.Ok, "progress update complete")
 
 	return task, nil
 }
@@ -226,26 +229,59 @@ func (s *TaskService) CompleteTask(ctx context.Context, taskID uuid.UUID) (*doma
 	task, err := s.loadTask(ctx, taskID)
 	if err != nil {
 		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to get task")
+		span.SetStatus(codes.Error, "failed to load task")
 		return nil, err
 	}
 
 	if err := task.Complete(); err != nil {
 		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to complete task")
+		span.SetStatus(codes.Error, "failed to apply complete task")
 		return nil, err
 	}
-	span.AddEvent("task_completed")
+	span.AddEvent("complete_task_applied")
 
 	if err := s.taskRepo.UpdateTask(ctx, task); err != nil {
 		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to persist task update")
+		span.SetStatus(codes.Error, "failed to persist task completed")
 		return nil, err
 	}
-	span.AddEvent("task_persisted")
+	span.AddEvent("task_completed_persisted")
 	span.SetStatus(codes.Ok, "task completed")
 
 	return task, nil
+}
+
+// FailTask marks a task as failed
+func (s *TaskService) FailTask(ctx context.Context, taskID uuid.UUID) (*domain.Task, error) {
+	ctx, span := s.tracer.Start(ctx, "task_service.scanning.fail_task",
+		trace.WithAttributes(
+			attribute.String("task_id", taskID.String()),
+		))
+	defer span.End()
+
+	task, err := s.loadTask(ctx, taskID)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to load task")
+		return nil, err
+	}
+
+	if err := task.Fail(); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to apply fail task")
+		return nil, err
+	}
+	span.AddEvent("fail_task_applied")
+
+	if err := s.taskRepo.UpdateTask(ctx, task); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to persist fail task")
+		return nil, err
+	}
+	span.AddEvent("fail_task_persisted")
+	span.SetStatus(codes.Ok, "task failed")
+
+	return nil, nil
 }
 
 func (s *TaskService) GetTask(ctx context.Context, jobID uuid.UUID, taskID uuid.UUID) (*domain.Task, error) {

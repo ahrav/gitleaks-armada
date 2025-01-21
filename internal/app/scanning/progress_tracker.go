@@ -13,10 +13,11 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
 
-// ProgressTracker coordinates task and job progress monitoring across the system.
+// TaskProgressTracker primarily coordinates task progress monitoring across the system.
 // It provides a unified interface for tracking scan execution, enabling real-time
-// status updates and progress reporting for both individual tasks and overall jobs.
-type ProgressTracker interface {
+// status updates and progress reporting for individual tasks. Job status is
+// implicitly derived from the status of its associated tasks.
+type TaskProgressTracker interface {
 	// StartTracking begins monitoring a task's progress and notifies the job service.
 	// This establishes initial tracking state and ensures proper job status transitions.
 	StartTracking(ctx context.Context, evt scanning.TaskStartedEvent) error
@@ -29,8 +30,15 @@ type ProgressTracker interface {
 	// This ensures proper cleanup and job status updates when tasks finish.
 	StopTracking(ctx context.Context, evt scanning.TaskCompletedEvent) error
 
+	// FailTask marks a task as failed and notifies the job service.
+	FailTask(ctx context.Context, evt scanning.TaskFailedEvent) error
+
 	// GetJobProgress retrieves aggregated progress metrics for an entire job.
 	// This provides a high-level view of overall job execution status.
+	//
+	// Deprecated:  Job progress should ideally be retrieved from the JobService
+	// directly, as this TaskProgressTracker is primarily concerned with task-level
+	// progress. This method will be removed in a future release.
 	GetJobProgress(ctx context.Context, jobID uuid.UUID) (*scanning.Progress, error)
 
 	// GetTaskProgress retrieves detailed progress metrics for a specific task.
@@ -38,24 +46,24 @@ type ProgressTracker interface {
 	GetTaskProgress(ctx context.Context, taskID uuid.UUID) (*scanning.Progress, error)
 }
 
-// progressTracker implements ProgressTracker by coordinating between task and job services
+// taskProgressTracker implements ProgressTracker by coordinating between task and job services
 // to maintain consistent progress state across the system.
-type progressTracker struct {
+type taskProgressTracker struct {
 	taskService ScanTaskService
 	jobService  ScanJobService
 	logger      *logger.Logger
 	tracer      trace.Tracer
 }
 
-// NewProgressTracker creates a new progress tracker with the provided dependencies.
+// NewTaskProgressTracker creates a new progress tracker with the provided dependencies.
 // It establishes the core components needed for system-wide progress monitoring.
-func NewProgressTracker(
+func NewTaskProgressTracker(
 	taskService ScanTaskService,
 	jobService ScanJobService,
 	logger *logger.Logger,
 	tracer trace.Tracer,
-) ProgressTracker {
-	return &progressTracker{
+) TaskProgressTracker {
+	return &taskProgressTracker{
 		taskService: taskService,
 		jobService:  jobService,
 		logger:      logger,
@@ -67,7 +75,7 @@ func NewProgressTracker(
 // across the system. It first establishes task-level tracking state and then notifies
 // the job service to ensure proper job status transitions. This two-phase initialization
 // helps maintain consistency between task and job state.
-func (t *progressTracker) StartTracking(ctx context.Context, evt scanning.TaskStartedEvent) error {
+func (t *taskProgressTracker) StartTracking(ctx context.Context, evt scanning.TaskStartedEvent) error {
 	taskID, jobID := evt.TaskID, evt.JobID
 	ctx, span := t.tracer.Start(ctx, "progress_tracker.scanning.start_tracking",
 		trace.WithAttributes(
@@ -100,7 +108,7 @@ func (t *progressTracker) StartTracking(ctx context.Context, evt scanning.TaskSt
 // It maintains system-wide consistency by first updating the task's progress metrics,
 // then notifying the job service to update aggregated job statistics. This ordering
 // ensures that job-level metrics accurately reflect the latest task state.
-func (t *progressTracker) UpdateProgress(ctx context.Context, evt scanning.TaskProgressedEvent) error {
+func (t *taskProgressTracker) UpdateProgress(ctx context.Context, evt scanning.TaskProgressedEvent) error {
 	taskID := evt.Progress.TaskID()
 	ctx, span := t.tracer.Start(ctx, "progress_tracker.scanning.update_progress",
 		trace.WithAttributes(
@@ -132,7 +140,9 @@ func (t *progressTracker) UpdateProgress(ctx context.Context, evt scanning.TaskP
 	return nil
 }
 
-func (t *progressTracker) StopTracking(ctx context.Context, evt scanning.TaskCompletedEvent) error {
+// StopTracking marks a task as successfully completed and updates the associated job's state.
+// This is called when a task has finished its work normally and needs to be finalized in the system.
+func (t *taskProgressTracker) StopTracking(ctx context.Context, evt scanning.TaskCompletedEvent) error {
 	taskID := evt.TaskID
 	ctx, span := t.tracer.Start(ctx, "progress_tracker.scanning.stop_tracking",
 		trace.WithAttributes(
@@ -158,10 +168,38 @@ func (t *progressTracker) StopTracking(ctx context.Context, evt scanning.TaskCom
 	return nil
 }
 
-func (t *progressTracker) GetJobProgress(ctx context.Context, jobID uuid.UUID) (*scanning.Progress, error) {
+// FailTask marks a task as failed and updates the associated job accordingly.
+// This is called when a task encounters an unrecoverable error and cannot complete normally.
+func (t *taskProgressTracker) FailTask(ctx context.Context, evt scanning.TaskFailedEvent) error {
+	taskID := evt.TaskID
+	ctx, span := t.tracer.Start(ctx, "progress_tracker.scanning.fail_task",
+		trace.WithAttributes(
+			attribute.String("task_id", taskID.String()),
+		))
+	defer span.End()
+
+	task, err := t.taskService.FailTask(ctx, taskID)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to fail task")
+		return fmt.Errorf("failed to fail task: %w", err)
+	}
+
+	if err := t.jobService.OnTaskUpdated(ctx, task.JobID(), task); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to notify job service of task failure")
+		return fmt.Errorf("failed to notify job service of task failure: %w", err)
+	}
+	span.AddEvent("task_failed")
+	span.SetStatus(codes.Ok, "task failed")
+
+	return nil
+}
+
+func (t *taskProgressTracker) GetJobProgress(ctx context.Context, jobID uuid.UUID) (*scanning.Progress, error) {
 	return nil, nil
 }
 
-func (t *progressTracker) GetTaskProgress(ctx context.Context, taskID uuid.UUID) (*scanning.Progress, error) {
+func (t *taskProgressTracker) GetTaskProgress(ctx context.Context, taskID uuid.UUID) (*scanning.Progress, error) {
 	return nil, nil
 }

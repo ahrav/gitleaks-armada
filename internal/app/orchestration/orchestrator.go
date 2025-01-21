@@ -115,7 +115,7 @@ func NewOrchestrator(
 		tracer:             tracer,
 	}
 
-	progressTracker := scan.NewProgressTracker(
+	progressTracker := scan.NewTaskProgressTracker(
 		taskService,
 		jobService,
 		logger,

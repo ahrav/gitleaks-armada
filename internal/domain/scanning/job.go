@@ -200,7 +200,6 @@ func isValidTransition(oldStatus, newStatus TaskStatus) bool {
 		return newStatus == TaskStatusFailed
 	}
 
-	// If you have more statuses, handle them here.
 	return true
 }
 

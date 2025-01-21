@@ -81,3 +81,10 @@ message TaskCompletedEvent {
   string task_id = 2;
   int64 timestamp = 3;
 }
+
+message TaskFailedEvent {
+  string job_id = 1;
+  string task_id = 2;
+  int64 timestamp = 3;
+  string reason = 4;
+}

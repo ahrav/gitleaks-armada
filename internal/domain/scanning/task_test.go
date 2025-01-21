@@ -259,3 +259,105 @@ func TestTask_Complete(t *testing.T) {
 		})
 	}
 }
+
+func TestTask_Fail(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		initialTask *Task
+		wantErr     bool
+		errType     error
+	}{
+		{
+			name: "successfully fail task from in progress",
+			initialTask: ReconstructTask(
+				uuid.New(),
+				uuid.New(),
+				TaskStatusInProgress,
+				0,
+				time.Now(),
+				time.Now(),
+				0,
+				nil,
+				nil,
+			),
+			wantErr: false,
+		},
+		{
+			name: "successfully fail task from stale",
+			initialTask: ReconstructTask(
+				uuid.New(),
+				uuid.New(),
+				TaskStatusStale,
+				0,
+				time.Now(),
+				time.Now(),
+				0,
+				nil,
+				nil,
+			),
+			wantErr: false,
+		},
+		{
+			name: "fail to transition from completed state",
+			initialTask: ReconstructTask(
+				uuid.New(),
+				uuid.New(),
+				TaskStatusCompleted,
+				0,
+				time.Now(),
+				time.Now(),
+				0,
+				nil,
+				nil,
+			),
+			wantErr: true,
+			errType: TaskInvalidStateError{},
+		},
+		{
+			name: "fail to transition from failed state",
+			initialTask: ReconstructTask(
+				uuid.New(),
+				uuid.New(),
+				TaskStatusFailed,
+				0,
+				time.Now(),
+				time.Now(),
+				0,
+				nil,
+				nil,
+			),
+			wantErr: true,
+			errType: TaskInvalidStateError{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := tt.initialTask.Fail()
+			if tt.wantErr {
+				if err == nil {
+					t.Error("expected error but got nil")
+					return
+				}
+
+				if _, ok := err.(TaskInvalidStateError); !ok {
+					t.Errorf("expected TaskInvalidStateError but got %T", err)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+				return
+			}
+
+			if tt.initialTask.Status() != TaskStatusFailed {
+				t.Errorf("expected status %s but got %s", TaskStatusFailed, tt.initialTask.Status())
+			}
+		})
+	}
+}

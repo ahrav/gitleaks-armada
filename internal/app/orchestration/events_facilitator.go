@@ -31,7 +31,7 @@ import (
 type EventsFacilitator struct {
 	// progressTracker is responsible for starting, updating, and stopping tracking of
 	// scanning tasks. The EventsFacilitator delegates task-related domain operations here.
-	progressTracker scansvc.ProgressTracker
+	progressTracker scansvc.TaskProgressTracker
 
 	// rulesService is responsible for persisting rules, updating rule states, etc.
 	// The EventsFacilitator calls into it when handling rule-related events.
@@ -45,7 +45,7 @@ type EventsFacilitator struct {
 // rulesService, and tracer so it can delegate domain-specific logic to the correct
 // bounded context service and instrument event handling with traces.
 func NewEventsFacilitator(
-	tracker scansvc.ProgressTracker,
+	tracker scansvc.TaskProgressTracker,
 	rulesSvc rulessvc.Service,
 	tracer trace.Tracer,
 ) *EventsFacilitator {
@@ -82,6 +82,10 @@ func recordPayloadTypeError(span trace.Span, payload interface{}) error {
 	span.SetStatus(codes.Error, "invalid event payload type")
 	return err
 }
+
+// -------------------------------------------------------------------------------------------------
+// -------------------------------------------------------------------------------------------------
+// Scanning
 
 // HandleTaskStarted processes a TaskStartedEvent.
 func (ef *EventsFacilitator) HandleTaskStarted(ctx context.Context, evt events.EventEnvelope) error {
@@ -151,6 +155,30 @@ func (ef *EventsFacilitator) HandleTaskCompleted(ctx context.Context, evt events
 		return nil
 	})
 }
+
+// HandleTaskFailed processes a TaskFailedEvent.
+func (ef *EventsFacilitator) HandleTaskFailed(ctx context.Context, evt events.EventEnvelope) error {
+	return ef.withSpan(ctx, "events_facilitator.handle_task_failed", func(ctx context.Context, span trace.Span) error {
+		span.AddEvent("processing_task_failed")
+
+		failedEvt, ok := evt.Payload.(scanning.TaskFailedEvent)
+		if !ok {
+			return recordPayloadTypeError(span, evt.Payload)
+		}
+
+		if err := ef.progressTracker.FailTask(ctx, failedEvt); err != nil {
+			return fmt.Errorf("failed to fail task: %w", err)
+		}
+
+		span.AddEvent("task_failed_event_updated")
+		span.SetStatus(codes.Ok, "task failed event updated")
+		return nil
+	})
+}
+
+// -------------------------------------------------------------------------------------------------
+// -------------------------------------------------------------------------------------------------
+// Rules
 
 // HandleRule processes a RuleUpdatedEvent.
 func (ef *EventsFacilitator) HandleRule(ctx context.Context, evt events.EventEnvelope) error {

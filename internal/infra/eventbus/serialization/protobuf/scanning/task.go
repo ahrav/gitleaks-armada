@@ -119,3 +119,28 @@ func ProtoToTaskCompletedEvent(pbEvent *pb.TaskCompletedEvent) (scanning.TaskCom
 
 	return scanning.NewTaskCompletedEvent(jobID, taskID), nil
 }
+
+// TaskFailedEventToProto converts a domain TaskFailedEvent to its protobuf representation.
+func TaskFailedEventToProto(event scanning.TaskFailedEvent) *pb.TaskFailedEvent {
+	return &pb.TaskFailedEvent{
+		JobId:     event.JobID.String(),
+		TaskId:    event.TaskID.String(),
+		Timestamp: event.OccurredAt().UnixNano(),
+		Reason:    event.Reason,
+	}
+}
+
+// ProtoToTaskFailedEvent converts a protobuf TaskFailedEvent to its domain representation.
+func ProtoToTaskFailedEvent(pbEvent *pb.TaskFailedEvent) (scanning.TaskFailedEvent, error) {
+	jobID, err := uuid.Parse(pbEvent.JobId)
+	if err != nil {
+		return scanning.TaskFailedEvent{}, fmt.Errorf("parse job ID: %w", err)
+	}
+
+	taskID, err := uuid.Parse(pbEvent.TaskId)
+	if err != nil {
+		return scanning.TaskFailedEvent{}, fmt.Errorf("parse task ID: %w", err)
+	}
+
+	return scanning.NewTaskFailedEvent(jobID, taskID, pbEvent.Reason), nil
+}

@@ -330,6 +330,21 @@ func TestUpdateTask_MultipleTasks(t *testing.T) {
 			expectedFailed:     1,
 			expectedJobStatus:  JobStatusRunning,
 		},
+		{
+			name:                 "Update one IN_PROGRESS -> COMPLETED when all tasks are terminal states",
+			existingTaskStatuses: []TaskStatus{TaskStatusCompleted, TaskStatusCompleted, TaskStatusCompleted},
+			taskToChangeIndex:    0, // the first one
+			newStatus:            TaskStatusCompleted,
+			// Start: total=3 => inprogress=1, failed=0, completed=2 => job=RUNNING
+			// After IN_PROGRESS->COMPLETED => inprogress=0, completed=3, failed=0 => total=3
+			// Because all tasks are in terminal states, and there's no in-progress left,
+			// this might mark job as COMPLETED if your logic says "completed+failed == total => if failed < total => COMPLETED".
+			// Let's see the standard snippet: that means job is COMPLETED because (3 completed + 0 failed) == 3 total, and not all are failed => job=COMPLETED
+			expectedInProgress: 0,
+			expectedCompleted:  3,
+			expectedFailed:     0,
+			expectedJobStatus:  JobStatusCompleted,
+		},
 	}
 
 	for _, tc := range tests {

@@ -349,9 +349,7 @@ func (e TaskInvalidStateError) Error() string {
 }
 
 // Reason returns the specific reason for the invalid state
-func (e TaskInvalidStateError) Reason() TaskInvalidStateReason {
-	return e.reason
-}
+func (e TaskInvalidStateError) Reason() TaskInvalidStateReason { return e.reason }
 
 // Complete marks a task as completed.
 func (t *Task) Complete() error {
@@ -373,6 +371,21 @@ func (t *Task) Complete() error {
 	// }
 
 	t.status = TaskStatusCompleted
+	t.timeline.UpdateLastUpdate()
+	return nil
+}
+
+// Fail marks a task as failed.
+func (t *Task) Fail() error {
+	if t.status != TaskStatusInProgress && t.status != TaskStatusStale {
+		return TaskInvalidStateError{
+			taskID: t.ID,
+			status: t.status,
+			reason: TaskInvalidStateReasonWrongStatus,
+		}
+	}
+
+	t.status = TaskStatusFailed
 	t.timeline.UpdateLastUpdate()
 	return nil
 }
