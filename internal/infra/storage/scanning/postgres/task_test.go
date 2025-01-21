@@ -127,6 +127,32 @@ func TestTaskStore_UpdateTask(t *testing.T) {
 	assert.Equal(t, checkpoint.Metadata(), loaded.LastCheckpoint().Metadata())
 }
 
+func TestTaskStore_UpdateTask_WithCompletion(t *testing.T) {
+	t.Parallel()
+	ctx, _, taskStore, jobStore, cleanup := setupTaskTest(t)
+	defer cleanup()
+
+	job := createTestScanJob(t, jobStore, ctx)
+
+	task := createTestTask(t, job.JobID(), scanning.TaskStatusInProgress)
+	err := taskStore.CreateTask(ctx, task)
+	require.NoError(t, err)
+
+	// Update task to completed.
+	err = task.Complete()
+	require.NoError(t, err)
+
+	err = taskStore.UpdateTask(ctx, task)
+	require.NoError(t, err)
+
+	loaded, err := taskStore.GetTask(ctx, task.TaskID())
+	require.NoError(t, err)
+	require.NotNil(t, loaded)
+
+	assert.Equal(t, scanning.TaskStatusCompleted, loaded.Status())
+	assert.False(t, loaded.EndTime().IsZero(), "End time should be set")
+}
+
 func TestTaskStore_ListTasksByJobAndStatus(t *testing.T) {
 	t.Parallel()
 	ctx, _, taskStore, jobStore, cleanup := setupTaskTest(t)

@@ -127,10 +127,10 @@ func (s *taskStore) UpdateTask(ctx context.Context, task *scanning.Task) error {
 	return storage.ExecuteAndTrace(ctx, s.tracer, "postgres.update_task", dbAttrs, func(ctx context.Context) error {
 		span := trace.SpanFromContext(ctx)
 
-		var lastUpdateTime pgtype.Timestamptz
+		var endTime pgtype.Timestamptz
 		if !task.EndTime().IsZero() {
-			lastUpdateTime = pgtype.Timestamptz{Time: task.EndTime(), Valid: true}
-			span.SetAttributes(attribute.String("end_time", lastUpdateTime.Time.String()))
+			endTime = pgtype.Timestamptz{Time: task.EndTime(), Valid: true}
+			span.SetAttributes(attribute.String("end_time", endTime.Time.String()))
 		}
 
 		var checkpointJSON []byte
@@ -145,7 +145,7 @@ func (s *taskStore) UpdateTask(ctx context.Context, task *scanning.Task) error {
 			TaskID:          pgtype.UUID{Bytes: task.TaskID(), Valid: true},
 			Status:          sqlcStatus,
 			LastSequenceNum: task.LastSequenceNum(),
-			EndTime:         lastUpdateTime,
+			EndTime:         endTime,
 			ItemsProcessed:  task.ItemsProcessed(),
 			ProgressDetails: task.ProgressDetails(),
 			LastCheckpoint:  checkpointJSON,
