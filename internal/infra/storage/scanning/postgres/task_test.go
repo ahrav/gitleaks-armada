@@ -52,7 +52,7 @@ func createTestTask(t *testing.T, jobID uuid.UUID, status scanning.TaskStatus) *
 		time.Now().UTC(),
 		time.Time{},
 		0,
-		json.RawMessage(`{"test": "details"}`),
+		nil,
 		nil,
 	)
 }
@@ -78,6 +78,7 @@ func TestTaskStore_CreateAndGet(t *testing.T) {
 	assert.Equal(t, task.LastSequenceNum(), loaded.LastSequenceNum())
 	assert.Equal(t, task.ItemsProcessed(), loaded.ItemsProcessed())
 	assert.Equal(t, task.ProgressDetails(), loaded.ProgressDetails())
+	assert.True(t, loaded.EndTime().IsZero())
 }
 
 func TestTaskStore_UpdateTask(t *testing.T) {

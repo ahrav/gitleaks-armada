@@ -198,7 +198,7 @@ func ReconstructTask(
 	status TaskStatus,
 	lastSequenceNum int64,
 	startTime time.Time,
-	lastUpdate time.Time,
+	endTime time.Time,
 	itemsProcessed int64,
 	progressDetails json.RawMessage,
 	lastCheckpoint *Checkpoint,
@@ -210,7 +210,7 @@ func ReconstructTask(
 		jobID:           jobID,
 		status:          status,
 		lastSequenceNum: lastSequenceNum,
-		timeline:        ReconstructTimeline(startTime, time.Time{}, lastUpdate),
+		timeline:        ReconstructTimeline(startTime, endTime, time.Time{}),
 		itemsProcessed:  itemsProcessed,
 		progressDetails: progressDetails,
 		lastCheckpoint:  lastCheckpoint,
@@ -371,7 +371,7 @@ func (t *Task) Complete() error {
 	// }
 
 	t.status = TaskStatusCompleted
-	t.timeline.UpdateLastUpdate()
+	t.timeline.MarkCompleted()
 	return nil
 }
 
@@ -386,7 +386,7 @@ func (t *Task) Fail() error {
 	}
 
 	t.status = TaskStatusFailed
-	t.timeline.UpdateLastUpdate()
+	t.timeline.MarkCompleted()
 	return nil
 }
 
