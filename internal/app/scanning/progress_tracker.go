@@ -54,16 +54,16 @@ type ExecutionTracker interface {
 // It ensures consistent state transitions and maintains accurate progress metrics
 // across the distributed system.
 type executionTracker struct {
-	jobService ScanJobService // Manages job and task state transitions
-	logger     *logger.Logger // Structured logging for operational visibility
-	tracer     trace.Tracer   // OpenTelemetry tracing for request flows
+	jobService ScanJobCoordinator // Manages job and task state transitions
+	logger     *logger.Logger     // Structured logging for operational visibility
+	tracer     trace.Tracer       // OpenTelemetry tracing for request flows
 }
 
 // NewExecutionTracker constructs a new ExecutionTracker with required dependencies.
 // The jobService handles state persistence and transitions, while logger and tracer
 // provide operational visibility into the progress tracking subsystem.
 func NewExecutionTracker(
-	jobService ScanJobService,
+	jobService ScanJobCoordinator,
 	logger *logger.Logger,
 	tracer trace.Tracer,
 ) ExecutionTracker {

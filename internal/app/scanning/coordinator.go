@@ -14,59 +14,6 @@ import (
 	domain "github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 )
 
-// ScanJobService coordinates the lifecycle of scan jobs and their associated tasks.
-// It manages job state transitions, task distribution, and provides high-level operations
-// for monitoring job execution across the system. The service abstracts the underlying
-// implementation details to provide a clean interface for job management.
-type ScanJobService interface {
-	// ---------------------------
-	// Job-level operations
-	// ---------------------------
-
-	// CreateJob creates a new job and returns it.
-	CreateJob(ctx context.Context) (*domain.Job, error)
-
-	// LinkTargets links targets to a job.
-	LinkTargets(ctx context.Context, jobID uuid.UUID, targetIDs []uuid.UUID) error
-
-	// ---------------------------
-	// Task-level operations
-	// ---------------------------
-
-	// StartTask begins tracking a new task. It also updates the corresponding job
-	// to reflect this new task (e.g., increment the job's total task count).
-	StartTask(ctx context.Context, jobID, taskID uuid.UUID) (*domain.Task, error)
-
-	// UpdateTaskProgress processes a status update from a running scanner task.
-	// It maintains the task's execution state and enables monitoring of scan progress.
-	// The update is cached in memory and periodically persisted based on configured intervals.
-	// Returns the updated task, or nil if the task is not found.
-	UpdateTaskProgress(ctx context.Context, progress domain.Progress) (*domain.Task, error)
-
-	// CompleteTask marks a task as completed, then updates the associated job's
-	// metrics if the status changed (e.g., increments the job's completed task count).
-	CompleteTask(ctx context.Context, jobID, taskID uuid.UUID) (*domain.Task, error)
-
-	// FailTask marks a task as failed, then updates the associated job's metrics if necessary.
-	FailTask(ctx context.Context, jobID, taskID uuid.UUID) (*domain.Task, error)
-
-	// // MarkTaskStale flags a task that has become unresponsive or stopped reporting progress.
-	// // This enables automated detection and recovery of failed tasks that require intervention.
-	// MarkTaskStale(ctx context.Context, jobID, taskID uuid.UUID, reason domain.StallReason) error
-
-	// // RecoverTask attempts to resume execution of a previously stalled task.
-	// // It uses the last recorded checkpoint to restart the task from its last known good state.
-	// RecoverTask(ctx context.Context, jobID, taskID uuid.UUID) error
-
-	// // GetJob retrieves the current state and task details for a specific scan job.
-	// // This enables external components to monitor job progress and handle failures.
-	// GetJob(ctx context.Context, jobID uuid.UUID) (*domain.Job, error)
-
-	// // ListJobs retrieves a paginated list of jobs filtered by their status.
-	// // This supports system-wide job monitoring and management capabilities.
-	// ListJobs(ctx context.Context, status []domain.JobStatus, limit, offset int) ([]*domain.Job, error)
-}
-
 // ScanJobCoordinator provides the primary interface for managing scan operations across the system.
 // We need this coordination layer to:
 // - Ensure consistency between distributed scanning tasks and their parent jobs
@@ -74,12 +21,20 @@ type ScanJobService interface {
 // - Handle failure scenarios and state transitions consistently
 // - Optimize performance through strategic caching while maintaining data consistency
 type ScanJobCoordinator interface {
+	// ---------------------------
+	// Job-level operations
+	// ---------------------------
+
 	// CreateJob initializes a new scanning operation in the system
 	CreateJob(ctx context.Context) (*domain.Job, error)
 
 	// LinkTargets associates scan targets with a job, enabling parallel processing
 	// of multiple repositories or code bases within a single scanning operation
 	LinkTargets(ctx context.Context, jobID uuid.UUID, targetIDs []uuid.UUID) error
+
+	// ---------------------------
+	// Task-level operations
+	// ---------------------------
 
 	// StartTask begins a new scanning task and updates job metrics accordingly.
 	// This is crucial for tracking progress and ensuring all targets are processed.
@@ -97,6 +52,22 @@ type ScanJobCoordinator interface {
 	// FailTask handles task failure scenarios, updating job state appropriately
 	// to ensure accurate status reporting and potential retry mechanisms.
 	FailTask(ctx context.Context, jobID, taskID uuid.UUID) (*domain.Task, error)
+
+	// // MarkTaskStale flags a task that has become unresponsive or stopped reporting progress.
+	// // This enables automated detection and recovery of failed tasks that require intervention.
+	// MarkTaskStale(ctx context.Context, jobID, taskID uuid.UUID, reason domain.StallReason) error
+
+	// // RecoverTask attempts to resume execution of a previously stalled task.
+	// // It uses the last recorded checkpoint to restart the task from its last known good state.
+	// RecoverTask(ctx context.Context, jobID, taskID uuid.UUID) error
+
+	// // GetJob retrieves the current state and task details for a specific scan job.
+	// // This enables external components to monitor job progress and handle failures.
+	// GetJob(ctx context.Context, jobID uuid.UUID) (*domain.Job, error)
+
+	// // ListJobs retrieves a paginated list of jobs filtered by their status.
+	// // This supports system-wide job monitoring and management capabilities.
+	// ListJobs(ctx context.Context, status []domain.JobStatus, limit, offset int) ([]*domain.Job, error)
 }
 
 // scanJobCoordinator implements ScanJobCoordinator using a hybrid approach of
