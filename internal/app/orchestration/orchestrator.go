@@ -45,7 +45,7 @@ type Orchestrator struct {
 
 	enumerationService enumCoordinator.Coordinator
 	rulesService       rulessvc.Service
-	jobService         scan.ScanJobService
+	jobService         scan.ScanJobCoordinator
 	stateRepo          enumeration.StateRepository
 
 	dispatcher *eventdispatcher.Dispatcher
@@ -92,8 +92,7 @@ func NewOrchestrator(
 	eventPublisher events.DomainEventPublisher,
 	enumerationService enumCoordinator.Coordinator,
 	rulesService rulessvc.Service,
-	jobService scan.ScanJobService,
-	taskService scan.ScanTaskService,
+	jobService scan.ScanJobCoordinator,
 	stateRepo enumeration.StateRepository,
 	cfgLoader loaders.Loader,
 	logger *logger.Logger,
@@ -115,7 +114,7 @@ func NewOrchestrator(
 		tracer:             tracer,
 	}
 
-	progressTracker := scan.NewTaskProgressTracker(
+	progressTracker := scan.NewExecutionTracker(
 		jobService,
 		logger,
 		tracer,

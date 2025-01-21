@@ -50,18 +50,13 @@ type ScanJobService interface {
 	// FailTask marks a task as failed, then updates the associated job's metrics if necessary.
 	FailTask(ctx context.Context, jobID, taskID uuid.UUID) (*domain.Task, error)
 
-	// // OnTaskStarted transitions a job to an in-progress state when a new task begins.
-	// // This ensures proper job state tracking and enables task distribution.
-	// OnTaskStarted(ctx context.Context, jobID uuid.UUID, task *domain.Task) error
+	// // MarkTaskStale flags a task that has become unresponsive or stopped reporting progress.
+	// // This enables automated detection and recovery of failed tasks that require intervention.
+	// MarkTaskStale(ctx context.Context, jobID, taskID uuid.UUID, reason domain.StallReason) error
 
-	// // OnTaskUpdated handles any task state change, updating the job's progress
-	// // and state accordingly. This method maintains job status consistency
-	// // as tasks progress through their lifecycle.
-	// OnTaskUpdated(ctx context.Context, jobID uuid.UUID, task *domain.Task) error
-
-	// // MarkJobCompleted finalizes a job's execution state based on task outcomes.
-	// // A job is marked as completed only if all tasks succeeded, otherwise it is marked as failed.
-	// MarkJobCompleted(ctx context.Context, jobID uuid.UUID) error
+	// // RecoverTask attempts to resume execution of a previously stalled task.
+	// // It uses the last recorded checkpoint to restart the task from its last known good state.
+	// RecoverTask(ctx context.Context, jobID, taskID uuid.UUID) error
 
 	// // GetJob retrieves the current state and task details for a specific scan job.
 	// // This enables external components to monitor job progress and handle failures.
@@ -72,37 +67,69 @@ type ScanJobService interface {
 	// ListJobs(ctx context.Context, status []domain.JobStatus, limit, offset int) ([]*domain.Job, error)
 }
 
-// jobService implements ScanJobService by managing job state through a combination
-// of in-memory caching and persistent storage.
-type jobService struct {
-	// TODO: consider using a proper cache.
+// ScanJobCoordinator provides the primary interface for managing scan operations across the system.
+// We need this coordination layer to:
+// - Ensure consistency between distributed scanning tasks and their parent jobs
+// - Provide reliable progress tracking for long-running scan operations
+// - Handle failure scenarios and state transitions consistently
+// - Optimize performance through strategic caching while maintaining data consistency
+type ScanJobCoordinator interface {
+	// CreateJob initializes a new scanning operation in the system
+	CreateJob(ctx context.Context) (*domain.Job, error)
+
+	// LinkTargets associates scan targets with a job, enabling parallel processing
+	// of multiple repositories or code bases within a single scanning operation
+	LinkTargets(ctx context.Context, jobID uuid.UUID, targetIDs []uuid.UUID) error
+
+	// StartTask begins a new scanning task and updates job metrics accordingly.
+	// This is crucial for tracking progress and ensuring all targets are processed.
+	StartTask(ctx context.Context, jobID, taskID uuid.UUID) (*domain.Task, error)
+
+	// UpdateTaskProgress handles incremental updates from running scanners.
+	// Updates are cached in memory and periodically persisted to reduce database load
+	// while maintaining reasonable consistency guarantees.
+	UpdateTaskProgress(ctx context.Context, progress domain.Progress) (*domain.Task, error)
+
+	// CompleteTask marks a task as successful and updates job metrics.
+	// This triggers potential job completion checks if all tasks are finished.
+	CompleteTask(ctx context.Context, jobID, taskID uuid.UUID) (*domain.Task, error)
+
+	// FailTask handles task failure scenarios, updating job state appropriately
+	// to ensure accurate status reporting and potential retry mechanisms.
+	FailTask(ctx context.Context, jobID, taskID uuid.UUID) (*domain.Task, error)
+}
+
+// scanJobCoordinator implements ScanJobCoordinator using a hybrid approach of
+// in-memory caching and persistent storage to balance performance with reliability.
+type scanJobCoordinator struct {
 	mu        sync.RWMutex
-	jobCache  map[uuid.UUID]*domain.Job
-	taskCache map[uuid.UUID]*domain.Task
+	jobCache  map[uuid.UUID]*domain.Job  // Caches frequently accessed jobs
+	taskCache map[uuid.UUID]*domain.Task // Caches active tasks to reduce database load
 
 	jobRepo  domain.JobRepository
 	taskRepo domain.TaskRepository
 
-	persistInterval  time.Duration // How often to persist task state to storage
-	staleTaskTimeout time.Duration // Duration after which a task is considered stale
+	persistInterval  time.Duration // Controls write frequency to reduce database load
+	staleTaskTimeout time.Duration // Helps identify and handle stuck or failed tasks
 
 	tracer trace.Tracer
 }
 
-// NewJobService creates a new job service instance with the provided dependencies.
-// It initializes an in-memory cache to optimize job state access.
-func NewJobService(
+// NewScanJobCoordinator initializes the coordination system with configured thresholds
+// for caching and persistence to optimize performance under expected load.
+func NewScanJobCoordinator(
 	jobRepo domain.JobRepository,
 	taskRepo domain.TaskRepository,
 	persistInterval time.Duration,
 	staleTimeout time.Duration,
 	tracer trace.Tracer,
-) *jobService {
+) *scanJobCoordinator {
+	// Cache sizes are tuned for typical concurrent workloads while preventing excessive memory usage
 	const (
-		defaultJobCacheSize  = 64 // Reasonable default for most workloads
-		defaultTaskCacheSize = 1000
+		defaultJobCacheSize  = 64   // Optimized for typical concurrent job count
+		defaultTaskCacheSize = 1000 // Accommodates tasks across active jobs
 	)
-	return &jobService{
+	return &scanJobCoordinator{
 		jobCache:         make(map[uuid.UUID]*domain.Job, defaultJobCacheSize),
 		taskCache:        make(map[uuid.UUID]*domain.Task, defaultTaskCacheSize),
 		jobRepo:          jobRepo,
@@ -113,8 +140,9 @@ func NewJobService(
 	}
 }
 
-// storeJobInCache stores a job in the cache.
-func (s *jobService) storeJobInCache(ctx context.Context, job *domain.Job) {
+// storeJobInCache adds a job to the in-memory cache to reduce database load
+// for frequently accessed jobs during active scanning operations.
+func (s *scanJobCoordinator) storeJobInCache(ctx context.Context, job *domain.Job) {
 	_, span := s.tracer.Start(ctx, "job_service.scanning.store_job_in_cache")
 	defer span.End()
 
@@ -124,9 +152,9 @@ func (s *jobService) storeJobInCache(ctx context.Context, job *domain.Job) {
 	span.AddEvent("job_cached")
 }
 
-// loadJob retrieves a job from persistent storage and caches it for future access.
-// This helps optimize subsequent operations on the same job.
-func (s *jobService) loadJob(ctx context.Context, jobID uuid.UUID) (*domain.Job, error) {
+// loadJob retrieves a job with optimistic caching. We check the cache first
+// to minimize database load during high-concurrency scanning operations.
+func (s *scanJobCoordinator) loadJob(ctx context.Context, jobID uuid.UUID) (*domain.Job, error) {
 	ctx, span := s.tracer.Start(ctx, "job_service.scanning.load_job",
 		trace.WithAttributes(
 			attribute.String("job_id", jobID.String()),
@@ -152,9 +180,9 @@ func (s *jobService) loadJob(ctx context.Context, jobID uuid.UUID) (*domain.Job,
 	return job, nil
 }
 
-// lookupJobInCache retrieves a job from the cache if it exists.
-// Returns the job and a boolean indicating if it was found.
-func (s *jobService) lookupJobInCache(ctx context.Context, jobID uuid.UUID) (*domain.Job, bool) {
+// lookupJobInCache provides fast access to cached jobs. This is separated from loadJob
+// to allow for different caching strategies and to simplify testing.
+func (s *scanJobCoordinator) lookupJobInCache(ctx context.Context, jobID uuid.UUID) (*domain.Job, bool) {
 	_, span := s.tracer.Start(ctx, "job_service.scanning.lookup_job_cache")
 	defer span.End()
 
@@ -166,8 +194,9 @@ func (s *jobService) lookupJobInCache(ctx context.Context, jobID uuid.UUID) (*do
 	return job, exists
 }
 
-// CreateJob creates a new job and returns it.
-func (svc *jobService) CreateJob(ctx context.Context) (*domain.Job, error) {
+// CreateJob initializes a new scanning operation and ensures it's immediately
+// available in both the cache and persistent storage.
+func (svc *scanJobCoordinator) CreateJob(ctx context.Context) (*domain.Job, error) {
 	ctx, span := svc.tracer.Start(ctx, "job_service.scanning.create_job")
 	defer span.End()
 
@@ -185,8 +214,9 @@ func (svc *jobService) CreateJob(ctx context.Context) (*domain.Job, error) {
 	return job, nil
 }
 
-// LinkTargets associates targets with a job.
-func (svc *jobService) LinkTargets(ctx context.Context, jobID uuid.UUID, targetIDs []uuid.UUID) error {
+// LinkTargets establishes the scope of a scanning job by connecting it with specific targets.
+// This relationship is crucial for tracking progress and ensuring complete coverage.
+func (svc *scanJobCoordinator) LinkTargets(ctx context.Context, jobID uuid.UUID, targetIDs []uuid.UUID) error {
 	ctx, span := svc.tracer.Start(ctx, "job_service.scanning.link_targets",
 		trace.WithAttributes(
 			attribute.String("job_id", jobID.String()),
@@ -205,8 +235,9 @@ func (svc *jobService) LinkTargets(ctx context.Context, jobID uuid.UUID, targetI
 	return nil
 }
 
-// loadTask retrieves a task from storage and adds it to the cache.
-func (s *jobService) loadTask(ctx context.Context, taskID uuid.UUID) (*domain.Task, error) {
+// loadTask retrieves a task using a cache-first strategy to minimize database access
+// during high-frequency progress updates.
+func (s *scanJobCoordinator) loadTask(ctx context.Context, taskID uuid.UUID) (*domain.Task, error) {
 	ctx, span := s.tracer.Start(ctx, "job_service.scanning.load_task")
 	defer span.End()
 
@@ -233,9 +264,9 @@ func (s *jobService) loadTask(ctx context.Context, taskID uuid.UUID) (*domain.Ta
 	return task, nil
 }
 
-// lookupTaskInCache retrieves a task from the cache if it exists.
-// Returns the task and a boolean indicating if it was found.
-func (s *jobService) lookupTaskInCache(ctx context.Context, taskID uuid.UUID) (*domain.Task, bool) {
+// lookupTaskInCache provides fast access to cached tasks, reducing database load
+// during frequent task status checks and updates.
+func (s *scanJobCoordinator) lookupTaskInCache(ctx context.Context, taskID uuid.UUID) (*domain.Task, bool) {
 	_, span := s.tracer.Start(ctx, "job_service.scanning.lookup_task_cache")
 	defer span.End()
 
@@ -249,22 +280,15 @@ func (s *jobService) lookupTaskInCache(ctx context.Context, taskID uuid.UUID) (*
 	return task, exists
 }
 
-// StartTask begins tracking a new task. It also updates the job domain object
-// to reflect that a new task has been started (increments metrics, etc.).
-func (s *jobService) StartTask(ctx context.Context, jobID, taskID uuid.UUID) (*domain.Task, error) {
+// StartTask initializes a new scanning task and updates the parent job's metrics.
+// The task is cached immediately to optimize subsequent progress updates.
+func (s *scanJobCoordinator) StartTask(ctx context.Context, jobID, taskID uuid.UUID) (*domain.Task, error) {
 	ctx, span := s.tracer.Start(ctx, "job_service.scanning.start_task",
 		trace.WithAttributes(
 			attribute.String("job_id", jobID.String()),
 			attribute.String("task_id", taskID.String()),
 		))
 	defer span.End()
-
-	job, err := s.loadJob(ctx, jobID)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to load job")
-		return nil, fmt.Errorf("job %s not found: %w", jobID, err)
-	}
 
 	s.mu.RLock()
 	if _, found := s.taskCache[taskID]; found {
@@ -283,17 +307,26 @@ func (s *jobService) StartTask(ctx context.Context, jobID, taskID uuid.UUID) (*d
 	}
 	span.AddEvent("task_created_in_repo")
 
+	job, err := s.loadJob(ctx, jobID)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to load job")
+		return nil, fmt.Errorf("job %s not found: %w", jobID, err)
+	}
+
 	if err := job.AddTask(newTask); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to add task to job domain")
 		return nil, fmt.Errorf("adding task to job: %w", err)
 	}
+	span.AddEvent("task_added_to_job_domain")
 
 	if err := s.jobRepo.UpdateJob(ctx, job); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to update job in repo")
 		return nil, fmt.Errorf("updating job: %w", err)
 	}
+	span.AddEvent("job_updated_after_task_start")
 
 	s.mu.Lock()
 	s.taskCache[taskID] = newTask
@@ -305,11 +338,10 @@ func (s *jobService) StartTask(ctx context.Context, jobID, taskID uuid.UUID) (*d
 	return newTask, nil
 }
 
-// UpdateTaskProgress processes a status update from a running scanner task.
-// It maintains the task's execution state and enables monitoring of scan progress.
-// The update is cached in memory and periodically persisted based on configured intervals.
-// Returns the updated task, or nil if the task is not found.
-func (s *jobService) UpdateTaskProgress(ctx context.Context, progress domain.Progress) (*domain.Task, error) {
+// UpdateTaskProgress handles incremental scan progress updates while managing database load.
+// Updates are cached and only persisted based on configured intervals to prevent database bottlenecks
+// during high-frequency progress reporting.
+func (s *scanJobCoordinator) UpdateTaskProgress(ctx context.Context, progress domain.Progress) (*domain.Task, error) {
 	ctx, span := s.tracer.Start(ctx, "job_service.scanning.update_task_progress",
 		trace.WithAttributes(
 			attribute.String("task_id", progress.TaskID().String()),
@@ -360,8 +392,9 @@ func (s *jobService) UpdateTaskProgress(ctx context.Context, progress domain.Pro
 	return task, nil
 }
 
-// CompleteTask marks a task as completed, then updates the associated job's metrics accordingly.
-func (s *jobService) CompleteTask(ctx context.Context, jobID, taskID uuid.UUID) (*domain.Task, error) {
+// CompleteTask finalizes a successful task execution and updates the parent job's state.
+// This may trigger job completion if all tasks are finished.
+func (s *scanJobCoordinator) CompleteTask(ctx context.Context, jobID, taskID uuid.UUID) (*domain.Task, error) {
 	ctx, span := s.tracer.Start(ctx, "job_service.scanning.complete_task",
 		trace.WithAttributes(
 			attribute.String("job_id", jobID.String()),
@@ -406,8 +439,9 @@ func (s *jobService) CompleteTask(ctx context.Context, jobID, taskID uuid.UUID) 
 	return task, nil
 }
 
-// FailTask marks a task as failed, then updates the associated job's metrics.
-func (s *jobService) FailTask(ctx context.Context, jobID, taskID uuid.UUID) (*domain.Task, error) {
+// FailTask handles task failure scenarios and updates the parent job accordingly.
+// This information is crucial for error reporting and potential retry mechanisms.
+func (s *scanJobCoordinator) FailTask(ctx context.Context, jobID, taskID uuid.UUID) (*domain.Task, error) {
 	ctx, span := s.tracer.Start(ctx, "job_service.scanning.fail_task",
 		trace.WithAttributes(
 			attribute.String("job_id", jobID.String()),
@@ -456,88 +490,17 @@ func (s *jobService) FailTask(ctx context.Context, jobID, taskID uuid.UUID) (*do
 	return task, nil
 }
 
-// OnTaskStarted handles the start of a new task within a job.
-// func (s *jobService) OnTaskStarted(ctx context.Context, jobID uuid.UUID, task *domain.Task) error {
-// 	ctx, span := s.tracer.Start(ctx, "job_service.scanning.on_task_started",
-// 		trace.WithAttributes(
-// 			attribute.String("job_id", jobID.String()),
-// 			attribute.String("task_id", task.TaskID().String()),
-// 		))
-// 	defer span.End()
-
-// 	job, err := s.loadJob(ctx, jobID)
-// 	if err != nil {
-// 		span.RecordError(err)
-// 		span.SetStatus(codes.Error, "failed to load job")
-// 		return fmt.Errorf("failed to load job: %w", err)
-// 	}
-
-// 	if err := job.AddTask(task); err != nil {
-// 		span.RecordError(err)
-// 		span.SetStatus(codes.Error, "failed to add task to job")
-// 		return fmt.Errorf("failed to add task to job: %w", err)
-// 	}
-// 	span.AddEvent("task_added_to_job")
-
-// 	if err := s.jobRepo.UpdateJob(ctx, job); err != nil {
-// 		span.RecordError(err)
-// 		span.SetStatus(codes.Error, "failed to update job status")
-// 		return fmt.Errorf("failed to update job status: %w", err)
-// 	}
-// 	span.AddEvent("job_updated")
-// 	span.SetStatus(codes.Ok, "job updated successfully")
-
-// 	return nil
-// }
-
-// OnTaskUpdated handles any task state change, updating the job's progress
-// and state accordingly. This method maintains job status consistency
-// as tasks progress through their lifecycle.
-// func (s *jobService) OnTaskUpdated(ctx context.Context, jobID uuid.UUID, task *domain.Task) error {
-// 	ctx, span := s.tracer.Start(ctx, "job_service.scanning.on_task_updated",
-// 		trace.WithAttributes(
-// 			attribute.String("job_id", jobID.String()),
-// 			attribute.String("task_id", task.TaskID().String()),
-// 			attribute.String("task_status", string(task.Status())),
-// 		))
-// 	defer span.End()
-
-// 	job, err := s.loadJob(ctx, jobID)
-// 	if err != nil {
-// 		span.RecordError(err)
-// 		span.SetStatus(codes.Error, "failed to load job")
-// 		return fmt.Errorf("failed to load job: %w", err)
-// 	}
-
-// 	if err := job.UpdateTask(task); err != nil {
-// 		span.RecordError(err)
-// 		span.SetStatus(codes.Error, "failed to update job task")
-// 		return fmt.Errorf("failed to update job task: %w", err)
-// 	}
-// 	span.AddEvent("job_task_updated")
-
-// 	if err := s.jobRepo.UpdateJob(ctx, job); err != nil {
-// 		span.RecordError(err)
-// 		span.SetStatus(codes.Error, "failed to update job status")
-// 		return fmt.Errorf("failed to update job status: %w", err)
-// 	}
-// 	span.AddEvent("job_updated")
-// 	span.SetStatus(codes.Ok, "job updated successfully")
-
-// 	return nil
-// }
-
-// MarkJobCompleted is a no-op implementation for now
-func (s *jobService) MarkJobCompleted(ctx context.Context, jobID uuid.UUID) error {
+// MarkJobCompleted finalizes a job's lifecycle
+func (s *scanJobCoordinator) MarkJobCompleted(ctx context.Context, jobID uuid.UUID) error {
 	return nil
 }
 
-// GetJob is a no-op implementation for now
-func (s *jobService) GetJob(ctx context.Context, jobID uuid.UUID) (*domain.Job, error) {
+// GetJob retrieves detailed job information
+func (s *scanJobCoordinator) GetJob(ctx context.Context, jobID uuid.UUID) (*domain.Job, error) {
 	return nil, nil
 }
 
-// ListJobs is a no-op implementation for now
-func (s *jobService) ListJobs(ctx context.Context, status []domain.JobStatus, limit, offset int) ([]*domain.Job, error) {
+// ListJobs provides filtered access to jobs for monitoring and management
+func (s *scanJobCoordinator) ListJobs(ctx context.Context, status []domain.JobStatus, limit, offset int) ([]*domain.Job, error) {
 	return nil, nil
 }

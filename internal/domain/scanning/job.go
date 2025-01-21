@@ -166,7 +166,8 @@ func (j *Job) UpdateTask(updatedTask *Task) error {
 	return nil
 }
 
-// CompleteTask handles the entire task completion process within the job aggregate
+// CompleteTask handles the entire task completion process within the job aggregate.
+// It updates the task's status to COMPLETED and updates the job's metrics.
 func (j *Job) CompleteTask(taskID uuid.UUID) error {
 	j.mu.Lock()
 	defer j.mu.Unlock()
@@ -183,6 +184,7 @@ func (j *Job) CompleteTask(taskID uuid.UUID) error {
 
 	j.metrics.OnTaskStatusChanged(oldStatus, TaskStatusCompleted)
 	j.updateJobStatusLocked()
+
 	return nil
 }
 
@@ -256,6 +258,7 @@ func (j *Job) updateJobStatusLocked() {
 			j.status = JobStatusFailed
 		} else {
 			j.status = JobStatusCompleted
+			j.timeline.MarkCompleted()
 		}
 	} else if inProgress > 0 || (completed+failed > 0) {
 		// At least one task is in progress, or some have completed/failed, so job is running.

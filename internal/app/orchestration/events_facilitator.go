@@ -31,7 +31,7 @@ import (
 type EventsFacilitator struct {
 	// progressTracker is responsible for starting, updating, and stopping tracking of
 	// scanning tasks. The EventsFacilitator delegates task-related domain operations here.
-	progressTracker scansvc.TaskProgressTracker
+	progressTracker scansvc.ExecutionTracker
 
 	// rulesService is responsible for persisting rules, updating rule states, etc.
 	// The EventsFacilitator calls into it when handling rule-related events.
@@ -45,7 +45,7 @@ type EventsFacilitator struct {
 // rulesService, and tracer so it can delegate domain-specific logic to the correct
 // bounded context service and instrument event handling with traces.
 func NewEventsFacilitator(
-	tracker scansvc.TaskProgressTracker,
+	tracker scansvc.ExecutionTracker,
 	rulesSvc rulessvc.Service,
 	tracer trace.Tracer,
 ) *EventsFacilitator {

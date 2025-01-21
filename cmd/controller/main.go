@@ -237,16 +237,10 @@ func main() {
 		metricCollector,
 		tracer,
 	)
-	scanJobRepo := scanningStore.NewJobStore(pool, tracer)
 
+	scanJobRepo := scanningStore.NewJobStore(pool, tracer)
 	scanTaskRepo := scanningStore.NewTaskStore(pool, tracer)
-	scanTaskSvc := scanning.NewTaskService(
-		scanTaskRepo,
-		time.Second*10,
-		time.Second*60,
-		tracer,
-	)
-	scanJobSvc := scanning.NewJobService(
+	scanJobSvc := scanning.NewScanJobCoordinator(
 		scanJobRepo,
 		scanTaskRepo,
 		time.Second*10,
@@ -264,7 +258,6 @@ func main() {
 		enumCoord,
 		rulesService,
 		scanJobSvc,
-		scanTaskSvc,
 		enumStateStorage,
 		configLoader,
 		log,

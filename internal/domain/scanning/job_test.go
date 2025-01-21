@@ -395,3 +395,173 @@ func TestScanJob_AssociateTarget(t *testing.T) {
 
 	assert.Equal(t, job.targetIDs, []uuid.UUID{targetID})
 }
+
+func TestCompleteTask(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name              string
+		initialStatus     TaskStatus
+		expectErr         bool
+		expectedMetrics   struct{ total, inProgress, completed, failed int }
+		expectedJobStatus JobStatus
+	}{
+		{
+			name:          "Complete IN_PROGRESS task",
+			initialStatus: TaskStatusInProgress,
+			expectErr:     false,
+			expectedMetrics: struct{ total, inProgress, completed, failed int }{
+				total:      1,
+				inProgress: 0,
+				completed:  1,
+				failed:     0,
+			},
+			expectedJobStatus: JobStatusCompleted,
+		},
+		{
+			name:          "Complete STALE task",
+			initialStatus: TaskStatusStale,
+			expectErr:     false,
+			expectedMetrics: struct{ total, inProgress, completed, failed int }{
+				total:      1,
+				inProgress: 0,
+				completed:  1,
+				failed:     0,
+			},
+			expectedJobStatus: JobStatusCompleted,
+		},
+		{
+			name:          "Cannot complete already COMPLETED task",
+			initialStatus: TaskStatusCompleted,
+			expectErr:     true,
+		},
+		{
+			name:          "Cannot complete FAILED task",
+			initialStatus: TaskStatusFailed,
+			expectErr:     true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			job := NewJob()
+			taskID := uuid.New()
+			task := &Task{
+				CoreTask: shared.CoreTask{ID: taskID},
+				status:   tc.initialStatus,
+			}
+
+			err := job.AddTask(task)
+			require.NoError(t, err, "failed to add initial task")
+
+			err = job.CompleteTask(taskID)
+			if tc.expectErr {
+				require.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+			metrics := job.Metrics()
+			require.Equal(t, tc.expectedMetrics.total, metrics.TotalTasks())
+			require.Equal(t, tc.expectedMetrics.inProgress, metrics.InProgressTasks())
+			require.Equal(t, tc.expectedMetrics.completed, metrics.CompletedTasks())
+			require.Equal(t, tc.expectedMetrics.failed, metrics.FailedTasks())
+			require.Equal(t, tc.expectedJobStatus, job.Status())
+		})
+	}
+}
+
+func TestFailTask(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name              string
+		initialStatus     TaskStatus
+		expectErr         bool
+		expectedMetrics   struct{ total, inProgress, completed, failed int }
+		expectedJobStatus JobStatus
+	}{
+		{
+			name:          "Fail IN_PROGRESS task",
+			initialStatus: TaskStatusInProgress,
+			expectErr:     false,
+			expectedMetrics: struct{ total, inProgress, completed, failed int }{
+				total:      1,
+				inProgress: 0,
+				completed:  0,
+				failed:     1,
+			},
+			expectedJobStatus: JobStatusFailed,
+		},
+		{
+			name:          "Fail STALE task",
+			initialStatus: TaskStatusStale,
+			expectErr:     false,
+			expectedMetrics: struct{ total, inProgress, completed, failed int }{
+				total:      1,
+				inProgress: 0,
+				completed:  0,
+				failed:     1,
+			},
+			expectedJobStatus: JobStatusFailed,
+		},
+		{
+			name:          "Cannot fail COMPLETED task",
+			initialStatus: TaskStatusCompleted,
+			expectErr:     true,
+		},
+		{
+			name:          "Cannot fail already FAILED task",
+			initialStatus: TaskStatusFailed,
+			expectErr:     true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			job := NewJob()
+			taskID := uuid.New()
+			task := &Task{
+				CoreTask: shared.CoreTask{ID: taskID},
+				status:   tc.initialStatus,
+			}
+
+			err := job.AddTask(task)
+			require.NoError(t, err, "failed to add initial task")
+
+			err = job.FailTask(taskID)
+			if tc.expectErr {
+				require.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+			metrics := job.Metrics()
+			require.Equal(t, tc.expectedMetrics.total, metrics.TotalTasks())
+			require.Equal(t, tc.expectedMetrics.inProgress, metrics.InProgressTasks())
+			require.Equal(t, tc.expectedMetrics.completed, metrics.CompletedTasks())
+			require.Equal(t, tc.expectedMetrics.failed, metrics.FailedTasks())
+			require.Equal(t, tc.expectedJobStatus, job.Status())
+		})
+	}
+}
+
+func TestCompleteTask_NonexistentTask(t *testing.T) {
+	t.Parallel()
+
+	job := NewJob()
+	err := job.CompleteTask(uuid.New())
+	require.Error(t, err)
+}
+
+func TestFailTask_NonexistentTask(t *testing.T) {
+	t.Parallel()
+
+	job := NewJob()
+	err := job.FailTask(uuid.New())
+	require.Error(t, err)
+}
