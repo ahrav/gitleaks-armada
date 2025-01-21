@@ -353,7 +353,7 @@ func (e TaskInvalidStateError) Reason() TaskInvalidStateReason { return e.reason
 
 // Complete marks a task as completed.
 func (t *Task) Complete() error {
-	if t.status != TaskStatusInProgress {
+	if t.status != TaskStatusInProgress && t.status != TaskStatusStale {
 		return TaskInvalidStateError{
 			taskID: t.ID,
 			status: t.status,

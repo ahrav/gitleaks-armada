@@ -448,10 +448,8 @@ func TestCompleteTask(t *testing.T) {
 
 			job := NewJob()
 			taskID := uuid.New()
-			task := &Task{
-				CoreTask: shared.CoreTask{ID: taskID},
-				status:   tc.initialStatus,
-			}
+			task := NewScanTask(job.JobID(), taskID)
+			task.status = tc.initialStatus
 
 			err := job.AddTask(task)
 			require.NoError(t, err, "failed to add initial task")
@@ -525,10 +523,8 @@ func TestFailTask(t *testing.T) {
 
 			job := NewJob()
 			taskID := uuid.New()
-			task := &Task{
-				CoreTask: shared.CoreTask{ID: taskID},
-				status:   tc.initialStatus,
-			}
+			task := NewScanTask(job.JobID(), taskID)
+			task.status = tc.initialStatus
 
 			err := job.AddTask(task)
 			require.NoError(t, err, "failed to add initial task")
