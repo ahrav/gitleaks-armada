@@ -47,7 +47,7 @@ CREATE TABLE scan_tasks (
     status            scan_task_status NOT NULL,
     last_sequence_num BIGINT NOT NULL DEFAULT 0,
     start_time        TIMESTAMPTZ NOT NULL,
-    last_update_time  TIMESTAMPTZ,
+    end_time          TIMESTAMPTZ,
     items_processed   BIGINT NOT NULL DEFAULT 0,
     progress_details  JSONB,
     last_checkpoint   JSONB,

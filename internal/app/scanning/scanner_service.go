@@ -149,7 +149,7 @@ func (s *ScannerService) Run(ctx context.Context) error {
 }
 
 // handleEvent routes events to appropriate handlers.
-// TODO: Replace this with an event handler registry.
+// TODO: Replace this with an events facilitator.
 func (s *ScannerService) handleEvent(ctx context.Context, evt events.EventEnvelope) error {
 	switch evt.Type {
 	case enumeration.EventTypeTaskCreated:

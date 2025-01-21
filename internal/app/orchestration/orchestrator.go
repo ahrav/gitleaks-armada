@@ -37,16 +37,16 @@ import (
 type Orchestrator struct {
 	id string
 
-	coordinator    cluster.Coordinator
-	eventBus       events.EventBus
-	eventPublisher events.DomainEventPublisher
+	clusterCoordinator cluster.Coordinator
+	eventBus           events.EventBus
+	eventPublisher     events.DomainEventPublisher
 
 	cfgLoader loaders.Loader
 
-	enumerationService enumCoordinator.Coordinator
-	rulesService       rulessvc.Service
-	jobService         scan.ScanJobCoordinator
-	stateRepo          enumeration.StateRepository
+	enumCoordinator     enumCoordinator.Coordinator
+	rulesService        rulessvc.Service
+	scanningCoordinator scan.ScanJobCoordinator
+	stateRepo           enumeration.StateRepository
 
 	dispatcher *eventdispatcher.Dispatcher
 
@@ -100,18 +100,18 @@ func NewOrchestrator(
 	tracer trace.Tracer,
 ) *Orchestrator {
 	o := &Orchestrator{
-		id:                 id,
-		coordinator:        coord,
-		eventBus:           queue,
-		eventPublisher:     eventPublisher,
-		enumerationService: enumerationService,
-		rulesService:       rulesService,
-		jobService:         jobService,
-		stateRepo:          stateRepo,
-		cfgLoader:          cfgLoader,
-		metrics:            metrics,
-		logger:             logger,
-		tracer:             tracer,
+		id:                  id,
+		clusterCoordinator:  coord,
+		eventBus:            queue,
+		eventPublisher:      eventPublisher,
+		enumCoordinator:     enumerationService,
+		rulesService:        rulesService,
+		scanningCoordinator: jobService,
+		stateRepo:           stateRepo,
+		cfgLoader:           cfgLoader,
+		metrics:             metrics,
+		logger:              logger,
+		tracer:              tracer,
 	}
 
 	progressTracker := scan.NewExecutionTracker(
@@ -239,7 +239,7 @@ func (o *Orchestrator) subscribeToEvents(ctx context.Context) error {
 // setupLeadershipCallback configures the handler for leadership changes, managing
 // state transitions and metric updates when leadership status changes.
 func (o *Orchestrator) setupLeadershipCallback(ctx context.Context, leaderCh chan<- bool) {
-	o.coordinator.OnLeadershipChange(func(isLeader bool) {
+	o.clusterCoordinator.OnLeadershipChange(func(isLeader bool) {
 		leaderCtx, leaderSpan := o.tracer.Start(ctx, "orchestrator.leadership_change",
 			trace.WithAttributes(
 				attribute.String("orchestrator_id", o.id),
@@ -359,7 +359,7 @@ func (o *Orchestrator) startCoordinator(ctx context.Context) error {
 	))
 
 	o.logger.Info(ctx, "Starting coordinator...", "orchestrator_id", o.id)
-	if err := o.coordinator.Start(ctx); err != nil {
+	if err := o.clusterCoordinator.Start(ctx); err != nil {
 		startSpan.RecordError(err)
 		startSpan.SetStatus(codes.Error, "failed to start coordinator")
 		return fmt.Errorf("orchestrator[%s]: failed to start coordinator: %w", o.id, err)
@@ -437,7 +437,7 @@ func (o *Orchestrator) startFreshEnumerations(ctx context.Context, cfg *config.C
 			defer targetSpan.End()
 			targetSpan.AddEvent("processing_target")
 
-			job, err := o.jobService.CreateJob(targetCtx)
+			job, err := o.scanningCoordinator.CreateJob(targetCtx)
 			if err != nil {
 				// TODO: Revist this we can make this more resilient to allow for failures.
 				o.metrics.IncEnumerationErrors(targetCtx)
@@ -447,7 +447,7 @@ func (o *Orchestrator) startFreshEnumerations(ctx context.Context, cfg *config.C
 			o.metrics.IncJobsCreated(targetCtx)
 
 			// TODO: Maybe handle this in 2 goroutines?
-			enumChannels := o.enumerationService.EnumerateTarget(targetCtx, target, cfg.Auth)
+			enumChannels := o.enumCoordinator.EnumerateTarget(targetCtx, target, cfg.Auth)
 
 			done := false
 			for !done {
@@ -462,7 +462,7 @@ func (o *Orchestrator) startFreshEnumerations(ctx context.Context, cfg *config.C
 						scanTargetIDSpan.SetStatus(codes.Ok, "scan target ids channel closed")
 						enumChannels.ScanTargetCh = nil // channel closed
 					} else {
-						if err := o.jobService.LinkTargets(scanTargetIDCtx, job.JobID(), scanTargetIDs); err != nil {
+						if err := o.scanningCoordinator.LinkTargets(scanTargetIDCtx, job.JobID(), scanTargetIDs); err != nil {
 							scanTargetIDSpan.RecordError(err)
 							scanTargetIDSpan.SetStatus(codes.Error, "failed to associate targets")
 							o.logger.Error(scanTargetIDCtx, "Failed to associate target", "error", err)
@@ -551,7 +551,7 @@ func (o *Orchestrator) createJob(ctx context.Context, job *scanning.Job) error {
 		))
 	defer span.End()
 
-	_, err := o.jobService.CreateJob(ctx)
+	_, err := o.scanningCoordinator.CreateJob(ctx)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to create job")

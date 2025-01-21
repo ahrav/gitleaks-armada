@@ -363,7 +363,7 @@ func (s *scanJobCoordinator) UpdateTaskProgress(ctx context.Context, progress do
 	}
 	span.AddEvent("progress_applied")
 
-	if time.Since(task.LastUpdateTime()) >= s.persistInterval {
+	if time.Since(task.EndTime()) >= s.persistInterval {
 		if err := s.taskRepo.UpdateTask(ctx, task); err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "failed to persist updated task")

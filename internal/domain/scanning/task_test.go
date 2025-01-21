@@ -25,7 +25,7 @@ func TestNewScanTask(t *testing.T) {
 	assert.Equal(t, TaskStatusInProgress, task.Status())
 
 	assert.Equal(t, mockTime, task.StartTime())
-	assert.Equal(t, mockTime, task.LastUpdateTime())
+	assert.Equal(t, mockTime, task.EndTime())
 
 	assert.Equal(t, int64(0), task.LastSequenceNum())
 	assert.Equal(t, int64(0), task.ItemsProcessed())
@@ -44,7 +44,7 @@ func TestNewScanTask_DefaultTimeProvider(t *testing.T) {
 
 	assert.NotNil(t, task)
 	assert.True(t, task.StartTime().After(beforeCreate) || task.StartTime().Equal(beforeCreate))
-	assert.True(t, task.LastUpdateTime().After(beforeCreate) || task.LastUpdateTime().Equal(beforeCreate))
+	assert.True(t, task.EndTime().After(beforeCreate) || task.EndTime().Equal(beforeCreate))
 }
 
 // mockTimeProvider implements TimeProvider for testing
@@ -254,7 +254,7 @@ func TestTask_Complete(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 				assert.Equal(t, TaskStatusCompleted, task.Status())
-				assert.Equal(t, tp.Now(), task.LastUpdateTime())
+				assert.Equal(t, tp.Now(), task.EndTime())
 			}
 		})
 	}

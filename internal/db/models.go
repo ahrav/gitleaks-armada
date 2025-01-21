@@ -356,7 +356,7 @@ type ScanTask struct {
 	Status          ScanTaskStatus
 	LastSequenceNum int64
 	StartTime       pgtype.Timestamptz
-	LastUpdateTime  pgtype.Timestamptz
+	EndTime         pgtype.Timestamptz
 	ItemsProcessed  int64
 	ProgressDetails []byte
 	LastCheckpoint  []byte

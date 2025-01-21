@@ -253,9 +253,6 @@ func (t *Task) Status() TaskStatus { return t.status }
 // LastSequenceNum returns the sequence number of the most recent progress update.
 func (t *Task) LastSequenceNum() int64 { return t.lastSequenceNum }
 
-// LastUpdateTime returns when this task last reported progress.
-func (t *Task) LastUpdateTime() time.Time { return t.timeline.LastUpdate() }
-
 // ItemsProcessed returns the total number of items scanned by this task.
 func (t *Task) ItemsProcessed() int64 { return t.itemsProcessed }
 
@@ -268,6 +265,9 @@ func (t *Task) ProgressDetails() []byte { return t.progressDetails }
 
 // StartTime returns the time the task was started.
 func (t *Task) StartTime() time.Time { return t.timeline.StartedAt() }
+
+// EndTime returns when this task last reported progress.
+func (t *Task) EndTime() time.Time { return t.timeline.CompletedAt() }
 
 // OutOfOrderProgressError is an error type for indicating that a progress update
 // is out of order and should be ignored.

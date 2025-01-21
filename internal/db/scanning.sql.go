@@ -64,21 +64,13 @@ INSERT INTO scan_tasks (
     job_id,
     status,
     last_sequence_num,
-    start_time,
-    last_update_time,
-    items_processed,
-    progress_details,
-    last_checkpoint
+    start_time
 ) VALUES (
     $1, -- task_id UUID
     $2, -- job_id UUID
     $3, -- status TEXT (TaskStatus)
     $4, -- last_sequence_num BIGINT
-    $5, -- start_time TIMESTAMPTZ
-    $6, -- last_update_time TIMESTAMPTZ
-    $7, -- items_processed BIGINT
-    $8, -- progress_details JSONB
-    $9 -- last_checkpoint JSONB
+    $5 -- start_time TIMESTAMPTZ
 )
 `
 
@@ -88,10 +80,6 @@ type CreateScanTaskParams struct {
 	Status          ScanTaskStatus
 	LastSequenceNum int64
 	StartTime       pgtype.Timestamptz
-	LastUpdateTime  pgtype.Timestamptz
-	ItemsProcessed  int64
-	ProgressDetails []byte
-	LastCheckpoint  []byte
 }
 
 func (q *Queries) CreateScanTask(ctx context.Context, arg CreateScanTaskParams) error {
@@ -101,10 +89,6 @@ func (q *Queries) CreateScanTask(ctx context.Context, arg CreateScanTaskParams) 
 		arg.Status,
 		arg.LastSequenceNum,
 		arg.StartTime,
-		arg.LastUpdateTime,
-		arg.ItemsProcessed,
-		arg.ProgressDetails,
-		arg.LastCheckpoint,
 	)
 	return err
 }
@@ -174,7 +158,7 @@ SELECT
     status,
     last_sequence_num,
     start_time,
-    last_update_time,
+    end_time,
     items_processed,
     progress_details,
     last_checkpoint,
@@ -193,7 +177,7 @@ func (q *Queries) GetScanTask(ctx context.Context, taskID pgtype.UUID) (ScanTask
 		&i.Status,
 		&i.LastSequenceNum,
 		&i.StartTime,
-		&i.LastUpdateTime,
+		&i.EndTime,
 		&i.ItemsProcessed,
 		&i.ProgressDetails,
 		&i.LastCheckpoint,
@@ -210,7 +194,7 @@ SELECT
     t.status,
     t.last_sequence_num,
     t.start_time,
-    t.last_update_time,
+    t.end_time,
     t.items_processed,
     t.progress_details,
     t.last_checkpoint,
@@ -242,7 +226,7 @@ func (q *Queries) ListScanTasksByJobAndStatus(ctx context.Context, arg ListScanT
 			&i.Status,
 			&i.LastSequenceNum,
 			&i.StartTime,
-			&i.LastUpdateTime,
+			&i.EndTime,
 			&i.ItemsProcessed,
 			&i.ProgressDetails,
 			&i.LastCheckpoint,
@@ -302,7 +286,7 @@ UPDATE scan_tasks
 SET
     status = $2,
     last_sequence_num = $3,
-    last_update_time = $4,
+    end_time = $4,
     items_processed = $5,
     progress_details = $6,
     last_checkpoint = $7,
@@ -314,7 +298,7 @@ type UpdateScanTaskParams struct {
 	TaskID          pgtype.UUID
 	Status          ScanTaskStatus
 	LastSequenceNum int64
-	LastUpdateTime  pgtype.Timestamptz
+	EndTime         pgtype.Timestamptz
 	ItemsProcessed  int64
 	ProgressDetails []byte
 	LastCheckpoint  []byte
@@ -325,7 +309,7 @@ func (q *Queries) UpdateScanTask(ctx context.Context, arg UpdateScanTaskParams) 
 		arg.TaskID,
 		arg.Status,
 		arg.LastSequenceNum,
-		arg.LastUpdateTime,
+		arg.EndTime,
 		arg.ItemsProcessed,
 		arg.ProgressDetails,
 		arg.LastCheckpoint,
