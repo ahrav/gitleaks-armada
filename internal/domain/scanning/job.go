@@ -166,6 +166,45 @@ func (j *Job) UpdateTask(updatedTask *Task) error {
 	return nil
 }
 
+// CompleteTask handles the entire task completion process within the job aggregate
+func (j *Job) CompleteTask(taskID uuid.UUID) error {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+
+	task, exists := j.tasks[taskID]
+	if !exists {
+		return fmt.Errorf("task %s not found in job", taskID)
+	}
+
+	oldStatus := task.Status()
+	if err := task.Complete(); err != nil {
+		return fmt.Errorf("failed to complete task: %w", err)
+	}
+
+	j.metrics.OnTaskStatusChanged(oldStatus, TaskStatusCompleted)
+	j.updateJobStatusLocked()
+	return nil
+}
+
+// FailTask handles the entire task failure process within the job aggregate.
+func (j *Job) FailTask(taskID uuid.UUID) error {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+
+	task, exists := j.tasks[taskID]
+	if !exists {
+		return fmt.Errorf("task %s not found in job", taskID)
+	}
+	oldStatus := task.Status()
+	if err := task.Fail(); err != nil {
+		return fmt.Errorf("failed to fail task: %w", err)
+	}
+
+	j.metrics.OnTaskStatusChanged(oldStatus, TaskStatusFailed)
+	j.updateJobStatusLocked()
+	return nil
+}
+
 // TaskInvalidTransitionError is an error type for disallowed status changes.
 type TaskInvalidTransitionError struct {
 	oldStatus TaskStatus

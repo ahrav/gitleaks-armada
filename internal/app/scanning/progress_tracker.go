@@ -49,25 +49,22 @@ type TaskProgressTracker interface {
 // taskProgressTracker implements ProgressTracker by coordinating between task and job services
 // to maintain consistent progress state across the system.
 type taskProgressTracker struct {
-	taskService ScanTaskService
-	jobService  ScanJobService
-	logger      *logger.Logger
-	tracer      trace.Tracer
+	jobService ScanJobService
+	logger     *logger.Logger
+	tracer     trace.Tracer
 }
 
 // NewTaskProgressTracker creates a new progress tracker with the provided dependencies.
 // It establishes the core components needed for system-wide progress monitoring.
 func NewTaskProgressTracker(
-	taskService ScanTaskService,
 	jobService ScanJobService,
 	logger *logger.Logger,
 	tracer trace.Tracer,
 ) TaskProgressTracker {
 	return &taskProgressTracker{
-		taskService: taskService,
-		jobService:  jobService,
-		logger:      logger,
-		tracer:      tracer,
+		jobService: jobService,
+		logger:     logger,
+		tracer:     tracer,
 	}
 }
 
@@ -85,20 +82,13 @@ func (t *taskProgressTracker) StartTracking(ctx context.Context, evt scanning.Ta
 	defer span.End()
 
 	// Task state must be initialized before job notification to ensure proper ordering.
-	task, err := t.taskService.StartTask(ctx, jobID, taskID)
+	_, err := t.jobService.StartTask(ctx, jobID, taskID)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to start task tracking")
 		return fmt.Errorf("failed to start task tracking: %w", err)
 	}
 	span.AddEvent("task_started")
-
-	if err := t.jobService.OnTaskStarted(ctx, jobID, task); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to notify job service of task start")
-		return fmt.Errorf("failed to notify job service of task start: %w", err)
-	}
-	span.AddEvent("job_service_notified")
 	span.SetStatus(codes.Ok, "tracking started")
 
 	return nil
@@ -116,26 +106,14 @@ func (t *taskProgressTracker) UpdateProgress(ctx context.Context, evt scanning.T
 		))
 	defer span.End()
 
-	// Update task state first to maintain causal ordering.
-	task, err := t.taskService.UpdateProgress(ctx, evt.Progress)
+	_, err := t.jobService.UpdateTaskProgress(ctx, evt.Progress)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to update task progress")
 		return fmt.Errorf("failed to update task progress: %w", err)
 	}
-
-	if task != nil {
-		// Notify the job service of the current task's progress. This step is crucial
-		// as it enables the job service to accurately track the completion status of
-		// all tasks associated with the job, which is essential for updating the
-		// overall job status accordingly.
-		if err := t.jobService.OnTaskUpdated(ctx, task.JobID(), task); err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "failed to notify job service of task progress")
-			return fmt.Errorf("failed to notify job service of task progress: %w", err)
-		}
-	}
 	span.AddEvent("task_progress_updated")
+	span.SetStatus(codes.Ok, "task progress updated")
 
 	return nil
 }
@@ -150,17 +128,11 @@ func (t *taskProgressTracker) StopTracking(ctx context.Context, evt scanning.Tas
 		))
 	defer span.End()
 
-	task, err := t.taskService.CompleteTask(ctx, taskID)
+	_, err := t.jobService.CompleteTask(ctx, evt.JobID, evt.TaskID)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to complete task")
 		return fmt.Errorf("failed to complete task: %w", err)
-	}
-
-	if err := t.jobService.OnTaskUpdated(ctx, task.JobID(), task); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to notify job service of task completion")
-		return fmt.Errorf("failed to notify job service of task completion: %w", err)
 	}
 	span.AddEvent("task_completed")
 	span.SetStatus(codes.Ok, "task tracking stopped")
@@ -178,19 +150,13 @@ func (t *taskProgressTracker) FailTask(ctx context.Context, evt scanning.TaskFai
 		))
 	defer span.End()
 
-	task, err := t.taskService.FailTask(ctx, taskID)
+	_, err := t.jobService.FailTask(ctx, evt.JobID, evt.TaskID)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to fail task")
 		return fmt.Errorf("failed to fail task: %w", err)
 	}
-
-	if err := t.jobService.OnTaskUpdated(ctx, task.JobID(), task); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to notify job service of task failure")
-		return fmt.Errorf("failed to notify job service of task failure: %w", err)
-	}
-	span.AddEvent("task_failed")
+	span.AddEvent("task_failed_successfully")
 	span.SetStatus(codes.Ok, "task failed")
 
 	return nil
