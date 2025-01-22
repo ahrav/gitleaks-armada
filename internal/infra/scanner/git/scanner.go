@@ -54,6 +54,8 @@ func NewScanner(
 // The scan continues until either the context is cancelled, an error occurs, or scanning completes.
 // The caller should consume from all channels until they are closed to prevent goroutine leaks.
 // TODO: Implement progress reporting.
+// TODO: Abstract away the structure for this stream scanning code as it's the same
+// across source scanners. The only logic that varies is the actual scanning logic.
 func (s *Scanner) ScanStreaming(
 	ctx context.Context,
 	task *dtos.ScanRequest,
