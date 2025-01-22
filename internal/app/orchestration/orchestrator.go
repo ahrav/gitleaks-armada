@@ -120,11 +120,18 @@ func NewOrchestrator(
 		tracer,
 	)
 
-	eventsFacilitator := NewEventsFacilitator(executionTracker, rulesService, tracer)
+	heartbeatMonitor := scan.NewHeartbeatMonitor(
+		executionTracker,
+		tracer,
+		logger,
+	)
+
+	eventsFacilitator := NewEventsFacilitator(executionTracker, heartbeatMonitor, rulesService, tracer)
 	dispatcher := eventdispatcher.New(tracer)
 	dispatcher.RegisterHandler(scanning.EventTypeTaskStarted, eventsFacilitator.HandleTaskStarted)
 	dispatcher.RegisterHandler(scanning.EventTypeTaskProgressed, eventsFacilitator.HandleTaskProgressed)
 	dispatcher.RegisterHandler(scanning.EventTypeTaskCompleted, eventsFacilitator.HandleTaskCompleted)
+	dispatcher.RegisterHandler(scanning.EventTypeTaskHeartbeat, eventsFacilitator.HandleTaskHeartbeat)
 	dispatcher.RegisterHandler(rules.EventTypeRulesUpdated, eventsFacilitator.HandleRule)
 	dispatcher.RegisterHandler(rules.EventTypeRulesPublished, eventsFacilitator.HandleRulesPublished)
 
@@ -218,6 +225,7 @@ func (o *Orchestrator) subscribeToEvents(ctx context.Context) error {
 		scanning.EventTypeTaskProgressed,
 		scanning.EventTypeTaskCompleted,
 		scanning.EventTypeTaskFailed,
+		scanning.EventTypeTaskHeartbeat,
 	}
 
 	if err := o.eventBus.Subscribe(

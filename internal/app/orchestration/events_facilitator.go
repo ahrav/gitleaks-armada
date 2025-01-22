@@ -17,7 +17,7 @@ import (
 
 // EventsFacilitator orchestrates the handling of domain events that span multiple
 // bounded contexts (e.g., scanning tasks and rules). It performs minimal domain logic
-// itself, delegating to dedicated services like ProgressTracker and RulesService to
+// itself, delegating to dedicated services like ExecutionTracker and RulesService to
 // carry out actual business operations.
 //
 // It centralizes event handling for scanning tasks (start, progress, complete) and
@@ -29,9 +29,13 @@ import (
 // bounded contexts while keeping domain-service responsibilities properly separated
 // (e.g., progress tracking in scanning package, rule logic in rules package).
 type EventsFacilitator struct {
-	// progressTracker is responsible for starting, updating, and stopping tracking of
+	// executionTracker is responsible for starting, updating, and stopping tracking of
 	// scanning tasks. The EventsFacilitator delegates task-related domain operations here.
-	progressTracker scansvc.ExecutionTracker
+	executionTracker scansvc.ExecutionTracker
+
+	// heartbeatMonitor is responsible for monitoring task heartbeats and failing
+	// tasks that have not sent a heartbeat within a given threshold.
+	heartbeatMonitor *scansvc.HeartbeatMonitor
 
 	// rulesService is responsible for persisting rules, updating rule states, etc.
 	// The EventsFacilitator calls into it when handling rule-related events.
@@ -41,18 +45,20 @@ type EventsFacilitator struct {
 }
 
 // NewEventsFacilitator constructs an EventsFacilitator that can process both
-// scanning task events and rule-related events. It receives a progressTracker,
-// rulesService, and tracer so it can delegate domain-specific logic to the correct
-// bounded context service and instrument event handling with traces.
+// scanning task events and rule-related events. It receives a executionTracker,
+// rulesService, heartbeatMonitor, and tracer so it can delegate domain-specific logic
+// to the correct bounded context service and instrument event handling with traces.
 func NewEventsFacilitator(
 	tracker scansvc.ExecutionTracker,
+	heartbeatMonitor *scansvc.HeartbeatMonitor,
 	rulesSvc rulessvc.Service,
 	tracer trace.Tracer,
 ) *EventsFacilitator {
 	return &EventsFacilitator{
-		progressTracker: tracker,
-		rulesService:    rulesSvc,
-		tracer:          tracer,
+		executionTracker: tracker,
+		heartbeatMonitor: heartbeatMonitor,
+		rulesService:     rulesSvc,
+		tracer:           tracer,
 	}
 }
 
@@ -102,7 +108,7 @@ func (ef *EventsFacilitator) HandleTaskStarted(ctx context.Context, evt events.E
 			attribute.String("job_id", startedEvt.JobID.String()),
 		))
 
-		if err := ef.progressTracker.StartTracking(ctx, startedEvt); err != nil {
+		if err := ef.executionTracker.StartTracking(ctx, startedEvt); err != nil {
 			return fmt.Errorf("failed to start tracking task: %w", err)
 		}
 
@@ -124,7 +130,7 @@ func (ef *EventsFacilitator) HandleTaskProgressed(ctx context.Context, evt event
 
 		span.AddEvent("task_progressed_event_valid")
 
-		if err := ef.progressTracker.UpdateProgress(ctx, progressEvt); err != nil {
+		if err := ef.executionTracker.UpdateProgress(ctx, progressEvt); err != nil {
 			return fmt.Errorf("failed to update progress: %w", err)
 		}
 
@@ -146,7 +152,7 @@ func (ef *EventsFacilitator) HandleTaskCompleted(ctx context.Context, evt events
 
 		span.AddEvent("task_completed_event_valid")
 
-		if err := ef.progressTracker.StopTracking(ctx, completedEvt); err != nil {
+		if err := ef.executionTracker.StopTracking(ctx, completedEvt); err != nil {
 			return fmt.Errorf("failed to stop tracking task: %w", err)
 		}
 
@@ -166,12 +172,30 @@ func (ef *EventsFacilitator) HandleTaskFailed(ctx context.Context, evt events.Ev
 			return recordPayloadTypeError(span, evt.Payload)
 		}
 
-		if err := ef.progressTracker.FailTask(ctx, failedEvt); err != nil {
+		if err := ef.executionTracker.FailTask(ctx, failedEvt); err != nil {
 			return fmt.Errorf("failed to fail task: %w", err)
 		}
 
 		span.AddEvent("task_failed_event_updated")
 		span.SetStatus(codes.Ok, "task failed event updated")
+		return nil
+	})
+}
+
+// HandleTaskHeartbeat processes a TaskHeartbeatEvent.
+func (ef *EventsFacilitator) HandleTaskHeartbeat(ctx context.Context, evt events.EventEnvelope) error {
+	return ef.withSpan(ctx, "events_facilitator.handle_task_heartbeat", func(ctx context.Context, span trace.Span) error {
+		span.AddEvent("processing_task_heartbeat")
+
+		heartbeatEvt, ok := evt.Payload.(scanning.TaskHeartbeatEvent)
+		if !ok {
+			return recordPayloadTypeError(span, evt.Payload)
+		}
+
+		ef.heartbeatMonitor.HandleHeartbeat(ctx, heartbeatEvt)
+
+		span.AddEvent("task_heartbeat_processed")
+		span.SetStatus(codes.Ok, "task heartbeat processed")
 		return nil
 	})
 }
