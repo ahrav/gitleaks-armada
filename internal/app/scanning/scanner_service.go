@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -351,7 +352,7 @@ func (s *ScannerService) handleScanTask(ctx context.Context, req *dtos.ScanReque
 		streamResult := s.secretScanner.Scan(ctx, req, s.progressReporter)
 		span.AddEvent("streaming_scan_started")
 
-		return s.consumeStream(ctx, req, streamResult)
+		return s.consumeStream(ctx, req.TaskID, streamResult)
 	})
 	if err != nil {
 		span.RecordError(err)
@@ -382,7 +383,7 @@ func (s *ScannerService) handleScanTask(ctx context.Context, req *dtos.ScanReque
 
 func (s *ScannerService) consumeStream(
 	ctx context.Context,
-	req *dtos.ScanRequest,
+	taskID uuid.UUID,
 	sr StreamResult,
 ) error {
 	heartbeatChan := sr.HeartbeatChan
@@ -400,7 +401,7 @@ func (s *ScannerService) consumeStream(
 				heartbeatChan = nil
 			} else {
 				// Publish the heartbeat event for this task.
-				evt := scanning.NewTaskHeartbeatEvent(req.TaskID)
+				evt := scanning.NewTaskHeartbeatEvent(taskID)
 				if pErr := s.domainPublisher.PublishDomainEvent(ctx, evt); pErr != nil {
 					s.logger.Error(ctx, "failed to publish heartbeat event", "err", pErr)
 				}
@@ -410,7 +411,7 @@ func (s *ScannerService) consumeStream(
 			if !ok {
 				findingsChan = nil
 			} else {
-				s.logger.Info(ctx, "Got finding", "task_id", req.TaskID, "finding", f)
+				s.logger.Info(ctx, "Got finding", "task_id", taskID, "finding", f)
 				// TODO: Publish...
 			}
 
