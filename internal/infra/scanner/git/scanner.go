@@ -80,9 +80,6 @@ func (s *Scanner) ScanStreaming(
 			s.metrics.ObserveScanDuration(ctx, shared.SourceType(task.SourceType), time.Since(startTime))
 		}()
 
-		ticker := time.NewTicker(5 * time.Second)
-		defer ticker.Stop()
-
 		scanComplete := make(chan error, 1)
 		go func() {
 			defer close(scanComplete)
@@ -185,6 +182,9 @@ func (s *Scanner) ScanStreaming(
 		}()
 
 		// Handle events.
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+
 		for {
 			select {
 			case <-ctx.Done():
