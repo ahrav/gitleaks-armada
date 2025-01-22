@@ -114,13 +114,13 @@ func NewOrchestrator(
 		tracer:              tracer,
 	}
 
-	progressTracker := scan.NewExecutionTracker(
+	executionTracker := scan.NewExecutionTracker(
 		jobService,
 		logger,
 		tracer,
 	)
 
-	eventsFacilitator := NewEventsFacilitator(progressTracker, rulesService, tracer)
+	eventsFacilitator := NewEventsFacilitator(executionTracker, rulesService, tracer)
 	dispatcher := eventdispatcher.New(tracer)
 	dispatcher.RegisterHandler(scanning.EventTypeTaskStarted, eventsFacilitator.HandleTaskStarted)
 	dispatcher.RegisterHandler(scanning.EventTypeTaskProgressed, eventsFacilitator.HandleTaskProgressed)
