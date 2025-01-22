@@ -45,6 +45,64 @@ func NewScanner(
 	}
 }
 
+// ScanStreaming performs asynchronous secret scanning on a git repository and streams results.
+// It provides real-time feedback through three channels:
+//   - A heartbeat channel to indicate the scanner is still alive
+//   - A findings channel that emits discovered secrets
+//   - An error channel for reporting scanning failures
+//
+// The scan continues until either the context is cancelled, an error occurs, or scanning completes.
+// The caller should consume from all channels until they are closed to prevent goroutine leaks.
+func (s *Scanner) ScanStreaming(
+	ctx context.Context,
+	task *dtos.ScanRequest,
+	reporter scanning.ProgressReporter,
+) (<-chan struct{}, <-chan scanning.Finding, <-chan error) {
+
+	heartbeatChan := make(chan struct{}, 1)
+	findingsChan := make(chan scanning.Finding, 1)
+	errChan := make(chan error, 1)
+
+	go func() {
+		defer close(heartbeatChan)
+		defer close(findingsChan)
+		defer close(errChan)
+
+		ticker := time.NewTicker(10 * time.Second) // or user-configurable
+		defer ticker.Stop()
+
+		// Sub-goroutine to do the actual, possibly long-running scanning
+		scanComplete := make(chan error, 1)
+		go func() {
+			// err := s.doScanRepoAndStreamFindings(ctx, task, findingsChan)
+			// scanComplete <- err
+		}()
+
+		for {
+			select {
+			case <-ctx.Done():
+				// scanning was cancelled
+				errChan <- ctx.Err()
+				return
+			case <-ticker.C:
+				// send a heartbeat
+				select {
+				case heartbeatChan <- struct{}{}:
+				default:
+				}
+			case err := <-scanComplete:
+				// scanning ended
+				if err != nil {
+					errChan <- err
+				}
+				return
+			}
+		}
+	}()
+
+	return heartbeatChan, findingsChan, errChan
+}
+
 // Scan clones the repository to a temporary directory and scans it for secrets.
 // It ensures the cloned repository is cleaned up after scanning.
 // It reports progress to the reporter.

@@ -88,3 +88,8 @@ message TaskFailedEvent {
   int64 timestamp = 3;
   string reason = 4;
 }
+
+message TaskHeartbeatEvent {
+  string task_id = 1;
+  int64 timestamp = 2;
+}

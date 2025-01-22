@@ -62,10 +62,10 @@ func NewGitLeaks(
 	detector := setupGitleaksDetector()
 
 	factories := map[dtos.SourceType]SourceScannerFactory{
-		dtos.SourceTypeGitHub: func(params scannerParams) SourceScanner {
+		dtos.SourceTypeGitHub: func(params scannerParams) StreamScanner {
 			return git.NewScanner(params.detector, params.logger, params.tracer, params.metrics)
 		},
-		dtos.SourceTypeURL: func(params scannerParams) SourceScanner {
+		dtos.SourceTypeURL: func(params scannerParams) StreamScanner {
 			return url.NewScanner(params.detector, params.logger, params.tracer, params.metrics)
 		},
 	}
@@ -219,14 +219,27 @@ func matchConditionToDomain(mc config.AllowlistMatchCondition) rules.AllowlistMa
 	}
 }
 
-// SourceScanner defines a standardized interface for secret detection across different source types.
+// StreamScanner defines a standardized interface for secret detection across different source types.
 // It abstracts the scanning logic, allowing pluggable implementations for various data sources
 // like Git repositories, URLs, and other potential scanning targets. Each implementation
 // must handle source-specific nuances while providing a consistent scanning contract.
 //
-// The Scan method accepts a task and a progress reporter to allow for progress reporting.
-type SourceScanner interface {
-	Scan(ctx context.Context, task *dtos.ScanRequest, reporter scanning.ProgressReporter) error
+// The ScanStreaming method returns three channels:
+//   - heartbeats: receives a signal (struct{}) on a fixed interval to indicate "still scanning"
+//   - findings: streams discovered results
+//   - errs: emits an error if the scan fails, or is closed on success
+//
+// The ScanStreaming method accepts a task and a progress reporter to allow for progress reporting.
+type StreamScanner interface {
+	// ScanStreaming returns three channels:
+	//   - heartbeats: receives a signal (struct{}) on a fixed interval to indicate "still scanning"
+	//   - findings: streams discovered results
+	//   - errs: emits an error if the scan fails, or is closed on success
+	ScanStreaming(ctx context.Context, task *dtos.ScanRequest, reporter scanning.ProgressReporter) (
+		<-chan struct{}, // heartbeats
+		<-chan scanning.Finding,
+		<-chan error,
+	)
 }
 
 // scannerParams collects all the dependencies needed to construct a SourceScanner.
@@ -238,11 +251,11 @@ type scannerParams struct {
 }
 
 // SourceScannerFactory is a function that constructs a SourceScanner.
-type SourceScannerFactory func(params scannerParams) SourceScanner
+type SourceScannerFactory func(params scannerParams) StreamScanner
 
 // Scan initiates the scanning process for a given task by selecting the appropriate scanner
 // based on the task's source type.
-func (s *Gitleaks) Scan(ctx context.Context, task *dtos.ScanRequest, reporter scanning.ProgressReporter) error {
+func (s *Gitleaks) Scan(ctx context.Context, task *dtos.ScanRequest, reporter scanning.ProgressReporter) scanning.StreamResult {
 	ctx, span := s.tracer.Start(ctx, "gitleaks_scanner.scanning.scan_repository",
 		trace.WithAttributes(
 			attribute.String("task.id", task.TaskID.String()),
@@ -254,7 +267,9 @@ func (s *Gitleaks) Scan(ctx context.Context, task *dtos.ScanRequest, reporter sc
 	if !ok {
 		span.SetStatus(codes.Error, "unsupported source type")
 		span.RecordError(fmt.Errorf("unsupported source type: %s", task.SourceType))
-		return fmt.Errorf("unsupported source type: %s", task.SourceType)
+		errChan := make(chan error, 1)
+		errChan <- fmt.Errorf("unsupported source type: %s", task.SourceType)
+		return scanning.StreamResult{ErrChan: errChan}
 	}
 	span.AddEvent("scanner_factory_selected")
 
@@ -264,13 +279,17 @@ func (s *Gitleaks) Scan(ctx context.Context, task *dtos.ScanRequest, reporter sc
 		tracer:   s.tracer,
 		metrics:  s.metrics,
 	})
-	if err := scanner.Scan(ctx, task, reporter); err != nil {
-		span.SetStatus(codes.Error, "scan failed")
-		span.RecordError(err)
-		return err
-	}
-	span.AddEvent("scan_completed")
-	span.SetStatus(codes.Ok, "scan completed")
 
-	return nil
+	hbChan, findingsChan, errChan := scanner.ScanStreaming(ctx, task, reporter)
+
+	// Return the channels in our StreamResult.
+	sr := scanning.StreamResult{
+		HeartbeatChan: hbChan,
+		FindingsChan:  findingsChan,
+		ErrChan:       errChan,
+	}
+	span.SetStatus(codes.Ok, "scan started streaming")
+	span.AddEvent("scan_started_streaming")
+
+	return sr
 }

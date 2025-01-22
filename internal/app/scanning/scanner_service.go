@@ -348,15 +348,10 @@ func (s *ScannerService) handleScanTask(ctx context.Context, req *dtos.ScanReque
 	span.AddEvent("task_started_event_published")
 
 	err := s.metrics.TrackTask(ctx, func() error {
-		if err := s.secretScanner.Scan(ctx, req, s.progressReporter); err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "failed to scan")
-			return fmt.Errorf("failed to scan: %w", err)
-		}
-		span.AddEvent("scan_completed")
-		span.SetStatus(codes.Ok, "scan completed")
+		streamResult := s.secretScanner.Scan(ctx, req, s.progressReporter)
+		span.AddEvent("streaming_scan_started")
 
-		return nil
+		return s.consumeStream(ctx, req, streamResult)
 	})
 	if err != nil {
 		// TODO: Emit a |TaskFailedEvent|
@@ -375,4 +370,66 @@ func (s *ScannerService) handleScanTask(ctx context.Context, req *dtos.ScanReque
 	span.SetStatus(codes.Ok, "task completed")
 
 	return nil
+}
+
+func (s *ScannerService) consumeStream(
+	ctx context.Context,
+	req *dtos.ScanRequest,
+	sr StreamResult,
+) error {
+	heartbeatChan := sr.HeartbeatChan
+	findingsChan := sr.FindingsChan
+	errChan := sr.ErrChan
+
+	for {
+		select {
+		case <-ctx.Done():
+			// context canceled => stop.
+			return ctx.Err()
+
+		case _, ok := <-heartbeatChan:
+			if !ok {
+				heartbeatChan = nil
+			} else {
+				// Publish the heartbeat event for this task.
+				evt := scanning.NewTaskHeartbeatEvent(req.TaskID)
+				if pErr := s.domainPublisher.PublishDomainEvent(ctx, evt); pErr != nil {
+					s.logger.Error(ctx, "failed to publish heartbeat event", "err", pErr)
+				}
+			}
+
+		case f, ok := <-findingsChan:
+			if !ok {
+				findingsChan = nil
+			} else {
+				s.logger.Info(ctx, "Got finding", "task_id", req.TaskID, "finding", f)
+				// TODO: Publish...
+			}
+
+		case scanErr, ok := <-errChan:
+			// Typically, the scan is finished when this channel returns an error or closes.
+			if !ok {
+				// Channel closed => success.
+				return nil
+			}
+			// We have an actual error => scanning failed.
+			return scanErr
+		}
+
+		// Optionally, if both heartbeatChan and findingsChan are nil (i.e. closed),
+		// we can check if we’re just waiting on errChan to close for success.
+		if heartbeatChan == nil && findingsChan == nil {
+			// If the scanner is done streaming both heartbeats and findings,
+			// we only need to see if errChan is also closed or yields an error
+			select {
+			case scanErr, ok := <-errChan:
+				if !ok {
+					return nil // success
+				}
+				return scanErr
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+	}
 }

@@ -122,10 +122,11 @@ func NewKafkaEventBusFromConfig(
 		rules.EventTypeRulesRequested:    cfg.RulesRequestTopic,  // controller -> scanner
 		rules.EventTypeRulesUpdated:      cfg.RulesResponseTopic, // scanner -> controller
 		rules.EventTypeRulesPublished:    cfg.RulesResponseTopic, // scanner -> controller
-		scanning.EventTypeTaskStarted:    cfg.ScanningTaskTopic,
-		scanning.EventTypeTaskProgressed: cfg.ScanningTaskTopic,
-		scanning.EventTypeTaskCompleted:  cfg.ScanningTaskTopic,
-		scanning.EventTypeTaskFailed:     cfg.ScanningTaskTopic,
+		scanning.EventTypeTaskStarted:    cfg.ScanningTaskTopic,  // scanner -> controller
+		scanning.EventTypeTaskProgressed: cfg.ScanningTaskTopic,  // scanner -> controller
+		scanning.EventTypeTaskCompleted:  cfg.ScanningTaskTopic,  // scanner -> controller
+		scanning.EventTypeTaskFailed:     cfg.ScanningTaskTopic,  // scanner -> controller
+		scanning.EventTypeTaskHeartbeat:  cfg.ScanningTaskTopic,  // scanner -> controller (liveness only)
 	}
 
 	bus := &KafkaEventBus{

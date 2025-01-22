@@ -15,6 +15,7 @@ const (
 	EventTypeTaskStale      events.EventType = "TaskStale"
 	EventTypeTaskCompleted  events.EventType = "TaskCompleted"
 	EventTypeTaskFailed     events.EventType = "TaskFailed"
+	EventTypeTaskHeartbeat  events.EventType = "TaskHeartbeat"
 )
 
 // TaskStartedEvent indicates a new task was added to a job.
@@ -110,3 +111,19 @@ func NewTaskFailedEvent(jobID, taskID uuid.UUID, reason string) TaskFailedEvent 
 
 func (e TaskFailedEvent) EventType() events.EventType { return EventTypeTaskFailed }
 func (e TaskFailedEvent) OccurredAt() time.Time       { return e.occurredAt }
+
+// TaskHeartbeatEvent signals that a task is still alive and processing
+type TaskHeartbeatEvent struct {
+	occurredAt time.Time
+	TaskID     uuid.UUID
+}
+
+func NewTaskHeartbeatEvent(taskID uuid.UUID) TaskHeartbeatEvent {
+	return TaskHeartbeatEvent{
+		occurredAt: time.Now(),
+		TaskID:     taskID,
+	}
+}
+
+func (e TaskHeartbeatEvent) EventType() events.EventType { return EventTypeTaskHeartbeat }
+func (e TaskHeartbeatEvent) OccurredAt() time.Time       { return e.occurredAt }

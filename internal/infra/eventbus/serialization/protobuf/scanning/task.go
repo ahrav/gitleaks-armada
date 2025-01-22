@@ -144,3 +144,21 @@ func ProtoToTaskFailedEvent(pbEvent *pb.TaskFailedEvent) (scanning.TaskFailedEve
 
 	return scanning.NewTaskFailedEvent(jobID, taskID, pbEvent.Reason), nil
 }
+
+// TaskHeartbeatEventToProto converts a domain TaskHeartbeatEvent to its protobuf representation.
+func TaskHeartbeatEventToProto(event scanning.TaskHeartbeatEvent) *pb.TaskHeartbeatEvent {
+	return &pb.TaskHeartbeatEvent{
+		TaskId:    event.TaskID.String(),
+		Timestamp: event.OccurredAt().UnixNano(),
+	}
+}
+
+// ProtoToTaskHeartbeatEvent converts a protobuf TaskHeartbeatEvent to its domain representation.
+func ProtoToTaskHeartbeatEvent(pbEvent *pb.TaskHeartbeatEvent) (scanning.TaskHeartbeatEvent, error) {
+	taskID, err := uuid.Parse(pbEvent.TaskId)
+	if err != nil {
+		return scanning.TaskHeartbeatEvent{}, fmt.Errorf("parse task ID: %w", err)
+	}
+
+	return scanning.NewTaskHeartbeatEvent(taskID), nil
+}
