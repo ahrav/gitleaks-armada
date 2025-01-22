@@ -130,6 +130,9 @@ func RegisterEventSerializers() {
 	RegisterSerializeFunc(scanning.EventTypeTaskCompleted, serializeTaskCompleted)
 	RegisterDeserializeFunc(scanning.EventTypeTaskCompleted, deserializeTaskCompleted)
 
+	RegisterSerializeFunc(scanning.EventTypeTaskFailed, serializeTaskFailed)
+	RegisterDeserializeFunc(scanning.EventTypeTaskFailed, deserializeTaskFailed)
+
 	RegisterSerializeFunc(scanning.EventTypeTaskHeartbeat, serializeTaskHeartbeat)
 	RegisterDeserializeFunc(scanning.EventTypeTaskHeartbeat, deserializeTaskHeartbeat)
 
@@ -142,10 +145,6 @@ func RegisterEventSerializers() {
 
 	RegisterSerializeFunc(rules.EventTypeRulesPublished, serializeRulePublishingCompleted)
 	RegisterDeserializeFunc(rules.EventTypeRulesPublished, deserializeRulePublishingCompleted)
-
-	// Register TaskFailed event serializers
-	RegisterSerializeFunc(scanning.EventTypeTaskFailed, serializeTaskFailed)
-	RegisterDeserializeFunc(scanning.EventTypeTaskFailed, deserializeTaskFailed)
 
 }
 

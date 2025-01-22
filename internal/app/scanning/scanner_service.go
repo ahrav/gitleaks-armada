@@ -354,9 +354,17 @@ func (s *ScannerService) handleScanTask(ctx context.Context, req *dtos.ScanReque
 		return s.consumeStream(ctx, req, streamResult)
 	})
 	if err != nil {
-		// TODO: Emit a |TaskFailedEvent|
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to track task")
+
+		failEvt := scanning.NewTaskFailedEvent(req.JobID, req.TaskID, err.Error())
+		if err := s.domainPublisher.PublishDomainEvent(ctx, failEvt); err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "failed to publish task failed event")
+			return fmt.Errorf("failed to publish task failed event: %w", err)
+		}
+		span.AddEvent("task_failed_event_published")
+
 		return fmt.Errorf("failed to track task: %w", err)
 	}
 
