@@ -41,6 +41,30 @@ type Progress struct {
 	checkpoint      *Checkpoint
 }
 
+// NewProgress creates a new Progress instance for tracking scan progress.
+// It establishes initial state for resuming interrupted scans.
+func NewProgress(
+	taskID uuid.UUID,
+	sequenceNum int64,
+	timestamp time.Time,
+	itemsProcessed int64,
+	errorCount int32,
+	message string,
+	progressDetails json.RawMessage,
+	checkpoint *Checkpoint,
+) Progress {
+	return Progress{
+		taskID:          taskID,
+		sequenceNum:     sequenceNum,
+		timestamp:       timestamp,
+		itemsProcessed:  itemsProcessed,
+		errorCount:      errorCount,
+		message:         message,
+		progressDetails: progressDetails,
+		checkpoint:      checkpoint,
+	}
+}
+
 // ReconstructProgress creates a Progress instance from persisted data.
 // This should only be used by repositories when reconstructing from storage.
 func ReconstructProgress(
