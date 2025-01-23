@@ -17,6 +17,7 @@ import (
 // StalenessHandler represents a component that can handle stale task scenarios
 // by marking tasks as stale in the system.
 type StalenessHandler interface {
+	// MarkTaskStale is used to mark a task as stale in the system.
 	MarkTaskStale(ctx context.Context, evt scanning.TaskStaleEvent) error
 }
 
