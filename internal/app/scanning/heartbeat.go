@@ -80,8 +80,8 @@ func (h *HeartbeatMonitor) HandleHeartbeat(ctx context.Context, evt scanning.Tas
 
 // TODO: revisit this value.
 const (
-	stalenessLoopInterval = 30 * time.Second
-	defaultThreshold      = 90 * time.Second
+	stalenessLoopInterval = 10 * time.Second
+	defaultThreshold      = 15 * time.Second
 )
 
 // Start launches a background goroutine that periodically checks
