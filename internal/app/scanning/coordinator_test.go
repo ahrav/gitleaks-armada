@@ -310,6 +310,8 @@ func TestUpdateTaskProgress(t *testing.T) {
 					100,
 					nil,
 					nil,
+					scanning.StallReasonNoProgress,
+					time.Time{},
 				)
 
 				job := scanning.ReconstructJob(
