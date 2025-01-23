@@ -240,7 +240,7 @@ func main() {
 
 	scanJobRepo := scanningStore.NewJobStore(pool, tracer)
 	scanTaskRepo := scanningStore.NewTaskStore(pool, tracer)
-	scanJobSvc := scanning.NewScanJobCoordinator(
+	scanJobCoord := scanning.NewScanJobCoordinator(
 		scanJobRepo,
 		scanTaskRepo,
 		time.Second*10,
@@ -257,7 +257,7 @@ func main() {
 		eventPublisher,
 		enumCoord,
 		rulesService,
-		scanJobSvc,
+		scanJobCoord,
 		enumStateStorage,
 		configLoader,
 		log,
