@@ -14,9 +14,9 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
 
-// TaskStaller is a reduced interface for the ExecutionTracker.
-// It's used to fail tasks once a task is deemed stale.
-type TaskStaller interface {
+// StalenessHandler represents a component that can handle stale task scenarios
+// by marking tasks as stale in the system.
+type StalenessHandler interface {
 	MarkTaskStale(ctx context.Context, evt scanning.TaskStaleEvent) error
 }
 
@@ -34,8 +34,8 @@ func (realTimeProvider) Now() time.Time { return time.Now() }
 // and periodically checks for tasks that have not sent a heartbeat within
 // a given threshold (indicating potential staleness or failure).
 type HeartbeatMonitor struct {
-	// taskStaller is used to mark tasks as stale once a task is deemed stale.
-	taskStaller TaskStaller
+	// stalenessHandler handles tasks that have been detected as stale
+	stalenessHandler StalenessHandler
 
 	mu sync.RWMutex
 	// lastHeartbeatByTask stores the most recent timestamp
@@ -52,14 +52,14 @@ type HeartbeatMonitor struct {
 }
 
 // NewHeartbeatMonitor creates a new HeartbeatMonitor instance.
-// The taskFailer is used to fail tasks once a task is deemed stale.
+// The stalenessHandler is used to fail tasks once a task is deemed stale.
 func NewHeartbeatMonitor(
-	taskFailer TaskStaller,
+	stalenessHandler StalenessHandler,
 	tracer trace.Tracer,
 	logger *logger.Logger,
 ) *HeartbeatMonitor {
 	return &HeartbeatMonitor{
-		taskStaller:         taskFailer,
+		stalenessHandler:    stalenessHandler,
 		tracer:              tracer,
 		logger:              logger,
 		timeProvider:        realTimeProvider{},
@@ -164,7 +164,7 @@ func (h *HeartbeatMonitor) checkForStaleTasks(ctx context.Context, threshold tim
 		h.logger.Warn(ctx, "Detected stale task - failing", "task_id", tID)
 
 		staleEvt := scanning.NewTaskStaleEvent(tID, tID, scanning.StallReasonNoProgress, h.timeProvider.Now())
-		if err := h.taskStaller.MarkTaskStale(ctx, staleEvt); err != nil {
+		if err := h.stalenessHandler.MarkTaskStale(ctx, staleEvt); err != nil {
 			h.logger.Error(ctx, "Failed to mark task as stale", "task_id", tID, "error", err)
 		} else {
 			// Only remove the stale task from the map after we've successfully
