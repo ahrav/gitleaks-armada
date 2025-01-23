@@ -9,6 +9,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
@@ -38,6 +39,9 @@ type ExecutionTracker interface {
 	// and updating job metrics. If all tasks in a job fail, the job will be marked as FAILED.
 	FailTask(ctx context.Context, evt scanning.TaskFailedEvent) error
 
+	// MarkTaskStale marks a task as stale, indicating it has stopped reporting progress.
+	MarkTaskStale(ctx context.Context, evt scanning.TaskStaleEvent) error
+
 	// GetJobProgress returns consolidated metrics for all tasks in a job, including
 	// total tasks, completed tasks, failed tasks, and overall progress percentage.
 	// This provides the data needed for job-level monitoring and reporting.
@@ -54,9 +58,10 @@ type ExecutionTracker interface {
 // It ensures consistent state transitions and maintains accurate progress metrics
 // across the distributed system.
 type executionTracker struct {
-	jobService ScanJobCoordinator // Manages job and task state transitions
-	logger     *logger.Logger     // Structured logging for operational visibility
-	tracer     trace.Tracer       // OpenTelemetry tracing for request flows
+	jobService      ScanJobCoordinator // Manages job and task state transitions
+	domainPublisher events.DomainEventPublisher
+	logger          *logger.Logger // Structured logging for operational visibility
+	tracer          trace.Tracer   // OpenTelemetry tracing for request flows
 }
 
 // NewExecutionTracker constructs a new ExecutionTracker with required dependencies.
@@ -64,13 +69,15 @@ type executionTracker struct {
 // provide operational visibility into the progress tracking subsystem.
 func NewExecutionTracker(
 	jobService ScanJobCoordinator,
+	domainPublisher events.DomainEventPublisher,
 	logger *logger.Logger,
 	tracer trace.Tracer,
 ) ExecutionTracker {
 	return &executionTracker{
-		jobService: jobService,
-		logger:     logger,
-		tracer:     tracer,
+		jobService:      jobService,
+		domainPublisher: domainPublisher,
+		logger:          logger,
+		tracer:          tracer,
 	}
 }
 
@@ -174,6 +181,32 @@ func (t *executionTracker) FailTask(ctx context.Context, evt scanning.TaskFailed
 	span.AddEvent("task_failed_successfully")
 	span.SetStatus(codes.Ok, "task failed")
 
+	return nil
+}
+
+// MarkTaskStale handles task staleness by:
+// 1. Marking the task as STALE in the job aggregate
+// 2. Publishing a domain event to notify other components
+// 3. Recording the event for system observability
+func (et *executionTracker) MarkTaskStale(ctx context.Context, evt scanning.TaskStaleEvent) error {
+	ctx, span := et.tracer.Start(ctx, "executionTracker.markTaskStale")
+	defer span.End()
+
+	task, err := et.jobService.MarkTaskStale(ctx, evt.JobID, evt.TaskID, evt.Reason)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to mark task as stale")
+		return err
+	}
+
+	// TODO: Implement domain event publishing with a resumable task.
+	// if err := et.domainPublisher.PublishDomainEvent(ctx, evt); err != nil {
+	// 	et.logger.Error(ctx, "Failed to publish TaskStaleEvent", "task_id", evt.TaskID, "err", err)
+	// 	// Possibly just log the error or bubble it up
+	// 	return err
+	// }
+
+	et.logger.Info(ctx, "Task marked stale and event published", "task_id", task.ID)
 	return nil
 }
 

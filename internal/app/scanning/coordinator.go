@@ -53,9 +53,9 @@ type ScanJobCoordinator interface {
 	// to ensure accurate status reporting and potential retry mechanisms.
 	FailTask(ctx context.Context, jobID, taskID uuid.UUID) (*domain.Task, error)
 
-	// // MarkTaskStale flags a task that has become unresponsive or stopped reporting progress.
-	// // This enables automated detection and recovery of failed tasks that require intervention.
-	// MarkTaskStale(ctx context.Context, jobID, taskID uuid.UUID, reason domain.StallReason) error
+	// MarkTaskStale flags a task that has become unresponsive or stopped reporting progress.
+	// This enables automated detection and recovery of failed tasks that require intervention.
+	MarkTaskStale(ctx context.Context, jobID, taskID uuid.UUID, reason domain.StallReason) (*domain.Task, error)
 
 	// // RecoverTask attempts to resume execution of a previously stalled task.
 	// // It uses the last recorded checkpoint to restart the task from its last known good state.
@@ -457,6 +457,42 @@ func (s *scanJobCoordinator) FailTask(ctx context.Context, jobID, taskID uuid.UU
 
 	span.SetStatus(codes.Ok, "task failed successfully")
 	span.AddEvent("task_failed_successfully")
+
+	return task, nil
+}
+
+// MarkTaskStale flags a task that has become unresponsive or stopped reporting progress.
+// This enables automated detection and recovery of failed tasks that require intervention.
+func (s *scanJobCoordinator) MarkTaskStale(ctx context.Context, jobID, taskID uuid.UUID, reason domain.StallReason) (*domain.Task, error) {
+	ctx, span := s.tracer.Start(ctx, "job_service.scanning.mark_task_stale",
+		trace.WithAttributes(
+			attribute.String("job_id", jobID.String()),
+			attribute.String("task_id", taskID.String()),
+			attribute.String("reason", string(reason)),
+		))
+	defer span.End()
+
+	task, err := s.loadTask(ctx, taskID)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to load task")
+		return nil, fmt.Errorf("load task: %w", err)
+	}
+
+	if err := task.MarkStale(reason); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to mark task as stale")
+		return nil, fmt.Errorf("mark task as stale: %w", err)
+	}
+	span.AddEvent("task_marked_as_stale")
+
+	if err := s.taskRepo.UpdateTask(ctx, task); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to persist stale task")
+		return nil, fmt.Errorf("persist task: %w", err)
+	}
+	span.AddEvent("task_stale_persisted")
+	span.SetStatus(codes.Ok, "task marked as stale successfully")
 
 	return task, nil
 }

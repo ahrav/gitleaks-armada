@@ -13,6 +13,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/otel/trace/noop"
 
+	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
@@ -76,25 +77,47 @@ func (m *mockScanJobCoordinator) FailTask(
 	return nil, args.Error(1)
 }
 
+func (m *mockScanJobCoordinator) MarkTaskStale(
+	ctx context.Context,
+	jobID,
+	taskID uuid.UUID,
+	reason scanning.StallReason,
+) (*scanning.Task, error) {
+	args := m.Called(ctx, jobID, taskID, reason)
+	if task := args.Get(0); task != nil {
+		return task.(*scanning.Task), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+type mockDomainEventPublisher struct{ mock.Mock }
+
+func (m *mockDomainEventPublisher) PublishDomainEvent(ctx context.Context, event events.DomainEvent, opts ...events.PublishOption) error {
+	return m.Called(ctx, event, opts).Error(0)
+}
+
 type trackerTestSuite struct {
-	jobCoordinator *mockScanJobCoordinator
-	logger         *logger.Logger
-	tracer         trace.Tracer
-	tracker        ExecutionTracker
+	jobCoordinator  *mockScanJobCoordinator
+	domainPublisher *mockDomainEventPublisher
+	logger          *logger.Logger
+	tracer          trace.Tracer
+	tracker         ExecutionTracker
 }
 
 func newTrackerTestSuite(t *testing.T) *trackerTestSuite {
 	t.Helper()
 
 	jobCoordinator := new(mockScanJobCoordinator)
+	domainPublisher := new(mockDomainEventPublisher)
 	logger := logger.New(io.Discard, logger.LevelDebug, "test", nil)
 	tracer := noop.NewTracerProvider().Tracer("test")
 
 	return &trackerTestSuite{
-		jobCoordinator: jobCoordinator,
-		logger:         logger,
-		tracer:         tracer,
-		tracker:        NewExecutionTracker(jobCoordinator, logger, tracer),
+		jobCoordinator:  jobCoordinator,
+		domainPublisher: domainPublisher,
+		logger:          logger,
+		tracer:          tracer,
+		tracker:         NewExecutionTracker(jobCoordinator, domainPublisher, logger, tracer),
 	}
 }
 

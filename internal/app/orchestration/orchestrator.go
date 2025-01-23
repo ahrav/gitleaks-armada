@@ -116,6 +116,7 @@ func NewOrchestrator(
 
 	executionTracker := scan.NewExecutionTracker(
 		jobService,
+		eventPublisher,
 		logger,
 		tracer,
 	)
