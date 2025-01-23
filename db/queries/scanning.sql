@@ -76,6 +76,8 @@ SELECT
     items_processed,
     progress_details,
     last_checkpoint,
+    stall_reason,
+    stalled_at,
     created_at,
     updated_at
 FROM scan_tasks
@@ -90,6 +92,8 @@ SET
     items_processed = $5,
     progress_details = $6,
     last_checkpoint = $7,
+    stall_reason = $8,
+    stalled_at = $9,
     updated_at = NOW()
 WHERE task_id = $1;
 
@@ -104,6 +108,8 @@ SELECT
     t.items_processed,
     t.progress_details,
     t.last_checkpoint,
+    t.stall_reason,
+    t.stalled_at,
     t.created_at,
     t.updated_at
 FROM scan_tasks t

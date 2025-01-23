@@ -145,6 +145,49 @@ func (ns NullScanJobStatus) Value() (driver.Value, error) {
 	return string(ns.ScanJobStatus), nil
 }
 
+type ScanTaskStallReason string
+
+const (
+	ScanTaskStallReasonNOPROGRESS    ScanTaskStallReason = "NO_PROGRESS"
+	ScanTaskStallReasonLOWTHROUGHPUT ScanTaskStallReason = "LOW_THROUGHPUT"
+	ScanTaskStallReasonHIGHERRORS    ScanTaskStallReason = "HIGH_ERRORS"
+)
+
+func (e *ScanTaskStallReason) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = ScanTaskStallReason(s)
+	case string:
+		*e = ScanTaskStallReason(s)
+	default:
+		return fmt.Errorf("unsupported scan type for ScanTaskStallReason: %T", src)
+	}
+	return nil
+}
+
+type NullScanTaskStallReason struct {
+	ScanTaskStallReason ScanTaskStallReason
+	Valid               bool // Valid is true if ScanTaskStallReason is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullScanTaskStallReason) Scan(value interface{}) error {
+	if value == nil {
+		ns.ScanTaskStallReason, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.ScanTaskStallReason.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullScanTaskStallReason) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.ScanTaskStallReason), nil
+}
+
 type ScanTaskStatus string
 
 const (
@@ -360,6 +403,8 @@ type ScanTask struct {
 	ItemsProcessed  int64
 	ProgressDetails []byte
 	LastCheckpoint  []byte
+	StallReason     NullScanTaskStallReason
+	StalledAt       pgtype.Timestamptz
 	CreatedAt       pgtype.Timestamptz
 	UpdatedAt       pgtype.Timestamptz
 }

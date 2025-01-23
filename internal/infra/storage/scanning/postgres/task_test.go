@@ -54,6 +54,8 @@ func createTestTask(t *testing.T, jobID uuid.UUID, status scanning.TaskStatus) *
 		0,
 		nil,
 		nil,
+		scanning.StallReasonNoProgress,
+		time.Time{},
 	)
 }
 
@@ -109,6 +111,8 @@ func TestTaskStore_UpdateTask(t *testing.T) {
 		100,
 		json.RawMessage(`{"updated": "details"}`),
 		checkpoint,
+		scanning.StallReasonNoProgress,
+		time.Time{},
 	)
 
 	err = taskStore.UpdateTask(ctx, updatedTask)
@@ -175,6 +179,8 @@ func TestTaskStore_ListTasksByJobAndStatus(t *testing.T) {
 			int64(i*10),
 			json.RawMessage(`{"test": "details"}`),
 			nil,
+			scanning.StallReasonNoProgress,
+			time.Time{},
 		)
 		err := taskStore.CreateTask(ctx, task)
 		require.NoError(t, err)
@@ -192,6 +198,8 @@ func TestTaskStore_ListTasksByJobAndStatus(t *testing.T) {
 		30,
 		json.RawMessage(`{"test": "details"}`),
 		nil,
+		scanning.StallReasonNoProgress,
+		time.Time{},
 	)
 	err := taskStore.CreateTask(ctx, differentStatusTask)
 	require.NoError(t, err)
@@ -266,4 +274,98 @@ func TestTaskStore_CreateTask_NonExistentJob(t *testing.T) {
 	task := createTestTask(t, uuid.New(), scanning.TaskStatusInProgress)
 	err := taskStore.CreateTask(ctx, task)
 	require.Error(t, err, "should fail when parent job doesn't exist")
+}
+
+func TestTaskStore_GetTask_WithStallInfo(t *testing.T) {
+	t.Parallel()
+	ctx, _, taskStore, jobStore, cleanup := setupTaskTest(t)
+	defer cleanup()
+
+	job := createTestScanJob(t, jobStore, ctx)
+	stallTime := time.Now().UTC()
+
+	// Create a stale task
+	task := scanning.ReconstructTask(
+		uuid.New(),
+		job.JobID(),
+		scanning.TaskStatusInProgress,
+		0,
+		stallTime.Add(-1*time.Hour), // Start time
+		time.Time{},                 // End time
+		0,                           // Items processed
+		nil,                         // Progress details
+		nil,                         // Checkpoint
+		scanning.StallReasonNoProgress,
+		stallTime,
+	)
+
+	err := taskStore.CreateTask(ctx, task)
+	require.NoError(t, err)
+
+	err = task.MarkStale(scanning.StallReasonNoProgress)
+	require.NoError(t, err)
+	err = taskStore.UpdateTask(ctx, task)
+	require.NoError(t, err)
+
+	loaded, err := taskStore.GetTask(ctx, task.TaskID())
+	require.NoError(t, err)
+	require.NotNil(t, loaded)
+
+	assert.Equal(t, scanning.TaskStatusStale, loaded.Status())
+	assert.Equal(t, scanning.StallReasonNoProgress, loaded.StallReason())
+	assert.True(t, loaded.StalledAt().Equal(task.StalledAt()))
+}
+
+func TestTaskStore_UpdateTask_StallTransition(t *testing.T) {
+	t.Parallel()
+	ctx, _, taskStore, jobStore, cleanup := setupTaskTest(t)
+	defer cleanup()
+
+	// Mark as stale with different stall reasons.
+	testCases := []struct {
+		name        string
+		stallReason scanning.StallReason
+	}{
+		{
+			name:        "mark stale with no progress",
+			stallReason: scanning.StallReasonNoProgress,
+		},
+		{
+			name:        "mark stale with high errors",
+			stallReason: scanning.StallReasonHighErrors,
+		},
+		{
+			name:        "mark stale with low throughput",
+			stallReason: scanning.StallReasonLowThroughput,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			beforeStale := time.Now().UTC()
+
+			job := createTestScanJob(t, jobStore, ctx)
+
+			task := createTestTask(t, job.JobID(), scanning.TaskStatusInProgress)
+			err := taskStore.CreateTask(ctx, task)
+			require.NoError(t, err)
+
+			err = task.MarkStale(tc.stallReason)
+			require.NoError(t, err)
+
+			err = taskStore.UpdateTask(ctx, task)
+			require.NoError(t, err)
+
+			loaded, err := taskStore.GetTask(ctx, task.TaskID())
+			require.NoError(t, err)
+			require.NotNil(t, loaded)
+
+			assert.Equal(t, scanning.TaskStatusStale, loaded.Status())
+			assert.Equal(t, tc.stallReason, loaded.StallReason())
+			assert.True(t, loaded.StalledAt().After(beforeStale) ||
+				loaded.StalledAt().Equal(beforeStale))
+		})
+	}
 }

@@ -40,6 +40,13 @@ CREATE TYPE scan_task_status AS ENUM (
     'STALE'
 );
 
+-- Scan Task Stall Reason Enum
+CREATE TYPE scan_task_stall_reason AS ENUM (
+    'NO_PROGRESS',
+    'LOW_THROUGHPUT',
+    'HIGH_ERRORS'
+);
+
 -- Scan Tasks Table
 CREATE TABLE scan_tasks (
     task_id           UUID PRIMARY KEY,
@@ -51,6 +58,8 @@ CREATE TABLE scan_tasks (
     items_processed   BIGINT NOT NULL DEFAULT 0,
     progress_details  JSONB,
     last_checkpoint   JSONB,
+    stall_reason      scan_task_stall_reason,
+    stalled_at        TIMESTAMPTZ,
     created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 

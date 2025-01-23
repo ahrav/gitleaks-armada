@@ -162,6 +162,8 @@ SELECT
     items_processed,
     progress_details,
     last_checkpoint,
+    stall_reason,
+    stalled_at,
     created_at,
     updated_at
 FROM scan_tasks
@@ -181,6 +183,8 @@ func (q *Queries) GetScanTask(ctx context.Context, taskID pgtype.UUID) (ScanTask
 		&i.ItemsProcessed,
 		&i.ProgressDetails,
 		&i.LastCheckpoint,
+		&i.StallReason,
+		&i.StalledAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -198,6 +202,8 @@ SELECT
     t.items_processed,
     t.progress_details,
     t.last_checkpoint,
+    t.stall_reason,
+    t.stalled_at,
     t.created_at,
     t.updated_at
 FROM scan_tasks t
@@ -230,6 +236,8 @@ func (q *Queries) ListScanTasksByJobAndStatus(ctx context.Context, arg ListScanT
 			&i.ItemsProcessed,
 			&i.ProgressDetails,
 			&i.LastCheckpoint,
+			&i.StallReason,
+			&i.StalledAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -290,6 +298,8 @@ SET
     items_processed = $5,
     progress_details = $6,
     last_checkpoint = $7,
+    stall_reason = $8,
+    stalled_at = $9,
     updated_at = NOW()
 WHERE task_id = $1
 `
@@ -302,6 +312,8 @@ type UpdateScanTaskParams struct {
 	ItemsProcessed  int64
 	ProgressDetails []byte
 	LastCheckpoint  []byte
+	StallReason     NullScanTaskStallReason
+	StalledAt       pgtype.Timestamptz
 }
 
 func (q *Queries) UpdateScanTask(ctx context.Context, arg UpdateScanTaskParams) (int64, error) {
@@ -313,6 +325,8 @@ func (q *Queries) UpdateScanTask(ctx context.Context, arg UpdateScanTaskParams) 
 		arg.ItemsProcessed,
 		arg.ProgressDetails,
 		arg.LastCheckpoint,
+		arg.StallReason,
+		arg.StalledAt,
 	)
 	if err != nil {
 		return 0, err

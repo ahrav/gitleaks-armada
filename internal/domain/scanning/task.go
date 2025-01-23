@@ -10,24 +10,6 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 )
 
-// TaskStatus represents the execution state of an individual scan task. It enables
-// fine-grained tracking of task progress and error conditions.
-type TaskStatus string
-
-const (
-	// TaskStatusInProgress indicates a task is actively scanning.
-	TaskStatusInProgress TaskStatus = "IN_PROGRESS"
-
-	// TaskStatusCompleted indicates a task finished successfully.
-	TaskStatusCompleted TaskStatus = "COMPLETED"
-
-	// TaskStatusFailed indicates a task encountered an unrecoverable error.
-	TaskStatusFailed TaskStatus = "FAILED"
-
-	// TaskStatusStale indicates a task stopped reporting progress and may need recovery.
-	TaskStatusStale TaskStatus = "STALE"
-)
-
 // Progress represents a point-in-time status update from a scanner. It provides
 // detailed metrics about the current scanning progress without maintaining task state.
 type Progress struct {
@@ -200,14 +182,52 @@ func (c *Checkpoint) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// TaskStatus represents the execution state of an individual scan task. It enables
+// fine-grained tracking of task progress and error conditions.
+type TaskStatus string
+
+const (
+	// TaskStatusInProgress indicates a task is actively scanning.
+	TaskStatusInProgress TaskStatus = "IN_PROGRESS"
+
+	// TaskStatusCompleted indicates a task finished successfully.
+	TaskStatusCompleted TaskStatus = "COMPLETED"
+
+	// TaskStatusFailed indicates a task encountered an unrecoverable error.
+	TaskStatusFailed TaskStatus = "FAILED"
+
+	// TaskStatusStale indicates a task stopped reporting progress and may need recovery.
+	TaskStatusStale TaskStatus = "STALE"
+)
+
+// StallReason identifies the specific cause of a task stall, enabling targeted recovery strategies.
+type StallReason string
+
+const (
+	// StallReasonNoProgress indicates the task has stopped sending progress updates.
+	StallReasonNoProgress StallReason = "NO_PROGRESS"
+
+	// StallReasonLowThroughput indicates the task's processing rate has fallen below acceptable thresholds.
+	StallReasonLowThroughput StallReason = "LOW_THROUGHPUT"
+
+	// StallReasonHighErrors indicates the task has exceeded error thresholds and requires intervention.
+	StallReasonHighErrors StallReason = "HIGH_ERRORS"
+)
+
 // Task tracks the full lifecycle and state of an individual scanning operation.
 // It maintains historical progress data and enables task recovery and monitoring.
 type Task struct {
 	shared.CoreTask
-	jobID           uuid.UUID
-	status          TaskStatus
+	jobID uuid.UUID
+
+	status      TaskStatus
+	stallReason StallReason
+	stalledAt   time.Time
+	// RecoveryAttempts int
+
 	lastSequenceNum int64
 	timeline        *Timeline
+
 	itemsProcessed  int64
 	progressDetails json.RawMessage
 	lastCheckpoint  *Checkpoint
@@ -226,6 +246,8 @@ func ReconstructTask(
 	itemsProcessed int64,
 	progressDetails json.RawMessage,
 	lastCheckpoint *Checkpoint,
+	stallReason StallReason,
+	stalledAt time.Time,
 ) *Task {
 	return &Task{
 		CoreTask: shared.CoreTask{
@@ -238,6 +260,8 @@ func ReconstructTask(
 		itemsProcessed:  itemsProcessed,
 		progressDetails: progressDetails,
 		lastCheckpoint:  lastCheckpoint,
+		stallReason:     stallReason,
+		stalledAt:       stalledAt,
 	}
 }
 
@@ -292,6 +316,20 @@ func (t *Task) StartTime() time.Time { return t.timeline.StartedAt() }
 
 // EndTime returns when this task last reported progress.
 func (t *Task) EndTime() time.Time { return t.timeline.CompletedAt() }
+
+// StallReason returns the reason this task is stalled.
+func (t *Task) StallReason() StallReason { return t.stallReason }
+
+// StalledAt returns the time this task was stalled.
+func (t *Task) StalledAt() time.Time { return t.stalledAt }
+
+// StalledDuration returns the duration this task has been stalled.
+func (t *Task) StalledDuration() time.Duration {
+	if t.stalledAt.IsZero() {
+		return 0
+	}
+	return time.Since(t.stalledAt)
+}
 
 // OutOfOrderProgressError is an error type for indicating that a progress update
 // is out of order and should be ignored.
@@ -414,6 +452,24 @@ func (t *Task) Fail() error {
 	return nil
 }
 
+// MarkStale transitions a task from IN_PROGRESS to STALE, storing a reason and time.
+// The task must be in IN_PROGRESS state to be marked as STALE.
+func (t *Task) MarkStale(reason StallReason) error {
+	if t.status != TaskStatusInProgress {
+		return TaskInvalidStateError{
+			taskID: t.ID,
+			status: t.status,
+			reason: TaskInvalidStateReasonWrongStatus,
+		}
+	}
+
+	t.status = TaskStatusStale
+	t.stallReason = reason
+	t.stalledAt = time.Now()
+
+	return nil
+}
+
 // GetSummary returns a TaskSummary containing the key metrics and status
 // for this task's execution progress.
 func (t *Task) GetSummary(duration time.Duration) TaskSummary {
@@ -424,47 +480,6 @@ func (t *Task) GetSummary(duration time.Duration) TaskSummary {
 		duration:        duration,
 		lastUpdateTs:    t.timeline.LastUpdate(),
 		progressDetails: t.progressDetails,
-	}
-}
-
-// StallReason identifies the specific cause of a task stall, enabling targeted recovery strategies.
-type StallReason string
-
-const (
-	// StallReasonNoProgress indicates the task has stopped sending progress updates.
-	StallReasonNoProgress StallReason = "NO_PROGRESS"
-
-	// StallReasonLowThroughput indicates the task's processing rate has fallen below acceptable thresholds.
-	StallReasonLowThroughput StallReason = "LOW_THROUGHPUT"
-
-	// StallReasonHighErrors indicates the task has exceeded error thresholds and requires intervention.
-	StallReasonHighErrors StallReason = "HIGH_ERRORS"
-)
-
-// StalledTask encapsulates a stalled scanning task and its recovery context. It provides
-// the necessary information to diagnose issues and implement appropriate recovery mechanisms.
-type StalledTask struct {
-	JobID            uuid.UUID
-	TaskID           uuid.UUID
-	StallReason      StallReason
-	StalledDuration  time.Duration
-	RecoveryAttempts int
-	LastUpdate       time.Time
-	ProgressDetails  json.RawMessage
-	LastCheckpoint   *Checkpoint
-}
-
-// ToStalledTask converts this task to a StalledTask representation.
-// This enables tracking of stalled tasks for monitoring and recovery.
-func (t *Task) ToStalledTask(reason StallReason, stallTime time.Time) *StalledTask {
-	return &StalledTask{
-		JobID:           t.jobID,
-		TaskID:          t.ID,
-		StallReason:     reason,
-		StalledDuration: time.Since(stallTime),
-		LastUpdate:      t.timeline.LastUpdate(),
-		ProgressDetails: t.progressDetails,
-		LastCheckpoint:  t.lastCheckpoint,
 	}
 }
 

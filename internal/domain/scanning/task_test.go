@@ -172,22 +172,6 @@ func TestTask_GetSummary(t *testing.T) {
 	assert.Equal(t, progress.Timestamp(), summary.GetLastUpdateTimestamp())
 }
 
-func TestTask_ToStalledTask(t *testing.T) {
-	t.Parallel()
-
-	taskID := uuid.New()
-	jobID := uuid.New()
-	task := NewScanTask(jobID, taskID)
-
-	stallTime := time.Now().Add(-10 * time.Minute)
-	stalledTask := task.ToStalledTask(StallReasonNoProgress, stallTime)
-
-	assert.Equal(t, taskID, stalledTask.TaskID)
-	assert.Equal(t, jobID, stalledTask.JobID)
-	assert.Equal(t, StallReasonNoProgress, stalledTask.StallReason)
-	assert.True(t, stalledTask.StalledDuration >= 10*time.Minute)
-}
-
 func TestTask_Complete(t *testing.T) {
 	t.Parallel()
 
@@ -280,6 +264,8 @@ func TestTask_Fail(t *testing.T) {
 				0,
 				nil,
 				nil,
+				StallReasonNoProgress,
+				time.Time{},
 			),
 			wantErr: false,
 		},
@@ -295,6 +281,8 @@ func TestTask_Fail(t *testing.T) {
 				0,
 				nil,
 				nil,
+				StallReasonHighErrors,
+				time.Time{},
 			),
 			wantErr: false,
 		},
@@ -310,6 +298,8 @@ func TestTask_Fail(t *testing.T) {
 				0,
 				nil,
 				nil,
+				StallReasonNoProgress,
+				time.Time{},
 			),
 			wantErr: true,
 			errType: TaskInvalidStateError{},
@@ -326,6 +316,8 @@ func TestTask_Fail(t *testing.T) {
 				0,
 				nil,
 				nil,
+				StallReasonHighErrors,
+				time.Time{},
 			),
 			wantErr: true,
 			errType: TaskInvalidStateError{},
@@ -357,6 +349,114 @@ func TestTask_Fail(t *testing.T) {
 			if tt.initialTask.Status() != TaskStatusFailed {
 				t.Errorf("expected status %s but got %s", TaskStatusFailed, tt.initialTask.Status())
 			}
+		})
+	}
+}
+
+func TestTask_MarkStale(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		initialTask *Task
+		reason      StallReason
+		wantErr     bool
+	}{
+		{
+			name: "successfully mark task as stale from in progress",
+			initialTask: ReconstructTask(
+				uuid.New(),
+				uuid.New(),
+				TaskStatusInProgress,
+				0,
+				time.Now(),
+				time.Now(),
+				0,
+				nil,
+				nil,
+				StallReasonNoProgress,
+				time.Time{},
+			),
+			reason:  StallReasonNoProgress,
+			wantErr: false,
+		},
+		{
+			name: "fail to mark completed task as stale",
+			initialTask: ReconstructTask(
+				uuid.New(),
+				uuid.New(),
+				TaskStatusCompleted,
+				0,
+				time.Now(),
+				time.Now(),
+				0,
+				nil,
+				nil,
+				StallReasonNoProgress,
+				time.Time{},
+			),
+			reason:  StallReasonNoProgress,
+			wantErr: true,
+		},
+		{
+			name: "fail to mark failed task as stale",
+			initialTask: ReconstructTask(
+				uuid.New(),
+				uuid.New(),
+				TaskStatusFailed,
+				0,
+				time.Now(),
+				time.Now(),
+				0,
+				nil,
+				nil,
+				StallReasonHighErrors,
+				time.Time{},
+			),
+			reason:  StallReasonHighErrors,
+			wantErr: true,
+		},
+		{
+			name: "fail to mark already stale task as stale",
+			initialTask: ReconstructTask(
+				uuid.New(),
+				uuid.New(),
+				TaskStatusStale,
+				0,
+				time.Now(),
+				time.Now(),
+				0,
+				nil,
+				nil,
+				StallReasonLowThroughput,
+				time.Time{},
+			),
+			reason:  StallReasonLowThroughput,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			beforeStale := time.Now()
+			err := tt.initialTask.MarkStale(tt.reason)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				var stateErr TaskInvalidStateError
+				require.ErrorAs(t, err, &stateErr)
+				assert.Equal(t, TaskInvalidStateReasonWrongStatus, stateErr.Reason())
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, TaskStatusStale, tt.initialTask.Status())
+			assert.Equal(t, tt.reason, tt.initialTask.StallReason())
+			assert.True(t, tt.initialTask.StalledAt().After(beforeStale) ||
+				tt.initialTask.StalledAt().Equal(beforeStale))
+			assert.Greater(t, tt.initialTask.StalledDuration(), time.Duration(0))
 		})
 	}
 }
