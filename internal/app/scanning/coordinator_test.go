@@ -520,3 +520,121 @@ func TestFailTask(t *testing.T) {
 		})
 	}
 }
+
+func TestMarkTaskStale(t *testing.T) {
+	jobID := uuid.MustParse("429735d7-ec1b-4d96-8749-938ca0a744be")
+	taskID := uuid.MustParse("b1f7eff4-2921-4e6c-9d88-da2de5707a2b")
+
+	tests := []struct {
+		name        string
+		setup       func(*coordinatorTestSuite)
+		stallReason scanning.StallReason
+		wantErr     bool
+	}{
+		{
+			name: "successful mark task as stale",
+			setup: func(s *coordinatorTestSuite) {
+				task := scanning.NewScanTask(jobID, taskID)
+
+				s.taskRepo.On("GetTask", mock.Anything, taskID).
+					Return(task, nil)
+
+				s.taskRepo.On("UpdateTask", mock.Anything, mock.MatchedBy(func(t *scanning.Task) bool {
+					return t.Status() == scanning.TaskStatusStale &&
+						t.StallReason() == scanning.StallReasonNoProgress &&
+						!t.StalledAt().IsZero()
+				})).Return(nil)
+			},
+			stallReason: scanning.StallReasonNoProgress,
+			wantErr:     false,
+		},
+		{
+			name: "task not found",
+			setup: func(s *coordinatorTestSuite) {
+				s.taskRepo.On("GetTask", mock.Anything, taskID).
+					Return(nil, assert.AnError)
+			},
+			stallReason: scanning.StallReasonNoProgress,
+			wantErr:     true,
+		},
+		{
+			name: "task update fails",
+			setup: func(s *coordinatorTestSuite) {
+				task := scanning.NewScanTask(jobID, taskID)
+
+				s.taskRepo.On("GetTask", mock.Anything, taskID).
+					Return(task, nil)
+
+				s.taskRepo.On("UpdateTask", mock.Anything, mock.Anything).
+					Return(assert.AnError)
+			},
+			stallReason: scanning.StallReasonNoProgress,
+			wantErr:     true,
+		},
+		{
+			name: "invalid state transition",
+			setup: func(s *coordinatorTestSuite) {
+				task := scanning.ReconstructTask(
+					taskID,
+					jobID,
+					scanning.TaskStatusCompleted,
+					0,
+					time.Now(),
+					time.Now(),
+					0,
+					nil,
+					nil,
+					scanning.StallReasonNoProgress,
+					time.Time{},
+				)
+
+				s.taskRepo.On("GetTask", mock.Anything, taskID).
+					Return(task, nil)
+			},
+			stallReason: scanning.StallReasonNoProgress,
+			wantErr:     true,
+		},
+		{
+			name: "mark task stale with high errors",
+			setup: func(s *coordinatorTestSuite) {
+				task := scanning.NewScanTask(jobID, taskID)
+
+				s.taskRepo.On("GetTask", mock.Anything, taskID).
+					Return(task, nil)
+
+				s.taskRepo.On("UpdateTask", mock.Anything, mock.MatchedBy(func(t *scanning.Task) bool {
+					return t.Status() == scanning.TaskStatusStale &&
+						t.StallReason() == scanning.StallReasonHighErrors &&
+						!t.StalledAt().IsZero()
+				})).Return(nil)
+			},
+			stallReason: scanning.StallReasonHighErrors,
+			wantErr:     false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			suite := newCoordinatorTestSuite(t)
+			tt.setup(suite)
+
+			beforeStale := time.Now()
+			task, err := suite.coord.MarkTaskStale(context.Background(), jobID, taskID, tt.stallReason)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+			assert.NotNil(t, task)
+			assert.Equal(t, scanning.TaskStatusStale, task.Status())
+			assert.Equal(t, tt.stallReason, task.StallReason())
+			assert.True(t, task.StalledAt().After(beforeStale) ||
+				task.StalledAt().Equal(beforeStale))
+			suite.taskRepo.AssertExpectations(t)
+		})
+	}
+}
