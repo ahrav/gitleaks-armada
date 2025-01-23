@@ -172,7 +172,7 @@ func (ef *EventsFacilitator) HandleTaskFailed(ctx context.Context, evt events.Ev
 			return recordPayloadTypeError(span, evt.Payload)
 		}
 
-		if err := ef.executionTracker.FailTask(ctx, failedEvt); err != nil {
+		if err := ef.executionTracker.MarkTaskFailure(ctx, failedEvt); err != nil {
 			return fmt.Errorf("failed to fail task: %w", err)
 		}
 

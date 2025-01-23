@@ -43,6 +43,9 @@ func NewStdLogger(logger *Logger, level Level) *log.Logger {
 	return slog.NewLogLogger(logger.handler, slog.Level(level))
 }
 
+// Noop returns a no-op logger.
+func Noop() *Logger { return &Logger{handler: slog.NewJSONHandler(io.Discard, nil)} }
+
 // Debug logs at LevelDebug with the given context.
 func (log *Logger) Debug(ctx context.Context, msg string, args ...any) {
 	log.write(ctx, LevelDebug, 3, msg, args...)

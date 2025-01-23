@@ -35,9 +35,9 @@ type ExecutionTracker interface {
 	// as COMPLETED if all tasks are done.
 	StopTracking(ctx context.Context, evt scanning.TaskCompletedEvent) error
 
-	// FailTask handles task failure scenarios by transitioning the task to FAILED status
+	// MarkTaskFailure handles task failure scenarios by transitioning the task to FAILED status
 	// and updating job metrics. If all tasks in a job fail, the job will be marked as FAILED.
-	FailTask(ctx context.Context, evt scanning.TaskFailedEvent) error
+	MarkTaskFailure(ctx context.Context, evt scanning.TaskFailedEvent) error
 
 	// MarkTaskStale marks a task as stale, indicating it has stopped reporting progress.
 	MarkTaskStale(ctx context.Context, evt scanning.TaskStaleEvent) error
@@ -159,12 +159,12 @@ func (t *executionTracker) StopTracking(ctx context.Context, evt scanning.TaskCo
 	return nil
 }
 
-// FailTask handles task failure scenarios by:
+// MarkTaskFailure handles task failure scenarios by:
 // 1. Marking the task as FAILED in the job aggregate
 // 2. Potentially triggering job-level failure if configured
 // 3. Recording error details and final metrics
 // This ensures proper error handling and maintains system consistency during failures.
-func (t *executionTracker) FailTask(ctx context.Context, evt scanning.TaskFailedEvent) error {
+func (t *executionTracker) MarkTaskFailure(ctx context.Context, evt scanning.TaskFailedEvent) error {
 	taskID := evt.TaskID
 	ctx, span := t.tracer.Start(ctx, "progress_tracker.scanning.fail_task",
 		trace.WithAttributes(

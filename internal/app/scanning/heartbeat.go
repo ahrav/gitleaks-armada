@@ -14,24 +14,36 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
 
-// TaskFailer is a reduced interface for the ExecutionTracker.
+// TaskStaller is a reduced interface for the ExecutionTracker.
 // It's used to fail tasks once a task is deemed stale.
-type TaskFailer interface {
-	// FailTask is used to fail a task once a task is deemed stale.
-	FailTask(ctx context.Context, evt scanning.TaskFailedEvent) error
+type TaskStaller interface {
+	MarkTaskStale(ctx context.Context, evt scanning.TaskStaleEvent) error
 }
+
+type timeProvider interface {
+	Now() time.Time
+}
+
+// realTimeProvider is a real implementation of the timeProvider interface.
+type realTimeProvider struct{}
+
+// Now returns the current time.
+func (realTimeProvider) Now() time.Time { return time.Now() }
 
 // HeartbeatMonitor tracks the last heartbeat of running tasks
 // and periodically checks for tasks that have not sent a heartbeat within
 // a given threshold (indicating potential staleness or failure).
 type HeartbeatMonitor struct {
-	// taskFailer is used to fail tasks once a task is deemed stale.
-	taskFailer TaskFailer
+	// taskStaller is used to mark tasks as stale once a task is deemed stale.
+	taskStaller TaskStaller
 
 	mu sync.RWMutex
 	// lastHeartbeatByTask stores the most recent timestamp
 	// at which a heartbeat was received for a given task ID.
 	lastHeartbeatByTask map[uuid.UUID]time.Time
+
+	// timeProvider is used to get the current time.
+	timeProvider timeProvider
 
 	// tracer provides distributed tracing for request flows.
 	tracer trace.Tracer
@@ -42,14 +54,15 @@ type HeartbeatMonitor struct {
 // NewHeartbeatMonitor creates a new HeartbeatMonitor instance.
 // The taskFailer is used to fail tasks once a task is deemed stale.
 func NewHeartbeatMonitor(
-	taskFailer TaskFailer,
+	taskFailer TaskStaller,
 	tracer trace.Tracer,
 	logger *logger.Logger,
 ) *HeartbeatMonitor {
 	return &HeartbeatMonitor{
-		taskFailer:          taskFailer,
+		taskStaller:         taskFailer,
 		tracer:              tracer,
 		logger:              logger,
+		timeProvider:        realTimeProvider{},
 		lastHeartbeatByTask: make(map[uuid.UUID]time.Time),
 	}
 }
@@ -68,7 +81,7 @@ func (h *HeartbeatMonitor) HandleHeartbeat(ctx context.Context, evt scanning.Tas
 	defer h.mu.Unlock()
 
 	// Record the time at which we received a heartbeat for this task.
-	now := time.Now()
+	now := h.timeProvider.Now()
 	h.lastHeartbeatByTask[evt.TaskID] = now
 	span.AddEvent("heartbeat_recorded", trace.WithAttributes(
 		attribute.String("timestamp", now.Format(time.RFC3339)),
@@ -86,7 +99,7 @@ const (
 
 // Start launches a background goroutine that periodically checks
 // for tasks that have not sent a heartbeat within `defaultThreshold`. If a task is found
-// to be stale, this loop calls TaskFailer.FailTask(...) to fail the task.
+// to be stale, this loop calls TaskStaller.MarkTaskStale(...) to mark the task as stale.
 //
 // The loop runs until the provided context is canceled, at which point the monitor
 // stops checking for stale tasks.
@@ -118,9 +131,9 @@ func (h *HeartbeatMonitor) Start(ctx context.Context) {
 
 // checkForStaleTasks is an internal helper that scans the lastHeartbeatByTask
 // map for tasks whose last heartbeat was older than (now - threshold).
-// It fails each stale task by calling taskFailer.FailTask(...).
+// It marks each stale task by calling taskStaller.MarkTaskStale(...).
 func (h *HeartbeatMonitor) checkForStaleTasks(ctx context.Context, threshold time.Duration) {
-	now := time.Now()
+	now := h.timeProvider.Now()
 	ctx, span := h.tracer.Start(ctx, "heartbeat_monitor.scanning.check_for_stale_tasks",
 		trace.WithAttributes(
 			attribute.String("threshold", threshold.String()),
@@ -150,16 +163,16 @@ func (h *HeartbeatMonitor) checkForStaleTasks(ctx context.Context, threshold tim
 	for _, tID := range staleTaskIDs {
 		h.logger.Warn(ctx, "Detected stale task - failing", "task_id", tID)
 
-		failEvt := scanning.NewTaskFailedEvent(tID, tID, "stale: no heartbeat within threshold")
-		if err := h.taskFailer.FailTask(ctx, failEvt); err != nil {
+		staleEvt := scanning.NewTaskStaleEvent(tID, tID, scanning.StallReasonNoProgress, h.timeProvider.Now())
+		if err := h.taskStaller.MarkTaskStale(ctx, staleEvt); err != nil {
 			h.logger.Error(ctx, "Failed to mark task as stale", "task_id", tID, "error", err)
 		} else {
 			// Only remove the stale task from the map after we've successfully
-			// failed it.
+			// marked it as stale.
 			h.mu.Lock()
 			delete(h.lastHeartbeatByTask, tID)
 			h.mu.Unlock()
-			span.AddEvent("stale_task_failed", trace.WithAttributes(
+			span.AddEvent("stale_task_marked", trace.WithAttributes(
 				attribute.String("task_id", tID.String()),
 			))
 		}

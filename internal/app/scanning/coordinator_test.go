@@ -211,9 +211,11 @@ func TestLinkTargets(t *testing.T) {
 	}
 }
 
-type mockTimeProvider struct{}
+type mockTimeProvider struct {
+	now time.Time
+}
 
-func (m *mockTimeProvider) Now() time.Time { return time.Now() }
+func (m *mockTimeProvider) Now() time.Time { return m.now }
 
 func TestStartTask(t *testing.T) {
 	jobID := uuid.MustParse("429735d7-ec1b-4d96-8749-938ca0a744be")
@@ -230,7 +232,7 @@ func TestStartTask(t *testing.T) {
 				job := scanning.ReconstructJob(
 					jobID,
 					scanning.JobStatusRunning,
-					scanning.NewTimeline(&mockTimeProvider{}),
+					scanning.NewTimeline(&mockTimeProvider{now: time.Now()}),
 					[]uuid.UUID{},
 					scanning.NewJobMetrics(),
 				)
