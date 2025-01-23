@@ -23,8 +23,8 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/app/scanning/dtos"
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/rules"
-	"github.com/ahrav/gitleaks-armada/internal/infra/scanner/git"
-	"github.com/ahrav/gitleaks-armada/internal/infra/scanner/url"
+	"github.com/ahrav/gitleaks-armada/internal/infra/scanner/sources/git"
+	"github.com/ahrav/gitleaks-armada/internal/infra/scanner/sources/url"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
 
