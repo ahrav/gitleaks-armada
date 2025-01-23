@@ -13,6 +13,7 @@ const (
 	EventTypeTaskStarted    events.EventType = "TaskStarted"
 	EventTypeTaskProgressed events.EventType = "TaskProgressed"
 	EventTypeTaskStale      events.EventType = "TaskStale"
+	EventTypeTaskResume     events.EventType = "TaskResume"
 	EventTypeTaskCompleted  events.EventType = "TaskCompleted"
 	EventTypeTaskFailed     events.EventType = "TaskFailed"
 	EventTypeTaskHeartbeat  events.EventType = "TaskHeartbeat"
@@ -73,6 +74,26 @@ func NewTaskStaleEvent(jobID, taskID uuid.UUID, reason StallReason, since time.T
 
 func (e TaskStaleEvent) EventType() events.EventType { return EventTypeTaskStale }
 func (e TaskStaleEvent) OccurredAt() time.Time       { return e.occurredAt }
+
+// TaskResumeEvent means the task was resumed from a checkpoint.
+type TaskResumeEvent struct {
+	occurredAt time.Time
+	JobID      uuid.UUID
+	TaskID     uuid.UUID
+	Checkpoint Checkpoint
+}
+
+func NewTaskResumeEvent(jobID, taskID uuid.UUID, checkpoint Checkpoint) TaskResumeEvent {
+	return TaskResumeEvent{
+		occurredAt: time.Now(),
+		JobID:      jobID,
+		TaskID:     taskID,
+		Checkpoint: checkpoint,
+	}
+}
+
+func (e TaskResumeEvent) EventType() events.EventType { return EventTypeTaskResume }
+func (e TaskResumeEvent) OccurredAt() time.Time       { return e.occurredAt }
 
 // TaskCompletedEvent means the task is done scanning successfully.
 type TaskCompletedEvent struct {
