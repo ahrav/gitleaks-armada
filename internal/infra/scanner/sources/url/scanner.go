@@ -106,7 +106,7 @@ func (s *Scanner) runURLScan(
 		}
 	}
 
-	scanCtx := NewScanContext(resumeFileIdx, &sequenceNum, reporter)
+	scanCtx := NewScanContext(task.TaskID, resumeFileIdx, &sequenceNum, reporter)
 
 	format := "none"
 	if formatStr, ok := task.Metadata["archive_format"]; ok {
@@ -160,6 +160,7 @@ func (s *Scanner) runURLScan(
 // ScanContext holds shared state for a single scanning operation.
 // It can track the next sequence number, the progress reporter, and optional resume offsets.
 type ScanContext struct {
+	taskID        uuid.UUID
 	reporter      scanning.ProgressReporter
 	nextSequence  *atomic.Int64
 	resumeFileIdx int64
@@ -167,11 +168,13 @@ type ScanContext struct {
 
 // NewScanContext constructs a ScanContext, typically called once at the start of a scan.
 func NewScanContext(
+	taskID uuid.UUID,
 	resumeFileIdx int64,
 	resumeSequence *atomic.Int64,
 	reporter scanning.ProgressReporter,
 ) *ScanContext {
 	return &ScanContext{
+		taskID:        taskID,
 		reporter:      reporter,
 		nextSequence:  resumeSequence,
 		resumeFileIdx: resumeFileIdx,
@@ -184,20 +187,23 @@ func (sc *ScanContext) NextSequence() int64 {
 }
 
 // ReportProgress emits a progress event with the current sequence number
-// and any other relevant data. The specifics of "Progress" are up to you.
+// and any other relevant data.
 func (sc *ScanContext) ReportProgress(ctx context.Context, itemsProcessed int64, message string) {
 	span := trace.SpanFromContext(ctx)
+	seqNum := sc.NextSequence()
+
 	span.SetAttributes(
-		attribute.Int64("sequence_num", sc.NextSequence()),
+		attribute.Int64("sequence_num", seqNum),
 		attribute.Int64("items_processed", itemsProcessed),
 		attribute.String("message", message),
 	)
 
+	// TODO: We need to fill our the rest of the progress info..
 	if err := sc.reporter.ReportProgress(
 		ctx,
 		domain.NewProgress(
-			uuid.New(),
-			sc.NextSequence(),
+			sc.taskID,
+			seqNum,
 			time.Now(),
 			itemsProcessed,
 			0,
@@ -323,12 +329,12 @@ func (w *WarcGzReader) Read(
 	}
 	readSpan.AddEvent("warc_reader_created")
 
-	var totalSize int64
 	pr, pw := io.Pipe()
 	bw := bufio.NewWriter(pw)
 
 	go func() {
 		span := trace.SpanFromContext(ctx)
+		var totalSize int64
 
 		defer func() {
 			if w.sizeCallback != nil {
@@ -338,6 +344,8 @@ func (w *WarcGzReader) Read(
 			pw.Close()
 			warcReader.Close()
 		}()
+
+		var recordCount int64
 
 		span.AddEvent("warc_reader_processing_started")
 		for {
@@ -362,6 +370,13 @@ func (w *WarcGzReader) Read(
 				span.AddEvent("skipping_non_response_record")
 				continue
 			}
+			recordCount++
+			if recordCount < scanCtx.resumeFileIdx {
+				span.AddEvent("file_already_processed_skipping")
+				continue
+			}
+
+			scanCtx.ReportProgress(ctx, recordCount, fmt.Sprintf("Processing WARC record %d", recordCount))
 
 			span.AddEvent("warc_record_processed")
 
