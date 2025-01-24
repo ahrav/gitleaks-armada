@@ -209,7 +209,7 @@ func (sc *ScanContext) ReportProgress(ctx context.Context, itemsProcessed int64,
 			0,
 			message,
 			nil,
-			nil,
+			domain.NewCheckpoint(sc.taskID, []byte(strconv.FormatInt(itemsProcessed, 10)), nil),
 		),
 	); err != nil {
 		span.RecordError(err)
