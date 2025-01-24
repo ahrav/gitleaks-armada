@@ -131,7 +131,7 @@ func TestStartTracking(t *testing.T) {
 		{
 			name: "successful task start",
 			setup: func(m *mockScanJobCoordinator) {
-				m.On("StartTask", mock.Anything, mock.Anything, mock.Anything).
+				m.On("StartTask", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(new(scanning.Task), nil)
 			},
 			event:   scanning.TaskStartedEvent{JobID: uuid.New(), TaskID: uuid.New()},
@@ -140,7 +140,7 @@ func TestStartTracking(t *testing.T) {
 		{
 			name: "coordinator failure",
 			setup: func(m *mockScanJobCoordinator) {
-				m.On("StartTask", mock.Anything, mock.Anything, mock.Anything).
+				m.On("StartTask", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(nil, errors.New("coordinator failure"))
 			},
 			event:   scanning.TaskStartedEvent{JobID: uuid.New(), TaskID: uuid.New()},
@@ -215,9 +215,10 @@ func TestFullScanningLifecycle(t *testing.T) {
 	suite := newTrackerTestSuite(t)
 	jobID := uuid.New()
 	taskID := uuid.New()
+	resourceURI := "https://example.com"
 
 	// Setup expectations for the full lifecycle.
-	suite.jobCoordinator.On("StartTask", mock.Anything, jobID, taskID).
+	suite.jobCoordinator.On("StartTask", mock.Anything, jobID, taskID, resourceURI).
 		Return(&scanning.Task{}, nil)
 	suite.jobCoordinator.On("UpdateTaskProgress", mock.Anything, mock.Anything).
 		Return(&scanning.Task{}, nil).Times(3)
@@ -227,8 +228,9 @@ func TestFullScanningLifecycle(t *testing.T) {
 	ctx := context.Background()
 
 	err := suite.tracker.StartTracking(ctx, scanning.TaskStartedEvent{
-		JobID:  jobID,
-		TaskID: taskID,
+		JobID:       jobID,
+		TaskID:      taskID,
+		ResourceURI: resourceURI,
 	})
 	require.NoError(t, err)
 
