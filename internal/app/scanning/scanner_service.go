@@ -257,9 +257,16 @@ func (s *ScannerService) handleTaskResumeEvent(ctx context.Context, evt events.E
 
 	span.AddEvent("starting_resume_task")
 
-	_, ok := evt.Payload.(scanning.TaskResumeEvent)
+	rEvt, ok := evt.Payload.(scanning.TaskResumeEvent)
 	if !ok {
 		return fmt.Errorf("invalid resume event payload: %T", evt.Payload)
+	}
+
+	_ = &dtos.ScanRequest{
+		TaskID: rEvt.TaskID,
+		JobID:  rEvt.JobID,
+		// ResourceURI: rEvt.Task.ResourceURI(),
+		Metadata: make(map[string]string),
 	}
 
 	s.highPrioritySem <- struct{}{}

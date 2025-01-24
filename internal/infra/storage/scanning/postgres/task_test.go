@@ -47,6 +47,7 @@ func createTestTask(t *testing.T, jobID uuid.UUID, status scanning.TaskStatus) *
 	return scanning.ReconstructTask(
 		uuid.New(),
 		jobID,
+		"test-resource-uri",
 		status,
 		0,
 		time.Now().UTC(),
@@ -77,6 +78,7 @@ func TestTaskStore_CreateAndGet(t *testing.T) {
 	assert.Equal(t, task.TaskID(), loaded.TaskID())
 	assert.Equal(t, task.JobID(), loaded.JobID())
 	assert.Equal(t, task.Status(), loaded.Status())
+	assert.Equal(t, task.ResourceURI(), loaded.ResourceURI())
 	assert.Equal(t, task.LastSequenceNum(), loaded.LastSequenceNum())
 	assert.Equal(t, task.ItemsProcessed(), loaded.ItemsProcessed())
 	assert.Equal(t, task.ProgressDetails(), loaded.ProgressDetails())
@@ -104,6 +106,7 @@ func TestTaskStore_UpdateTask(t *testing.T) {
 	updatedTask := scanning.ReconstructTask(
 		task.TaskID(),
 		task.JobID(),
+		"",
 		scanning.TaskStatusInProgress,
 		1,
 		task.StartTime(),
@@ -172,6 +175,7 @@ func TestTaskStore_ListTasksByJobAndStatus(t *testing.T) {
 		task := scanning.ReconstructTask(
 			uuid.New(),
 			jobID,
+			"",
 			status,
 			int64(i),
 			time.Now().UTC(),
@@ -191,6 +195,7 @@ func TestTaskStore_ListTasksByJobAndStatus(t *testing.T) {
 	differentStatusTask := scanning.ReconstructTask(
 		uuid.New(),
 		jobID,
+		"",
 		scanning.TaskStatusCompleted,
 		3,
 		time.Now().UTC(),
@@ -288,6 +293,7 @@ func TestTaskStore_GetTask_WithStallInfo(t *testing.T) {
 	task := scanning.ReconstructTask(
 		uuid.New(),
 		job.JobID(),
+		"",
 		scanning.TaskStatusInProgress,
 		0,
 		stallTime.Add(-1*time.Hour), // Start time

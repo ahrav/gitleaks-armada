@@ -45,6 +45,7 @@ func (s *taskStore) CreateTask(ctx context.Context, task *scanning.Task) error {
 		defaultDBAttributes,
 		attribute.String("task_id", task.TaskID().String()),
 		attribute.String("job_id", task.JobID().String()),
+		attribute.String("resource_uri", task.ResourceURI()),
 		attribute.String("status", string(task.Status())),
 	)
 
@@ -52,6 +53,7 @@ func (s *taskStore) CreateTask(ctx context.Context, task *scanning.Task) error {
 		params := db.CreateScanTaskParams{
 			TaskID:          pgtype.UUID{Bytes: task.TaskID(), Valid: true},
 			JobID:           pgtype.UUID{Bytes: task.JobID(), Valid: true},
+			ResourceUri:     task.ResourceURI(),
 			Status:          db.ScanTaskStatus(task.Status()),
 			LastSequenceNum: task.LastSequenceNum(),
 			StartTime:       pgtype.Timestamptz{Time: task.StartTime(), Valid: true},
@@ -95,6 +97,7 @@ func (s *taskStore) GetTask(ctx context.Context, taskID uuid.UUID) (*scanning.Ta
 		domainTask = scanning.ReconstructTask(
 			row.TaskID.Bytes,
 			row.JobID.Bytes,
+			row.ResourceUri,
 			scanning.TaskStatus(row.Status),
 			row.LastSequenceNum,
 			row.StartTime.Time,
@@ -209,6 +212,7 @@ func (s *taskStore) ListTasksByJobAndStatus(
 			t := scanning.ReconstructTask(
 				row.TaskID.Bytes,
 				row.JobID.Bytes,
+				row.ResourceUri,
 				scanning.TaskStatus(row.Status),
 				row.LastSequenceNum,
 				row.StartTime.Time,

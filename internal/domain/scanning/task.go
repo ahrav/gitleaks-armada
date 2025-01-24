@@ -220,6 +220,8 @@ type Task struct {
 	shared.CoreTask
 	jobID uuid.UUID
 
+	resourceURI string
+
 	status      TaskStatus
 	stallReason StallReason
 	stalledAt   time.Time
@@ -239,6 +241,7 @@ type Task struct {
 func ReconstructTask(
 	taskID uuid.UUID,
 	jobID uuid.UUID,
+	resourceURI string,
 	status TaskStatus,
 	lastSequenceNum int64,
 	startTime time.Time,
@@ -254,6 +257,7 @@ func ReconstructTask(
 			ID: taskID,
 		},
 		jobID:           jobID,
+		resourceURI:     resourceURI,
 		status:          status,
 		lastSequenceNum: lastSequenceNum,
 		timeline:        ReconstructTimeline(startTime, endTime, time.Time{}),
@@ -297,6 +301,9 @@ func (t *Task) JobID() uuid.UUID { return t.jobID }
 
 // Status returns the current execution status of the scan task.
 func (t *Task) Status() TaskStatus { return t.status }
+
+// ResourceURI returns the URI of the resource being scanned.
+func (t *Task) ResourceURI() string { return t.resourceURI }
 
 // LastSequenceNum returns the sequence number of the most recent progress update.
 func (t *Task) LastSequenceNum() int64 { return t.lastSequenceNum }

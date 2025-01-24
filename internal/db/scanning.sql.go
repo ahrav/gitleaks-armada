@@ -63,14 +63,16 @@ INSERT INTO scan_tasks (
     task_id,
     job_id,
     status,
+    resource_uri,
     last_sequence_num,
     start_time
 ) VALUES (
     $1, -- task_id UUID
     $2, -- job_id UUID
     $3, -- status TEXT (TaskStatus)
-    $4, -- last_sequence_num BIGINT
-    $5 -- start_time TIMESTAMPTZ
+    $4, -- resource_uri VARCHAR(1024)
+    $5, -- last_sequence_num BIGINT
+    $6 -- start_time TIMESTAMPTZ
 )
 `
 
@@ -78,6 +80,7 @@ type CreateScanTaskParams struct {
 	TaskID          pgtype.UUID
 	JobID           pgtype.UUID
 	Status          ScanTaskStatus
+	ResourceUri     string
 	LastSequenceNum int64
 	StartTime       pgtype.Timestamptz
 }
@@ -87,6 +90,7 @@ func (q *Queries) CreateScanTask(ctx context.Context, arg CreateScanTaskParams) 
 		arg.TaskID,
 		arg.JobID,
 		arg.Status,
+		arg.ResourceUri,
 		arg.LastSequenceNum,
 		arg.StartTime,
 	)
@@ -156,6 +160,7 @@ SELECT
     task_id,
     job_id,
     status,
+    resource_uri,
     last_sequence_num,
     start_time,
     end_time,
@@ -177,6 +182,7 @@ func (q *Queries) GetScanTask(ctx context.Context, taskID pgtype.UUID) (ScanTask
 		&i.TaskID,
 		&i.JobID,
 		&i.Status,
+		&i.ResourceUri,
 		&i.LastSequenceNum,
 		&i.StartTime,
 		&i.EndTime,
@@ -196,6 +202,7 @@ SELECT
     t.task_id,
     t.job_id,
     t.status,
+    t.resource_uri,
     t.last_sequence_num,
     t.start_time,
     t.end_time,
@@ -230,6 +237,7 @@ func (q *Queries) ListScanTasksByJobAndStatus(ctx context.Context, arg ListScanT
 			&i.TaskID,
 			&i.JobID,
 			&i.Status,
+			&i.ResourceUri,
 			&i.LastSequenceNum,
 			&i.StartTime,
 			&i.EndTime,

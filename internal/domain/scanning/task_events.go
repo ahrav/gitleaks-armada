@@ -77,18 +77,20 @@ func (e TaskStaleEvent) OccurredAt() time.Time       { return e.occurredAt }
 
 // TaskResumeEvent means the task was resumed from a checkpoint.
 type TaskResumeEvent struct {
-	occurredAt time.Time
-	JobID      uuid.UUID
-	TaskID     uuid.UUID
-	Checkpoint Checkpoint
+	occurredAt  time.Time
+	JobID       uuid.UUID
+	TaskID      uuid.UUID
+	ResourceURI string
+	Checkpoint  Checkpoint
 }
 
-func NewTaskResumeEvent(jobID, taskID uuid.UUID, checkpoint Checkpoint) TaskResumeEvent {
+func NewTaskResumeEvent(jobID, taskID uuid.UUID, resourceURI string, checkpoint Checkpoint) TaskResumeEvent {
 	return TaskResumeEvent{
-		occurredAt: time.Now(),
-		JobID:      jobID,
-		TaskID:     taskID,
-		Checkpoint: checkpoint,
+		occurredAt:  time.Now(),
+		JobID:       jobID,
+		TaskID:      taskID,
+		ResourceURI: resourceURI,
+		Checkpoint:  checkpoint,
 	}
 }
 

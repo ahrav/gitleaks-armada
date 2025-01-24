@@ -64,7 +64,7 @@ func (s *Scanner) ScanStreaming(
 		},
 		HeartbeatInterval: 5 * time.Second,
 	}
-	return s.template.ScanStreaming(ctx, task, opts, s.runGitScan)
+	return s.template.ScanStreaming(ctx, task, opts, reporter, s.runGitScan)
 }
 
 // runGitScan performs the repository clone, invokes Gitleaks, and streams findings.
@@ -73,6 +73,7 @@ func (s *Scanner) runGitScan(
 	ctx context.Context,
 	task *dtos.ScanRequest,
 	findingsChan chan<- scanning.Finding,
+	reporter scanning.ProgressReporter,
 ) error {
 	ctx, span := s.tracer.Start(ctx, "gitleaks_scanner.scanning.scan_repository",
 		trace.WithAttributes(attribute.String("repository.url", task.ResourceURI)))

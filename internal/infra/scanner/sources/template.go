@@ -60,7 +60,8 @@ func (st *ScanTemplate) ScanStreaming(
 	ctx context.Context,
 	task *dtos.ScanRequest,
 	opts TemplateOptions,
-	scanFn func(ctx context.Context, task *dtos.ScanRequest, findingsChan chan<- scanning.Finding) error,
+	reporter scanning.ProgressReporter,
+	scanFn func(ctx context.Context, task *dtos.ScanRequest, findingsChan chan<- scanning.Finding, reporter scanning.ProgressReporter) error,
 ) (<-chan struct{}, <-chan scanning.Finding, <-chan error) {
 
 	heartbeatChan := make(chan struct{}, 1)
@@ -86,7 +87,7 @@ func (st *ScanTemplate) ScanStreaming(
 		scanComplete := make(chan error, 1)
 		go func() {
 			defer close(scanComplete)
-			scanComplete <- scanFn(ctx, task, findingsChan)
+			scanComplete <- scanFn(ctx, task, findingsChan, reporter)
 		}()
 
 		ticker := time.NewTicker(opts.HeartbeatInterval)

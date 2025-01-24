@@ -52,6 +52,7 @@ CREATE TABLE scan_tasks (
     task_id           UUID PRIMARY KEY,
     job_id            UUID NOT NULL,
     status            scan_task_status NOT NULL,
+    resource_uri      VARCHAR(1024) NOT NULL,
     last_sequence_num BIGINT NOT NULL DEFAULT 0,
     start_time        TIMESTAMPTZ NOT NULL,
     end_time          TIMESTAMPTZ,

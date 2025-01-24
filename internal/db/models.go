@@ -397,6 +397,7 @@ type ScanTask struct {
 	TaskID          pgtype.UUID
 	JobID           pgtype.UUID
 	Status          ScanTaskStatus
+	ResourceUri     string
 	LastSequenceNum int64
 	StartTime       pgtype.Timestamptz
 	EndTime         pgtype.Timestamptz

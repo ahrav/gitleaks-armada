@@ -305,6 +305,7 @@ func TestUpdateTaskProgress(t *testing.T) {
 				task := scanning.ReconstructTask(
 					taskID,
 					jobID,
+					"test-resource-uri",
 					scanning.TaskStatusInProgress,
 					0,
 					time.Now().Add(-2*time.Hour),
@@ -579,6 +580,7 @@ func TestMarkTaskStale(t *testing.T) {
 				task := scanning.ReconstructTask(
 					taskID,
 					jobID,
+					"test-resource-uri",
 					scanning.TaskStatusCompleted,
 					0,
 					time.Now(),

@@ -55,14 +55,16 @@ INSERT INTO scan_tasks (
     task_id,
     job_id,
     status,
+    resource_uri,
     last_sequence_num,
     start_time
 ) VALUES (
     $1, -- task_id UUID
     $2, -- job_id UUID
     $3, -- status TEXT (TaskStatus)
-    $4, -- last_sequence_num BIGINT
-    $5 -- start_time TIMESTAMPTZ
+    $4, -- resource_uri VARCHAR(1024)
+    $5, -- last_sequence_num BIGINT
+    $6 -- start_time TIMESTAMPTZ
 );
 
 -- name: GetScanTask :one
@@ -70,6 +72,7 @@ SELECT
     task_id,
     job_id,
     status,
+    resource_uri,
     last_sequence_num,
     start_time,
     end_time,
@@ -102,6 +105,7 @@ SELECT
     t.task_id,
     t.job_id,
     t.status,
+    t.resource_uri,
     t.last_sequence_num,
     t.start_time,
     t.end_time,

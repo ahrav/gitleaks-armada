@@ -257,6 +257,7 @@ func TestTask_Fail(t *testing.T) {
 			initialTask: ReconstructTask(
 				uuid.New(),
 				uuid.New(),
+				"",
 				TaskStatusInProgress,
 				0,
 				time.Now(),
@@ -274,6 +275,7 @@ func TestTask_Fail(t *testing.T) {
 			initialTask: ReconstructTask(
 				uuid.New(),
 				uuid.New(),
+				"",
 				TaskStatusStale,
 				0,
 				time.Now(),
@@ -291,6 +293,7 @@ func TestTask_Fail(t *testing.T) {
 			initialTask: ReconstructTask(
 				uuid.New(),
 				uuid.New(),
+				"",
 				TaskStatusCompleted,
 				0,
 				time.Now(),
@@ -309,6 +312,7 @@ func TestTask_Fail(t *testing.T) {
 			initialTask: ReconstructTask(
 				uuid.New(),
 				uuid.New(),
+				"",
 				TaskStatusFailed,
 				0,
 				time.Now(),
@@ -367,6 +371,7 @@ func TestTask_MarkStale(t *testing.T) {
 			initialTask: ReconstructTask(
 				uuid.New(),
 				uuid.New(),
+				"",
 				TaskStatusInProgress,
 				0,
 				time.Now(),
@@ -385,6 +390,7 @@ func TestTask_MarkStale(t *testing.T) {
 			initialTask: ReconstructTask(
 				uuid.New(),
 				uuid.New(),
+				"",
 				TaskStatusCompleted,
 				0,
 				time.Now(),
@@ -403,6 +409,7 @@ func TestTask_MarkStale(t *testing.T) {
 			initialTask: ReconstructTask(
 				uuid.New(),
 				uuid.New(),
+				"",
 				TaskStatusFailed,
 				0,
 				time.Now(),
@@ -421,6 +428,7 @@ func TestTask_MarkStale(t *testing.T) {
 			initialTask: ReconstructTask(
 				uuid.New(),
 				uuid.New(),
+				"",
 				TaskStatusStale,
 				0,
 				time.Now(),
