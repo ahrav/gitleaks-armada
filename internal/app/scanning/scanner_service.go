@@ -51,10 +51,11 @@ type ScannerService struct {
 
 	ruleProvider RuleProvider // TODO: Figure out where this should live
 
-	workers   int
-	stopCh    chan struct{}
-	workerWg  sync.WaitGroup
-	taskEvent chan *dtos.ScanRequest
+	workers         int
+	stopCh          chan struct{}
+	workerWg        sync.WaitGroup
+	taskEvent       chan *dtos.ScanRequest
+	highPrioritySem chan struct{}
 
 	logger  *logger.Logger
 	metrics metrics
@@ -89,6 +90,7 @@ func NewScannerService(
 		workers:          runtime.NumCPU(),
 		stopCh:           make(chan struct{}),
 		taskEvent:        make(chan *dtos.ScanRequest, 1),
+		highPrioritySem:  make(chan struct{}, runtime.NumCPU()/2),
 	}
 }
 
@@ -121,6 +123,7 @@ func (s *ScannerService) Run(ctx context.Context) error {
 		initCtx,
 		[]events.EventType{
 			enumeration.EventTypeTaskCreated,
+			scanning.EventTypeTaskResume,
 			rules.EventTypeRulesRequested,
 		},
 		s.handleEvent,
@@ -241,6 +244,37 @@ func (s *ScannerService) handleTaskEvent(ctx context.Context, evt events.EventEn
 		span.SetStatus(codes.Error, "service stopping")
 		return fmt.Errorf("scanner[%s]: stopping", s.id)
 	}
+}
+
+// handleTaskResumeEvent spawns a goroutine for high-priority tasks:
+func (s *ScannerService) handleTaskResumeEvent(ctx context.Context, evt events.EventEnvelope) error {
+	ctx, span := s.tracer.Start(ctx, "scanner_service.scanning.handle_task_resume_event",
+		trace.WithAttributes(
+			attribute.String("component", "scanner_service"),
+			attribute.String("event_type", string(evt.Type)),
+		))
+	defer span.End()
+
+	span.AddEvent("starting_resume_task")
+
+	_, ok := evt.Payload.(scanning.TaskResumeEvent)
+	if !ok {
+		return fmt.Errorf("invalid resume event payload: %T", evt.Payload)
+	}
+
+	s.highPrioritySem <- struct{}{}
+	go func() {
+		defer func() { <-s.highPrioritySem }()
+
+		// err := s.processResumeTask(ctx, rEvt.TaskID, rEvt.Checkpoint)
+		// if err != nil {
+		// 	// fail event
+		// }
+	}()
+	span.AddEvent("resume_task_spawned")
+	span.SetStatus(codes.Ok, "resume_task_spawned")
+
+	return nil
 }
 
 // workerLoop processes scan tasks until shutdown is signaled. It manages a single worker's lifecycle,

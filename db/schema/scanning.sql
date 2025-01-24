@@ -47,6 +47,7 @@ CREATE TYPE scan_task_stall_reason AS ENUM (
 );
 
 -- Scan Tasks Table
+-- TODO: Figure out how to handle resuming tasks from checkpoints with credentials.
 CREATE TABLE scan_tasks (
     task_id           UUID PRIMARY KEY,
     job_id            UUID NOT NULL,
