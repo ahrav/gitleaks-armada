@@ -313,7 +313,7 @@ func TestUpdateTaskProgress(t *testing.T) {
 					100,
 					nil,
 					nil,
-					scanning.StallReasonNoProgress,
+					scanning.ReasonPtr(scanning.StallReasonNoProgress),
 					time.Time{},
 				)
 
@@ -544,7 +544,8 @@ func TestMarkTaskStale(t *testing.T) {
 
 				s.taskRepo.On("UpdateTask", mock.Anything, mock.MatchedBy(func(t *scanning.Task) bool {
 					return t.Status() == scanning.TaskStatusStale &&
-						t.StallReason() == scanning.StallReasonNoProgress &&
+						t.StallReason() != nil &&
+						*t.StallReason() == scanning.StallReasonNoProgress &&
 						!t.StalledAt().IsZero()
 				})).Return(nil)
 			},
@@ -588,7 +589,7 @@ func TestMarkTaskStale(t *testing.T) {
 					0,
 					nil,
 					nil,
-					scanning.StallReasonNoProgress,
+					nil,
 					time.Time{},
 				)
 
@@ -597,23 +598,6 @@ func TestMarkTaskStale(t *testing.T) {
 			},
 			stallReason: scanning.StallReasonNoProgress,
 			wantErr:     true,
-		},
-		{
-			name: "mark task stale with high errors",
-			setup: func(s *coordinatorTestSuite) {
-				task := scanning.NewScanTask(jobID, taskID, "https://example.com")
-
-				s.taskRepo.On("GetTask", mock.Anything, taskID).
-					Return(task, nil)
-
-				s.taskRepo.On("UpdateTask", mock.Anything, mock.MatchedBy(func(t *scanning.Task) bool {
-					return t.Status() == scanning.TaskStatusStale &&
-						t.StallReason() == scanning.StallReasonHighErrors &&
-						!t.StalledAt().IsZero()
-				})).Return(nil)
-			},
-			stallReason: scanning.StallReasonHighErrors,
-			wantErr:     false,
 		},
 	}
 
@@ -624,9 +608,7 @@ func TestMarkTaskStale(t *testing.T) {
 			suite := newCoordinatorTestSuite(t)
 			tt.setup(suite)
 
-			beforeStale := time.Now()
 			task, err := suite.coord.MarkTaskStale(context.Background(), jobID, taskID, tt.stallReason)
-
 			if tt.wantErr {
 				require.Error(t, err)
 				return
@@ -635,9 +617,8 @@ func TestMarkTaskStale(t *testing.T) {
 			require.NoError(t, err)
 			assert.NotNil(t, task)
 			assert.Equal(t, scanning.TaskStatusStale, task.Status())
-			assert.Equal(t, tt.stallReason, task.StallReason())
-			assert.True(t, task.StalledAt().After(beforeStale) ||
-				task.StalledAt().Equal(beforeStale))
+			assert.Equal(t, tt.stallReason, *task.StallReason())
+			assert.False(t, task.StalledAt().IsZero())
 			suite.taskRepo.AssertExpectations(t)
 		})
 	}

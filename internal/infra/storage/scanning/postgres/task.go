@@ -144,21 +144,24 @@ func (s *taskStore) UpdateTask(ctx context.Context, task *scanning.Task) error {
 			span.SetAttributes(attribute.Bool("has_checkpoint", true))
 		}
 
-		sqlcStatus := db.ScanTaskStatus(task.Status())
+		var stallReason db.NullScanTaskStallReason
+		if sr := task.StallReason(); sr != nil {
+			stallReason = db.NullScanTaskStallReason{
+				ScanTaskStallReason: db.ScanTaskStallReason(*sr),
+				Valid:               true,
+			}
+		}
 
 		params := db.UpdateScanTaskParams{
 			TaskID:          pgtype.UUID{Bytes: task.TaskID(), Valid: true},
-			Status:          sqlcStatus,
+			Status:          db.ScanTaskStatus(task.Status()),
 			LastSequenceNum: task.LastSequenceNum(),
 			EndTime:         endTime,
 			ItemsProcessed:  task.ItemsProcessed(),
 			ProgressDetails: task.ProgressDetails(),
 			LastCheckpoint:  checkpointJSON,
-			StallReason: db.NullScanTaskStallReason{
-				ScanTaskStallReason: db.ScanTaskStallReason(*task.StallReason()),
-				Valid:               task.StallReason() != nil,
-			},
-			StalledAt: pgtype.Timestamptz{Time: task.StalledAt(), Valid: true},
+			StallReason:     stallReason,
+			StalledAt:       pgtype.Timestamptz{Time: task.StalledAt(), Valid: !task.StalledAt().IsZero()},
 		}
 
 		rowsAff, err := s.q.UpdateScanTask(ctx, params)
