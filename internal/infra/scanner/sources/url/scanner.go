@@ -198,7 +198,11 @@ func (sc *ScanContext) ReportProgress(ctx context.Context, itemsProcessed int64,
 		attribute.String("message", message),
 	)
 
-	// TODO: We need to fill our the rest of the progress info..
+	// Create metadata map for the checkpoint.
+	metadata := map[string]string{
+		"file_index": strconv.FormatInt(itemsProcessed, 10),
+	}
+
 	if err := sc.reporter.ReportProgress(
 		ctx,
 		domain.NewProgress(
@@ -209,7 +213,11 @@ func (sc *ScanContext) ReportProgress(ctx context.Context, itemsProcessed int64,
 			0,
 			message,
 			nil,
-			domain.NewCheckpoint(sc.taskID, []byte(strconv.FormatInt(itemsProcessed, 10)), nil),
+			domain.NewCheckpoint(
+				sc.taskID,
+				[]byte(strconv.FormatInt(itemsProcessed, 10)),
+				metadata,
+			),
 		),
 	); err != nil {
 		span.RecordError(err)
