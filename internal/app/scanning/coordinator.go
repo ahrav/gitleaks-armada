@@ -479,7 +479,7 @@ func (s *scanJobCoordinator) MarkTaskStale(ctx context.Context, jobID, taskID uu
 		return nil, fmt.Errorf("load task: %w", err)
 	}
 
-	if err := task.MarkStale(reason); err != nil {
+	if err := task.MarkStale(&reason); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to mark task as stale")
 		return nil, fmt.Errorf("mark task as stale: %w", err)

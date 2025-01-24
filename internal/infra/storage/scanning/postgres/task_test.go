@@ -288,6 +288,7 @@ func TestTaskStore_GetTask_WithStallInfo(t *testing.T) {
 
 	job := createTestScanJob(t, jobStore, ctx)
 	stallTime := time.Now().UTC()
+	stallReason := scanning.StallReasonNoProgress
 
 	// Create a stale task
 	task := scanning.ReconstructTask(
@@ -301,14 +302,14 @@ func TestTaskStore_GetTask_WithStallInfo(t *testing.T) {
 		0,                           // Items processed
 		nil,                         // Progress details
 		nil,                         // Checkpoint
-		scanning.ReasonPtr(scanning.StallReasonNoProgress),
+		scanning.ReasonPtr(stallReason),
 		stallTime,
 	)
 
 	err := taskStore.CreateTask(ctx, task)
 	require.NoError(t, err)
 
-	err = task.MarkStale(scanning.ReasonPtr(scanning.StallReasonNoProgress))
+	err = task.MarkStale(scanning.ReasonPtr(stallReason))
 	require.NoError(t, err)
 	err = taskStore.UpdateTask(ctx, task)
 	require.NoError(t, err)
@@ -318,7 +319,7 @@ func TestTaskStore_GetTask_WithStallInfo(t *testing.T) {
 	require.NotNil(t, loaded)
 
 	assert.Equal(t, scanning.TaskStatusStale, loaded.Status())
-	assert.Equal(t, scanning.StallReasonNoProgress, loaded.StallReason())
+	assert.Equal(t, &stallReason, loaded.StallReason())
 	assert.True(t, loaded.StalledAt().Equal(task.StalledAt()))
 }
 
@@ -345,6 +346,7 @@ func TestTaskStore_UpdateTask_StallTransition(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
+		tc := tc // Capture range variable
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -370,7 +372,7 @@ func TestTaskStore_UpdateTask_StallTransition(t *testing.T) {
 			require.NotNil(t, loaded)
 
 			assert.Equal(t, scanning.TaskStatusStale, loaded.Status())
-			assert.Equal(t, tc.stallReason, loaded.StallReason())
+			assert.Equal(t, &tc.stallReason, loaded.StallReason())
 			assert.True(t, loaded.StalledAt().After(beforeStale) ||
 				loaded.StalledAt().Equal(beforeStale))
 		})
