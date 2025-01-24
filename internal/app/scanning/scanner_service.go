@@ -3,6 +3,7 @@ package scanning
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"runtime"
 	"sync"
@@ -156,6 +157,8 @@ func (s *ScannerService) Run(ctx context.Context) error {
 // TODO: Replace this with an events facilitator.
 func (s *ScannerService) handleEvent(ctx context.Context, evt events.EventEnvelope) error {
 	switch evt.Type {
+	case scanning.EventTypeTaskResume:
+		return s.handleTaskResumeEvent(ctx, evt)
 	case enumeration.EventTypeTaskCreated:
 		return s.handleTaskEvent(ctx, evt)
 	case rules.EventTypeRulesRequested:
@@ -262,22 +265,35 @@ func (s *ScannerService) handleTaskResumeEvent(ctx context.Context, evt events.E
 		return fmt.Errorf("invalid resume event payload: %T", evt.Payload)
 	}
 
-	_ = &dtos.ScanRequest{
+	req := &dtos.ScanRequest{
 		TaskID:      rEvt.TaskID,
 		JobID:       rEvt.JobID,
 		ResourceURI: rEvt.ResourceURI,
 		Metadata:    make(map[string]string),
 	}
 
+	ckptJSON, err := json.Marshal(rEvt.Checkpoint)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to marshal checkpoint")
+		return fmt.Errorf("failed to marshal checkpoint: %w", err)
+	}
+	req.Metadata["checkpoint"] = string(ckptJSON)
+	span.SetAttributes(attribute.String("checkpoint", string(ckptJSON)))
+
 	s.highPrioritySem <- struct{}{}
 	go func() {
 		defer func() { <-s.highPrioritySem }()
 
-		// err := s.processResumeTask(ctx, rEvt.TaskID, rEvt.Checkpoint)
-		// if err != nil {
-		// 	// fail event
-		// }
+		if err := s.handleScanTask(ctx, req); err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "failed to handle scan task")
+			return
+		}
+		span.AddEvent("resume_task_handled")
+		span.SetStatus(codes.Ok, "resume_task_handled")
 	}()
+
 	span.AddEvent("resume_task_spawned")
 	span.SetStatus(codes.Ok, "resume_task_spawned")
 
