@@ -266,7 +266,7 @@ func TestTask_Fail(t *testing.T) {
 				0,
 				nil,
 				nil,
-				StallReasonNoProgress,
+				nil,
 				time.Time{},
 			),
 			wantErr: false,
@@ -284,7 +284,7 @@ func TestTask_Fail(t *testing.T) {
 				0,
 				nil,
 				nil,
-				StallReasonHighErrors,
+				nil,
 				time.Time{},
 			),
 			wantErr: false,
@@ -302,7 +302,7 @@ func TestTask_Fail(t *testing.T) {
 				0,
 				nil,
 				nil,
-				StallReasonNoProgress,
+				nil,
 				time.Time{},
 			),
 			wantErr: true,
@@ -321,7 +321,7 @@ func TestTask_Fail(t *testing.T) {
 				0,
 				nil,
 				nil,
-				StallReasonHighErrors,
+				nil,
 				time.Time{},
 			),
 			wantErr: true,
@@ -364,7 +364,7 @@ func TestTask_MarkStale(t *testing.T) {
 	tests := []struct {
 		name        string
 		initialTask *Task
-		reason      StallReason
+		reason      *StallReason
 		wantErr     bool
 	}{
 		{
@@ -380,10 +380,10 @@ func TestTask_MarkStale(t *testing.T) {
 				0,
 				nil,
 				nil,
-				StallReasonNoProgress,
+				nil,
 				time.Time{},
 			),
-			reason:  StallReasonNoProgress,
+			reason:  ReasonPtr(StallReasonNoProgress),
 			wantErr: false,
 		},
 		{
@@ -399,10 +399,10 @@ func TestTask_MarkStale(t *testing.T) {
 				0,
 				nil,
 				nil,
-				StallReasonNoProgress,
+				nil,
 				time.Time{},
 			),
-			reason:  StallReasonNoProgress,
+			reason:  nil,
 			wantErr: true,
 		},
 		{
@@ -418,10 +418,10 @@ func TestTask_MarkStale(t *testing.T) {
 				0,
 				nil,
 				nil,
-				StallReasonHighErrors,
+				nil,
 				time.Time{},
 			),
-			reason:  StallReasonHighErrors,
+			reason:  nil,
 			wantErr: true,
 		},
 		{
@@ -437,10 +437,10 @@ func TestTask_MarkStale(t *testing.T) {
 				0,
 				nil,
 				nil,
-				StallReasonLowThroughput,
+				nil,
 				time.Time{},
 			),
-			reason:  StallReasonLowThroughput,
+			reason:  nil,
 			wantErr: true,
 		},
 	}

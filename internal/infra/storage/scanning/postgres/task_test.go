@@ -55,7 +55,7 @@ func createTestTask(t *testing.T, jobID uuid.UUID, status scanning.TaskStatus) *
 		0,
 		nil,
 		nil,
-		scanning.StallReasonNoProgress,
+		scanning.ReasonPtr(scanning.StallReasonNoProgress),
 		time.Time{},
 	)
 }
@@ -114,7 +114,7 @@ func TestTaskStore_UpdateTask(t *testing.T) {
 		100,
 		json.RawMessage(`{"updated": "details"}`),
 		checkpoint,
-		scanning.StallReasonNoProgress,
+		scanning.ReasonPtr(scanning.StallReasonNoProgress),
 		time.Time{},
 	)
 
@@ -183,7 +183,7 @@ func TestTaskStore_ListTasksByJobAndStatus(t *testing.T) {
 			int64(i*10),
 			json.RawMessage(`{"test": "details"}`),
 			nil,
-			scanning.StallReasonNoProgress,
+			scanning.ReasonPtr(scanning.StallReasonNoProgress),
 			time.Time{},
 		)
 		err := taskStore.CreateTask(ctx, task)
@@ -203,7 +203,7 @@ func TestTaskStore_ListTasksByJobAndStatus(t *testing.T) {
 		30,
 		json.RawMessage(`{"test": "details"}`),
 		nil,
-		scanning.StallReasonNoProgress,
+		scanning.ReasonPtr(scanning.StallReasonNoProgress),
 		time.Time{},
 	)
 	err := taskStore.CreateTask(ctx, differentStatusTask)
@@ -301,14 +301,14 @@ func TestTaskStore_GetTask_WithStallInfo(t *testing.T) {
 		0,                           // Items processed
 		nil,                         // Progress details
 		nil,                         // Checkpoint
-		scanning.StallReasonNoProgress,
+		scanning.ReasonPtr(scanning.StallReasonNoProgress),
 		stallTime,
 	)
 
 	err := taskStore.CreateTask(ctx, task)
 	require.NoError(t, err)
 
-	err = task.MarkStale(scanning.StallReasonNoProgress)
+	err = task.MarkStale(scanning.ReasonPtr(scanning.StallReasonNoProgress))
 	require.NoError(t, err)
 	err = taskStore.UpdateTask(ctx, task)
 	require.NoError(t, err)
@@ -359,7 +359,7 @@ func TestTaskStore_UpdateTask_StallTransition(t *testing.T) {
 			err := taskStore.CreateTask(ctx, task)
 			require.NoError(t, err)
 
-			err = task.MarkStale(tc.stallReason)
+			err = task.MarkStale(scanning.ReasonPtr(tc.stallReason))
 			require.NoError(t, err)
 
 			err = taskStore.UpdateTask(ctx, task)

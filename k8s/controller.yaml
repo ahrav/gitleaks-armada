@@ -98,11 +98,11 @@ spec:
               key: KAFKA_HIGH_PRIORITY_TASK_TOPIC
         resources:
           requests:
-            memory: "256Mi"
-            cpu: "200m"
-          limits:
             memory: "512Mi"
-            cpu: "400m"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
         readinessProbe:
           httpGet:
             path: /v1/readiness

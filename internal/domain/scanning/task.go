@@ -223,7 +223,7 @@ type Task struct {
 	resourceURI string
 
 	status      TaskStatus
-	stallReason StallReason
+	stallReason *StallReason
 	stalledAt   time.Time
 	// RecoveryAttempts int
 
@@ -249,7 +249,7 @@ func ReconstructTask(
 	itemsProcessed int64,
 	progressDetails json.RawMessage,
 	lastCheckpoint *Checkpoint,
-	stallReason StallReason,
+	stallReason *StallReason,
 	stalledAt time.Time,
 ) *Task {
 	return &Task{
@@ -327,7 +327,7 @@ func (t *Task) StartTime() time.Time { return t.timeline.StartedAt() }
 func (t *Task) EndTime() time.Time { return t.timeline.CompletedAt() }
 
 // StallReason returns the reason this task is stalled.
-func (t *Task) StallReason() StallReason { return t.stallReason }
+func (t *Task) StallReason() *StallReason { return t.stallReason }
 
 // StalledAt returns the time this task was stalled.
 func (t *Task) StalledAt() time.Time { return t.stalledAt }
@@ -412,7 +412,13 @@ const (
 
 	// TaskInvalidStateReasonNoProgress indicates the task hasn't processed any items
 	TaskInvalidStateReasonNoProgress TaskInvalidStateReason = "NO_PROGRESS"
+
+	// TaskInvalidStateReasonNoReason indicates the task is in the STALE state but no reason is provided
+	TaskInvalidStateReasonNoReason TaskInvalidStateReason = "NO_REASON"
 )
+
+// ReasonPtr returns a pointer to a StallReason.
+func ReasonPtr(r StallReason) *StallReason { return &r }
 
 // Error returns a string representation of the error.
 func (e TaskInvalidStateError) Error() string {
@@ -462,13 +468,21 @@ func (t *Task) Fail() error {
 }
 
 // MarkStale transitions a task from IN_PROGRESS to STALE, storing a reason and time.
-// The task must be in IN_PROGRESS state to be marked as STALE.
-func (t *Task) MarkStale(reason StallReason) error {
+// The task must be in IN_PROGRESS state to be marked as STALE and a reason must be provided.
+func (t *Task) MarkStale(reason *StallReason) error {
 	if t.status != TaskStatusInProgress {
 		return TaskInvalidStateError{
 			taskID: t.ID,
 			status: t.status,
 			reason: TaskInvalidStateReasonWrongStatus,
+		}
+	}
+
+	if reason == nil {
+		return TaskInvalidStateError{
+			taskID: t.ID,
+			status: t.status,
+			reason: TaskInvalidStateReasonNoReason,
 		}
 	}
 

@@ -46,7 +46,8 @@ func main() {
 				errorAttrs[k] = v
 			}
 
-			log.Error(ctx, "Error event triggered", "error_details", errorAttrs)
+			fmt.Fprintf(os.Stderr, "Error event: %s, details: %v\n",
+				r.Message, errorAttrs)
 		},
 	}
 

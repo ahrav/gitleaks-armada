@@ -105,7 +105,7 @@ func (s *taskStore) GetTask(ctx context.Context, taskID uuid.UUID) (*scanning.Ta
 			row.ItemsProcessed,
 			row.ProgressDetails,
 			checkpoint,
-			scanning.StallReason(row.StallReason.ScanTaskStallReason),
+			scanning.ReasonPtr(scanning.StallReason(row.StallReason.ScanTaskStallReason)),
 			row.StalledAt.Time,
 		)
 		return nil
@@ -155,8 +155,8 @@ func (s *taskStore) UpdateTask(ctx context.Context, task *scanning.Task) error {
 			ProgressDetails: task.ProgressDetails(),
 			LastCheckpoint:  checkpointJSON,
 			StallReason: db.NullScanTaskStallReason{
-				ScanTaskStallReason: db.ScanTaskStallReason(task.StallReason()),
-				Valid:               true,
+				ScanTaskStallReason: db.ScanTaskStallReason(*task.StallReason()),
+				Valid:               task.StallReason() != nil,
 			},
 			StalledAt: pgtype.Timestamptz{Time: task.StalledAt(), Valid: true},
 		}
@@ -220,7 +220,7 @@ func (s *taskStore) ListTasksByJobAndStatus(
 				row.ItemsProcessed,
 				row.ProgressDetails,
 				checkpoint,
-				scanning.StallReason(row.StallReason.ScanTaskStallReason),
+				scanning.ReasonPtr(scanning.StallReason(row.StallReason.ScanTaskStallReason)),
 				row.StalledAt.Time,
 			)
 			results = append(results, t)
