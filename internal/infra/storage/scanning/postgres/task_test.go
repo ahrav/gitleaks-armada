@@ -318,8 +318,6 @@ func TestTaskStore_GetTask_WithStallInfo(t *testing.T) {
 
 func TestTaskStore_UpdateTask_StallTransition(t *testing.T) {
 	t.Parallel()
-	ctx, _, taskStore, jobStore, cleanup := setupTaskTest(t)
-	defer cleanup()
 
 	// Mark as stale with different stall reasons.
 	testCases := []struct {
@@ -345,6 +343,9 @@ func TestTaskStore_UpdateTask_StallTransition(t *testing.T) {
 			t.Parallel()
 
 			beforeStale := time.Now().UTC()
+
+			ctx, _, taskStore, jobStore, cleanup := setupTaskTest(t)
+			defer cleanup()
 
 			job := createTestScanJob(t, jobStore, ctx)
 
