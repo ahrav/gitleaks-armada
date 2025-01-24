@@ -399,7 +399,7 @@ func (s *ScannerService) handleScanTask(ctx context.Context, req *dtos.ScanReque
 	s.logger.Info(ctx, "Handling scan task", "resource_uri", req.ResourceURI)
 	span.AddEvent("starting_scan")
 
-	startedEvt := scanning.NewTaskStartedEvent(req.JobID, req.TaskID)
+	startedEvt := scanning.NewTaskStartedEvent(req.JobID, req.TaskID, req.ResourceURI)
 	if err := s.domainPublisher.PublishDomainEvent(ctx, startedEvt); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to publish task started event")

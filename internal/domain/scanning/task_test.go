@@ -17,7 +17,7 @@ func TestNewScanTask(t *testing.T) {
 	mockTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	mockProvider := &mockTimeProvider{currentTime: mockTime}
 
-	task := NewScanTask(jobID, taskID, WithTimeProvider(mockProvider))
+	task := NewScanTask(jobID, taskID, "https://example.com", WithTimeProvider(mockProvider))
 
 	assert.NotNil(t, task)
 	assert.Equal(t, jobID, task.JobID())
@@ -31,6 +31,7 @@ func TestNewScanTask(t *testing.T) {
 	assert.Equal(t, int64(0), task.ItemsProcessed())
 	assert.Nil(t, task.LastCheckpoint())
 	assert.Nil(t, task.ProgressDetails())
+	assert.Equal(t, "https://example.com", task.ResourceURI())
 }
 
 func TestNewScanTask_DefaultTimeProvider(t *testing.T) {
@@ -40,7 +41,7 @@ func TestNewScanTask_DefaultTimeProvider(t *testing.T) {
 	taskID := uuid.New()
 	beforeCreate := time.Now()
 
-	task := NewScanTask(jobID, taskID) // No time provider specified
+	task := NewScanTask(jobID, taskID, "https://example.com") // No time provider specified
 
 	assert.NotNil(t, task)
 	assert.True(t, task.StartTime().After(beforeCreate) || task.StartTime().Equal(beforeCreate))
@@ -67,7 +68,7 @@ func TestTask_ApplyProgress(t *testing.T) {
 		{
 			name: "basic progress update",
 			setupTask: func() *Task {
-				return NewScanTask(uuid.New(), uuid.New())
+				return NewScanTask(uuid.New(), uuid.New(), "https://example.com")
 			},
 			progress: Progress{
 				sequenceNum:    1,
@@ -81,7 +82,7 @@ func TestTask_ApplyProgress(t *testing.T) {
 		{
 			name: "update with checkpoint",
 			setupTask: func() *Task {
-				return NewScanTask(uuid.New(), uuid.New())
+				return NewScanTask(uuid.New(), uuid.New(), "https://example.com")
 			},
 			progress: Progress{
 				sequenceNum: 1,
@@ -96,7 +97,7 @@ func TestTask_ApplyProgress(t *testing.T) {
 		{
 			name: "out of order update",
 			setupTask: func() *Task {
-				task := NewScanTask(uuid.New(), uuid.New())
+				task := NewScanTask(uuid.New(), uuid.New(), "https://example.com")
 				_ = task.ApplyProgress(Progress{
 					sequenceNum: 2,
 				})
@@ -150,7 +151,7 @@ func TestTask_GetSummary(t *testing.T) {
 
 	taskID := uuid.New()
 	jobID := uuid.New()
-	task := NewScanTask(jobID, taskID, WithTimeProvider(mockProvider))
+	task := NewScanTask(jobID, taskID, "https://example.com", WithTimeProvider(mockProvider))
 
 	progress := Progress{
 		taskID:         taskID,
@@ -185,7 +186,7 @@ func TestTask_Complete(t *testing.T) {
 		{
 			name: "successful completion",
 			setupTask: func(tp *mockTimeProvider) *Task {
-				task := NewScanTask(uuid.New(), uuid.New(), WithTimeProvider(tp))
+				task := NewScanTask(uuid.New(), uuid.New(), "https://example.com", WithTimeProvider(tp))
 				task.itemsProcessed = 100
 				return task
 			},
@@ -193,7 +194,7 @@ func TestTask_Complete(t *testing.T) {
 		{
 			name: "already completed task",
 			setupTask: func(tp *mockTimeProvider) *Task {
-				task := NewScanTask(uuid.New(), uuid.New(), WithTimeProvider(tp))
+				task := NewScanTask(uuid.New(), uuid.New(), "https://example.com", WithTimeProvider(tp))
 				task.status = TaskStatusCompleted
 				return task
 			},
@@ -202,7 +203,7 @@ func TestTask_Complete(t *testing.T) {
 		{
 			name: "failed task",
 			setupTask: func(tp *mockTimeProvider) *Task {
-				task := NewScanTask(uuid.New(), uuid.New(), WithTimeProvider(tp))
+				task := NewScanTask(uuid.New(), uuid.New(), "https://example.com", WithTimeProvider(tp))
 				task.status = TaskStatusFailed
 				return task
 			},

@@ -88,16 +88,17 @@ func NewExecutionTracker(
 // 3. Initialize progress metrics for the task
 // The operation is traced to maintain visibility into task startup sequences.
 func (t *executionTracker) StartTracking(ctx context.Context, evt scanning.TaskStartedEvent) error {
-	taskID, jobID := evt.TaskID, evt.JobID
+	taskID, jobID, resourceURI := evt.TaskID, evt.JobID, evt.ResourceURI
 	ctx, span := t.tracer.Start(ctx, "progress_tracker.scanning.start_tracking",
 		trace.WithAttributes(
 			attribute.String("task_id", taskID.String()),
 			attribute.String("job_id", jobID.String()),
+			attribute.String("resource_uri", resourceURI),
 		))
 	defer span.End()
 
 	// Initialize task state in job aggregate before any other operations
-	_, err := t.jobService.StartTask(ctx, jobID, taskID)
+	_, err := t.jobService.StartTask(ctx, jobID, taskID, resourceURI)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to start task tracking")

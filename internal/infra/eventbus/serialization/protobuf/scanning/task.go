@@ -13,9 +13,10 @@ import (
 // TaskStartedEventToProto converts a domain TaskStartedEvent to its protobuf representation.
 func TaskStartedEventToProto(event scanning.TaskStartedEvent) *pb.TaskStartedEvent {
 	return &pb.TaskStartedEvent{
-		JobId:     event.JobID.String(),
-		TaskId:    event.TaskID.String(),
-		Timestamp: event.OccurredAt().UnixNano(),
+		JobId:       event.JobID.String(),
+		TaskId:      event.TaskID.String(),
+		Timestamp:   event.OccurredAt().UnixNano(),
+		ResourceUri: event.ResourceURI,
 	}
 }
 
@@ -31,7 +32,7 @@ func ProtoToTaskStartedEvent(pbEvent *pb.TaskStartedEvent) (scanning.TaskStarted
 		return scanning.TaskStartedEvent{}, fmt.Errorf("parse task ID: %w", err)
 	}
 
-	return scanning.NewTaskStartedEvent(jobID, taskID), nil
+	return scanning.NewTaskStartedEvent(jobID, taskID, pbEvent.ResourceUri), nil
 }
 
 // TaskProgressedEventToProto converts a domain TaskProgressedEvent to its protobuf representation.

@@ -38,7 +38,7 @@ type ScanJobCoordinator interface {
 
 	// StartTask begins a new scanning task and updates job metrics accordingly.
 	// This is crucial for tracking progress and ensuring all targets are processed.
-	StartTask(ctx context.Context, jobID, taskID uuid.UUID) (*domain.Task, error)
+	StartTask(ctx context.Context, jobID, taskID uuid.UUID, resourceURI string) (*domain.Task, error)
 
 	// UpdateTaskProgress handles incremental updates from running scanners.
 	// Updates are cached in memory and periodically persisted to reduce database load
@@ -253,7 +253,7 @@ func (s *scanJobCoordinator) lookupTaskInCache(ctx context.Context, taskID uuid.
 
 // StartTask initializes a new scanning task and updates the parent job's metrics.
 // The task is cached immediately to optimize subsequent progress updates.
-func (s *scanJobCoordinator) StartTask(ctx context.Context, jobID, taskID uuid.UUID) (*domain.Task, error) {
+func (s *scanJobCoordinator) StartTask(ctx context.Context, jobID, taskID uuid.UUID, resourceURI string) (*domain.Task, error) {
 	ctx, span := s.tracer.Start(ctx, "job_service.scanning.start_task",
 		trace.WithAttributes(
 			attribute.String("job_id", jobID.String()),
@@ -270,7 +270,7 @@ func (s *scanJobCoordinator) StartTask(ctx context.Context, jobID, taskID uuid.U
 	}
 	s.mu.RUnlock()
 
-	newTask := domain.NewScanTask(jobID, taskID)
+	newTask := domain.NewScanTask(jobID, taskID, resourceURI)
 	if err := s.taskRepo.CreateTask(ctx, newTask); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to create task in repo")

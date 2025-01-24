@@ -21,16 +21,18 @@ const (
 
 // TaskStartedEvent indicates a new task was added to a job.
 type TaskStartedEvent struct {
-	occurredAt time.Time
-	JobID      uuid.UUID
-	TaskID     uuid.UUID
+	occurredAt  time.Time
+	JobID       uuid.UUID
+	TaskID      uuid.UUID
+	ResourceURI string
 }
 
-func NewTaskStartedEvent(jobID, taskID uuid.UUID) TaskStartedEvent {
+func NewTaskStartedEvent(jobID, taskID uuid.UUID, resourceURI string) TaskStartedEvent {
 	return TaskStartedEvent{
-		occurredAt: time.Now(),
-		JobID:      jobID,
-		TaskID:     taskID,
+		occurredAt:  time.Now(),
+		JobID:       jobID,
+		TaskID:      taskID,
+		ResourceURI: resourceURI,
 	}
 }
 

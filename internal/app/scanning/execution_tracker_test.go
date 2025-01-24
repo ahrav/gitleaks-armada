@@ -34,8 +34,8 @@ func (m *mockScanJobCoordinator) LinkTargets(ctx context.Context, jobID uuid.UUI
 	return m.Called(ctx, jobID, targets).Error(0)
 }
 
-func (m *mockScanJobCoordinator) StartTask(ctx context.Context, jobID, taskID uuid.UUID) (*scanning.Task, error) {
-	args := m.Called(ctx, jobID, taskID)
+func (m *mockScanJobCoordinator) StartTask(ctx context.Context, jobID, taskID uuid.UUID, resourceURI string) (*scanning.Task, error) {
+	args := m.Called(ctx, jobID, taskID, resourceURI)
 	if task := args.Get(0); task != nil {
 		return task.(*scanning.Task), args.Error(1)
 	}

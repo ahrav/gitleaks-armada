@@ -279,14 +279,16 @@ func WithTimeProvider(tp TimeProvider) TaskOption {
 
 // NewScanTask creates a new ScanTask instance for tracking an individual scan operation.
 // It establishes the task's relationship to its parent job and initializes monitoring state.
-func NewScanTask(jobID uuid.UUID, taskID uuid.UUID, opts ...TaskOption) *Task {
+func NewScanTask(jobID uuid.UUID, taskID uuid.UUID, resourceURI string, opts ...TaskOption) *Task {
 	task := &Task{
 		CoreTask: shared.CoreTask{
 			ID: taskID,
 		},
-		jobID:    jobID,
-		status:   TaskStatusInProgress,
-		timeline: NewTimeline(new(realTimeProvider)),
+		jobID:           jobID,
+		resourceURI:     resourceURI,
+		status:          TaskStatusInProgress,
+		timeline:        NewTimeline(new(realTimeProvider)),
+		lastSequenceNum: 0,
 	}
 
 	for _, opt := range opts {

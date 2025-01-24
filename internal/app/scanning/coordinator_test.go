@@ -274,7 +274,7 @@ func TestStartTask(t *testing.T) {
 			suite := newCoordinatorTestSuite(t)
 			tt.setup(suite)
 
-			task, err := suite.coord.StartTask(context.Background(), jobID, taskID)
+			task, err := suite.coord.StartTask(context.Background(), jobID, taskID, "https://example.com")
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -394,7 +394,7 @@ func TestCompleteTask(t *testing.T) {
 		{
 			name: "successful task completion",
 			setup: func(s *coordinatorTestSuite) {
-				task := scanning.NewScanTask(jobID, taskID)
+				task := scanning.NewScanTask(jobID, taskID, "https://example.com")
 				job := scanning.NewJob()
 				job.AddTask(task)
 
@@ -423,7 +423,7 @@ func TestCompleteTask(t *testing.T) {
 		{
 			name: "job not found",
 			setup: func(s *coordinatorTestSuite) {
-				task := scanning.NewScanTask(jobID, taskID)
+				task := scanning.NewScanTask(jobID, taskID, "https://example.com")
 				s.taskRepo.On("GetTask", mock.Anything, taskID).
 					Return(task, nil)
 				s.jobRepo.On("GetJob", mock.Anything, jobID).
@@ -465,7 +465,7 @@ func TestFailTask(t *testing.T) {
 		{
 			name: "successful task failure",
 			setup: func(s *coordinatorTestSuite) {
-				task := scanning.NewScanTask(jobID, taskID)
+				task := scanning.NewScanTask(jobID, taskID, "https://example.com")
 				job := scanning.NewJob()
 				job.AddTask(task)
 
@@ -494,7 +494,7 @@ func TestFailTask(t *testing.T) {
 		{
 			name: "job not found",
 			setup: func(s *coordinatorTestSuite) {
-				task := scanning.NewScanTask(jobID, taskID)
+				task := scanning.NewScanTask(jobID, taskID, "https://example.com")
 				s.taskRepo.On("GetTask", mock.Anything, taskID).
 					Return(task, nil)
 				s.jobRepo.On("GetJob", mock.Anything, jobID).
@@ -537,7 +537,7 @@ func TestMarkTaskStale(t *testing.T) {
 		{
 			name: "successful mark task as stale",
 			setup: func(s *coordinatorTestSuite) {
-				task := scanning.NewScanTask(jobID, taskID)
+				task := scanning.NewScanTask(jobID, taskID, "https://example.com")
 
 				s.taskRepo.On("GetTask", mock.Anything, taskID).
 					Return(task, nil)
@@ -563,7 +563,7 @@ func TestMarkTaskStale(t *testing.T) {
 		{
 			name: "task update fails",
 			setup: func(s *coordinatorTestSuite) {
-				task := scanning.NewScanTask(jobID, taskID)
+				task := scanning.NewScanTask(jobID, taskID, "https://example.com")
 
 				s.taskRepo.On("GetTask", mock.Anything, taskID).
 					Return(task, nil)
@@ -601,7 +601,7 @@ func TestMarkTaskStale(t *testing.T) {
 		{
 			name: "mark task stale with high errors",
 			setup: func(s *coordinatorTestSuite) {
-				task := scanning.NewScanTask(jobID, taskID)
+				task := scanning.NewScanTask(jobID, taskID, "https://example.com")
 
 				s.taskRepo.On("GetTask", mock.Anything, taskID).
 					Return(task, nil)
