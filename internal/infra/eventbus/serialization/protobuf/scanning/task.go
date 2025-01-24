@@ -162,3 +162,54 @@ func ProtoToTaskHeartbeatEvent(pbEvent *pb.TaskHeartbeatEvent) (scanning.TaskHea
 
 	return scanning.NewTaskHeartbeatEvent(taskID), nil
 }
+
+// TaskResumeEventToProto converts a domain TaskResumeEvent to its protobuf representation.
+func TaskResumeEventToProto(event scanning.TaskResumeEvent) *pb.TaskResumeEvent {
+	var checkpoint *pb.Checkpoint
+	if cp := event.Checkpoint; cp != nil {
+		checkpoint = &pb.Checkpoint{
+			TaskId:      cp.TaskID().String(),
+			Timestamp:   cp.Timestamp().UnixNano(),
+			ResumeToken: cp.ResumeToken(),
+			Metadata:    cp.Metadata(),
+		}
+	}
+
+	return &pb.TaskResumeEvent{
+		JobId:       event.JobID.String(),
+		TaskId:      event.TaskID.String(),
+		Timestamp:   event.OccurredAt().UnixNano(),
+		ResourceUri: event.ResourceURI,
+		Checkpoint:  checkpoint,
+	}
+}
+
+// ProtoToTaskResumeEvent converts a protobuf TaskResumeEvent to its domain representation.
+func ProtoToTaskResumeEvent(pbEvent *pb.TaskResumeEvent) (scanning.TaskResumeEvent, error) {
+	jobID, err := uuid.Parse(pbEvent.JobId)
+	if err != nil {
+		return scanning.TaskResumeEvent{}, fmt.Errorf("parse job ID: %w", err)
+	}
+
+	taskID, err := uuid.Parse(pbEvent.TaskId)
+	if err != nil {
+		return scanning.TaskResumeEvent{}, fmt.Errorf("parse task ID: %w", err)
+	}
+
+	var checkpoint *scanning.Checkpoint
+	if pbEvent.Checkpoint != nil {
+		checkpointTaskID, err := uuid.Parse(pbEvent.Checkpoint.TaskId)
+		if err != nil {
+			return scanning.TaskResumeEvent{}, fmt.Errorf("parse checkpoint task ID: %w", err)
+		}
+
+		checkpoint = scanning.ReconstructCheckpoint(
+			checkpointTaskID,
+			time.Unix(0, pbEvent.Checkpoint.Timestamp),
+			pbEvent.Checkpoint.ResumeToken,
+			pbEvent.Checkpoint.Metadata,
+		)
+	}
+
+	return scanning.NewTaskResumeEvent(jobID, taskID, pbEvent.ResourceUri, checkpoint), nil
+}

@@ -93,3 +93,11 @@ message TaskHeartbeatEvent {
   string task_id = 1;
   int64 timestamp = 2;
 }
+
+message TaskResumeEvent {
+  string job_id = 1;
+  string task_id = 2;
+  int64 timestamp = 3;
+  string resource_uri = 4;
+  Checkpoint checkpoint = 5;
+}

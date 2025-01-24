@@ -43,6 +43,8 @@ type Config struct {
 	ResultsTopic string
 	// ProgressTopic is the topic name for publishing scan progress updates.
 	ProgressTopic string
+	// HighPriorityTaskTopic is the topic for high-priority scanning tasks (e.g., resume).
+	HighPriorityTaskTopic string
 
 	// Split rules topic into two for clear direction of flow.
 	RulesRequestTopic  string // controller -> scanner
@@ -62,12 +64,13 @@ type KafkaEventBus struct {
 	producer      sarama.SyncProducer
 	consumerGroup sarama.ConsumerGroup
 
-	enumTaskTopic      string
-	scanTaskTopic      string
-	resultsTopic       string
-	progressTopic      string
-	rulesRequestTopic  string
-	rulesResponseTopic string
+	enumTaskTopic         string
+	scanTaskTopic         string
+	resultsTopic          string
+	progressTopic         string
+	highPriorityTaskTopic string
+	rulesRequestTopic     string
+	rulesResponseTopic    string
 
 	// Maps domain event types to Kafka topic names.
 	topics map[events.EventType]string
@@ -119,26 +122,28 @@ func NewKafkaEventBusFromConfig(
 	// type-safe event routing.
 	topicsMap := map[events.EventType]string{
 		enumeration.EventTypeTaskCreated: cfg.EnumerationTaskTopic,
-		rules.EventTypeRulesRequested:    cfg.RulesRequestTopic,  // controller -> scanner
-		rules.EventTypeRulesUpdated:      cfg.RulesResponseTopic, // scanner -> controller
-		rules.EventTypeRulesPublished:    cfg.RulesResponseTopic, // scanner -> controller
-		scanning.EventTypeTaskStarted:    cfg.ScanningTaskTopic,  // scanner -> controller
-		scanning.EventTypeTaskProgressed: cfg.ScanningTaskTopic,  // scanner -> controller
-		scanning.EventTypeTaskCompleted:  cfg.ScanningTaskTopic,  // scanner -> controller
-		scanning.EventTypeTaskFailed:     cfg.ScanningTaskTopic,  // scanner -> controller
-		scanning.EventTypeTaskHeartbeat:  cfg.ScanningTaskTopic,  // scanner -> controller (liveness only)
+		rules.EventTypeRulesRequested:    cfg.RulesRequestTopic,     // controller -> scanner
+		rules.EventTypeRulesUpdated:      cfg.RulesResponseTopic,    // scanner -> controller
+		rules.EventTypeRulesPublished:    cfg.RulesResponseTopic,    // scanner -> controller
+		scanning.EventTypeTaskStarted:    cfg.ScanningTaskTopic,     // scanner -> controller
+		scanning.EventTypeTaskProgressed: cfg.ScanningTaskTopic,     // scanner -> controller
+		scanning.EventTypeTaskCompleted:  cfg.ScanningTaskTopic,     // scanner -> controller
+		scanning.EventTypeTaskFailed:     cfg.ScanningTaskTopic,     // scanner -> controller
+		scanning.EventTypeTaskResume:     cfg.HighPriorityTaskTopic, // scanner -> controller (resumption tasks)
+		scanning.EventTypeTaskHeartbeat:  cfg.ScanningTaskTopic,     // scanner -> controller (liveness only)
 	}
 
 	bus := &KafkaEventBus{
 		producer:      producer,
 		consumerGroup: consumerGroup,
 
-		enumTaskTopic:      cfg.EnumerationTaskTopic,
-		scanTaskTopic:      cfg.ScanningTaskTopic,
-		resultsTopic:       cfg.ResultsTopic,
-		progressTopic:      cfg.ProgressTopic,
-		rulesRequestTopic:  cfg.RulesRequestTopic,
-		rulesResponseTopic: cfg.RulesResponseTopic,
+		enumTaskTopic:         cfg.EnumerationTaskTopic,
+		scanTaskTopic:         cfg.ScanningTaskTopic,
+		resultsTopic:          cfg.ResultsTopic,
+		progressTopic:         cfg.ProgressTopic,
+		highPriorityTaskTopic: cfg.HighPriorityTaskTopic,
+		rulesRequestTopic:     cfg.RulesRequestTopic,
+		rulesResponseTopic:    cfg.RulesResponseTopic,
 
 		topics: topicsMap,
 

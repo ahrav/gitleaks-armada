@@ -76,6 +76,11 @@ spec:
             configMapKeyRef:
               name: scanner-config
               key: OTEL_SAMPLING_RATIO
+        - name: KAFKA_HIGH_PRIORITY_TASK_TOPIC
+          valueFrom:
+            configMapKeyRef:
+              name: scanner-config
+              key: KAFKA_HIGH_PRIORITY_TASK_TOPIC
         resources:
           requests:
             memory: "256Mi"

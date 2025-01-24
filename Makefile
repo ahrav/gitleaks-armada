@@ -40,6 +40,7 @@ KAFKA_RESULTS_TOPIC := results
 KAFKA_PROGRESS_TOPIC := progress
 KAFKA_RULES_REQUEST_TOPIC := rules-requests
 KAFKA_RULES_RESPONSE_TOPIC := rules-responses
+KAFKA_HIGH_PRIORITY_TASK_TOPIC := high-priority-tasks
 POSTGRES_URL = postgres://postgres:postgres@localhost:5432/secretscanner?sslmode=disable
 
 # -------------------------------------------------------------------------------
@@ -218,6 +219,12 @@ kafka-setup:
 		--bootstrap-server localhost:9092 \
 		--partitions 3 \
 		--replication-factor 1
+	kubectl exec -it -n $(NAMESPACE) deployment/kafka -- /opt/bitnami/kafka/bin/kafka-topics.sh \
+		--create --if-not-exists \
+		--topic $(KAFKA_HIGH_PRIORITY_TASK_TOPIC) \
+		--bootstrap-server localhost:9092 \
+		--partitions 3 \
+		--replication-factor 1
 
 kafka-logs:
 	@echo "Kafka logs:"
@@ -272,6 +279,10 @@ kafka-delete-topics:
 		--bootstrap-server localhost:9092 \
 		--delete \
 		--topic $(KAFKA_RULES_RESPONSE_TOPIC) || true
+	kubectl exec -it -n $(NAMESPACE) deployment/kafka -- /opt/bitnami/kafka/bin/kafka-topics.sh \
+		--bootstrap-server localhost:9092 \
+		--delete \
+		--topic $(KAFKA_HIGH_PRIORITY_TASK_TOPIC) || true
 
 kafka-restart: kafka-delete
 	@echo "Loading Kafka images..."
@@ -431,7 +442,7 @@ kafka-debug: kafka-debug-controller-consumers kafka-debug-scanner-consumers
 		--all-groups \
 		--bootstrap-server localhost:9092
 	@echo "\nChecking topic details..."
-	for topic in $(KAFKA_ENUMERATION_TASK_TOPIC) $(KAFKA_SCANNING_TASK_TOPIC) $(KAFKA_RESULTS_TOPIC) $(KAFKA_PROGRESS_TOPIC) $(KAFKA_RULES_REQUEST_TOPIC) $(KAFKA_RULES_RESPONSE_TOPIC); do \
+	for topic in $(KAFKA_ENUMERATION_TASK_TOPIC) $(KAFKA_SCANNING_TASK_TOPIC) $(KAFKA_RESULTS_TOPIC) $(KAFKA_PROGRESS_TOPIC) $(KAFKA_RULES_REQUEST_TOPIC) $(KAFKA_RULES_RESPONSE_TOPIC) $(KAFKA_HIGH_PRIORITY_TASK_TOPIC); do \
 		echo "\nTopic: $$topic"; \
 		kubectl exec -it -n $(NAMESPACE) deployment/kafka -- /opt/bitnami/kafka/bin/kafka-topics.sh \
 			--describe \

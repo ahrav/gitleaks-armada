@@ -114,15 +114,16 @@ func main() {
 	}
 
 	kafkaCfg := &kafka.Config{
-		Brokers:              strings.Split(os.Getenv("KAFKA_BROKERS"), ","),
-		EnumerationTaskTopic: os.Getenv("KAFKA_ENUMERATION_TASK_TOPIC"),
-		ScanningTaskTopic:    os.Getenv("KAFKA_SCANNING_TASK_TOPIC"),
-		ResultsTopic:         os.Getenv("KAFKA_RESULTS_TOPIC"),
-		ProgressTopic:        os.Getenv("KAFKA_PROGRESS_TOPIC"),
-		RulesRequestTopic:    os.Getenv("KAFKA_RULES_REQUEST_TOPIC"),
-		RulesResponseTopic:   os.Getenv("KAFKA_RULES_RESPONSE_TOPIC"),
-		GroupID:              os.Getenv("KAFKA_GROUP_ID"),
-		ClientID:             fmt.Sprintf("scanner-%s", hostname),
+		Brokers:               strings.Split(os.Getenv("KAFKA_BROKERS"), ","),
+		EnumerationTaskTopic:  os.Getenv("KAFKA_ENUMERATION_TASK_TOPIC"),
+		ScanningTaskTopic:     os.Getenv("KAFKA_SCANNING_TASK_TOPIC"),
+		ResultsTopic:          os.Getenv("KAFKA_RESULTS_TOPIC"),
+		ProgressTopic:         os.Getenv("KAFKA_PROGRESS_TOPIC"),
+		HighPriorityTaskTopic: os.Getenv("KAFKA_HIGH_PRIORITY_TASK_TOPIC"),
+		RulesRequestTopic:     os.Getenv("KAFKA_RULES_REQUEST_TOPIC"),
+		RulesResponseTopic:    os.Getenv("KAFKA_RULES_RESPONSE_TOPIC"),
+		GroupID:               os.Getenv("KAFKA_GROUP_ID"),
+		ClientID:              fmt.Sprintf("scanner-%s", hostname),
 	}
 	broker, err := kafka.ConnectWithRetry(kafkaCfg, log, metricsCollector, tracer)
 	if err != nil {

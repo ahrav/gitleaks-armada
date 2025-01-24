@@ -263,10 +263,10 @@ func (s *ScannerService) handleTaskResumeEvent(ctx context.Context, evt events.E
 	}
 
 	_ = &dtos.ScanRequest{
-		TaskID: rEvt.TaskID,
-		JobID:  rEvt.JobID,
-		// ResourceURI: rEvt.Task.ResourceURI(),
-		Metadata: make(map[string]string),
+		TaskID:      rEvt.TaskID,
+		JobID:       rEvt.JobID,
+		ResourceURI: rEvt.ResourceURI,
+		Metadata:    make(map[string]string),
 	}
 
 	s.highPrioritySem <- struct{}{}

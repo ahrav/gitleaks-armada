@@ -133,6 +133,9 @@ func RegisterEventSerializers() {
 	RegisterSerializeFunc(scanning.EventTypeTaskFailed, serializeTaskFailed)
 	RegisterDeserializeFunc(scanning.EventTypeTaskFailed, deserializeTaskFailed)
 
+	RegisterSerializeFunc(scanning.EventTypeTaskResume, serializeTaskResume)
+	RegisterDeserializeFunc(scanning.EventTypeTaskResume, deserializeTaskResume)
+
 	RegisterSerializeFunc(scanning.EventTypeTaskHeartbeat, serializeTaskHeartbeat)
 	RegisterDeserializeFunc(scanning.EventTypeTaskHeartbeat, deserializeTaskHeartbeat)
 
@@ -265,6 +268,32 @@ func deserializeTaskFailed(data []byte) (any, error) {
 	}
 
 	event, err := serdeScanning.ProtoToTaskFailedEvent(&pbEvent)
+	if err != nil {
+		return nil, fmt.Errorf("convert proto to domain event: %w", err)
+	}
+
+	return event, nil
+}
+
+// serializeTaskResume converts a TaskResumeEvent to protobuf bytes.
+func serializeTaskResume(payload any) ([]byte, error) {
+	event, ok := payload.(scanning.TaskResumeEvent)
+	if !ok {
+		return nil, fmt.Errorf("serializeTaskResume: payload is not TaskResumeEvent, got %T", payload)
+	}
+
+	pbEvent := serdeScanning.TaskResumeEventToProto(event)
+	return proto.Marshal(pbEvent)
+}
+
+// deserializeTaskResume converts protobuf bytes back into a TaskResumeEvent.
+func deserializeTaskResume(data []byte) (any, error) {
+	var pbEvent pb.TaskResumeEvent
+	if err := proto.Unmarshal(data, &pbEvent); err != nil {
+		return nil, fmt.Errorf("unmarshal TaskResumeEvent: %w", err)
+	}
+
+	event, err := serdeScanning.ProtoToTaskResumeEvent(&pbEvent)
 	if err != nil {
 		return nil, fmt.Errorf("convert proto to domain event: %w", err)
 	}
