@@ -180,6 +180,7 @@ func TaskResumeEventToProto(event scanning.TaskResumeEvent) *pb.TaskResumeEvent 
 		TaskId:      event.TaskID.String(),
 		Timestamp:   event.OccurredAt().UnixNano(),
 		ResourceUri: event.ResourceURI,
+		SequenceNum: int64(event.SequenceNum),
 		Checkpoint:  checkpoint,
 	}
 }
@@ -211,5 +212,5 @@ func ProtoToTaskResumeEvent(pbEvent *pb.TaskResumeEvent) (scanning.TaskResumeEve
 		)
 	}
 
-	return scanning.NewTaskResumeEvent(jobID, taskID, pbEvent.ResourceUri, checkpoint), nil
+	return scanning.NewTaskResumeEvent(jobID, taskID, pbEvent.ResourceUri, int(pbEvent.SequenceNum), checkpoint), nil
 }

@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,6 +20,7 @@ import (
 
 	"github.com/ahrav/gitleaks-armada/internal/app/scanning"
 	"github.com/ahrav/gitleaks-armada/internal/app/scanning/dtos"
+	domain "github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	srcs "github.com/ahrav/gitleaks-armada/internal/infra/scanner/sources"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
@@ -86,6 +89,25 @@ func (s *Scanner) runURLScan(
 		s.metrics.ObserveScanDuration(ctx, shared.SourceType(task.SourceType), time.Since(startTime))
 	}()
 
+	var sequenceNum atomic.Int64
+	if seqStr, ok := task.Metadata["sequence_num"]; ok {
+		if seqVal, err := strconv.ParseInt(seqStr, 10, 64); err == nil {
+			sequenceNum.Store(seqVal)
+		}
+	}
+
+	var resumeFileIdx int64
+	// If you store a "resume_file_idx" in metadata,
+	// parse that too if your source uses it.
+	if idxStr, ok := task.Metadata["resume_file_index"]; ok {
+		if idxVal, err := strconv.ParseInt(idxStr, 10, 64); err == nil {
+			span.SetAttributes(attribute.Int64("resume_file_index", idxVal))
+			resumeFileIdx = idxVal
+		}
+	}
+
+	scanCtx := NewScanContext(resumeFileIdx, &sequenceNum, reporter)
+
 	format := "none"
 	if formatStr, ok := task.Metadata["archive_format"]; ok {
 		format = formatStr
@@ -93,7 +115,7 @@ func (s *Scanner) runURLScan(
 	span.SetAttributes(attribute.String("archive_format", format))
 
 	// Prepare a specialized ArchiveReader based on format (e.g., "warc.gz")
-	reader, err := s.createArchiveReader(ctx, format, task, reporter)
+	reader, err := s.createArchiveReader(ctx, format, task, scanCtx)
 	if err != nil {
 		s.metrics.IncScanError(ctx, shared.SourceType(task.SourceType))
 		return err
@@ -135,13 +157,68 @@ func (s *Scanner) runURLScan(
 	return nil
 }
 
+// ScanContext holds shared state for a single scanning operation.
+// It can track the next sequence number, the progress reporter, and optional resume offsets.
+type ScanContext struct {
+	reporter      scanning.ProgressReporter
+	nextSequence  *atomic.Int64
+	resumeFileIdx int64
+}
+
+// NewScanContext constructs a ScanContext, typically called once at the start of a scan.
+func NewScanContext(
+	resumeFileIdx int64,
+	resumeSequence *atomic.Int64,
+	reporter scanning.ProgressReporter,
+) *ScanContext {
+	return &ScanContext{
+		reporter:      reporter,
+		nextSequence:  resumeSequence,
+		resumeFileIdx: resumeFileIdx,
+	}
+}
+
+// NextSequence increments and returns the next sequence number for progress events.
+func (sc *ScanContext) NextSequence() int64 {
+	return sc.nextSequence.Add(1)
+}
+
+// ReportProgress emits a progress event with the current sequence number
+// and any other relevant data. The specifics of "Progress" are up to you.
+func (sc *ScanContext) ReportProgress(ctx context.Context, itemsProcessed int64, message string) {
+	span := trace.SpanFromContext(ctx)
+	span.SetAttributes(
+		attribute.Int64("sequence_num", sc.NextSequence()),
+		attribute.Int64("items_processed", itemsProcessed),
+		attribute.String("message", message),
+	)
+
+	if err := sc.reporter.ReportProgress(
+		ctx,
+		domain.NewProgress(
+			uuid.New(),
+			sc.NextSequence(),
+			time.Now(),
+			itemsProcessed,
+			0,
+			message,
+			nil,
+			nil,
+		),
+	); err != nil {
+		span.RecordError(err)
+		return
+	}
+	span.AddEvent("progress_reported")
+}
+
 // createArchiveReader performs an HTTP GET and then wraps the response Body
 // in an ArchiveReader if needed (e.g., WARC, gzipped).
 func (s *Scanner) createArchiveReader(
 	ctx context.Context,
 	format string,
 	task *dtos.ScanRequest,
-	reporter scanning.ProgressReporter,
+	scanCtx *ScanContext,
 ) (io.Reader, error) {
 	_, archiveSpan := s.tracer.Start(ctx, "gitleaks_url_scanner.create_archive_reader")
 	defer archiveSpan.End()
@@ -149,7 +226,7 @@ func (s *Scanner) createArchiveReader(
 	// TODO: Abstract all this crap away.
 	archiveReader, err := newArchiveReader(format, func(size int64) {
 		s.metrics.ObserveScanSize(ctx, shared.SourceType(task.SourceType), size)
-	}, reporter, s.tracer)
+	}, s.tracer)
 	if err != nil {
 		archiveSpan.RecordError(err)
 		return nil, fmt.Errorf("failed to create archive reader: %w", err)
@@ -186,7 +263,7 @@ func (s *Scanner) createArchiveReader(
 	processCtx, processSpan := s.tracer.Start(ctx, "gitleaks_url_scanner.process_archive")
 	defer processSpan.End()
 
-	reader, err := archiveReader.Read(processCtx, resp.Body, reporter, task.TaskID)
+	reader, err := archiveReader.Read(processCtx, resp.Body, scanCtx)
 	if err != nil {
 		processSpan.RecordError(err)
 		s.metrics.IncScanError(ctx, shared.SourceType(task.SourceType))
@@ -199,15 +276,15 @@ func (s *Scanner) createArchiveReader(
 // It defines a method for reading from an input stream.
 // It also takes a reporter for progress reporting.
 type ArchiveReader interface {
-	Read(ctx context.Context, input io.Reader, reporter scanning.ProgressReporter, taskID uuid.UUID) (io.Reader, error)
+	Read(ctx context.Context, input io.Reader, scanCtx *ScanContext) (io.Reader, error)
 }
 
 // newArchiveReader is a factory function that creates an appropriate reader based on the format string.
 // It returns an ArchiveReader and an error.
-func newArchiveReader(format string, sizeCallback func(int64), reporter scanning.ProgressReporter, tracer trace.Tracer) (ArchiveReader, error) {
+func newArchiveReader(format string, sizeCallback func(int64), tracer trace.Tracer) (ArchiveReader, error) {
 	switch format {
 	case "warc.gz":
-		return newWarcGzReader(sizeCallback, reporter, tracer), nil
+		return newWarcGzReader(sizeCallback, tracer), nil
 	case "none", "":
 		return new(PassthroughReader), nil
 	default:
@@ -219,16 +296,14 @@ func newArchiveReader(format string, sizeCallback func(int64), reporter scanning
 // It reads WARC.GZ files.
 type WarcGzReader struct {
 	sizeCallback func(int64) // Callback to report final size
-	reporter     scanning.ProgressReporter
 	tracer       trace.Tracer
 }
 
 func newWarcGzReader(
 	sizeCallback func(int64),
-	reporter scanning.ProgressReporter,
 	tracer trace.Tracer,
 ) *WarcGzReader {
-	return &WarcGzReader{sizeCallback: sizeCallback, reporter: reporter, tracer: tracer}
+	return &WarcGzReader{sizeCallback: sizeCallback, tracer: tracer}
 }
 
 // Read is a method of the WarcGzReader struct.
@@ -236,8 +311,7 @@ func newWarcGzReader(
 func (w *WarcGzReader) Read(
 	ctx context.Context,
 	input io.Reader,
-	reporter scanning.ProgressReporter,
-	taskID uuid.UUID,
+	scanCtx *ScanContext,
 ) (io.Reader, error) {
 	ctx, readSpan := w.tracer.Start(ctx, "warc_reader.read")
 	defer readSpan.End()
@@ -323,8 +397,7 @@ type PassthroughReader struct{}
 func (p *PassthroughReader) Read(
 	ctx context.Context,
 	input io.Reader,
-	reporter scanning.ProgressReporter,
-	taskID uuid.UUID,
+	scanCtx *ScanContext,
 ) (io.Reader, error) {
 	return input, nil
 }

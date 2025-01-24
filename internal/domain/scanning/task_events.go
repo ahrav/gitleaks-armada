@@ -81,15 +81,22 @@ type TaskResumeEvent struct {
 	JobID       uuid.UUID
 	TaskID      uuid.UUID
 	ResourceURI string
+	SequenceNum int
 	Checkpoint  *Checkpoint
 }
 
-func NewTaskResumeEvent(jobID, taskID uuid.UUID, resourceURI string, checkpoint *Checkpoint) TaskResumeEvent {
+func NewTaskResumeEvent(
+	jobID, taskID uuid.UUID,
+	resourceURI string,
+	sequenceNum int,
+	checkpoint *Checkpoint,
+) TaskResumeEvent {
 	return TaskResumeEvent{
 		occurredAt:  time.Now(),
 		JobID:       jobID,
 		TaskID:      taskID,
 		ResourceURI: resourceURI,
+		SequenceNum: sequenceNum,
 		Checkpoint:  checkpoint,
 	}
 }

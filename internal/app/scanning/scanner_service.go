@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"runtime"
+	"strconv"
 	"sync"
 	"time"
 
@@ -271,6 +272,7 @@ func (s *ScannerService) handleTaskResumeEvent(ctx context.Context, evt events.E
 		ResourceURI: rEvt.ResourceURI,
 		Metadata:    make(map[string]string),
 	}
+	req.Metadata["sequence_num"] = strconv.Itoa(rEvt.SequenceNum)
 
 	ckptJSON, err := json.Marshal(rEvt.Checkpoint)
 	if err != nil {

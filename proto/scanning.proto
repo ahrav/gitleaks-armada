@@ -99,5 +99,6 @@ message TaskResumeEvent {
   string task_id = 2;
   int64 timestamp = 3;
   string resource_uri = 4;
-  Checkpoint checkpoint = 5;
+  int64 sequence_num = 5;
+  Checkpoint checkpoint = 6;
 }
