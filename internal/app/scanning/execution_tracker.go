@@ -200,14 +200,21 @@ func (et *executionTracker) MarkTaskStale(ctx context.Context, evt scanning.Task
 		return err
 	}
 
-	// TODO: Implement domain event publishing with a resumable task.
-	// if err := et.domainPublisher.PublishDomainEvent(ctx, evt); err != nil {
-	// 	et.logger.Error(ctx, "Failed to publish TaskStaleEvent", "task_id", evt.TaskID, "err", err)
-	// 	// Possibly just log the error or bubble it up
-	// 	return err
-	// }
+	resumeTask := scanning.NewTaskResumeEvent(
+		task.JobID(),
+		task.TaskID(),
+		task.ResourceURI(),
+		int(task.LastSequenceNum()),
+		task.LastCheckpoint(),
+	)
+	if err := et.domainPublisher.PublishDomainEvent(ctx, resumeTask); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to publish task resume event")
+		return err
+	}
+	span.AddEvent("task_marked_stale_and_resume_task_event_published")
+	span.SetStatus(codes.Ok, "task marked stale and resume task event published")
 
-	et.logger.Info(ctx, "Task marked stale and event published", "task_id", task.ID)
 	return nil
 }
 

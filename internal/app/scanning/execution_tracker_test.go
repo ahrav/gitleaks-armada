@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/trace"
@@ -121,7 +122,7 @@ func newTrackerTestSuite(t *testing.T) *trackerTestSuite {
 	}
 }
 
-func TestStartTracking(t *testing.T) {
+func TestExecutionTracker_StartTracking(t *testing.T) {
 	tests := []struct {
 		name    string
 		setup   func(*mockScanJobCoordinator)
@@ -164,7 +165,7 @@ func TestStartTracking(t *testing.T) {
 	}
 }
 
-func TestUpdateProgress(t *testing.T) {
+func TestExecutionTracker_UpdateProgress(t *testing.T) {
 	tests := []struct {
 		name    string
 		setup   func(*mockScanJobCoordinator)
@@ -211,7 +212,7 @@ func TestUpdateProgress(t *testing.T) {
 	}
 }
 
-func TestFullScanningLifecycle(t *testing.T) {
+func TestExecutionTracker_FullScanningLifecycle(t *testing.T) {
 	suite := newTrackerTestSuite(t)
 	jobID := uuid.New()
 	taskID := uuid.New()
@@ -219,11 +220,11 @@ func TestFullScanningLifecycle(t *testing.T) {
 
 	// Setup expectations for the full lifecycle.
 	suite.jobCoordinator.On("StartTask", mock.Anything, jobID, taskID, resourceURI).
-		Return(&scanning.Task{}, nil)
+		Return(new(scanning.Task), nil)
 	suite.jobCoordinator.On("UpdateTaskProgress", mock.Anything, mock.Anything).
-		Return(&scanning.Task{}, nil).Times(3)
+		Return(new(scanning.Task), nil).Times(3)
 	suite.jobCoordinator.On("CompleteTask", mock.Anything, jobID, taskID).
-		Return(&scanning.Task{}, nil)
+		Return(new(scanning.Task), nil)
 
 	ctx := context.Background()
 
@@ -251,4 +252,185 @@ func TestFullScanningLifecycle(t *testing.T) {
 	require.NoError(t, err)
 
 	suite.jobCoordinator.AssertExpectations(t)
+}
+
+func TestExecutionTracker_StopTracking(t *testing.T) {
+	tests := []struct {
+		name    string
+		setup   func(*mockScanJobCoordinator)
+		event   scanning.TaskCompletedEvent
+		wantErr bool
+	}{
+		{
+			name: "successful task completion",
+			setup: func(m *mockScanJobCoordinator) {
+				m.On("CompleteTask", mock.Anything, mock.Anything, mock.Anything).
+					Return(new(scanning.Task), nil)
+			},
+			event: scanning.TaskCompletedEvent{
+				JobID:  uuid.New(),
+				TaskID: uuid.New(),
+			},
+			wantErr: false,
+		},
+		{
+			name: "failed task completion",
+			setup: func(m *mockScanJobCoordinator) {
+				m.On("CompleteTask", mock.Anything, mock.Anything, mock.Anything).
+					Return(new(scanning.Task), errors.New("completion failed"))
+			},
+			event: scanning.TaskCompletedEvent{
+				JobID:  uuid.New(),
+				TaskID: uuid.New(),
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			suite := newTrackerTestSuite(t)
+			tt.setup(suite.jobCoordinator)
+
+			err := suite.tracker.StopTracking(context.Background(), tt.event)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "failed to complete task")
+			} else {
+				require.NoError(t, err)
+			}
+			suite.jobCoordinator.AssertExpectations(t)
+		})
+	}
+}
+
+func TestExecutionTracker_MarkTaskFailure(t *testing.T) {
+	tests := []struct {
+		name    string
+		setup   func(*mockScanJobCoordinator)
+		event   scanning.TaskFailedEvent
+		wantErr bool
+	}{
+		{
+			name: "successful task failure marking",
+			setup: func(m *mockScanJobCoordinator) {
+				m.On("FailTask", mock.Anything, mock.Anything, mock.Anything).
+					Return(new(scanning.Task), nil)
+			},
+			event: scanning.TaskFailedEvent{
+				JobID:  uuid.New(),
+				TaskID: uuid.New(),
+			},
+			wantErr: false,
+		},
+		{
+			name: "error marking task as failed",
+			setup: func(m *mockScanJobCoordinator) {
+				m.On("FailTask", mock.Anything, mock.Anything, mock.Anything).
+					Return(new(scanning.Task), errors.New("failure marking failed"))
+			},
+			event: scanning.TaskFailedEvent{
+				JobID:  uuid.New(),
+				TaskID: uuid.New(),
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			suite := newTrackerTestSuite(t)
+			tt.setup(suite.jobCoordinator)
+
+			err := suite.tracker.MarkTaskFailure(context.Background(), tt.event)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "failed to fail task")
+			} else {
+				require.NoError(t, err)
+			}
+			suite.jobCoordinator.AssertExpectations(t)
+		})
+	}
+}
+
+func TestExecutionTracker_MarkTaskStale(t *testing.T) {
+	tests := []struct {
+		name    string
+		setup   func(*mockScanJobCoordinator, *mockDomainEventPublisher)
+		event   scanning.TaskStaleEvent
+		wantErr bool
+	}{
+		{
+			name: "successful stale task marking",
+			setup: func(m *mockScanJobCoordinator, p *mockDomainEventPublisher) {
+				m.On("MarkTaskStale", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					Return(new(scanning.Task), nil)
+				p.On("PublishDomainEvent",
+					mock.Anything,
+					mock.MatchedBy(func(event events.DomainEvent) bool {
+						_, ok := event.(scanning.TaskResumeEvent)
+						return ok
+					}),
+					mock.Anything,
+				).Return(nil)
+			},
+			event: scanning.TaskStaleEvent{
+				JobID:  uuid.New(),
+				TaskID: uuid.New(),
+				Reason: scanning.StallReason("task timeout"),
+			},
+			wantErr: false,
+		},
+		{
+			name: "error marking task as stale",
+			setup: func(m *mockScanJobCoordinator, p *mockDomainEventPublisher) {
+				m.On("MarkTaskStale", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					Return(new(scanning.Task), errors.New("stale marking failed"))
+			},
+			event: scanning.TaskStaleEvent{
+				JobID:  uuid.New(),
+				TaskID: uuid.New(),
+				Reason: scanning.StallReason("task timeout"),
+			},
+			wantErr: true,
+		},
+		{
+			name: "error publishing resume event",
+			setup: func(m *mockScanJobCoordinator, p *mockDomainEventPublisher) {
+				m.On("MarkTaskStale", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					Return(new(scanning.Task), nil)
+				p.On("PublishDomainEvent",
+					mock.Anything,
+					mock.MatchedBy(func(event events.DomainEvent) bool {
+						_, ok := event.(scanning.TaskResumeEvent)
+						return ok
+					}),
+					mock.Anything,
+				).Return(errors.New("publish failed"))
+			},
+			event: scanning.TaskStaleEvent{
+				JobID:  uuid.New(),
+				TaskID: uuid.New(),
+				Reason: scanning.StallReason("task timeout"),
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			suite := newTrackerTestSuite(t)
+			tt.setup(suite.jobCoordinator, suite.domainPublisher)
+
+			err := suite.tracker.MarkTaskStale(context.Background(), tt.event)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			suite.jobCoordinator.AssertExpectations(t)
+			suite.domainPublisher.AssertExpectations(t)
+		})
+	}
 }
