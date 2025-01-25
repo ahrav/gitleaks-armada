@@ -18,11 +18,8 @@ import (
 // StalenessHandler represents a component that can handle stale task scenarios
 // by marking tasks as stale in the system.
 type StalenessHandler interface {
-	// MarkTaskStale is used to mark a task as stale in the system.
-	MarkTaskStale(ctx context.Context, evt scanning.TaskStaleEvent) error
-
-	// GetTask retrieves a task by ID.
-	GetTask(ctx context.Context, taskID uuid.UUID) (*scanning.Task, error)
+	// HandleTaskStale is used to mark a task as stale in the system.
+	HandleTaskStale(ctx context.Context, evt scanning.TaskStaleEvent) error
 }
 
 type timeProvider interface {
@@ -35,11 +32,18 @@ type realTimeProvider struct{}
 // Now returns the current time.
 func (realTimeProvider) Now() time.Time { return time.Now() }
 
+// TaskMonitor combines read access and staleness handling capabilities
+// needed by HeartbeatMonitor to track and manage task health.
+type TaskMonitor interface {
+	TaskStateReader
+	StalenessHandler
+}
+
 // HeartbeatMonitor tracks the last heartbeat of running tasks
 // and periodically checks for tasks that have not sent a heartbeat within
 // a given threshold (indicating potential staleness or failure).
 type HeartbeatMonitor struct {
-	// stalenessHandler handles tasks that have been detected as stale
+	taskReader       TaskStateReader
 	stalenessHandler StalenessHandler
 
 	cancel context.CancelCauseFunc
@@ -59,13 +63,15 @@ type HeartbeatMonitor struct {
 }
 
 // NewHeartbeatMonitor creates a new HeartbeatMonitor instance.
-// The stalenessHandler is used to fail tasks once a task is deemed stale.
+// The taskReader and stalenessHandler are used to handle tasks and mark them as stale.
 func NewHeartbeatMonitor(
+	taskReader TaskStateReader,
 	stalenessHandler StalenessHandler,
 	tracer trace.Tracer,
 	logger *logger.Logger,
 ) *HeartbeatMonitor {
 	return &HeartbeatMonitor{
+		taskReader:          taskReader,
 		stalenessHandler:    stalenessHandler,
 		tracer:              tracer,
 		logger:              logger,
@@ -144,7 +150,7 @@ func (h *HeartbeatMonitor) checkForStaleTasks(ctx context.Context, threshold tim
 
 	// For each potentially stale task, verify state and handle accordingly.
 	for _, tID := range potentiallyStaleTaskIDs {
-		task, err := h.stalenessHandler.GetTask(ctx, tID)
+		task, err := h.taskReader.GetTask(ctx, tID)
 		if err != nil {
 			h.logger.Error(ctx, "Failed to get task status", "task_id", tID, "error", err)
 			continue
@@ -154,7 +160,7 @@ func (h *HeartbeatMonitor) checkForStaleTasks(ctx context.Context, threshold tim
 			h.logger.Warn(ctx, "Detected stale task - failing", "task_id", tID)
 			staleEvt := scanning.NewTaskStaleEvent(tID, tID, scanning.StallReasonNoProgress, h.timeProvider.Now())
 
-			if err := h.stalenessHandler.MarkTaskStale(ctx, staleEvt); err != nil {
+			if err := h.stalenessHandler.HandleTaskStale(ctx, staleEvt); err != nil {
 				h.logger.Error(ctx, "Failed to mark task as stale", "task_id", tID, "error", err)
 				continue
 			}

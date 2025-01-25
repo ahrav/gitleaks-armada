@@ -35,6 +35,7 @@ type ScanJobCoordinator interface {
 	// ---------------------------
 	// Task-level operations
 	// ---------------------------
+	TaskStateReader
 
 	// StartTask begins a new scanning task and updates job metrics accordingly.
 	// This is crucial for tracking progress and ensuring all targets are processed.
@@ -56,10 +57,6 @@ type ScanJobCoordinator interface {
 	// MarkTaskStale flags a task that has become unresponsive or stopped reporting progress.
 	// This enables automated detection and recovery of failed tasks that require intervention.
 	MarkTaskStale(ctx context.Context, jobID, taskID uuid.UUID, reason domain.StallReason) (*domain.Task, error)
-
-	// GetTask retrieves a task by ID, using cache-first strategy to optimize
-	// frequent status checks during monitoring operations.
-	GetTask(ctx context.Context, taskID uuid.UUID) (*domain.Task, error)
 
 	// // RecoverTask attempts to resume execution of a previously stalled task.
 	// // It uses the last recorded checkpoint to restart the task from its last known good state.

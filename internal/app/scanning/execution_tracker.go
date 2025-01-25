@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -20,31 +19,27 @@ import (
 // processes domain events related to task execution (start, progress, completion, failure) and
 // maintains real-time progress metrics that can be queried at both the task and job level.
 type ExecutionTracker interface {
-	// StartTracking initializes tracking for a new task by registering it with the job service
+	// HandleTaskStart initializes tracking for a new task by registering it with the job service
 	// and setting up initial progress metrics. If this is the first task in a job, it will
 	// transition the job from QUEUED to RUNNING status.
-	StartTracking(ctx context.Context, evt scanning.TaskStartedEvent) error
+	HandleTaskStart(ctx context.Context, evt scanning.TaskStartedEvent) error
 
-	// UpdateProgress handles task progress events during scanning, updating metrics like
+	// HandleTaskProgress handles task progress events during scanning, updating metrics like
 	// items processed, processing rate, and error counts. This data is used to detect
 	// stalled tasks and calculate overall job progress.
-	UpdateProgress(ctx context.Context, evt scanning.TaskProgressedEvent) error
+	HandleTaskProgress(ctx context.Context, evt scanning.TaskProgressedEvent) error
 
-	// StopTracking handles successful task completion by updating job metrics,
+	// HandleTaskCompletion handles successful task completion by updating job metrics,
 	// transitioning task status to COMPLETED, and potentially marking the job
 	// as COMPLETED if all tasks are done.
-	StopTracking(ctx context.Context, evt scanning.TaskCompletedEvent) error
+	HandleTaskCompletion(ctx context.Context, evt scanning.TaskCompletedEvent) error
 
-	// MarkTaskFailure handles task failure scenarios by transitioning the task to FAILED status
+	// HandleTaskFailure handles task failure scenarios by transitioning the task to FAILED status
 	// and updating job metrics. If all tasks in a job fail, the job will be marked as FAILED.
-	MarkTaskFailure(ctx context.Context, evt scanning.TaskFailedEvent) error
+	HandleTaskFailure(ctx context.Context, evt scanning.TaskFailedEvent) error
 
-	// MarkTaskStale marks a task as stale, indicating it has stopped reporting progress.
-	MarkTaskStale(ctx context.Context, evt scanning.TaskStaleEvent) error
-
-	// GetTask retrieves the current state of a task, including its status and progress metrics.
-	// This enables components like the HeartbeatMonitor to check task state before taking action.
-	GetTask(ctx context.Context, taskID uuid.UUID) (*scanning.Task, error)
+	// HandleTaskStale marks a task as stale, indicating it has stopped reporting progress.
+	HandleTaskStale(ctx context.Context, evt scanning.TaskStaleEvent) error
 
 	// // GetJobProgress returns consolidated metrics for all tasks in a job, including
 	// // total tasks, completed tasks, failed tasks, and overall progress percentage.
@@ -85,13 +80,13 @@ func NewExecutionTracker(
 	}
 }
 
-// StartTracking initializes progress tracking for a new scan task. It coordinates with
+// HandleTaskStart initializes progress tracking for a new scan task. It coordinates with
 // the job service to:
 // 1. Register the task in the job's task collection
 // 2. Transition the job to RUNNING state if this is the first task
 // 3. Initialize progress metrics for the task
 // The operation is traced to maintain visibility into task startup sequences.
-func (t *executionTracker) StartTracking(ctx context.Context, evt scanning.TaskStartedEvent) error {
+func (t *executionTracker) HandleTaskStart(ctx context.Context, evt scanning.TaskStartedEvent) error {
 	taskID, jobID, resourceURI := evt.TaskID, evt.JobID, evt.ResourceURI
 	ctx, span := t.tracer.Start(ctx, "progress_tracker.scanning.start_tracking",
 		trace.WithAttributes(
@@ -114,12 +109,12 @@ func (t *executionTracker) StartTracking(ctx context.Context, evt scanning.TaskS
 	return nil
 }
 
-// UpdateProgress processes incremental task progress events by:
+// HandleTaskProgress processes incremental task progress events by:
 // 1. Validating the progress metrics
 // 2. Updating task-level progress state
 // 3. Recalculating aggregated job progress
 // This maintains accurate, real-time visibility into scan execution across the system.
-func (t *executionTracker) UpdateProgress(ctx context.Context, evt scanning.TaskProgressedEvent) error {
+func (t *executionTracker) HandleTaskProgress(ctx context.Context, evt scanning.TaskProgressedEvent) error {
 	taskID := evt.Progress.TaskID()
 	ctx, span := t.tracer.Start(ctx, "progress_tracker.scanning.update_progress",
 		trace.WithAttributes(
@@ -139,12 +134,12 @@ func (t *executionTracker) UpdateProgress(ctx context.Context, evt scanning.Task
 	return nil
 }
 
-// StopTracking handles normal task completion by:
+// HandleTaskCompletion handles normal task completion by:
 // 1. Marking the task as COMPLETED in the job aggregate
 // 2. Updating job status if all tasks are now complete
 // 3. Recording final task metrics
 // This ensures proper cleanup and maintains accurate job state.
-func (t *executionTracker) StopTracking(ctx context.Context, evt scanning.TaskCompletedEvent) error {
+func (t *executionTracker) HandleTaskCompletion(ctx context.Context, evt scanning.TaskCompletedEvent) error {
 	taskID := evt.TaskID
 	ctx, span := t.tracer.Start(ctx, "progress_tracker.scanning.stop_tracking",
 		trace.WithAttributes(
@@ -164,12 +159,12 @@ func (t *executionTracker) StopTracking(ctx context.Context, evt scanning.TaskCo
 	return nil
 }
 
-// MarkTaskFailure handles task failure scenarios by:
+// HandleTaskFailure handles task failure scenarios by:
 // 1. Marking the task as FAILED in the job aggregate
 // 2. Potentially triggering job-level failure if configured
 // 3. Recording error details and final metrics
 // This ensures proper error handling and maintains system consistency during failures.
-func (t *executionTracker) MarkTaskFailure(ctx context.Context, evt scanning.TaskFailedEvent) error {
+func (t *executionTracker) HandleTaskFailure(ctx context.Context, evt scanning.TaskFailedEvent) error {
 	taskID := evt.TaskID
 	ctx, span := t.tracer.Start(ctx, "progress_tracker.scanning.fail_task",
 		trace.WithAttributes(
@@ -189,11 +184,11 @@ func (t *executionTracker) MarkTaskFailure(ctx context.Context, evt scanning.Tas
 	return nil
 }
 
-// MarkTaskStale handles task staleness by:
+// HandleTaskStale handles task staleness by:
 // 1. Marking the task as STALE in the job aggregate
 // 2. Publishing a domain event to notify other components
 // 3. Recording the event for system observability
-func (et *executionTracker) MarkTaskStale(ctx context.Context, evt scanning.TaskStaleEvent) error {
+func (et *executionTracker) HandleTaskStale(ctx context.Context, evt scanning.TaskStaleEvent) error {
 	ctx, span := et.tracer.Start(ctx, "executionTracker.markTaskStale",
 		trace.WithAttributes(
 			attribute.String("task_id", evt.TaskID.String()),
@@ -226,25 +221,4 @@ func (et *executionTracker) MarkTaskStale(ctx context.Context, evt scanning.Task
 	span.SetStatus(codes.Ok, "task marked stale and resume task event published")
 
 	return nil
-}
-
-// GetTask retrieves task state from the job coordinator, enabling status checks
-// for components like the HeartbeatMonitor.
-func (t *executionTracker) GetTask(ctx context.Context, taskID uuid.UUID) (*scanning.Task, error) {
-	ctx, span := t.tracer.Start(ctx, "execution_tracker.scanning.get_task",
-		trace.WithAttributes(
-			attribute.String("task_id", taskID.String()),
-		))
-	defer span.End()
-
-	task, err := t.jobService.GetTask(ctx, taskID)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to get task")
-		return nil, fmt.Errorf("failed to get task: %w", err)
-	}
-	span.AddEvent("task_retrieved")
-	span.SetStatus(codes.Ok, "task retrieved")
-
-	return task, nil
 }

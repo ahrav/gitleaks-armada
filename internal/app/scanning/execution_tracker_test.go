@@ -162,7 +162,7 @@ func TestExecutionTracker_StartTracking(t *testing.T) {
 			suite := newTrackerTestSuite(t)
 			tt.setup(suite.jobCoordinator)
 
-			err := suite.tracker.StartTracking(context.Background(), tt.event)
+			err := suite.tracker.HandleTaskStart(context.Background(), tt.event)
 			if tt.wantErr {
 				require.Error(t, err)
 			} else {
@@ -209,7 +209,7 @@ func TestExecutionTracker_UpdateProgress(t *testing.T) {
 			suite := newTrackerTestSuite(t)
 			tt.setup(suite.jobCoordinator)
 
-			err := suite.tracker.UpdateProgress(context.Background(), tt.event)
+			err := suite.tracker.HandleTaskProgress(context.Background(), tt.event)
 			if tt.wantErr {
 				require.Error(t, err)
 			} else {
@@ -236,7 +236,7 @@ func TestExecutionTracker_FullScanningLifecycle(t *testing.T) {
 
 	ctx := context.Background()
 
-	err := suite.tracker.StartTracking(ctx, scanning.TaskStartedEvent{
+	err := suite.tracker.HandleTaskStart(ctx, scanning.TaskStartedEvent{
 		JobID:       jobID,
 		TaskID:      taskID,
 		ResourceURI: resourceURI,
@@ -246,14 +246,14 @@ func TestExecutionTracker_FullScanningLifecycle(t *testing.T) {
 	// Simulate progress.
 	for i := 0; i < 3; i++ {
 		progress := scanning.NewProgress(taskID, int64(i), time.Now(), int64(i), 0, "", nil, nil)
-		err = suite.tracker.UpdateProgress(ctx, scanning.TaskProgressedEvent{
+		err = suite.tracker.HandleTaskProgress(ctx, scanning.TaskProgressedEvent{
 			Progress: progress,
 		})
 		require.NoError(t, err)
 	}
 
 	// Complete the task.
-	err = suite.tracker.StopTracking(ctx, scanning.TaskCompletedEvent{
+	err = suite.tracker.HandleTaskCompletion(ctx, scanning.TaskCompletedEvent{
 		JobID:  jobID,
 		TaskID: taskID,
 	})
@@ -300,7 +300,7 @@ func TestExecutionTracker_StopTracking(t *testing.T) {
 			suite := newTrackerTestSuite(t)
 			tt.setup(suite.jobCoordinator)
 
-			err := suite.tracker.StopTracking(context.Background(), tt.event)
+			err := suite.tracker.HandleTaskCompletion(context.Background(), tt.event)
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), "failed to complete task")
@@ -350,7 +350,7 @@ func TestExecutionTracker_MarkTaskFailure(t *testing.T) {
 			suite := newTrackerTestSuite(t)
 			tt.setup(suite.jobCoordinator)
 
-			err := suite.tracker.MarkTaskFailure(context.Background(), tt.event)
+			err := suite.tracker.HandleTaskFailure(context.Background(), tt.event)
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), "failed to fail task")
@@ -431,67 +431,12 @@ func TestExecutionTracker_MarkTaskStale(t *testing.T) {
 			suite := newTrackerTestSuite(t)
 			tt.setup(suite.jobCoordinator, suite.domainPublisher)
 
-			err := suite.tracker.MarkTaskStale(context.Background(), tt.event)
+			err := suite.tracker.HandleTaskStale(context.Background(), tt.event)
 			if tt.wantErr {
 				require.Error(t, err)
 			} else {
 				require.NoError(t, err)
 			}
-			suite.jobCoordinator.AssertExpectations(t)
-			suite.domainPublisher.AssertExpectations(t)
-		})
-	}
-}
-
-func TestExecutionTracker_GetTask(t *testing.T) {
-	taskID := uuid.New()
-	jobID := uuid.New()
-
-	tests := []struct {
-		name       string
-		taskID     uuid.UUID
-		setupMocks func(*mockScanJobCoordinator, *mockDomainEventPublisher)
-		wantErr    bool
-		wantTaskID uuid.UUID
-	}{
-		{
-			name:   "successfully get task",
-			taskID: taskID,
-			setupMocks: func(m *mockScanJobCoordinator, p *mockDomainEventPublisher) {
-				expectedTask := scanning.NewScanTask(jobID, taskID, "test://resource")
-				m.On("GetTask", mock.Anything, taskID).
-					Return(expectedTask, nil)
-			},
-			wantErr:    false,
-			wantTaskID: taskID,
-		},
-		{
-			name:   "error getting task",
-			taskID: taskID,
-			setupMocks: func(m *mockScanJobCoordinator, p *mockDomainEventPublisher) {
-				m.On("GetTask", mock.Anything, taskID).
-					Return(nil, errors.New("task not found"))
-			},
-			wantErr:    true,
-			wantTaskID: uuid.Nil,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			suite := newTrackerTestSuite(t)
-			tt.setupMocks(suite.jobCoordinator, suite.domainPublisher)
-
-			task, err := suite.tracker.GetTask(context.Background(), tt.taskID)
-			if tt.wantErr {
-				require.Error(t, err)
-				require.Nil(t, task)
-			} else {
-				require.NoError(t, err)
-				require.NotNil(t, task)
-				require.Equal(t, tt.wantTaskID, task.TaskID())
-			}
-
 			suite.jobCoordinator.AssertExpectations(t)
 			suite.domainPublisher.AssertExpectations(t)
 		})

@@ -13,23 +13,26 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
 
-type mockStalenessHandler struct {
-	markStaleFunc func(context.Context, scanning.TaskStaleEvent) error
-	getTaskFunc   func(context.Context, uuid.UUID) (*scanning.Task, error)
+type mockTaskReader struct {
+	getTaskFunc func(context.Context, uuid.UUID) (*scanning.Task, error)
 }
 
-func (m *mockStalenessHandler) MarkTaskStale(ctx context.Context, evt scanning.TaskStaleEvent) error {
-	if m.markStaleFunc != nil {
-		return m.markStaleFunc(ctx, evt)
-	}
-	return nil
-}
-
-func (m *mockStalenessHandler) GetTask(ctx context.Context, taskID uuid.UUID) (*scanning.Task, error) {
+func (m *mockTaskReader) GetTask(ctx context.Context, taskID uuid.UUID) (*scanning.Task, error) {
 	if m.getTaskFunc != nil {
 		return m.getTaskFunc(ctx, taskID)
 	}
 	return nil, nil
+}
+
+type mockStalenessHandler struct {
+	markStaleFunc func(context.Context, scanning.TaskStaleEvent) error
+}
+
+func (m *mockStalenessHandler) HandleTaskStale(ctx context.Context, evt scanning.TaskStaleEvent) error {
+	if m.markStaleFunc != nil {
+		return m.markStaleFunc(ctx, evt)
+	}
+	return nil
 }
 
 func TestHeartbeatMonitor_HandleHeartbeat(t *testing.T) {
@@ -38,6 +41,7 @@ func TestHeartbeatMonitor_HandleHeartbeat(t *testing.T) {
 	mockProvider := &mockTimeProvider{now: mockTime}
 
 	monitor := NewHeartbeatMonitor(
+		new(mockTaskReader),
 		new(mockStalenessHandler),
 		noop.NewTracerProvider().Tracer("test"),
 		logger.Noop(),
@@ -92,12 +96,7 @@ func TestHeartbeatMonitor_CheckForStaleTasks(t *testing.T) {
 			var capturedEvent scanning.TaskStaleEvent
 			var markStaleCalled bool
 
-			staleTaskHandler := &mockStalenessHandler{
-				markStaleFunc: func(ctx context.Context, evt scanning.TaskStaleEvent) error {
-					capturedEvent = evt
-					markStaleCalled = true
-					return nil
-				},
+			taskReader := &mockTaskReader{
 				getTaskFunc: func(ctx context.Context, taskID uuid.UUID) (*scanning.Task, error) {
 					task := scanning.NewScanTask(taskID, taskID, "test://resource")
 					if tt.taskStatus == scanning.TaskStatusCompleted {
@@ -107,8 +106,17 @@ func TestHeartbeatMonitor_CheckForStaleTasks(t *testing.T) {
 				},
 			}
 
+			stalenessHandler := &mockStalenessHandler{
+				markStaleFunc: func(ctx context.Context, evt scanning.TaskStaleEvent) error {
+					capturedEvent = evt
+					markStaleCalled = true
+					return nil
+				},
+			}
+
 			monitor := NewHeartbeatMonitor(
-				staleTaskHandler,
+				taskReader,
+				stalenessHandler,
 				noop.NewTracerProvider().Tracer("test"),
 				logger.Noop(),
 			)
@@ -189,6 +197,7 @@ func TestHeartbeatMonitor_ConcurrentAccess(t *testing.T) {
 	mockProvider := &mockTimeProvider{now: baseTime}
 
 	monitor := NewHeartbeatMonitor(
+		new(mockTaskReader),
 		new(mockStalenessHandler),
 		noop.NewTracerProvider().Tracer("test"),
 		logger.Noop(),

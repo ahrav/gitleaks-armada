@@ -108,7 +108,7 @@ func (ef *EventsFacilitator) HandleTaskStarted(ctx context.Context, evt events.E
 			attribute.String("job_id", startedEvt.JobID.String()),
 		))
 
-		if err := ef.executionTracker.StartTracking(ctx, startedEvt); err != nil {
+		if err := ef.executionTracker.HandleTaskStart(ctx, startedEvt); err != nil {
 			return fmt.Errorf("failed to start tracking task: %w", err)
 		}
 
@@ -130,7 +130,7 @@ func (ef *EventsFacilitator) HandleTaskProgressed(ctx context.Context, evt event
 
 		span.AddEvent("task_progressed_event_valid")
 
-		if err := ef.executionTracker.UpdateProgress(ctx, progressEvt); err != nil {
+		if err := ef.executionTracker.HandleTaskProgress(ctx, progressEvt); err != nil {
 			return fmt.Errorf("failed to update progress: %w", err)
 		}
 
@@ -152,7 +152,7 @@ func (ef *EventsFacilitator) HandleTaskCompleted(ctx context.Context, evt events
 
 		span.AddEvent("task_completed_event_valid")
 
-		if err := ef.executionTracker.StopTracking(ctx, completedEvt); err != nil {
+		if err := ef.executionTracker.HandleTaskCompletion(ctx, completedEvt); err != nil {
 			return fmt.Errorf("failed to stop tracking task: %w", err)
 		}
 
@@ -172,7 +172,7 @@ func (ef *EventsFacilitator) HandleTaskFailed(ctx context.Context, evt events.Ev
 			return recordPayloadTypeError(span, evt.Payload)
 		}
 
-		if err := ef.executionTracker.MarkTaskFailure(ctx, failedEvt); err != nil {
+		if err := ef.executionTracker.HandleTaskFailure(ctx, failedEvt); err != nil {
 			return fmt.Errorf("failed to fail task: %w", err)
 		}
 
