@@ -370,7 +370,6 @@ func (w *WarcGzReader) Read(
 	bw := bufio.NewWriter(pw)
 
 	go func() {
-		span := trace.SpanFromContext(ctx)
 		var totalSize int64
 
 		defer func() {
@@ -384,56 +383,44 @@ func (w *WarcGzReader) Read(
 
 		var recordCount int64
 
-		span.AddEvent("warc_reader_processing_started")
 		for {
 			if ctx.Err() != nil {
-				span.AddEvent("context_cancelled")
 				pw.CloseWithError(ctx.Err())
 				return
 			}
 
 			record, _, _, err := warcReader.Next()
 			if errors.Is(err, io.EOF) {
-				span.AddEvent("warc_reader_processing_finished")
 				return
 			}
 			if err != nil {
-				span.AddEvent("failed_to_read_warc_record")
 				pw.CloseWithError(fmt.Errorf("failed to read WARC record: %w", err))
 				return
 			}
 
 			if record.Type() != gowarc.Response {
-				span.AddEvent("skipping_non_response_record")
 				continue
 			}
 			recordCount++
 			if recordCount < scanCtx.resumeFileIdx {
-				span.AddEvent("file_already_processed_skipping")
 				continue
 			}
 
 			scanCtx.ReportProgress(ctx, recordCount, fmt.Sprintf("Processing WARC record %d", recordCount))
 
-			span.AddEvent("warc_record_processed")
-
 			bodyReader, err := record.Block().RawBytes()
 			if err != nil {
-				span.AddEvent("failed_to_get_record_body")
 				pw.CloseWithError(fmt.Errorf("failed to get record body: %w", err))
 				return
 			}
 
 			size, err := io.Copy(bw, bodyReader)
 			if err != nil {
-				span.AddEvent("failed_to_copy_record_body")
 				pw.CloseWithError(fmt.Errorf("failed to copy record body: %w", err))
 				return
 			}
 
 			totalSize += size // Accumulate total size
-
-			span.AddEvent("record_body_copied", trace.WithAttributes(attribute.Int64("record_body_length", size)))
 		}
 	}()
 
