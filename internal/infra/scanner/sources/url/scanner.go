@@ -210,9 +210,9 @@ func (sc *ScanContext) ReportProgress(ctx context.Context, itemsProcessed int64,
 			seqNum,
 			time.Now(),
 			itemsProcessed,
-			0,
+			0, // TODO: address error counts
 			message,
-			nil,
+			nil, // TODO: address progress details. Do we need this?
 			domain.NewCheckpoint(
 				sc.taskID,
 				[]byte(strconv.FormatInt(itemsProcessed, 10)),
