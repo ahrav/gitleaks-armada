@@ -281,6 +281,9 @@ func (s *Scanner) createArchiveReader(
 		s.metrics.IncScanError(ctx, shared.SourceType(task.SourceType))
 		return nil, fmt.Errorf("failed to process archive: %w", err)
 	}
+
+	// Wrap the reader in order to provide a mechanism to close the response body
+	// when we are done streaming the contents of the response body.
 	return newWrappedReadCloser(reader, resp.Body), nil
 }
 
