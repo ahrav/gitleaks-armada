@@ -266,6 +266,12 @@ func (s *ScannerService) handleTaskResumeEvent(ctx context.Context, evt events.E
 		return fmt.Errorf("invalid resume event payload: %T", evt.Payload)
 	}
 
+	s.logger.Info(ctx, "Resuming task",
+		"task_id", rEvt.TaskID,
+		"job_id", rEvt.JobID,
+		"resource_uri", rEvt.ResourceURI,
+	)
+
 	req := &dtos.ScanRequest{
 		TaskID:      rEvt.TaskID,
 		JobID:       rEvt.JobID,

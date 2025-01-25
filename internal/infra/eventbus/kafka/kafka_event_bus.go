@@ -134,7 +134,7 @@ func NewKafkaEventBusFromConfig(
 		scanning.EventTypeTaskProgressed: cfg.ScanningTaskTopic,     // scanner -> controller
 		scanning.EventTypeTaskCompleted:  cfg.ScanningTaskTopic,     // scanner -> controller
 		scanning.EventTypeTaskFailed:     cfg.ScanningTaskTopic,     // scanner -> controller
-		scanning.EventTypeTaskResume:     cfg.HighPriorityTaskTopic, // scanner -> controller (resumption tasks)
+		scanning.EventTypeTaskResume:     cfg.HighPriorityTaskTopic, // controller -> scanner (resumption tasks)
 		scanning.EventTypeTaskHeartbeat:  cfg.ScanningTaskTopic,     // scanner -> controller (liveness only)
 	}
 

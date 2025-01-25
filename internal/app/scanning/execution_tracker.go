@@ -189,7 +189,7 @@ func (t *executionTracker) HandleTaskFailure(ctx context.Context, evt scanning.T
 // 2. Publishing a domain event to notify other components
 // 3. Recording the event for system observability
 func (et *executionTracker) HandleTaskStale(ctx context.Context, evt scanning.TaskStaleEvent) error {
-	ctx, span := et.tracer.Start(ctx, "executionTracker.markTaskStale",
+	ctx, span := et.tracer.Start(ctx, "execution_tracker.markTaskStale",
 		trace.WithAttributes(
 			attribute.String("task_id", evt.TaskID.String()),
 			attribute.String("job_id", evt.JobID.String()),

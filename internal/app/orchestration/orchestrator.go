@@ -136,6 +136,7 @@ func NewOrchestrator(
 	dispatcher.RegisterHandler(scanning.EventTypeTaskProgressed, eventsFacilitator.HandleTaskProgressed)
 	dispatcher.RegisterHandler(scanning.EventTypeTaskCompleted, eventsFacilitator.HandleTaskCompleted)
 	dispatcher.RegisterHandler(scanning.EventTypeTaskHeartbeat, eventsFacilitator.HandleTaskHeartbeat)
+	dispatcher.RegisterHandler(scanning.EventTypeTaskFailed, eventsFacilitator.HandleTaskFailed)
 	dispatcher.RegisterHandler(rules.EventTypeRulesUpdated, eventsFacilitator.HandleRule)
 	dispatcher.RegisterHandler(rules.EventTypeRulesPublished, eventsFacilitator.HandleRulesPublished)
 
