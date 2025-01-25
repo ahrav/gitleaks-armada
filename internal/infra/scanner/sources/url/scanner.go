@@ -120,11 +120,12 @@ func (s *Scanner) runURLScan(
 		s.metrics.IncScanError(ctx, shared.SourceType(task.SourceType))
 		return err
 	}
+	defer reader.Close()
 
 	_, detectSpan := s.tracer.Start(ctx, "gitleaks_url_scanner.detect_secrets")
 	detectSpan.AddEvent("gitleaks_detection_started")
 
-	// Gitleaks can read from an io.Reader (the decompressed or raw data)
+	// Gitleaks can read from an io.Reader. (the decompressed or raw data)
 	findings, err := s.detector.DetectReader(reader, 32)
 	if err != nil {
 		detectSpan.RecordError(err)
@@ -182,9 +183,7 @@ func NewScanContext(
 }
 
 // NextSequence increments and returns the next sequence number for progress events.
-func (sc *ScanContext) NextSequence() int64 {
-	return sc.nextSequence.Add(1)
-}
+func (sc *ScanContext) NextSequence() int64 { return sc.nextSequence.Add(1) }
 
 // ReportProgress emits a progress event with the current sequence number
 // and any other relevant data.
@@ -233,7 +232,7 @@ func (s *Scanner) createArchiveReader(
 	format string,
 	task *dtos.ScanRequest,
 	scanCtx *ScanContext,
-) (io.Reader, error) {
+) (io.ReadCloser, error) {
 	_, archiveSpan := s.tracer.Start(ctx, "gitleaks_url_scanner.create_archive_reader")
 	defer archiveSpan.End()
 
@@ -273,7 +272,6 @@ func (s *Scanner) createArchiveReader(
 		return nil, fmt.Errorf("failed to fetch URL: %s", errMsg)
 	}
 
-	// We'll wrap the response body in our chosen archive reader
 	processCtx, processSpan := s.tracer.Start(ctx, "gitleaks_url_scanner.process_archive")
 	defer processSpan.End()
 
@@ -283,8 +281,30 @@ func (s *Scanner) createArchiveReader(
 		s.metrics.IncScanError(ctx, shared.SourceType(task.SourceType))
 		return nil, fmt.Errorf("failed to process archive: %w", err)
 	}
-	return reader, nil
+	return newWrappedReadCloser(reader, resp.Body), nil
 }
+
+type readCloser struct {
+	r io.Reader
+	c io.Closer
+}
+
+// newWrappedReadCloser returns an io.ReadCloser that reads from reader
+// but also closes the response body when .Close() is called.
+// This is necessary because we are streaming the response body to Gitleaks
+// and we want to close the response body when we are done.
+func newWrappedReadCloser(reader io.Reader, body io.Closer) io.ReadCloser {
+	return &readCloser{
+		r: reader,
+		c: body, // we want to close the response body
+	}
+}
+
+// Read from the underlying reader.
+func (rc *readCloser) Read(p []byte) (int, error) { return rc.r.Read(p) }
+
+// Close the underlying reader and the response body.
+func (rc *readCloser) Close() error { return rc.c.Close() }
 
 // ArchiveReader is an interface for archive readers.
 // It defines a method for reading from an input stream.
@@ -322,6 +342,8 @@ func newWarcGzReader(
 
 // Read is a method of the WarcGzReader struct.
 // It reads from an input stream and returns a reader and an error.
+// TODO: Consider if reporting progress here is okay as opposed to after we've
+// actually scanned it via the Gitleaks scanner.
 func (w *WarcGzReader) Read(
 	ctx context.Context,
 	input io.Reader,
@@ -337,6 +359,9 @@ func (w *WarcGzReader) Read(
 	}
 	readSpan.AddEvent("warc_reader_created")
 
+	// Uses a pipe to concurrently process WARC records while streaming their contents.
+	// This allows memory-efficient processing of large WARC files by reading and consuming
+	// records simultaneously rather than loading the entire file into memory.
 	pr, pw := io.Pipe()
 	bw := bufio.NewWriter(pw)
 
