@@ -51,9 +51,10 @@ type Orchestrator struct {
 	dispatcher *eventdispatcher.Dispatcher
 
 	// mu protects running and cancelFn state
-	mu       sync.Mutex
-	running  bool
-	cancelFn context.CancelFunc
+	mu        sync.Mutex
+	running   bool
+	cancelFn  context.CancelFunc
+	startTime time.Time
 
 	logger  *logger.Logger
 	metrics OrchestrationMetrics
@@ -153,10 +154,12 @@ func NewOrchestrator(
 // Returns a channel that closes when initialization is complete, signaling readiness, and
 // any startup errors. Callers should wait for the ready signal before proceeding.
 func (o *Orchestrator) Run(ctx context.Context) error {
+	o.startTime = time.Now()
 	runCtx, runSpan := o.tracer.Start(ctx, "orchestrator.run",
 		trace.WithAttributes(
 			attribute.String("component", "orchestrator"),
 			attribute.String("orchestrator_id", o.id),
+			attribute.String("start_time", o.startTime.Format(time.RFC3339)),
 		))
 	defer runSpan.End()
 
@@ -404,8 +407,14 @@ func (o *Orchestrator) Enumerate(ctx context.Context) error {
 		span.RecordError(err)
 		return fmt.Errorf("failed to load active states: %w", err)
 	}
+	isResumeJob := len(activeStates) > 0
 
-	if len(activeStates) > 0 {
+	span.SetAttributes(
+		attribute.Int("active_states", len(activeStates)),
+		attribute.Bool("is_resume_job", isResumeJob),
+	)
+
+	if isResumeJob {
 		return o.resumeEnumerations(ctx, activeStates)
 	}
 
@@ -415,6 +424,9 @@ func (o *Orchestrator) Enumerate(ctx context.Context) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 	span.AddEvent("config_loaded")
+	span.SetAttributes(
+		attribute.Int("target_count", len(cfg.Targets)),
+	)
 	o.metrics.IncConfigReloads(ctx)
 
 	err = o.startFreshEnumerations(ctx, cfg)
@@ -566,9 +578,9 @@ func (o *Orchestrator) createJob(ctx context.Context, job *scanning.Job) error {
 		span.SetStatus(codes.Error, "failed to create job")
 		return fmt.Errorf("failed to create job: %w", err)
 	}
-
 	span.AddEvent("job_created")
 	span.SetStatus(codes.Ok, "job created successfully")
+
 	return nil
 }
 
@@ -603,64 +615,36 @@ func (o *Orchestrator) resumeEnumerations(ctx context.Context, states []*enumera
 // Stop gracefully shuts down the controller if it is running.
 // It is safe to call multiple times.
 func (o *Orchestrator) Stop(ctx context.Context) error {
+	ctx, span := o.tracer.Start(ctx, "orchestrator.stop")
+	defer span.End()
+
+	span.AddEvent("stopping_orchestrator", trace.WithAttributes(
+		attribute.String("orchestrator_id", o.id),
+		attribute.Bool("is_running", o.running),
+		attribute.String("start_time", o.startTime.Format(time.RFC3339)),
+	))
+
 	o.mu.Lock()
 	if !o.running {
+		span.AddEvent("orchestrator_not_running")
+		span.SetStatus(codes.Ok, "orchestrator not running")
 		o.mu.Unlock()
 		return nil
 	}
+
 	o.running = false
 	if o.cancelFn != nil {
+		span.AddEvent("teardown_function_called")
 		o.cancelFn()
 	}
 	o.mu.Unlock()
 
-	o.logger.Info(ctx, "Stopped.", "orchestrator_id", o.id)
-	return nil
-}
-
-// handleRule processes individual rule updates from scanners
-func (o *Orchestrator) handleRule(ctx context.Context, evt events.EventEnvelope) error {
-	_, span := o.tracer.Start(ctx, "orchestrator.handle_rule",
-		trace.WithAttributes(
-			attribute.String("orchestrator_id", o.id),
-		))
-	defer span.End()
-
-	ruleEvt, ok := evt.Payload.(rules.RuleUpdatedEvent)
-	if !ok {
-		span.SetStatus(codes.Error, "invalid event payload")
-		return fmt.Errorf("expected RuleUpdatedEvent, got %T", evt.Payload)
-	}
-
-	if err := o.rulesService.SaveRule(ctx, ruleEvt.Rule.GitleaksRule); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to persist rule")
-		return fmt.Errorf("failed to persist rule: %w", err)
-	}
-	span.AddEvent("rule_persisted")
-
-	span.AddEvent("rule_processed", trace.WithAttributes(
-		attribute.String("rule_id", ruleEvt.Rule.RuleID),
-		attribute.String("rule_hash", ruleEvt.Rule.Hash),
+	runDuration := time.Since(o.startTime)
+	span.AddEvent("orchestrator_stopped", trace.WithAttributes(
+		attribute.String("run_duration", runDuration.String()),
 	))
-
-	return nil
-}
-
-// handleRulesPublished processes the completion event for rule updates
-func (o *Orchestrator) handleRulesPublished(ctx context.Context, evt events.EventEnvelope) error {
-	_, span := o.tracer.Start(ctx, "orchestrator.handle_rule_publishing_completed",
-		trace.WithAttributes(
-			attribute.String("orchestrator_id", o.id),
-		))
-	defer span.End()
-
-	_, ok := evt.Payload.(rules.RulePublishingCompletedEvent)
-	if !ok {
-		span.SetStatus(codes.Error, "invalid event payload")
-		return fmt.Errorf("expected RulePublishingCompletedEvent, got %T", evt.Payload)
-	}
-	span.AddEvent("rules_update_completed")
+	span.SetStatus(codes.Ok, "orchestrator stopped")
+	o.logger.Info(ctx, "Orchestrator stopped.", "orchestrator_id", o.id, "run_duration", runDuration)
 
 	return nil
 }
