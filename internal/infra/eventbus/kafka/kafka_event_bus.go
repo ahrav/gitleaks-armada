@@ -84,6 +84,9 @@ type KafkaEventBus struct {
 // It establishes connections to Kafka brokers and configures both producer and consumer components
 // for reliable message delivery and consumption. The event bus provides a durable messaging
 // backbone for distributing domain events across services.
+// TODO: Review the configuration of the producer and consumer.
+// This will likely need to be adjusted for production use cases where we want to
+// have multiple brokers setup for redundancy and high availability.
 func NewKafkaEventBusFromConfig(
 	cfg *Config,
 	logger *logger.Logger,
@@ -158,6 +161,10 @@ func NewKafkaEventBusFromConfig(
 // Publish sends a domain event to the appropriate Kafka topic.
 // It handles serialization, routing based on event type, and includes
 // observability instrumentation for tracing and metrics.
+// TODO: Make error handling more robust. For example, we should retry
+// publishing if the message is not acknowledged by the broker,
+// since it's possible the broker is temporarily unavailable and we don't
+// want to lose events.
 func (k *KafkaEventBus) Publish(ctx context.Context, event events.EventEnvelope, opts ...events.PublishOption) error {
 	topic, ok := k.topics[event.Type]
 	if !ok {
