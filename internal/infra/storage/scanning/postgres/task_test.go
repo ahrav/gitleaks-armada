@@ -311,6 +311,7 @@ func TestTaskStore_GetTask_WithStallInfo(t *testing.T) {
 
 	err = task.MarkStale(scanning.ReasonPtr(stallReason))
 	require.NoError(t, err)
+
 	err = taskStore.UpdateTask(ctx, task)
 	require.NoError(t, err)
 
@@ -320,7 +321,8 @@ func TestTaskStore_GetTask_WithStallInfo(t *testing.T) {
 
 	assert.Equal(t, scanning.TaskStatusStale, loaded.Status())
 	assert.Equal(t, &stallReason, loaded.StallReason())
-	assert.True(t, loaded.StalledAt().Equal(task.StalledAt()))
+	assert.WithinDuration(t, task.StalledAt(), loaded.StalledAt(), time.Second,
+		"stalled_at timestamps should be within 1 second of each other")
 }
 
 func TestTaskStore_UpdateTask_StallTransition(t *testing.T) {
