@@ -2,6 +2,7 @@ package scanning
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -212,10 +213,21 @@ func TestLinkTargets(t *testing.T) {
 }
 
 type mockTimeProvider struct {
+	mu  sync.RWMutex
 	now time.Time
 }
 
-func (m *mockTimeProvider) Now() time.Time { return m.now }
+func (m *mockTimeProvider) SetNow(duration time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.now = m.now.Add(duration)
+}
+
+func (m *mockTimeProvider) Now() time.Time {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.now
+}
 
 func TestStartTask(t *testing.T) {
 	jobID := uuid.MustParse("429735d7-ec1b-4d96-8749-938ca0a744be")

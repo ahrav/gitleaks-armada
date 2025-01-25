@@ -112,6 +112,8 @@ func NewKafkaEventBusFromConfig(
 	consumerConfig.Consumer.Offsets.Initial = sarama.OffsetOldest
 	consumerConfig.Consumer.Group.Session.Timeout = 20 * time.Second
 	consumerConfig.Consumer.Group.Heartbeat.Interval = 6 * time.Second
+	// TODO: Decide if we want to keep auto-commit enabled.
+	// We should probably only commit offsets if the message is successfully processed.
 	consumerConfig.Consumer.Offsets.AutoCommit.Enable = true
 	consumerConfig.Consumer.Offsets.AutoCommit.Interval = 1 * time.Second
 	consumerConfig.Version = sarama.V2_8_0_0

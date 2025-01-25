@@ -147,7 +147,7 @@ func TestHeartbeatMonitor_ConcurrentAccess(t *testing.T) {
 	go func() {
 		for i := 0; i < 100; i++ {
 			monitor.HandleHeartbeat(context.Background(), scanning.TaskHeartbeatEvent{TaskID: taskID})
-			mockProvider.now = mockProvider.now.Add(time.Millisecond)
+			mockProvider.SetNow(time.Millisecond)
 		}
 		done <- true
 	}()
@@ -155,7 +155,7 @@ func TestHeartbeatMonitor_ConcurrentAccess(t *testing.T) {
 	go func() {
 		for i := 0; i < 100; i++ {
 			monitor.checkForStaleTasks(context.Background(), defaultThreshold)
-			mockProvider.now = mockProvider.now.Add(time.Millisecond)
+			mockProvider.SetNow(time.Millisecond)
 		}
 		done <- true
 	}()
