@@ -43,6 +43,7 @@ type Orchestrator struct {
 
 	cfgLoader loaders.Loader
 
+	heartbeatMonitor    *scan.HeartbeatMonitor
 	enumCoordinator     enumCoordinator.Coordinator
 	rulesService        rulessvc.Service
 	scanningCoordinator scan.ScanJobCoordinator
@@ -122,13 +123,13 @@ func NewOrchestrator(
 		tracer,
 	)
 
-	heartbeatMonitor := scan.NewHeartbeatMonitor(
+	o.heartbeatMonitor = scan.NewHeartbeatMonitor(
 		executionTracker,
 		tracer,
 		logger,
 	)
 
-	eventsFacilitator := NewEventsFacilitator(executionTracker, heartbeatMonitor, rulesService, tracer)
+	eventsFacilitator := NewEventsFacilitator(executionTracker, o.heartbeatMonitor, rulesService, tracer)
 	dispatcher := eventdispatcher.New(tracer)
 	dispatcher.RegisterHandler(scanning.EventTypeTaskStarted, eventsFacilitator.HandleTaskStarted)
 	dispatcher.RegisterHandler(scanning.EventTypeTaskProgressed, eventsFacilitator.HandleTaskProgressed)
@@ -165,6 +166,9 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 
 	orchestratorCtx, orchestratorCancel := context.WithCancel(runCtx)
 	o.registerCancelFunc(orchestratorCancel)
+
+	o.heartbeatMonitor.Start(orchestratorCtx)
+	runSpan.AddEvent("heartbeat_monitor_started")
 
 	readyCh, leaderCh := o.makeOrchestrationChannels()
 
@@ -623,6 +627,9 @@ func (o *Orchestrator) Stop(ctx context.Context) error {
 		attribute.Bool("is_running", o.running),
 		attribute.String("start_time", o.startTime.Format(time.RFC3339)),
 	))
+
+	o.heartbeatMonitor.Stop()
+	span.AddEvent("heartbeat_monitor_stopped")
 
 	o.mu.Lock()
 	if !o.running {

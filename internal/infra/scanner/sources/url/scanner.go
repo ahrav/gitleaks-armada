@@ -267,6 +267,7 @@ func (s *Scanner) createArchiveReader(
 	)
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		resp.Body.Close()
 		errMsg := fmt.Sprintf("non-2xx response code %d", resp.StatusCode)
 		httpSpan.RecordError(errors.New(errMsg))
 		return nil, fmt.Errorf("failed to fetch URL: %s", errMsg)

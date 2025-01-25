@@ -2,6 +2,7 @@ package scanning
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
@@ -38,6 +39,8 @@ type HeartbeatMonitor struct {
 	// stalenessHandler handles tasks that have been detected as stale
 	stalenessHandler StalenessHandler
 
+	cancel context.CancelCauseFunc
+
 	mu sync.RWMutex
 	// lastHeartbeatByTask stores the most recent timestamp
 	// at which a heartbeat was received for a given task ID.
@@ -68,30 +71,6 @@ func NewHeartbeatMonitor(
 	}
 }
 
-// HandleHeartbeat processes incoming TaskHeartbeatEvent messages.
-// It updates the last-seen heartbeat timestamp for the corresponding task.
-func (h *HeartbeatMonitor) HandleHeartbeat(ctx context.Context, evt scanning.TaskHeartbeatEvent) {
-	_, span := h.tracer.Start(ctx, "heartbeat_monitor.scanning.handle_heartbeat",
-		trace.WithAttributes(
-			attribute.String("task_id", evt.TaskID.String()),
-			attribute.String("timestamp", evt.OccurredAt().Format(time.RFC3339)),
-		))
-	defer span.End()
-
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	// Record the time at which we received a heartbeat for this task.
-	now := h.timeProvider.Now()
-	h.lastHeartbeatByTask[evt.TaskID] = now
-	span.AddEvent("heartbeat_recorded", trace.WithAttributes(
-		attribute.String("timestamp", now.Format(time.RFC3339)),
-	))
-
-	span.AddEvent("heartbeat_received")
-	span.SetStatus(codes.Ok, "heartbeat received")
-}
-
 // TODO: revisit this value.
 const (
 	stalenessLoopInterval = 10 * time.Second
@@ -111,6 +90,8 @@ func (h *HeartbeatMonitor) Start(ctx context.Context) {
 			attribute.String("threshold", defaultThreshold.String()),
 		))
 	defer span.End()
+
+	ctx, h.cancel = context.WithCancelCause(ctx)
 
 	span.AddEvent("staleness_loop_started")
 
@@ -177,5 +158,40 @@ func (h *HeartbeatMonitor) checkForStaleTasks(ctx context.Context, threshold tim
 				attribute.String("task_id", tID.String()),
 			))
 		}
+	}
+}
+
+// HandleHeartbeat processes incoming TaskHeartbeatEvent messages.
+// It updates the last-seen heartbeat timestamp for the corresponding task.
+func (h *HeartbeatMonitor) HandleHeartbeat(ctx context.Context, evt scanning.TaskHeartbeatEvent) {
+	_, span := h.tracer.Start(ctx, "heartbeat_monitor.scanning.handle_heartbeat",
+		trace.WithAttributes(
+			attribute.String("task_id", evt.TaskID.String()),
+			attribute.String("timestamp", evt.OccurredAt().Format(time.RFC3339)),
+		))
+	defer span.End()
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	// Record the time at which we received a heartbeat for this task.
+	now := h.timeProvider.Now()
+	h.lastHeartbeatByTask[evt.TaskID] = now
+	span.AddEvent("heartbeat_recorded", trace.WithAttributes(
+		attribute.String("timestamp", now.Format(time.RFC3339)),
+	))
+
+	span.AddEvent("heartbeat_received")
+	span.SetStatus(codes.Ok, "heartbeat received")
+}
+
+// Stop the heartbeat monitor.
+// TODO: revisit to determine if we have more cleanup to do.
+func (h *HeartbeatMonitor) Stop() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if h.cancel != nil {
+		h.cancel(errors.New("heartbeat monitor stopped"))
 	}
 }
