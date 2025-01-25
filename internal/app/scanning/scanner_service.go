@@ -293,7 +293,7 @@ func (s *ScannerService) handleTaskResumeEvent(ctx context.Context, evt events.E
 	go func() {
 		defer func() { <-s.highPrioritySem }()
 
-		if err := s.handleScanTask(ctx, req); err != nil {
+		if err := s.executeScanTask(ctx, req); err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "failed to handle scan task")
 			return
@@ -405,13 +405,30 @@ func (s *ScannerService) handleScanTask(ctx context.Context, req *dtos.ScanReque
 	s.logger.Info(ctx, "Handling scan task", "resource_uri", req.ResourceURI)
 	span.AddEvent("starting_scan")
 
-	startedEvt := scanning.NewTaskStartedEvent(req.JobID, req.TaskID, req.ResourceURI)
-	if err := s.domainPublisher.PublishDomainEvent(ctx, startedEvt); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to publish task started event")
-		return fmt.Errorf("failed to publish task started event: %w", err)
+	// Publish task started event only for new tasks, not resumed ones
+	if _, hasCheckpoint := req.Metadata["checkpoint"]; !hasCheckpoint {
+		startedEvt := scanning.NewTaskStartedEvent(req.JobID, req.TaskID, req.ResourceURI)
+		if err := s.domainPublisher.PublishDomainEvent(ctx, startedEvt); err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "failed to publish task started event")
+			return fmt.Errorf("failed to publish task started event: %w", err)
+		}
+		span.AddEvent("task_started_event_published")
 	}
-	span.AddEvent("task_started_event_published")
+
+	return s.executeScanTask(ctx, req)
+}
+
+// executeScanTask handles the core scanning logic for both new and resumed tasks
+func (s *ScannerService) executeScanTask(ctx context.Context, req *dtos.ScanRequest) error {
+	ctx, span := s.tracer.Start(ctx, "scanner_service.scanning.execute_scan_task",
+		trace.WithAttributes(
+			attribute.String("component", "scanner_service"),
+			attribute.String("resource_uri", req.ResourceURI),
+			attribute.String("task_id", req.TaskID.String()),
+			attribute.String("job_id", req.JobID.String()),
+		))
+	defer span.End()
 
 	err := s.metrics.TrackTask(ctx, func() error {
 		streamResult := s.secretScanner.Scan(ctx, req, s.progressReporter)
@@ -491,7 +508,7 @@ func (s *ScannerService) consumeStream(
 		}
 
 		// Optionally, if both heartbeatChan and findingsChan are nil (i.e. closed),
-		// we can check if we’re just waiting on errChan to close for success.
+		// we can check if we're just waiting on errChan to close for success.
 		if heartbeatChan == nil && findingsChan == nil {
 			// If the scanner is done streaming both heartbeats and findings,
 			// we only need to see if errChan is also closed or yields an error
