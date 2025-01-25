@@ -91,6 +91,14 @@ func (m *mockScanJobCoordinator) MarkTaskStale(
 	return nil, args.Error(1)
 }
 
+func (m *mockScanJobCoordinator) GetTask(ctx context.Context, taskID uuid.UUID) (*scanning.Task, error) {
+	args := m.Called(ctx, taskID)
+	if task := args.Get(0); task != nil {
+		return task.(*scanning.Task), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
 type mockDomainEventPublisher struct{ mock.Mock }
 
 func (m *mockDomainEventPublisher) PublishDomainEvent(ctx context.Context, event events.DomainEvent, opts ...events.PublishOption) error {
@@ -429,6 +437,61 @@ func TestExecutionTracker_MarkTaskStale(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 			}
+			suite.jobCoordinator.AssertExpectations(t)
+			suite.domainPublisher.AssertExpectations(t)
+		})
+	}
+}
+
+func TestExecutionTracker_GetTask(t *testing.T) {
+	taskID := uuid.New()
+	jobID := uuid.New()
+
+	tests := []struct {
+		name       string
+		taskID     uuid.UUID
+		setupMocks func(*mockScanJobCoordinator, *mockDomainEventPublisher)
+		wantErr    bool
+		wantTaskID uuid.UUID
+	}{
+		{
+			name:   "successfully get task",
+			taskID: taskID,
+			setupMocks: func(m *mockScanJobCoordinator, p *mockDomainEventPublisher) {
+				expectedTask := scanning.NewScanTask(jobID, taskID, "test://resource")
+				m.On("GetTask", mock.Anything, taskID).
+					Return(expectedTask, nil)
+			},
+			wantErr:    false,
+			wantTaskID: taskID,
+		},
+		{
+			name:   "error getting task",
+			taskID: taskID,
+			setupMocks: func(m *mockScanJobCoordinator, p *mockDomainEventPublisher) {
+				m.On("GetTask", mock.Anything, taskID).
+					Return(nil, errors.New("task not found"))
+			},
+			wantErr:    true,
+			wantTaskID: uuid.Nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			suite := newTrackerTestSuite(t)
+			tt.setupMocks(suite.jobCoordinator, suite.domainPublisher)
+
+			task, err := suite.tracker.GetTask(context.Background(), tt.taskID)
+			if tt.wantErr {
+				require.Error(t, err)
+				require.Nil(t, task)
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, task)
+				require.Equal(t, tt.wantTaskID, task.TaskID())
+			}
+
 			suite.jobCoordinator.AssertExpectations(t)
 			suite.domainPublisher.AssertExpectations(t)
 		})

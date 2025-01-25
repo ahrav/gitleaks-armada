@@ -14,6 +14,7 @@ import (
 	"go.opentelemetry.io/otel/trace/noop"
 
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
+	domain "github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 )
 
 // mockJobRepository helps test coordinator interactions with job persistence.
@@ -70,8 +71,9 @@ func (m *mockTaskRepository) ListTasksByJobAndStatus(ctx context.Context, jobID 
 type coordinatorTestSuite struct {
 	jobRepo  *mockJobRepository
 	taskRepo *mockTaskRepository
-	coord    ScanJobCoordinator
+	coord    *scanJobCoordinator
 	tracer   trace.Tracer
+	taskID   uuid.UUID
 }
 
 func newCoordinatorTestSuite(t *testing.T) *coordinatorTestSuite {
@@ -84,13 +86,13 @@ func newCoordinatorTestSuite(t *testing.T) *coordinatorTestSuite {
 	return &coordinatorTestSuite{
 		jobRepo:  jobRepo,
 		taskRepo: taskRepo,
-		coord: NewScanJobCoordinator(
-			jobRepo,
-			taskRepo,
-			time.Second,   // persistInterval
-			time.Minute*5, // staleTimeout
-			tracer,
-		),
+		coord: &scanJobCoordinator{
+			jobCache:  make(map[uuid.UUID]*domain.Job),
+			taskCache: make(map[uuid.UUID]*domain.Task),
+			jobRepo:   jobRepo,
+			taskRepo:  taskRepo,
+			tracer:    tracer,
+		},
 		tracer: tracer,
 	}
 }
@@ -631,6 +633,75 @@ func TestMarkTaskStale(t *testing.T) {
 			assert.Equal(t, scanning.TaskStatusStale, task.Status())
 			assert.Equal(t, tt.stallReason, *task.StallReason())
 			assert.False(t, task.StalledAt().IsZero())
+			suite.taskRepo.AssertExpectations(t)
+		})
+	}
+}
+
+func TestGetTask(t *testing.T) {
+	tests := []struct {
+		name    string
+		taskID  uuid.UUID
+		setup   func(*coordinatorTestSuite)
+		wantErr bool
+	}{
+		{
+			name:   "successfully get task from cache",
+			taskID: uuid.New(),
+			setup: func(s *coordinatorTestSuite) {
+				// Add task to cache
+				task := scanning.NewScanTask(uuid.New(), s.taskID, "test://resource")
+				s.coord.taskCache[s.taskID] = task
+			},
+			wantErr: false,
+		},
+		{
+			name:   "successfully get task from repository",
+			taskID: uuid.New(),
+			setup: func(s *coordinatorTestSuite) {
+				task := scanning.NewScanTask(uuid.New(), s.taskID, "test://resource")
+				s.taskRepo.On("GetTask", mock.Anything, s.taskID).
+					Return(task, nil)
+			},
+			wantErr: false,
+		},
+		{
+			name:   "repository error",
+			taskID: uuid.New(),
+			setup: func(s *coordinatorTestSuite) {
+				s.taskRepo.On("GetTask", mock.Anything, s.taskID).
+					Return(nil, assert.AnError)
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			suite := newCoordinatorTestSuite(t)
+			suite.taskID = tt.taskID
+			tt.setup(suite)
+
+			task, err := suite.coord.GetTask(context.Background(), tt.taskID)
+			if tt.wantErr {
+				require.Error(t, err)
+				require.Nil(t, task)
+				return
+			}
+
+			require.NoError(t, err)
+			require.NotNil(t, task)
+			assert.Equal(t, tt.taskID, task.TaskID())
+
+			// Verify task is cached after successful repository fetch.
+			if cachedTask, exists := suite.coord.taskCache[tt.taskID]; !exists {
+				t.Error("Task was not cached after successful retrieval")
+			} else {
+				assert.Equal(t, task, cachedTask)
+			}
+
 			suite.taskRepo.AssertExpectations(t)
 		})
 	}

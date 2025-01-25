@@ -340,6 +340,9 @@ func (t *Task) StalledDuration() time.Duration {
 	return time.Since(t.stalledAt)
 }
 
+// IsInProgress returns true if the task is in the IN_PROGRESS state.
+func (t *Task) IsInProgress() bool { return t.status == TaskStatusInProgress }
+
 // OutOfOrderProgressError is an error type for indicating that a progress update
 // is out of order and should be ignored.
 type OutOfOrderProgressError struct {

@@ -20,6 +20,9 @@ import (
 type StalenessHandler interface {
 	// MarkTaskStale is used to mark a task as stale in the system.
 	MarkTaskStale(ctx context.Context, evt scanning.TaskStaleEvent) error
+
+	// GetTask retrieves a task by ID.
+	GetTask(ctx context.Context, taskID uuid.UUID) (*scanning.Task, error)
 }
 
 type timeProvider interface {
@@ -125,39 +128,48 @@ func (h *HeartbeatMonitor) checkForStaleTasks(ctx context.Context, threshold tim
 
 	span.AddEvent("checking_for_stale_tasks")
 
-	// We'll collect the tasks we deem stale in a slice to avoid holding the mutex
-	// while calling external methods.
-	var staleTaskIDs []uuid.UUID
+	var potentiallyStaleTaskIDs []uuid.UUID
 
 	h.mu.RLock()
 	for taskID, lastBeat := range h.lastHeartbeatByTask {
-		// If the last heartbeat is older than the threshold, mark the task stale.
 		if now.Sub(lastBeat) > threshold {
-			staleTaskIDs = append(staleTaskIDs, taskID)
+			potentiallyStaleTaskIDs = append(potentiallyStaleTaskIDs, taskID)
 		}
 	}
 	h.mu.RUnlock()
-	span.AddEvent("stale_tasks_found", trace.WithAttributes(
-		attribute.Int("count", len(staleTaskIDs)),
+
+	span.AddEvent("potentially_stale_tasks_found", trace.WithAttributes(
+		attribute.Int("count", len(potentiallyStaleTaskIDs)),
 	))
 
-	// For each stale task, fail the task in the ExecutionTracker.
-	for _, tID := range staleTaskIDs {
-		h.logger.Warn(ctx, "Detected stale task - failing", "task_id", tID)
+	// For each potentially stale task, verify state and handle accordingly.
+	for _, tID := range potentiallyStaleTaskIDs {
+		task, err := h.stalenessHandler.GetTask(ctx, tID)
+		if err != nil {
+			h.logger.Error(ctx, "Failed to get task status", "task_id", tID, "error", err)
+			continue
+		}
 
-		staleEvt := scanning.NewTaskStaleEvent(tID, tID, scanning.StallReasonNoProgress, h.timeProvider.Now())
-		if err := h.stalenessHandler.MarkTaskStale(ctx, staleEvt); err != nil {
-			h.logger.Error(ctx, "Failed to mark task as stale", "task_id", tID, "error", err)
-		} else {
-			// Only remove the stale task from the map after we've successfully
-			// marked it as stale.
-			h.mu.Lock()
-			delete(h.lastHeartbeatByTask, tID)
-			h.mu.Unlock()
+		if task.IsInProgress() {
+			h.logger.Warn(ctx, "Detected stale task - failing", "task_id", tID)
+			staleEvt := scanning.NewTaskStaleEvent(tID, tID, scanning.StallReasonNoProgress, h.timeProvider.Now())
+
+			if err := h.stalenessHandler.MarkTaskStale(ctx, staleEvt); err != nil {
+				h.logger.Error(ctx, "Failed to mark task as stale", "task_id", tID, "error", err)
+				continue
+			}
+
 			span.AddEvent("stale_task_marked", trace.WithAttributes(
 				attribute.String("task_id", tID.String()),
 			))
 		}
+
+		// Clean up monitoring regardless of task state.
+		// This is okay because we will re-add the task
+		// when we receive a heartbeat.
+		h.mu.Lock()
+		delete(h.lastHeartbeatByTask, tID)
+		h.mu.Unlock()
 	}
 }
 

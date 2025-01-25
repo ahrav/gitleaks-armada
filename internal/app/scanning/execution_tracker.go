@@ -42,15 +42,19 @@ type ExecutionTracker interface {
 	// MarkTaskStale marks a task as stale, indicating it has stopped reporting progress.
 	MarkTaskStale(ctx context.Context, evt scanning.TaskStaleEvent) error
 
-	// GetJobProgress returns consolidated metrics for all tasks in a job, including
-	// total tasks, completed tasks, failed tasks, and overall progress percentage.
-	// This provides the data needed for job-level monitoring and reporting.
-	GetJobProgress(ctx context.Context, jobID uuid.UUID) (*scanning.Progress, error)
+	// GetTask retrieves the current state of a task, including its status and progress metrics.
+	// This enables components like the HeartbeatMonitor to check task state before taking action.
+	GetTask(ctx context.Context, taskID uuid.UUID) (*scanning.Task, error)
 
-	// GetTaskProgress returns detailed execution metrics for a specific task,
-	// including items processed, processing rate, error counts, and duration.
-	// This enables fine-grained monitoring of individual scanning operations.
-	GetTaskProgress(ctx context.Context, taskID uuid.UUID) (*scanning.Progress, error)
+	// // GetJobProgress returns consolidated metrics for all tasks in a job, including
+	// // total tasks, completed tasks, failed tasks, and overall progress percentage.
+	// // This provides the data needed for job-level monitoring and reporting.
+	// GetJobProgress(ctx context.Context, jobID uuid.UUID) (*scanning.Progress, error)
+
+	// // GetTaskProgress returns detailed execution metrics for a specific task,
+	// // including items processed, processing rate, error counts, and duration.
+	// // This enables fine-grained monitoring of individual scanning operations.
+	// GetTaskProgress(ctx context.Context, taskID uuid.UUID) (*scanning.Progress, error)
 }
 
 // executionTracker coordinates task lifecycle events between the job service
@@ -224,10 +228,23 @@ func (et *executionTracker) MarkTaskStale(ctx context.Context, evt scanning.Task
 	return nil
 }
 
-func (t *executionTracker) GetJobProgress(ctx context.Context, jobID uuid.UUID) (*scanning.Progress, error) {
-	return nil, nil
-}
+// GetTask retrieves task state from the job coordinator, enabling status checks
+// for components like the HeartbeatMonitor.
+func (t *executionTracker) GetTask(ctx context.Context, taskID uuid.UUID) (*scanning.Task, error) {
+	ctx, span := t.tracer.Start(ctx, "execution_tracker.scanning.get_task",
+		trace.WithAttributes(
+			attribute.String("task_id", taskID.String()),
+		))
+	defer span.End()
 
-func (t *executionTracker) GetTaskProgress(ctx context.Context, taskID uuid.UUID) (*scanning.Progress, error) {
-	return nil, nil
+	task, err := t.jobService.GetTask(ctx, taskID)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to get task")
+		return nil, fmt.Errorf("failed to get task: %w", err)
+	}
+	span.AddEvent("task_retrieved")
+	span.SetStatus(codes.Ok, "task retrieved")
+
+	return task, nil
 }

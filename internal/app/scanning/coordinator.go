@@ -57,6 +57,10 @@ type ScanJobCoordinator interface {
 	// This enables automated detection and recovery of failed tasks that require intervention.
 	MarkTaskStale(ctx context.Context, jobID, taskID uuid.UUID, reason domain.StallReason) (*domain.Task, error)
 
+	// GetTask retrieves a task by ID, using cache-first strategy to optimize
+	// frequent status checks during monitoring operations.
+	GetTask(ctx context.Context, taskID uuid.UUID) (*domain.Task, error)
+
 	// // RecoverTask attempts to resume execution of a previously stalled task.
 	// // It uses the last recorded checkpoint to restart the task from its last known good state.
 	// RecoverTask(ctx context.Context, jobID, taskID uuid.UUID) error
@@ -481,8 +485,8 @@ func (s *scanJobCoordinator) MarkTaskStale(ctx context.Context, jobID, taskID uu
 
 	if err := task.MarkStale(&reason); err != nil {
 		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to mark task as stale")
-		return nil, fmt.Errorf("mark task as stale: %w", err)
+		span.SetStatus(codes.Error, "job coordinator failed to mark task as stale")
+		return nil, fmt.Errorf("job coordinator failed to mark task as stale: %w", err)
 	}
 	span.AddEvent("task_marked_as_stale")
 
@@ -497,17 +501,22 @@ func (s *scanJobCoordinator) MarkTaskStale(ctx context.Context, jobID, taskID uu
 	return task, nil
 }
 
-// MarkJobCompleted finalizes a job's lifecycle
-func (s *scanJobCoordinator) MarkJobCompleted(ctx context.Context, jobID uuid.UUID) error {
-	return nil
-}
+// GetTask retrieves a task using cache-first strategy to minimize database access.
+func (s *scanJobCoordinator) GetTask(ctx context.Context, taskID uuid.UUID) (*domain.Task, error) {
+	ctx, span := s.tracer.Start(ctx, "job_service.scanning.get_task",
+		trace.WithAttributes(
+			attribute.String("task_id", taskID.String()),
+		))
+	defer span.End()
 
-// GetJob retrieves detailed job information
-func (s *scanJobCoordinator) GetJob(ctx context.Context, jobID uuid.UUID) (*domain.Job, error) {
-	return nil, nil
-}
+	task, err := s.loadTask(ctx, taskID)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to get task")
+		return nil, fmt.Errorf("get task: %w", err)
+	}
 
-// ListJobs provides filtered access to jobs for monitoring and management
-func (s *scanJobCoordinator) ListJobs(ctx context.Context, status []domain.JobStatus, limit, offset int) ([]*domain.Job, error) {
-	return nil, nil
+	span.AddEvent("task_retrieved")
+	span.SetStatus(codes.Ok, "task retrieved successfully")
+	return task, nil
 }
