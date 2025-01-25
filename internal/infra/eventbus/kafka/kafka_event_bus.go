@@ -165,6 +165,8 @@ func NewKafkaEventBusFromConfig(
 // publishing if the message is not acknowledged by the broker,
 // since it's possible the broker is temporarily unavailable and we don't
 // want to lose events.
+// Note: We should only attempt to retry if the error is a transient one. (e.g. LEADER_NOT_AVAILABLE)
+// If the error is a permanent one, we should not retry. (e.g. INVALID_CONFIG)
 func (k *KafkaEventBus) Publish(ctx context.Context, event events.EventEnvelope, opts ...events.PublishOption) error {
 	topic, ok := k.topics[event.Type]
 	if !ok {
