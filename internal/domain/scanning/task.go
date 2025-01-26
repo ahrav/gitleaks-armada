@@ -235,6 +235,35 @@ type Task struct {
 	lastCheckpoint  *Checkpoint
 }
 
+// TaskOption defines functional options for configuring a new Task.
+type TaskOption func(*Task)
+
+// WithTimeProvider sets a custom time provider for the task.
+func WithTimeProvider(tp TimeProvider) TaskOption {
+	return func(t *Task) { t.timeline = NewTimeline(tp) }
+}
+
+// NewScanTask creates a new ScanTask instance for tracking an individual scan operation.
+// It establishes the task's relationship to its parent job and initializes monitoring state.
+func NewScanTask(jobID uuid.UUID, taskID uuid.UUID, resourceURI string, opts ...TaskOption) *Task {
+	task := &Task{
+		CoreTask: shared.CoreTask{
+			ID: taskID,
+		},
+		jobID:           jobID,
+		resourceURI:     resourceURI,
+		status:          TaskStatusInProgress,
+		timeline:        NewTimeline(new(realTimeProvider)),
+		lastSequenceNum: 0,
+	}
+
+	for _, opt := range opts {
+		opt(task)
+	}
+
+	return task
+}
+
 // ReconstructTask creates a Task instance from persisted data without enforcing
 // creation-time invariants. This should only be used by repositories when
 // reconstructing from storage.
@@ -267,35 +296,6 @@ func ReconstructTask(
 		stallReason:     stallReason,
 		stalledAt:       stalledAt,
 	}
-}
-
-// TaskOption defines functional options for configuring a new Task.
-type TaskOption func(*Task)
-
-// WithTimeProvider sets a custom time provider for the task.
-func WithTimeProvider(tp TimeProvider) TaskOption {
-	return func(t *Task) { t.timeline = NewTimeline(tp) }
-}
-
-// NewScanTask creates a new ScanTask instance for tracking an individual scan operation.
-// It establishes the task's relationship to its parent job and initializes monitoring state.
-func NewScanTask(jobID uuid.UUID, taskID uuid.UUID, resourceURI string, opts ...TaskOption) *Task {
-	task := &Task{
-		CoreTask: shared.CoreTask{
-			ID: taskID,
-		},
-		jobID:           jobID,
-		resourceURI:     resourceURI,
-		status:          TaskStatusInProgress,
-		timeline:        NewTimeline(new(realTimeProvider)),
-		lastSequenceNum: 0,
-	}
-
-	for _, opt := range opts {
-		opt(task)
-	}
-
-	return task
 }
 
 // JobID returns the identifier of the parent job containing this task.
