@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -273,4 +274,66 @@ func (s *taskStore) GetTaskSourceType(ctx context.Context, taskID uuid.UUID) (sh
 	}
 
 	return sourceType, nil
+}
+
+// FindStaleTasks retrieves tasks that have not sent a heartbeat since the given cutoff time.
+func (s *taskStore) FindStaleTasks(ctx context.Context, cutoff time.Time) ([]*scanning.Task, error) {
+	dbAttrs := append(
+		defaultDBAttributes,
+		attribute.String("cutoff", cutoff.String()),
+	)
+
+	var tasks []*scanning.Task
+
+	err := storage.ExecuteAndTrace(ctx, s.tracer, "postgres.find_stale_tasks", dbAttrs, func(ctx context.Context) error {
+		span := trace.SpanFromContext(ctx)
+
+		rows, err := s.q.FindStaleTasks(ctx, pgtype.Timestamptz{
+			Time:  cutoff,
+			Valid: true,
+		})
+		if err != nil {
+			return fmt.Errorf("FindStaleTasks query error: %w", err)
+		}
+		span.SetAttributes(attribute.Int("num_tasks", len(rows)))
+
+		for _, row := range rows {
+			var checkpoint *scanning.Checkpoint
+			if len(row.LastCheckpoint) > 0 {
+				var cp scanning.Checkpoint
+				if jerr := json.Unmarshal(row.LastCheckpoint, &cp); jerr == nil {
+					checkpoint = &cp
+				}
+			}
+
+			var stallReason *scanning.StallReason
+			if row.StallReason.Valid {
+				r := scanning.StallReason(row.StallReason.ScanTaskStallReason)
+				stallReason = &r
+			}
+
+			task := scanning.ReconstructTask(
+				row.TaskID.Bytes,
+				row.JobID.Bytes,
+				row.ResourceUri,
+				scanning.TaskStatus(row.Status),
+				row.LastSequenceNum,
+				row.StartTime.Time,
+				row.EndTime.Time,
+				row.ItemsProcessed,
+				row.ProgressDetails,
+				checkpoint,
+				stallReason,
+				row.StalledAt.Time,
+				int(row.RecoveryAttempts),
+			)
+			tasks = append(tasks, task)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return tasks, nil
 }

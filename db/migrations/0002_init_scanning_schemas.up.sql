@@ -54,6 +54,7 @@ CREATE TABLE scan_tasks (
     status            scan_task_status NOT NULL,
     resource_uri      VARCHAR(1024) NOT NULL,
     last_sequence_num BIGINT NOT NULL DEFAULT 0,
+    last_heartbeat_at TIMESTAMPTZ,
     start_time        TIMESTAMPTZ NOT NULL,
     end_time          TIMESTAMPTZ,
     items_processed   BIGINT NOT NULL DEFAULT 0,
@@ -71,4 +72,4 @@ CREATE TABLE scan_tasks (
 
 -- Indexes
 CREATE INDEX idx_scan_tasks_job_id ON scan_tasks (job_id);
-CREATE INDEX idx_scan_tasks_status ON scan_tasks (status);
+CREATE INDEX idx_scan_tasks_status_last_heartbeat_at ON scan_tasks (status, last_heartbeat_at);

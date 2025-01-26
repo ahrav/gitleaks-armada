@@ -399,6 +399,7 @@ type ScanTask struct {
 	Status           ScanTaskStatus
 	ResourceUri      string
 	LastSequenceNum  int64
+	LastHeartbeatAt  pgtype.Timestamptz
 	StartTime        pgtype.Timestamptz
 	EndTime          pgtype.Timestamptz
 	ItemsProcessed   int64

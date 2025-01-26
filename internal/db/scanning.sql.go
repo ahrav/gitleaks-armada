@@ -31,6 +31,28 @@ func (q *Queries) AssociateTarget(ctx context.Context, arg AssociateTargetParams
 	return err
 }
 
+const batchUpdateScanTaskHeartbeats = `-- name: BatchUpdateScanTaskHeartbeats :execrows
+UPDATE scan_tasks
+SET
+    last_heartbeat_at = $1,
+    updated_at = $2
+WHERE task_id = ANY($3::uuid[])
+`
+
+type BatchUpdateScanTaskHeartbeatsParams struct {
+	LastHeartbeatAt pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+	TaskIds         []pgtype.UUID
+}
+
+func (q *Queries) BatchUpdateScanTaskHeartbeats(ctx context.Context, arg BatchUpdateScanTaskHeartbeatsParams) (int64, error) {
+	result, err := q.db.Exec(ctx, batchUpdateScanTaskHeartbeats, arg.LastHeartbeatAt, arg.UpdatedAt, arg.TaskIds)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 type BulkAssociateTargetsParams struct {
 	JobID        pgtype.UUID
 	ScanTargetID pgtype.UUID
@@ -110,6 +132,83 @@ func (q *Queries) CreateScanTask(ctx context.Context, arg CreateScanTaskParams) 
 		arg.StartTime,
 	)
 	return err
+}
+
+const findStaleTasks = `-- name: FindStaleTasks :many
+SELECT
+    t.task_id,
+    t.job_id,
+    t.status,
+    t.resource_uri,
+    t.last_sequence_num,
+    t.start_time,
+    t.end_time,
+    t.items_processed,
+    t.progress_details,
+    t.last_checkpoint,
+    t.stall_reason,
+    t.stalled_at,
+    t.recovery_attempts,
+    t.created_at,
+    t.updated_at
+FROM scan_tasks t
+WHERE t.status = 'IN_PROGRESS'
+  AND (t.last_heartbeat_at IS NULL OR t.last_heartbeat_at < $1)
+ORDER BY t.created_at ASC
+`
+
+type FindStaleTasksRow struct {
+	TaskID           pgtype.UUID
+	JobID            pgtype.UUID
+	Status           ScanTaskStatus
+	ResourceUri      string
+	LastSequenceNum  int64
+	StartTime        pgtype.Timestamptz
+	EndTime          pgtype.Timestamptz
+	ItemsProcessed   int64
+	ProgressDetails  []byte
+	LastCheckpoint   []byte
+	StallReason      NullScanTaskStallReason
+	StalledAt        pgtype.Timestamptz
+	RecoveryAttempts int32
+	CreatedAt        pgtype.Timestamptz
+	UpdatedAt        pgtype.Timestamptz
+}
+
+func (q *Queries) FindStaleTasks(ctx context.Context, lastHeartbeatAt pgtype.Timestamptz) ([]FindStaleTasksRow, error) {
+	rows, err := q.db.Query(ctx, findStaleTasks, lastHeartbeatAt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FindStaleTasksRow
+	for rows.Next() {
+		var i FindStaleTasksRow
+		if err := rows.Scan(
+			&i.TaskID,
+			&i.JobID,
+			&i.Status,
+			&i.ResourceUri,
+			&i.LastSequenceNum,
+			&i.StartTime,
+			&i.EndTime,
+			&i.ItemsProcessed,
+			&i.ProgressDetails,
+			&i.LastCheckpoint,
+			&i.StallReason,
+			&i.StalledAt,
+			&i.RecoveryAttempts,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const getJob = `-- name: GetJob :many

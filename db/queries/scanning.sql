@@ -130,3 +130,32 @@ SELECT source_type FROM tasks WHERE task_id = $1;
 -- name: CreateBaseTask :exec
 INSERT INTO tasks (task_id, source_type)
 VALUES ($1, $2);
+
+-- name: BatchUpdateScanTaskHeartbeats :execrows
+UPDATE scan_tasks
+SET
+    last_heartbeat_at = @last_heartbeat_at,
+    updated_at = @updated_at
+WHERE task_id = ANY(@task_ids::uuid[]);
+
+-- name: FindStaleTasks :many
+SELECT
+    t.task_id,
+    t.job_id,
+    t.status,
+    t.resource_uri,
+    t.last_sequence_num,
+    t.start_time,
+    t.end_time,
+    t.items_processed,
+    t.progress_details,
+    t.last_checkpoint,
+    t.stall_reason,
+    t.stalled_at,
+    t.recovery_attempts,
+    t.created_at,
+    t.updated_at
+FROM scan_tasks t
+WHERE t.status = 'IN_PROGRESS'
+  AND (t.last_heartbeat_at IS NULL OR t.last_heartbeat_at < $1)
+ORDER BY t.created_at ASC;

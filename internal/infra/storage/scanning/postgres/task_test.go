@@ -465,3 +465,87 @@ func TestTaskStore_UpdateTask_RecoveryFromStale(t *testing.T) {
 	assert.Equal(t, 2, finalTask.RecoveryAttempts())
 	assert.Equal(t, int64(20), finalTask.LastSequenceNum())
 }
+
+func TestTaskStore_FindStaleTasks(t *testing.T) {
+	t.Parallel()
+	ctx, _, taskStore, jobStore, cleanup := setupTaskTest(t)
+	defer cleanup()
+
+	job := createTestScanJob(t, jobStore, ctx)
+	now := time.Now().UTC()
+	cutoff := now.Add(-5 * time.Minute)
+
+	testCases := []struct {
+		name          string
+		lastHeartbeat *time.Time
+		status        scanning.TaskStatus
+		shouldBeStale bool
+	}{
+		{
+			name:          "no heartbeat",
+			lastHeartbeat: nil,
+			status:        scanning.TaskStatusInProgress,
+			shouldBeStale: true,
+		},
+		{
+			name:          "stale heartbeat",
+			lastHeartbeat: &[]time.Time{now.Add(-10 * time.Minute)}[0],
+			status:        scanning.TaskStatusInProgress,
+			shouldBeStale: true,
+		},
+		{
+			name:          "recent heartbeat",
+			lastHeartbeat: &[]time.Time{now.Add(-1 * time.Minute)}[0],
+			status:        scanning.TaskStatusInProgress,
+			shouldBeStale: false,
+		},
+		{
+			name:          "completed task with old heartbeat",
+			lastHeartbeat: &[]time.Time{now.Add(-10 * time.Minute)}[0],
+			status:        scanning.TaskStatusCompleted,
+			shouldBeStale: false,
+		},
+	}
+
+	var expectedStaleTasks []*scanning.Task
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			task := createTestTask(t, taskStore, job.JobID(), tc.status)
+			err := taskStore.CreateTask(ctx, task)
+			require.NoError(t, err)
+
+			// If a heartbeat time is specified, update it in the database.
+			if tc.lastHeartbeat != nil {
+				_, err := taskStore.q.BatchUpdateScanTaskHeartbeats(ctx, db.BatchUpdateScanTaskHeartbeatsParams{
+					TaskIds:         []pgtype.UUID{{Bytes: task.TaskID(), Valid: true}},
+					LastHeartbeatAt: pgtype.Timestamptz{Time: *tc.lastHeartbeat, Valid: true},
+					UpdatedAt:       pgtype.Timestamptz{Time: now, Valid: true},
+				})
+				require.NoError(t, err)
+			}
+
+			if tc.shouldBeStale {
+				expectedStaleTasks = append(expectedStaleTasks, task)
+			}
+		})
+	}
+
+	staleTasks, err := taskStore.FindStaleTasks(ctx, cutoff)
+	require.NoError(t, err)
+
+	assert.Equal(t, len(expectedStaleTasks), len(staleTasks))
+
+	// Create maps for easier comparison.
+	expectedMap := make(map[uuid.UUID]bool)
+	for _, task := range expectedStaleTasks {
+		expectedMap[task.TaskID()] = true
+	}
+
+	actualMap := make(map[uuid.UUID]bool)
+	for _, task := range staleTasks {
+		actualMap[task.TaskID()] = true
+		assert.Equal(t, scanning.TaskStatusInProgress, task.Status())
+	}
+
+	assert.Equal(t, expectedMap, actualMap)
+}

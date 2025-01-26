@@ -74,6 +74,11 @@ func (m *mockTaskRepository) ListTasksByJobAndStatus(ctx context.Context, jobID 
 	return args.Get(0).([]*scanning.Task), args.Error(1)
 }
 
+func (m *mockTaskRepository) FindStaleTasks(ctx context.Context, cutoff time.Time) ([]*scanning.Task, error) {
+	args := m.Called(ctx, cutoff)
+	return args.Get(0).([]*scanning.Task), args.Error(1)
+}
+
 type coordinatorTestSuite struct {
 	jobRepo  *mockJobRepository
 	taskRepo *mockTaskRepository
