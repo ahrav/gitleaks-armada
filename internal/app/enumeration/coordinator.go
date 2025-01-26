@@ -545,6 +545,7 @@ func (s *coordinator) processBatch(
 		// TODO: This likely needs some sort of retry on failure.
 		// Otherwise, we'll be in a weird inconsistent state where the task
 		// is created but not saved.
+		// Consider using an outbox pattern to ensure tasks are saved. (might be overkill)
 		if err := s.taskRepo.Save(ctx, task); err != nil {
 			batchSpan.RecordError(err)
 			batchSpan.SetStatus(codes.Error, "failed to save task")
