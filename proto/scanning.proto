@@ -3,6 +3,7 @@ syntax = "proto3";
 package scanner;
 
 import "google/protobuf/struct.proto";
+import "proto/shared.proto";
 
 option go_package = "github.com/ahrav/gitleaks-armada/proto;proto";
 
@@ -98,7 +99,7 @@ message TaskHeartbeatEvent {
 message TaskResumeEvent {
   string job_id = 1;
   string task_id = 2;
-  string source_type = 3; // TODO: maybe use enum?
+  shared.SourceType source_type = 3;
   int64 timestamp = 4;
   string resource_uri = 5;
   int64 sequence_num = 6;

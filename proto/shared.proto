@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package shared;
+
+option go_package = "github.com/ahrav/gitleaks-armada/proto;proto";
+
+// Common source types used across different domains (enumeration, scanning)
+enum SourceType {
+  SOURCE_TYPE_UNSPECIFIED = 0;
+  SOURCE_TYPE_GITHUB = 1;
+  SOURCE_TYPE_S3 = 2;
+  SOURCE_TYPE_URL = 3;
+}

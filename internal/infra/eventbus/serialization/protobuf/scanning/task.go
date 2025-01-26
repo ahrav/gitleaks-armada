@@ -165,6 +165,12 @@ func ProtoToTaskHeartbeatEvent(pbEvent *pb.TaskHeartbeatEvent) (scanning.TaskHea
 	return scanning.NewTaskHeartbeatEvent(taskID), nil
 }
 
+var taskSourceTypeToProto = map[shared.SourceType]pb.SourceType{
+	shared.SourceTypeGitHub: pb.SourceType_SOURCE_TYPE_GITHUB,
+	shared.SourceTypeS3:     pb.SourceType_SOURCE_TYPE_S3,
+	shared.SourceTypeURL:    pb.SourceType_SOURCE_TYPE_URL,
+}
+
 // TaskResumeEventToProto converts a domain TaskResumeEvent to its protobuf representation.
 func TaskResumeEventToProto(event scanning.TaskResumeEvent) *pb.TaskResumeEvent {
 	var checkpoint *pb.Checkpoint
@@ -180,12 +186,18 @@ func TaskResumeEventToProto(event scanning.TaskResumeEvent) *pb.TaskResumeEvent 
 	return &pb.TaskResumeEvent{
 		JobId:       event.JobID.String(),
 		TaskId:      event.TaskID.String(),
-		SourceType:  string(event.SourceType),
+		SourceType:  taskSourceTypeToProto[event.SourceType],
 		Timestamp:   event.OccurredAt().UnixNano(),
 		ResourceUri: event.ResourceURI,
 		SequenceNum: int64(event.SequenceNum),
 		Checkpoint:  checkpoint,
 	}
+}
+
+var protoSourceTypeToTaskSourceType = map[pb.SourceType]shared.SourceType{
+	pb.SourceType_SOURCE_TYPE_GITHUB: shared.SourceTypeGitHub,
+	pb.SourceType_SOURCE_TYPE_S3:     shared.SourceTypeS3,
+	pb.SourceType_SOURCE_TYPE_URL:    shared.SourceTypeURL,
 }
 
 // ProtoToTaskResumeEvent converts a protobuf TaskResumeEvent to its domain representation.
@@ -218,7 +230,7 @@ func ProtoToTaskResumeEvent(pbEvent *pb.TaskResumeEvent) (scanning.TaskResumeEve
 	return scanning.NewTaskResumeEvent(
 		jobID,
 		taskID,
-		shared.SourceType(pbEvent.SourceType),
+		protoSourceTypeToTaskSourceType[pbEvent.SourceType],
 		pbEvent.ResourceUri,
 		int(pbEvent.SequenceNum),
 		checkpoint,

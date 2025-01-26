@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package scanner;
 
+import "proto/shared.proto";
+
 option go_package = "github.com/ahrav/gitleaks-armada/proto;proto";
 
 // A universal envelope containing the actual domain event type
@@ -11,16 +13,9 @@ message UniversalEnvelope {
   bytes payload = 2;     // serialized domain event data
 }
 
-enum SourceType {
-  SOURCE_TYPE_UNSPECIFIED = 0;
-  SOURCE_TYPE_GITHUB = 1;
-  SOURCE_TYPE_S3 = 2;
-  SOURCE_TYPE_URL = 3;
-}
-
 message EnumerationTask {
   string task_id = 1;
-  SourceType source_type = 2;
+  shared.SourceType source_type = 2;
   string job_id = 3;
   string session_id = 4;
   string resource_uri = 5; // e.g., "git://github.com/org/repo"

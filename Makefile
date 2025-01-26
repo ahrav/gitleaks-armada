@@ -165,6 +165,7 @@ proto-gen:
 		echo "Generating protobuf code for $$proto..."; \
 		protoc --go_out=. --go_opt=paths=source_relative \
 			--go_opt=M$$proto=github.com/ahrav/gitleaks-armada/proto \
+			--proto_path=. \
 			$$proto; \
 	done
 

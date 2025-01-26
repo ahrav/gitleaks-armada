@@ -276,6 +276,7 @@ func (s *ScannerService) handleTaskResumeEvent(ctx context.Context, evt events.E
 	req := &dtos.ScanRequest{
 		TaskID:      rEvt.TaskID,
 		JobID:       rEvt.JobID,
+		SourceType:  dtos.SourceType(rEvt.SourceType),
 		ResourceURI: rEvt.ResourceURI,
 		Metadata:    make(map[string]string),
 	}
