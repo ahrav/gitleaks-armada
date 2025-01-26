@@ -6,6 +6,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
+	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 )
 
 // Event types relevant to Tasks:
@@ -82,6 +83,7 @@ type TaskResumeEvent struct {
 	occurredAt  time.Time
 	JobID       uuid.UUID
 	TaskID      uuid.UUID
+	SourceType  shared.SourceType
 	ResourceURI string
 	SequenceNum int
 	Checkpoint  *Checkpoint
@@ -89,6 +91,7 @@ type TaskResumeEvent struct {
 
 func NewTaskResumeEvent(
 	jobID, taskID uuid.UUID,
+	sourceType shared.SourceType,
 	resourceURI string,
 	sequenceNum int,
 	checkpoint *Checkpoint,
@@ -97,6 +100,7 @@ func NewTaskResumeEvent(
 		occurredAt:  time.Now(),
 		JobID:       jobID,
 		TaskID:      taskID,
+		SourceType:  sourceType,
 		ResourceURI: resourceURI,
 		SequenceNum: sequenceNum,
 		Checkpoint:  checkpoint,

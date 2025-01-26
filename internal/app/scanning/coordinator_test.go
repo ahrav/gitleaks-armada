@@ -15,6 +15,7 @@ import (
 
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	domain "github.com/ahrav/gitleaks-armada/internal/domain/scanning"
+	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 )
 
 // mockJobRepository helps test coordinator interactions with job persistence.
@@ -57,6 +58,11 @@ func (m *mockTaskRepository) GetTask(ctx context.Context, taskID uuid.UUID) (*sc
 		return task.(*scanning.Task), args.Error(1)
 	}
 	return nil, args.Error(1)
+}
+
+func (m *mockTaskRepository) GetTaskSourceType(ctx context.Context, taskID uuid.UUID) (shared.SourceType, error) {
+	args := m.Called(ctx, taskID)
+	return args.Get(0).(shared.SourceType), args.Error(1)
 }
 
 func (m *mockTaskRepository) UpdateTask(ctx context.Context, task *scanning.Task) error {

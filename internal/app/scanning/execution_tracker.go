@@ -205,14 +205,25 @@ func (et *executionTracker) HandleTaskStale(ctx context.Context, evt scanning.Ta
 		return err
 	}
 
-	resumeTask := scanning.NewTaskResumeEvent(
+	sourceType, err := et.jobService.GetTaskSourceType(ctx, task.TaskID())
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to get task source type")
+		return fmt.Errorf("get task source type: %w", err)
+	}
+	span.AddEvent("task_source_type_retrieved", trace.WithAttributes(
+		attribute.String("source_type", string(sourceType)),
+	))
+
+	resumeEvent := scanning.NewTaskResumeEvent(
 		task.JobID(),
 		task.TaskID(),
+		sourceType,
 		task.ResourceURI(),
 		int(task.LastSequenceNum()),
 		task.LastCheckpoint(),
 	)
-	if err := et.domainPublisher.PublishDomainEvent(ctx, resumeTask); err != nil {
+	if err := et.domainPublisher.PublishDomainEvent(ctx, resumeEvent); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to publish task resume event")
 		return err

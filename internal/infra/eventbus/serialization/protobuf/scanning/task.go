@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
+	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	pb "github.com/ahrav/gitleaks-armada/proto"
 )
 
@@ -179,6 +180,7 @@ func TaskResumeEventToProto(event scanning.TaskResumeEvent) *pb.TaskResumeEvent 
 	return &pb.TaskResumeEvent{
 		JobId:       event.JobID.String(),
 		TaskId:      event.TaskID.String(),
+		SourceType:  string(event.SourceType),
 		Timestamp:   event.OccurredAt().UnixNano(),
 		ResourceUri: event.ResourceURI,
 		SequenceNum: int64(event.SequenceNum),
@@ -213,5 +215,12 @@ func ProtoToTaskResumeEvent(pbEvent *pb.TaskResumeEvent) (scanning.TaskResumeEve
 		)
 	}
 
-	return scanning.NewTaskResumeEvent(jobID, taskID, pbEvent.ResourceUri, int(pbEvent.SequenceNum), checkpoint), nil
+	return scanning.NewTaskResumeEvent(
+		jobID,
+		taskID,
+		shared.SourceType(pbEvent.SourceType),
+		pbEvent.ResourceUri,
+		int(pbEvent.SequenceNum),
+		checkpoint,
+	), nil
 }

@@ -98,8 +98,9 @@ message TaskHeartbeatEvent {
 message TaskResumeEvent {
   string job_id = 1;
   string task_id = 2;
-  int64 timestamp = 3;
-  string resource_uri = 4;
-  int64 sequence_num = 5;
-  Checkpoint checkpoint = 6;
+  string source_type = 3; // TODO: maybe use enum?
+  int64 timestamp = 4;
+  string resource_uri = 5;
+  int64 sequence_num = 6;
+  Checkpoint checkpoint = 7;
 }

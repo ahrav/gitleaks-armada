@@ -12,6 +12,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	domain "github.com/ahrav/gitleaks-armada/internal/domain/scanning"
+	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 )
 
 // ScanJobCoordinator provides the primary interface for managing scan operations across the system.
@@ -57,6 +58,10 @@ type ScanJobCoordinator interface {
 	// MarkTaskStale flags a task that has become unresponsive or stopped reporting progress.
 	// This enables automated detection and recovery of failed tasks that require intervention.
 	MarkTaskStale(ctx context.Context, jobID, taskID uuid.UUID, reason domain.StallReason) (*domain.Task, error)
+
+	// GetTaskSourceType retrieves the source type of a task.
+	// This is needed for task resume operations.
+	GetTaskSourceType(ctx context.Context, taskID uuid.UUID) (shared.SourceType, error)
 
 	// // RecoverTask attempts to resume execution of a previously stalled task.
 	// // It uses the last recorded checkpoint to restart the task from its last known good state.
@@ -516,4 +521,24 @@ func (s *scanJobCoordinator) GetTask(ctx context.Context, taskID uuid.UUID) (*do
 	span.AddEvent("task_retrieved")
 	span.SetStatus(codes.Ok, "task retrieved successfully")
 	return task, nil
+}
+
+// GetTaskSourceType retrieves the source type of a task using cache-first strategy.
+func (s *scanJobCoordinator) GetTaskSourceType(ctx context.Context, taskID uuid.UUID) (shared.SourceType, error) {
+	ctx, span := s.tracer.Start(ctx, "job_service.scanning.get_task_source_type",
+		trace.WithAttributes(
+			attribute.String("task_id", taskID.String()),
+		))
+	defer span.End()
+
+	sourceType, err := s.taskRepo.GetTaskSourceType(ctx, taskID)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to get task source type")
+		return "", fmt.Errorf("get task source type: %w", err)
+	}
+
+	span.AddEvent("task_source_type_retrieved")
+	span.SetStatus(codes.Ok, "task source type retrieved successfully")
+	return sourceType, nil
 }

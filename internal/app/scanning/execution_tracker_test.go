@@ -16,6 +16,7 @@ import (
 
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
+	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
 
@@ -76,6 +77,11 @@ func (m *mockScanJobCoordinator) FailTask(
 		return task.(*scanning.Task), args.Error(1)
 	}
 	return nil, args.Error(1)
+}
+
+func (m *mockScanJobCoordinator) GetTaskSourceType(ctx context.Context, taskID uuid.UUID) (shared.SourceType, error) {
+	args := m.Called(ctx, taskID)
+	return args.Get(0).(shared.SourceType), args.Error(1)
 }
 
 func (m *mockScanJobCoordinator) MarkTaskStale(
@@ -374,6 +380,8 @@ func TestExecutionTracker_MarkTaskStale(t *testing.T) {
 			setup: func(m *mockScanJobCoordinator, p *mockDomainEventPublisher) {
 				m.On("MarkTaskStale", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(new(scanning.Task), nil)
+				m.On("GetTaskSourceType", mock.Anything, mock.Anything).
+					Return(shared.SourceType("test"), nil)
 				p.On("PublishDomainEvent",
 					mock.Anything,
 					mock.MatchedBy(func(event events.DomainEvent) bool {
@@ -408,6 +416,8 @@ func TestExecutionTracker_MarkTaskStale(t *testing.T) {
 			setup: func(m *mockScanJobCoordinator, p *mockDomainEventPublisher) {
 				m.On("MarkTaskStale", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(new(scanning.Task), nil)
+				m.On("GetTaskSourceType", mock.Anything, mock.Anything).
+					Return(shared.SourceType("test"), nil)
 				p.On("PublishDomainEvent",
 					mock.Anything,
 					mock.MatchedBy(func(event events.DomainEvent) bool {

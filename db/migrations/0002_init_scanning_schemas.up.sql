@@ -49,7 +49,7 @@ CREATE TYPE scan_task_stall_reason AS ENUM (
 
 -- Scan Tasks Table
 CREATE TABLE scan_tasks (
-    task_id           UUID PRIMARY KEY,
+    task_id           UUID PRIMARY KEY REFERENCES tasks(task_id),
     job_id            UUID NOT NULL,
     status            scan_task_status NOT NULL,
     resource_uri      VARCHAR(1024) NOT NULL,

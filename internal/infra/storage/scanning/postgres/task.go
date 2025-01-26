@@ -15,6 +15,7 @@ import (
 
 	"github.com/ahrav/gitleaks-armada/internal/db"
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
+	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	"github.com/ahrav/gitleaks-armada/internal/infra/storage"
 )
 
@@ -235,4 +236,30 @@ func (s *taskStore) ListTasksByJobAndStatus(
 		return nil, err
 	}
 	return results, nil
+}
+
+// GetTaskSourceType retrieves the source type for a given task ID.
+func (s *taskStore) GetTaskSourceType(ctx context.Context, taskID uuid.UUID) (shared.SourceType, error) {
+	dbAttrs := append(
+		defaultDBAttributes,
+		attribute.String("task_id", taskID.String()),
+	)
+
+	var sourceType shared.SourceType
+	err := storage.ExecuteAndTrace(ctx, s.tracer, "postgres.get_task_source_type", dbAttrs, func(ctx context.Context) error {
+		result, err := s.q.GetTaskSourceType(ctx, pgtype.UUID{Bytes: taskID, Valid: true})
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return fmt.Errorf("task not found: %w", err)
+			}
+			return fmt.Errorf("get task source type query error: %w", err)
+		}
+		sourceType = shared.SourceType(result)
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+
+	return sourceType, nil
 }

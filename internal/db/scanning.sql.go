@@ -36,6 +36,21 @@ type BulkAssociateTargetsParams struct {
 	ScanTargetID pgtype.UUID
 }
 
+const createBaseTask = `-- name: CreateBaseTask :exec
+INSERT INTO tasks (task_id, source_type)
+VALUES ($1, $2)
+`
+
+type CreateBaseTaskParams struct {
+	TaskID     pgtype.UUID
+	SourceType string
+}
+
+func (q *Queries) CreateBaseTask(ctx context.Context, arg CreateBaseTaskParams) error {
+	_, err := q.db.Exec(ctx, createBaseTask, arg.TaskID, arg.SourceType)
+	return err
+}
+
 const createJob = `-- name: CreateJob :exec
 
 INSERT INTO scan_jobs (
@@ -195,6 +210,17 @@ func (q *Queries) GetScanTask(ctx context.Context, taskID pgtype.UUID) (ScanTask
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const getTaskSourceType = `-- name: GetTaskSourceType :one
+SELECT source_type FROM tasks WHERE task_id = $1
+`
+
+func (q *Queries) GetTaskSourceType(ctx context.Context, taskID pgtype.UUID) (string, error) {
+	row := q.db.QueryRow(ctx, getTaskSourceType, taskID)
+	var source_type string
+	err := row.Scan(&source_type)
+	return source_type, err
 }
 
 const listScanTasksByJobAndStatus = `-- name: ListScanTasksByJobAndStatus :many

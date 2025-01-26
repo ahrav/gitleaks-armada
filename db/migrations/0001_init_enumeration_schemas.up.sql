@@ -87,7 +87,7 @@ CREATE TABLE tasks (
 
 -- Enumeration Tasks Table
 CREATE TABLE enumeration_tasks (
-    task_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    task_id UUID PRIMARY KEY REFERENCES tasks(task_id),
     session_id UUID NOT NULL REFERENCES enumeration_session_states(session_id),
     resource_uri VARCHAR NOT NULL,
     metadata JSONB,

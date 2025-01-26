@@ -85,6 +85,9 @@ CREATE TABLE tasks (
     source_type VARCHAR NOT NULL
 );
 
+-- Indexes
+CREATE INDEX idx_tasks_task_id ON tasks (task_id);
+
 -- Enumeration Tasks Table
 CREATE TABLE enumeration_tasks (
     task_id UUID PRIMARY KEY REFERENCES tasks(task_id),

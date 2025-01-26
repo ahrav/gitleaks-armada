@@ -6,6 +6,7 @@ package scanning
 import (
 	"context"
 
+	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	"github.com/google/uuid"
 )
 
@@ -16,13 +17,13 @@ type JobRepository interface {
 	// CreateJob inserts a new job record, setting status and initial timestamps.
 	CreateJob(ctx context.Context, job *Job) error
 
-	// UpdateJob modifies an existing job’s fields (status, end_time, etc.).
+	// UpdateJob modifies an existing job's fields (status, end_time, etc.).
 	UpdateJob(ctx context.Context, job *Job) error
 
 	// AssociateTargets associates scan targets with a job.
 	AssociateTargets(ctx context.Context, jobID uuid.UUID, targetIDs []uuid.UUID) error
 
-	// GetJob retrieves a job’s state (including associated tasks if needed).
+	// GetJob retrieves a job's state (including associated tasks if needed).
 	GetJob(ctx context.Context, jobID uuid.UUID) (*Job, error)
 }
 
@@ -30,10 +31,10 @@ type JobRepository interface {
 // It provides an abstraction layer over the storage mechanism used to maintain
 // task state and progress data.
 type TaskRepository interface {
-	// CreateTask persists a new task’s initial state.
+	// CreateTask persists a new task's initial state.
 	CreateTask(ctx context.Context, task *Task) error
 
-	// GetTask retrieves a task’s current state.
+	// GetTask retrieves a task's current state.
 	GetTask(ctx context.Context, taskID uuid.UUID) (*Task, error)
 
 	// UpdateTask persists changes to an existing task's state.
@@ -41,4 +42,7 @@ type TaskRepository interface {
 
 	// ListTasksByJobAndStatus retrieves tasks associated with a job and matching a specific status.
 	ListTasksByJobAndStatus(ctx context.Context, jobID uuid.UUID, status TaskStatus) ([]*Task, error)
+
+	// GetTaskSourceType retrieves the source type for a task from the core tasks table
+	GetTaskSourceType(ctx context.Context, taskID uuid.UUID) (shared.SourceType, error)
 }

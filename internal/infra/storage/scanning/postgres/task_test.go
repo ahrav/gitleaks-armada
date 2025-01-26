@@ -8,11 +8,14 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ahrav/gitleaks-armada/internal/db"
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
+	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	"github.com/ahrav/gitleaks-armada/internal/infra/storage"
 )
 
@@ -42,12 +45,23 @@ func createTestScanJob(t *testing.T, store *jobStore, ctx context.Context) *scan
 	return job
 }
 
-func createTestTask(t *testing.T, jobID uuid.UUID, status scanning.TaskStatus) *scanning.Task {
+func createTestTask(t *testing.T, store *taskStore, jobID uuid.UUID, status scanning.TaskStatus) *scanning.Task {
 	t.Helper()
+
+	taskID := uuid.New()
+	resourceURI := "test-resource-uri"
+
+	// First create the base task record
+	err := store.q.CreateBaseTask(context.Background(), db.CreateBaseTaskParams{
+		TaskID:     pgtype.UUID{Bytes: taskID, Valid: true},
+		SourceType: resourceURI,
+	})
+	require.NoError(t, err)
+
 	return scanning.ReconstructTask(
-		uuid.New(),
+		taskID,
 		jobID,
-		"test-resource-uri",
+		resourceURI,
 		status,
 		0,
 		time.Now().UTC(),
@@ -66,8 +80,8 @@ func TestTaskStore_CreateAndGet(t *testing.T) {
 	defer cleanup()
 
 	job := createTestScanJob(t, jobStore, ctx)
+	task := createTestTask(t, taskStore, job.JobID(), scanning.TaskStatusInProgress)
 
-	task := createTestTask(t, job.JobID(), scanning.TaskStatusInProgress)
 	err := taskStore.CreateTask(ctx, task)
 	require.NoError(t, err)
 
@@ -92,7 +106,7 @@ func TestTaskStore_UpdateTask(t *testing.T) {
 
 	job := createTestScanJob(t, jobStore, ctx)
 
-	task := createTestTask(t, job.JobID(), scanning.TaskStatusInProgress)
+	task := createTestTask(t, taskStore, job.JobID(), scanning.TaskStatusInProgress)
 	err := taskStore.CreateTask(ctx, task)
 	require.NoError(t, err)
 
@@ -141,7 +155,7 @@ func TestTaskStore_UpdateTask_WithCompletion(t *testing.T) {
 
 	job := createTestScanJob(t, jobStore, ctx)
 
-	task := createTestTask(t, job.JobID(), scanning.TaskStatusInProgress)
+	task := createTestTask(t, taskStore, job.JobID(), scanning.TaskStatusInProgress)
 	err := taskStore.CreateTask(ctx, task)
 	require.NoError(t, err)
 
@@ -172,40 +186,14 @@ func TestTaskStore_ListTasksByJobAndStatus(t *testing.T) {
 	// Create multiple tasks.
 	tasks := make([]*scanning.Task, 3)
 	for i := 0; i < 3; i++ {
-		task := scanning.ReconstructTask(
-			uuid.New(),
-			jobID,
-			"",
-			status,
-			int64(i),
-			time.Now().UTC(),
-			time.Time{},
-			int64(i*10),
-			json.RawMessage(`{"test": "details"}`),
-			nil,
-			scanning.ReasonPtr(scanning.StallReasonNoProgress),
-			time.Time{},
-		)
+		task := createTestTask(t, taskStore, jobID, status)
+		tasks[i] = task
 		err := taskStore.CreateTask(ctx, task)
 		require.NoError(t, err)
-		tasks[i] = task
 	}
 
 	// Create a task with different status.
-	differentStatusTask := scanning.ReconstructTask(
-		uuid.New(),
-		jobID,
-		"",
-		scanning.TaskStatusCompleted,
-		3,
-		time.Now().UTC(),
-		time.Time{},
-		30,
-		json.RawMessage(`{"test": "details"}`),
-		nil,
-		scanning.ReasonPtr(scanning.StallReasonNoProgress),
-		time.Time{},
-	)
+	differentStatusTask := createTestTask(t, taskStore, jobID, scanning.TaskStatusCompleted)
 	err := taskStore.CreateTask(ctx, differentStatusTask)
 	require.NoError(t, err)
 
@@ -236,7 +224,7 @@ func TestTaskStore_CreateDuplicate(t *testing.T) {
 
 	job := createTestScanJob(t, jobStore, ctx)
 
-	task := createTestTask(t, job.JobID(), scanning.TaskStatusInProgress)
+	task := createTestTask(t, taskStore, job.JobID(), scanning.TaskStatusInProgress)
 
 	// First creation should succeed.
 	err := taskStore.CreateTask(ctx, task)
@@ -254,7 +242,7 @@ func TestTaskStore_UpdateNonExistent(t *testing.T) {
 
 	job := createTestScanJob(t, jobStore, ctx)
 
-	task := createTestTask(t, job.JobID(), scanning.TaskStatusCompleted)
+	task := createTestTask(t, taskStore, job.JobID(), scanning.TaskStatusCompleted)
 	err := taskStore.UpdateTask(ctx, task)
 	require.Error(t, err)
 }
@@ -276,7 +264,7 @@ func TestTaskStore_CreateTask_NonExistentJob(t *testing.T) {
 	ctx, _, taskStore, _, cleanup := setupTaskTest(t)
 	defer cleanup()
 
-	task := createTestTask(t, uuid.New(), scanning.TaskStatusInProgress)
+	task := createTestTask(t, taskStore, uuid.New(), scanning.TaskStatusInProgress)
 	err := taskStore.CreateTask(ctx, task)
 	require.Error(t, err, "should fail when parent job doesn't exist")
 }
@@ -290,11 +278,13 @@ func TestTaskStore_GetTask_WithStallInfo(t *testing.T) {
 	stallTime := time.Now().UTC()
 	stallReason := scanning.StallReasonNoProgress
 
-	// Create a stale task
-	task := scanning.ReconstructTask(
-		uuid.New(),
+	task := createTestTask(t, taskStore, job.JobID(), scanning.TaskStatusInProgress)
+
+	// Update the task with stall-specific information.
+	task = scanning.ReconstructTask(
+		task.TaskID(),
 		job.JobID(),
-		"",
+		task.ResourceURI(),
 		scanning.TaskStatusInProgress,
 		0,
 		stallTime.Add(-1*time.Hour), // Start time
@@ -348,7 +338,6 @@ func TestTaskStore_UpdateTask_StallTransition(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc // Capture range variable
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -359,7 +348,7 @@ func TestTaskStore_UpdateTask_StallTransition(t *testing.T) {
 
 			job := createTestScanJob(t, jobStore, ctx)
 
-			task := createTestTask(t, job.JobID(), scanning.TaskStatusInProgress)
+			task := createTestTask(t, taskStore, job.JobID(), scanning.TaskStatusInProgress)
 			err := taskStore.CreateTask(ctx, task)
 			require.NoError(t, err)
 
@@ -379,4 +368,29 @@ func TestTaskStore_UpdateTask_StallTransition(t *testing.T) {
 				loaded.StalledAt().Equal(beforeStale))
 		})
 	}
+}
+
+func TestTaskStore_GetTaskSourceType(t *testing.T) {
+	t.Parallel()
+	ctx, _, taskStore, jobStore, cleanup := setupTaskTest(t)
+	defer cleanup()
+
+	job := createTestScanJob(t, jobStore, ctx)
+	task := createTestTask(t, taskStore, job.JobID(), scanning.TaskStatusInProgress)
+	err := taskStore.CreateTask(ctx, task)
+	require.NoError(t, err)
+
+	sourceType, err := taskStore.GetTaskSourceType(ctx, task.TaskID())
+	require.NoError(t, err)
+	assert.Equal(t, shared.SourceType("test-resource-uri"), sourceType)
+}
+
+func TestTaskStore_GetTaskSourceType_NonExistent(t *testing.T) {
+	t.Parallel()
+	ctx, _, taskStore, _, cleanup := setupTaskTest(t)
+	defer cleanup()
+
+	sourceType, err := taskStore.GetTaskSourceType(ctx, uuid.New())
+	assert.ErrorIs(t, err, pgx.ErrNoRows)
+	assert.Empty(t, sourceType)
 }
