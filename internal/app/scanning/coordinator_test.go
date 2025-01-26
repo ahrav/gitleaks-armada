@@ -712,3 +712,53 @@ func TestGetTask(t *testing.T) {
 		})
 	}
 }
+
+func TestGetTaskSourceType(t *testing.T) {
+	taskID := uuid.MustParse("b1f7eff4-2921-4e6c-9d88-da2de5707a2b")
+
+	tests := []struct {
+		name           string
+		setup          func(*coordinatorTestSuite)
+		wantErr        bool
+		wantSourceType shared.SourceType
+	}{
+		{
+			name: "successful source type retrieval",
+			setup: func(s *coordinatorTestSuite) {
+				s.taskRepo.On("GetTaskSourceType", mock.Anything, taskID).
+					Return(shared.SourceType("test-resource-uri"), nil)
+			},
+			wantErr:        false,
+			wantSourceType: "test-resource-uri",
+		},
+		{
+			name: "task not found",
+			setup: func(s *coordinatorTestSuite) {
+				s.taskRepo.On("GetTaskSourceType", mock.Anything, taskID).
+					Return(shared.SourceType(""), assert.AnError)
+			},
+			wantErr:        true,
+			wantSourceType: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			suite := newCoordinatorTestSuite(t)
+			tt.setup(suite)
+
+			sourceType, err := suite.coord.GetTaskSourceType(context.Background(), taskID)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Empty(t, sourceType)
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantSourceType, sourceType)
+			suite.taskRepo.AssertExpectations(t)
+		})
+	}
+}
