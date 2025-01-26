@@ -480,52 +480,58 @@ func TestTaskStore_FindStaleTasks(t *testing.T) {
 		lastHeartbeat *time.Time
 		status        scanning.TaskStatus
 		shouldBeStale bool
+		count         int // Number of tasks to create with these conditions
 	}{
 		{
 			name:          "no heartbeat",
 			lastHeartbeat: nil,
 			status:        scanning.TaskStatusInProgress,
 			shouldBeStale: true,
+			count:         2, // Create two tasks with no heartbeat
 		},
 		{
 			name:          "stale heartbeat",
 			lastHeartbeat: &[]time.Time{now.Add(-10 * time.Minute)}[0],
 			status:        scanning.TaskStatusInProgress,
 			shouldBeStale: true,
+			count:         3, // Create three tasks with stale heartbeats
 		},
 		{
 			name:          "recent heartbeat",
 			lastHeartbeat: &[]time.Time{now.Add(-1 * time.Minute)}[0],
 			status:        scanning.TaskStatusInProgress,
 			shouldBeStale: false,
+			count:         1,
 		},
 		{
 			name:          "completed task with old heartbeat",
 			lastHeartbeat: &[]time.Time{now.Add(-10 * time.Minute)}[0],
 			status:        scanning.TaskStatusCompleted,
 			shouldBeStale: false,
+			count:         1,
 		},
 	}
 
 	var expectedStaleTasks []*scanning.Task
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			task := createTestTask(t, taskStore, job.JobID(), tc.status)
-			err := taskStore.CreateTask(ctx, task)
-			require.NoError(t, err)
-
-			// If a heartbeat time is specified, update it in the database.
-			if tc.lastHeartbeat != nil {
-				_, err := taskStore.q.BatchUpdateScanTaskHeartbeats(ctx, db.BatchUpdateScanTaskHeartbeatsParams{
-					TaskIds:         []pgtype.UUID{{Bytes: task.TaskID(), Valid: true}},
-					LastHeartbeatAt: pgtype.Timestamptz{Time: *tc.lastHeartbeat, Valid: true},
-					UpdatedAt:       pgtype.Timestamptz{Time: now, Valid: true},
-				})
+			for i := 0; i < tc.count; i++ {
+				task := createTestTask(t, taskStore, job.JobID(), tc.status)
+				err := taskStore.CreateTask(ctx, task)
 				require.NoError(t, err)
-			}
 
-			if tc.shouldBeStale {
-				expectedStaleTasks = append(expectedStaleTasks, task)
+				if tc.lastHeartbeat != nil {
+					_, err := taskStore.q.BatchUpdateScanTaskHeartbeats(ctx, db.BatchUpdateScanTaskHeartbeatsParams{
+						TaskIds:         []pgtype.UUID{{Bytes: task.TaskID(), Valid: true}},
+						LastHeartbeatAt: pgtype.Timestamptz{Time: *tc.lastHeartbeat, Valid: true},
+						UpdatedAt:       pgtype.Timestamptz{Time: now, Valid: true},
+					})
+					require.NoError(t, err)
+				}
+
+				if tc.shouldBeStale {
+					expectedStaleTasks = append(expectedStaleTasks, task)
+				}
 			}
 		})
 	}
@@ -533,7 +539,9 @@ func TestTaskStore_FindStaleTasks(t *testing.T) {
 	staleTasks, err := taskStore.FindStaleTasks(ctx, cutoff)
 	require.NoError(t, err)
 
+	// We should get back 5 stale tasks (2 with no heartbeat + 3 with stale heartbeat).
 	assert.Equal(t, len(expectedStaleTasks), len(staleTasks))
+	assert.Equal(t, 5, len(staleTasks), "should find all stale tasks (2 with no heartbeat + 3 with stale heartbeat)")
 
 	// Create maps for easier comparison.
 	expectedMap := make(map[uuid.UUID]bool)
