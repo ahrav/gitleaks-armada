@@ -184,15 +184,34 @@ SELECT
     last_checkpoint,
     stall_reason,
     stalled_at,
+    recovery_attempts,
     created_at,
     updated_at
 FROM scan_tasks
 WHERE task_id = $1
 `
 
-func (q *Queries) GetScanTask(ctx context.Context, taskID pgtype.UUID) (ScanTask, error) {
+type GetScanTaskRow struct {
+	TaskID           pgtype.UUID
+	JobID            pgtype.UUID
+	Status           ScanTaskStatus
+	ResourceUri      string
+	LastSequenceNum  int64
+	StartTime        pgtype.Timestamptz
+	EndTime          pgtype.Timestamptz
+	ItemsProcessed   int64
+	ProgressDetails  []byte
+	LastCheckpoint   []byte
+	StallReason      NullScanTaskStallReason
+	StalledAt        pgtype.Timestamptz
+	RecoveryAttempts int32
+	CreatedAt        pgtype.Timestamptz
+	UpdatedAt        pgtype.Timestamptz
+}
+
+func (q *Queries) GetScanTask(ctx context.Context, taskID pgtype.UUID) (GetScanTaskRow, error) {
 	row := q.db.QueryRow(ctx, getScanTask, taskID)
-	var i ScanTask
+	var i GetScanTaskRow
 	err := row.Scan(
 		&i.TaskID,
 		&i.JobID,
@@ -206,6 +225,7 @@ func (q *Queries) GetScanTask(ctx context.Context, taskID pgtype.UUID) (ScanTask
 		&i.LastCheckpoint,
 		&i.StallReason,
 		&i.StalledAt,
+		&i.RecoveryAttempts,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -237,6 +257,7 @@ SELECT
     t.last_checkpoint,
     t.stall_reason,
     t.stalled_at,
+    t.recovery_attempts,
     t.created_at,
     t.updated_at
 FROM scan_tasks t
@@ -250,15 +271,33 @@ type ListScanTasksByJobAndStatusParams struct {
 	Status ScanTaskStatus
 }
 
-func (q *Queries) ListScanTasksByJobAndStatus(ctx context.Context, arg ListScanTasksByJobAndStatusParams) ([]ScanTask, error) {
+type ListScanTasksByJobAndStatusRow struct {
+	TaskID           pgtype.UUID
+	JobID            pgtype.UUID
+	Status           ScanTaskStatus
+	ResourceUri      string
+	LastSequenceNum  int64
+	StartTime        pgtype.Timestamptz
+	EndTime          pgtype.Timestamptz
+	ItemsProcessed   int64
+	ProgressDetails  []byte
+	LastCheckpoint   []byte
+	StallReason      NullScanTaskStallReason
+	StalledAt        pgtype.Timestamptz
+	RecoveryAttempts int32
+	CreatedAt        pgtype.Timestamptz
+	UpdatedAt        pgtype.Timestamptz
+}
+
+func (q *Queries) ListScanTasksByJobAndStatus(ctx context.Context, arg ListScanTasksByJobAndStatusParams) ([]ListScanTasksByJobAndStatusRow, error) {
 	rows, err := q.db.Query(ctx, listScanTasksByJobAndStatus, arg.JobID, arg.Status)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ScanTask
+	var items []ListScanTasksByJobAndStatusRow
 	for rows.Next() {
-		var i ScanTask
+		var i ListScanTasksByJobAndStatusRow
 		if err := rows.Scan(
 			&i.TaskID,
 			&i.JobID,
@@ -272,6 +311,7 @@ func (q *Queries) ListScanTasksByJobAndStatus(ctx context.Context, arg ListScanT
 			&i.LastCheckpoint,
 			&i.StallReason,
 			&i.StalledAt,
+			&i.RecoveryAttempts,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -334,20 +374,22 @@ SET
     last_checkpoint = $7,
     stall_reason = $8,
     stalled_at = $9,
+    recovery_attempts = $10,
     updated_at = NOW()
 WHERE task_id = $1
 `
 
 type UpdateScanTaskParams struct {
-	TaskID          pgtype.UUID
-	Status          ScanTaskStatus
-	LastSequenceNum int64
-	EndTime         pgtype.Timestamptz
-	ItemsProcessed  int64
-	ProgressDetails []byte
-	LastCheckpoint  []byte
-	StallReason     NullScanTaskStallReason
-	StalledAt       pgtype.Timestamptz
+	TaskID           pgtype.UUID
+	Status           ScanTaskStatus
+	LastSequenceNum  int64
+	EndTime          pgtype.Timestamptz
+	ItemsProcessed   int64
+	ProgressDetails  []byte
+	LastCheckpoint   []byte
+	StallReason      NullScanTaskStallReason
+	StalledAt        pgtype.Timestamptz
+	RecoveryAttempts int32
 }
 
 func (q *Queries) UpdateScanTask(ctx context.Context, arg UpdateScanTaskParams) (int64, error) {
@@ -361,6 +403,7 @@ func (q *Queries) UpdateScanTask(ctx context.Context, arg UpdateScanTaskParams) 
 		arg.LastCheckpoint,
 		arg.StallReason,
 		arg.StalledAt,
+		arg.RecoveryAttempts,
 	)
 	if err != nil {
 		return 0, err

@@ -71,6 +71,7 @@ func createTestTask(t *testing.T, store *taskStore, jobID uuid.UUID, status scan
 		nil,
 		scanning.ReasonPtr(scanning.StallReasonNoProgress),
 		time.Time{},
+		0,
 	)
 }
 
@@ -130,6 +131,7 @@ func TestTaskStore_UpdateTask(t *testing.T) {
 		checkpoint,
 		scanning.ReasonPtr(scanning.StallReasonNoProgress),
 		time.Time{},
+		0,
 	)
 
 	err = taskStore.UpdateTask(ctx, updatedTask)
@@ -294,6 +296,7 @@ func TestTaskStore_GetTask_WithStallInfo(t *testing.T) {
 		nil,                         // Checkpoint
 		scanning.ReasonPtr(stallReason),
 		stallTime,
+		0,
 	)
 
 	err := taskStore.CreateTask(ctx, task)
@@ -393,4 +396,72 @@ func TestTaskStore_GetTaskSourceType_NonExistent(t *testing.T) {
 	sourceType, err := taskStore.GetTaskSourceType(ctx, uuid.New())
 	assert.ErrorIs(t, err, pgx.ErrNoRows)
 	assert.Empty(t, sourceType)
+}
+
+func TestTaskStore_UpdateTask_RecoveryFromStale(t *testing.T) {
+	t.Parallel()
+	ctx, _, taskStore, jobStore, cleanup := setupTaskTest(t)
+	defer cleanup()
+
+	job := createTestScanJob(t, jobStore, ctx)
+	task := createTestTask(t, taskStore, job.JobID(), scanning.TaskStatusInProgress)
+
+	err := taskStore.CreateTask(ctx, task)
+	require.NoError(t, err)
+
+	// First stale cycle.
+	reason := scanning.StallReasonNoProgress
+	err = task.MarkStale(&reason)
+	require.NoError(t, err)
+
+	err = taskStore.UpdateTask(ctx, task)
+	require.NoError(t, err)
+
+	stalledTask, err := taskStore.GetTask(ctx, task.TaskID())
+	require.NoError(t, err)
+	assert.Equal(t, scanning.TaskStatusStale, stalledTask.Status())
+	assert.Equal(t, &reason, stalledTask.StallReason())
+	assert.False(t, stalledTask.StalledAt().IsZero())
+	assert.Equal(t, 0, stalledTask.RecoveryAttempts())
+
+	// Simulate recovery with progress update.
+	progress := scanning.NewProgress(task.TaskID(), 10, time.Now(), 100, 0, "", nil, nil)
+	err = stalledTask.ApplyProgress(progress)
+
+	require.NoError(t, err)
+
+	err = taskStore.UpdateTask(ctx, stalledTask)
+	require.NoError(t, err)
+
+	// Verify recovery state.
+	recoveredTask, err := taskStore.GetTask(ctx, task.TaskID())
+	require.NoError(t, err)
+	assert.Equal(t, scanning.TaskStatusInProgress, recoveredTask.Status())
+	assert.Nil(t, recoveredTask.StallReason())
+	assert.True(t, recoveredTask.StalledAt().IsZero())
+	assert.Equal(t, 1, recoveredTask.RecoveryAttempts())
+
+	// Second stale cycle.
+	err = recoveredTask.MarkStale(&reason)
+	require.NoError(t, err)
+
+	err = taskStore.UpdateTask(ctx, recoveredTask)
+	require.NoError(t, err)
+
+	// Second recovery.
+	progress = scanning.NewProgress(task.TaskID(), 20, time.Now(), 100, 0, "", nil, nil)
+	err = recoveredTask.ApplyProgress(progress)
+	require.NoError(t, err)
+
+	err = taskStore.UpdateTask(ctx, recoveredTask)
+	require.NoError(t, err)
+
+	// Verify multiple recovery attempts are tracked.
+	finalTask, err := taskStore.GetTask(ctx, task.TaskID())
+	require.NoError(t, err)
+	assert.Equal(t, scanning.TaskStatusInProgress, finalTask.Status())
+	assert.Nil(t, finalTask.StallReason())
+	assert.True(t, finalTask.StalledAt().IsZero())
+	assert.Equal(t, 2, finalTask.RecoveryAttempts())
+	assert.Equal(t, int64(20), finalTask.LastSequenceNum())
 }

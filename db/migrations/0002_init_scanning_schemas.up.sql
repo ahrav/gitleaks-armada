@@ -60,6 +60,7 @@ CREATE TABLE scan_tasks (
     progress_details  JSONB,
     last_checkpoint   JSONB,
     stall_reason      scan_task_stall_reason,
+    recovery_attempts INT NOT NULL DEFAULT 0,
     stalled_at        TIMESTAMPTZ,
     created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),

@@ -222,10 +222,10 @@ type Task struct {
 
 	resourceURI string
 
-	status      TaskStatus
-	stallReason *StallReason
-	stalledAt   time.Time
-	// RecoveryAttempts int
+	status           TaskStatus
+	stallReason      *StallReason
+	stalledAt        time.Time
+	recoveryAttempts int // Track number of times task has recovered from STALE state
 
 	lastSequenceNum int64
 	timeline        *Timeline
@@ -280,21 +280,23 @@ func ReconstructTask(
 	lastCheckpoint *Checkpoint,
 	stallReason *StallReason,
 	stalledAt time.Time,
+	recoveryAttempts int,
 ) *Task {
 	return &Task{
 		CoreTask: shared.CoreTask{
 			ID: taskID,
 		},
-		jobID:           jobID,
-		resourceURI:     resourceURI,
-		status:          status,
-		lastSequenceNum: lastSequenceNum,
-		timeline:        ReconstructTimeline(startTime, endTime, time.Time{}),
-		itemsProcessed:  itemsProcessed,
-		progressDetails: progressDetails,
-		lastCheckpoint:  lastCheckpoint,
-		stallReason:     stallReason,
-		stalledAt:       stalledAt,
+		jobID:            jobID,
+		resourceURI:      resourceURI,
+		status:           status,
+		lastSequenceNum:  lastSequenceNum,
+		timeline:         ReconstructTimeline(startTime, endTime, time.Time{}),
+		itemsProcessed:   itemsProcessed,
+		progressDetails:  progressDetails,
+		lastCheckpoint:   lastCheckpoint,
+		stallReason:      stallReason,
+		stalledAt:        stalledAt,
+		recoveryAttempts: recoveryAttempts,
 	}
 }
 
@@ -340,6 +342,9 @@ func (t *Task) StalledDuration() time.Duration {
 	return time.Since(t.stalledAt)
 }
 
+// RecoveryAttempts returns the number of times this task has recovered from a stale state
+func (t *Task) RecoveryAttempts() int { return t.recoveryAttempts }
+
 // IsInProgress returns true if the task is in the IN_PROGRESS state.
 func (t *Task) IsInProgress() bool { return t.status == TaskStatusInProgress }
 
@@ -380,19 +385,22 @@ func (t *Task) isSeqNumValid(progress Progress) bool {
 	return progress.SequenceNum() > t.lastSequenceNum
 }
 
-// UpdateProgress applies a progress update to this task's state.
+// updateProgress applies a progress update to this task's state.
 // It updates all monitoring metrics and preserves any checkpoint data.
 func (t *Task) updateProgress(progress Progress) {
+	// If task was previously stale, record recovery and reset stale-related fields.
+	// TODO: Consider setting a threshold for recovery attempts.
+	if t.status == TaskStatusStale {
+		t.recoveryAttempts++
+		t.status = TaskStatusInProgress
+		t.stallReason = nil
+		t.stalledAt = time.Time{} // Zero value to indicate no current stall
+	}
+
 	t.lastSequenceNum = progress.SequenceNum()
 	t.timeline.UpdateLastUpdate()
 	t.itemsProcessed += progress.ItemsProcessed()
 	t.progressDetails = progress.ProgressDetails()
-
-	// Update task status based on progress metrics
-	// TODO: This could be nice to have...
-	// if progress.ErrorCount() > someThreshold {
-	// 	t.status = TaskStatusFailed
-	// }
 
 	if progress.Checkpoint() != nil {
 		t.lastCheckpoint = progress.Checkpoint()

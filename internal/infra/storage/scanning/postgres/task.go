@@ -95,6 +95,12 @@ func (s *taskStore) GetTask(ctx context.Context, taskID uuid.UUID) (*scanning.Ta
 			}
 		}
 
+		var stallReason *scanning.StallReason
+		if row.StallReason.Valid {
+			r := scanning.StallReason(row.StallReason.ScanTaskStallReason)
+			stallReason = &r
+		}
+
 		domainTask = scanning.ReconstructTask(
 			row.TaskID.Bytes,
 			row.JobID.Bytes,
@@ -106,8 +112,9 @@ func (s *taskStore) GetTask(ctx context.Context, taskID uuid.UUID) (*scanning.Ta
 			row.ItemsProcessed,
 			row.ProgressDetails,
 			checkpoint,
-			scanning.ReasonPtr(scanning.StallReason(row.StallReason.ScanTaskStallReason)),
+			stallReason,
 			row.StalledAt.Time,
+			int(row.RecoveryAttempts),
 		)
 		return nil
 	})
@@ -146,23 +153,22 @@ func (s *taskStore) UpdateTask(ctx context.Context, task *scanning.Task) error {
 		}
 
 		var stallReason db.NullScanTaskStallReason
-		if sr := task.StallReason(); sr != nil {
-			stallReason = db.NullScanTaskStallReason{
-				ScanTaskStallReason: db.ScanTaskStallReason(*sr),
-				Valid:               true,
-			}
+		if task.StallReason() != nil {
+			stallReason.Valid = true
+			stallReason.ScanTaskStallReason = db.ScanTaskStallReason(*task.StallReason())
 		}
 
 		params := db.UpdateScanTaskParams{
-			TaskID:          pgtype.UUID{Bytes: task.TaskID(), Valid: true},
-			Status:          db.ScanTaskStatus(task.Status()),
-			LastSequenceNum: task.LastSequenceNum(),
-			EndTime:         endTime,
-			ItemsProcessed:  task.ItemsProcessed(),
-			ProgressDetails: task.ProgressDetails(),
-			LastCheckpoint:  checkpointJSON,
-			StallReason:     stallReason,
-			StalledAt:       pgtype.Timestamptz{Time: task.StalledAt(), Valid: !task.StalledAt().IsZero()},
+			TaskID:           pgtype.UUID{Bytes: task.TaskID(), Valid: true},
+			Status:           db.ScanTaskStatus(task.Status()),
+			LastSequenceNum:  task.LastSequenceNum(),
+			EndTime:          endTime,
+			ItemsProcessed:   task.ItemsProcessed(),
+			ProgressDetails:  task.ProgressDetails(),
+			LastCheckpoint:   checkpointJSON,
+			StallReason:      stallReason,
+			StalledAt:        pgtype.Timestamptz{Time: task.StalledAt(), Valid: !task.StalledAt().IsZero()},
+			RecoveryAttempts: int32(task.RecoveryAttempts()),
 		}
 
 		rowsAff, err := s.q.UpdateScanTask(ctx, params)
@@ -226,6 +232,7 @@ func (s *taskStore) ListTasksByJobAndStatus(
 				checkpoint,
 				scanning.ReasonPtr(scanning.StallReason(row.StallReason.ScanTaskStallReason)),
 				row.StalledAt.Time,
+				int(row.RecoveryAttempts),
 			)
 			results = append(results, t)
 		}

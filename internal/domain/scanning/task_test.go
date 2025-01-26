@@ -56,14 +56,15 @@ func TestTask_ApplyProgress(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		setupTask   func() *Task
-		progress    Progress
-		wantStatus  TaskStatus
-		wantItems   int64
-		wantSeqNum  int64
-		wantErr     bool
-		checkpoints bool
+		name                 string
+		setupTask            func() *Task
+		progress             Progress
+		wantStatus           TaskStatus
+		wantItems            int64
+		wantSeqNum           int64
+		wantErr              bool
+		checkpoints          bool
+		wantRecoveryAttempts int
 	}{
 		{
 			name: "basic progress update",
@@ -110,10 +111,54 @@ func TestTask_ApplyProgress(t *testing.T) {
 			wantSeqNum: 2,                    // Should not change
 			wantErr:    true,
 		},
+		{
+			name: "recover from stale state",
+			setupTask: func() *Task {
+				task := NewScanTask(uuid.New(), uuid.New(), "https://example.com")
+				reason := StallReasonNoProgress
+				_ = task.MarkStale(&reason)
+				return task
+			},
+			progress: Progress{
+				sequenceNum:    1,
+				itemsProcessed: 100,
+				timestamp:      time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+			},
+			wantStatus:           TaskStatusInProgress,
+			wantItems:            100,
+			wantSeqNum:           1,
+			wantRecoveryAttempts: 1,
+		},
+		{
+			name: "multiple recoveries from stale state",
+			setupTask: func() *Task {
+				task := NewScanTask(uuid.New(), uuid.New(), "https://example.com")
+				reason := StallReasonNoProgress
+
+				// First stale cycle.
+				_ = task.MarkStale(&reason)
+				_ = task.ApplyProgress(Progress{
+					taskID:      task.TaskID(),
+					sequenceNum: 1,
+				})
+
+				// Second stale cycle.
+				_ = task.MarkStale(&reason)
+				return task
+			},
+			progress: Progress{
+				sequenceNum:    2,
+				itemsProcessed: 100,
+				timestamp:      time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+			},
+			wantStatus:           TaskStatusInProgress,
+			wantItems:            100,
+			wantSeqNum:           2,
+			wantRecoveryAttempts: 2,
+		},
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -138,6 +183,12 @@ func TestTask_ApplyProgress(t *testing.T) {
 			if tt.checkpoints {
 				assert.NotNil(t, task.LastCheckpoint())
 				assert.Equal(t, tt.progress.Checkpoint().ResumeToken(), task.LastCheckpoint().ResumeToken())
+			}
+			assert.Equal(t, tt.wantRecoveryAttempts, task.RecoveryAttempts())
+
+			if tt.wantRecoveryAttempts > 0 {
+				assert.Nil(t, task.StallReason())
+				assert.True(t, task.StalledAt().IsZero())
 			}
 		})
 	}
@@ -220,7 +271,6 @@ func TestTask_Complete(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -268,6 +318,7 @@ func TestTask_Fail(t *testing.T) {
 				nil,
 				nil,
 				time.Time{},
+				0,
 			),
 			wantErr: false,
 		},
@@ -286,6 +337,7 @@ func TestTask_Fail(t *testing.T) {
 				nil,
 				nil,
 				time.Time{},
+				0,
 			),
 			wantErr: false,
 		},
@@ -304,6 +356,7 @@ func TestTask_Fail(t *testing.T) {
 				nil,
 				nil,
 				time.Time{},
+				0,
 			),
 			wantErr: true,
 			errType: TaskInvalidStateError{},
@@ -323,6 +376,7 @@ func TestTask_Fail(t *testing.T) {
 				nil,
 				nil,
 				time.Time{},
+				0,
 			),
 			wantErr: true,
 			errType: TaskInvalidStateError{},
@@ -382,6 +436,7 @@ func TestTask_MarkStale(t *testing.T) {
 				nil,
 				nil,
 				time.Time{},
+				0,
 			),
 			reason:  ReasonPtr(StallReasonNoProgress),
 			wantErr: false,
@@ -401,6 +456,7 @@ func TestTask_MarkStale(t *testing.T) {
 				nil,
 				nil,
 				time.Time{},
+				0,
 			),
 			reason:  nil,
 			wantErr: true,
@@ -420,6 +476,7 @@ func TestTask_MarkStale(t *testing.T) {
 				nil,
 				nil,
 				time.Time{},
+				0,
 			),
 			reason:  nil,
 			wantErr: true,
@@ -439,6 +496,7 @@ func TestTask_MarkStale(t *testing.T) {
 				nil,
 				nil,
 				time.Time{},
+				0,
 			),
 			reason:  nil,
 			wantErr: true,

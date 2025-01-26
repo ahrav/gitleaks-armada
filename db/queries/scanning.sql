@@ -81,6 +81,7 @@ SELECT
     last_checkpoint,
     stall_reason,
     stalled_at,
+    recovery_attempts,
     created_at,
     updated_at
 FROM scan_tasks
@@ -97,6 +98,7 @@ SET
     last_checkpoint = $7,
     stall_reason = $8,
     stalled_at = $9,
+    recovery_attempts = $10,
     updated_at = NOW()
 WHERE task_id = $1;
 
@@ -114,6 +116,7 @@ SELECT
     t.last_checkpoint,
     t.stall_reason,
     t.stalled_at,
+    t.recovery_attempts,
     t.created_at,
     t.updated_at
 FROM scan_tasks t
