@@ -149,7 +149,7 @@ func (s *Scanner) runURLScan(
 		trace.WithAttributes(attribute.Int("findings.count", len(findings))))
 	detectSpan.End()
 
-	s.logger.Info(ctx, "found findings in URL-based data",
+	s.logger.Info(ctx, "URLScanner: found findings in URL-based data",
 		"url", task.ResourceURI,
 		"num_findings", len(findings),
 	)
@@ -371,6 +371,8 @@ func (w *WarcGzReader) Read(
 
 	go func() {
 		var totalSize int64
+		const batchSize = 1000 // Number of records to process before reporting progress
+		var lastReportedCount int64
 
 		defer func() {
 			if w.sizeCallback != nil {
@@ -391,6 +393,11 @@ func (w *WarcGzReader) Read(
 
 			record, _, _, err := warcReader.Next()
 			if errors.Is(err, io.EOF) {
+				// Report final progress if we haven't reported for this batch
+				if recordCount > lastReportedCount {
+					scanCtx.ReportProgress(ctx, recordCount,
+						fmt.Sprintf("Processed %d WARC records", recordCount))
+				}
 				return
 			}
 			if err != nil {
@@ -406,7 +413,12 @@ func (w *WarcGzReader) Read(
 				continue
 			}
 
-			scanCtx.ReportProgress(ctx, recordCount, fmt.Sprintf("Processing WARC record %d", recordCount))
+			// Report progress every batchSize records or on the first record.
+			if recordCount%batchSize == 0 || recordCount == 1 {
+				scanCtx.ReportProgress(ctx, recordCount,
+					fmt.Sprintf("Processing WARC record %d", recordCount))
+				lastReportedCount = recordCount
+			}
 
 			bodyReader, err := record.Block().RawBytes()
 			if err != nil {
@@ -420,7 +432,7 @@ func (w *WarcGzReader) Read(
 				return
 			}
 
-			totalSize += size // Accumulate total size
+			totalSize += size
 		}
 	}()
 

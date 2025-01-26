@@ -108,7 +108,7 @@ func (s *ScannerService) Run(ctx context.Context) error {
 			attribute.Int("num_workers", s.workers),
 		))
 
-	s.logger.Info(initCtx, "Starting scanner service", "id", s.id, "workers", s.workers)
+	s.logger.Info(initCtx, "ScannerService: Starting scanner service", "id", s.id, "workers", s.workers)
 
 	initSpan.AddEvent("starting_workers")
 	s.workerWg.Add(s.workers)
@@ -130,7 +130,7 @@ func (s *ScannerService) Run(ctx context.Context) error {
 		s.handleEvent,
 	)
 	if err != nil {
-		s.logger.Error(initCtx, "Failed to subscribe to events", "err", err)
+		s.logger.Error(initCtx, "ScannerService: Failed to subscribe to events", "err", err)
 		initSpan.RecordError(err)
 		initSpan.SetStatus(codes.Error, "failed to subscribe to events")
 		initSpan.End()
@@ -140,7 +140,7 @@ func (s *ScannerService) Run(ctx context.Context) error {
 	initSpan.End()
 
 	<-initCtx.Done()
-	s.logger.Info(initCtx, "Scanner service stopping", "id", s.id)
+	s.logger.Info(initCtx, "ScannerService: Stopping scanner service", "id", s.id)
 
 	_, shutdownSpan := s.tracer.Start(initCtx, "scanner_service.scanning.shutdown")
 	defer shutdownSpan.End()
@@ -266,7 +266,7 @@ func (s *ScannerService) handleTaskResumeEvent(ctx context.Context, evt events.E
 		return fmt.Errorf("invalid resume event payload: %T", evt.Payload)
 	}
 
-	s.logger.Info(ctx, "Resuming task",
+	s.logger.Info(ctx, "ScannerService: Resuming task",
 		"task_id", rEvt.TaskID,
 		"job_id", rEvt.JobID,
 		"resource_uri", rEvt.ResourceURI,
@@ -285,13 +285,18 @@ func (s *ScannerService) handleTaskResumeEvent(ctx context.Context, evt events.E
 		defer func() { <-s.highPrioritySem }()
 
 		if err := s.executeScanTask(ctx, req); err != nil {
-			s.logger.Error(ctx, "Failed to handle scan task", "err", err)
+			s.logger.Error(ctx, "ScannerService: Failed to handle scan task", "err", err)
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "failed to handle scan task")
 			return
 		}
 		span.AddEvent("resume_task_handled")
 		span.SetStatus(codes.Ok, "resume_task_handled")
+		s.logger.Info(ctx, "ScannerService: Resumed task successfully",
+			"task_id", req.TaskID,
+			"job_id", req.JobID,
+			"resource_uri", req.ResourceURI,
+		)
 	}()
 
 	span.AddEvent("resume_task_spawned")
@@ -310,7 +315,7 @@ func (s *ScannerService) handleTaskResumeEvent(ctx context.Context, evt events.E
 // We need this in the event of a worker panicking, as we need to consume from the higher priority
 // resume task queue. This avoids having an in-progress task stuck behind other not started tasks.
 func (s *ScannerService) workerLoop(ctx context.Context, workerID int) {
-	s.logger.Info(ctx, "Starting scanner worker", "worker_id", workerID)
+	s.logger.Info(ctx, "ScannerService: Starting scanner worker", "worker_id", workerID)
 
 	for {
 		func() {
@@ -327,23 +332,23 @@ func (s *ScannerService) workerLoop(ctx context.Context, workerID int) {
 					defer rspan.End()
 
 					err := fmt.Errorf("worker panic: %v", r)
-					s.logger.Error(rctx, "Worker panic",
+					s.logger.Error(rctx, "ScannerService: Worker panic",
 						"worker_id", workerID, "panic", r)
 					rspan.RecordError(err)
 					rspan.SetStatus(codes.Error, "worker panic")
 				}
 			}()
 
-			s.logger.Info(ctx, "Worker starting", "worker_id", workerID)
+			s.logger.Info(ctx, "ScannerService: Worker starting", "worker_id", workerID)
 			s.doWorkerLoop(ctx, workerID)
 		}()
 
 		select {
 		case <-ctx.Done():
-			s.logger.Info(ctx, "Worker stopping", "worker_id", workerID)
+			s.logger.Info(ctx, "ScannerService: Worker stopping", "worker_id", workerID)
 			return
 		case <-s.stopCh:
-			s.logger.Info(ctx, "Worker stopping", "worker_id", workerID)
+			s.logger.Info(ctx, "ScannerService: Worker stopping", "worker_id", workerID)
 			return
 		case <-time.After(1 * time.Second): // Delay restart to prevent tight loop on persistent panics
 		}
@@ -371,7 +376,7 @@ func (s *ScannerService) doWorkerLoop(ctx context.Context, workerID int) {
 			if err != nil {
 				taskSpan.RecordError(err)
 				taskSpan.SetStatus(codes.Error, "failed to handle scan task")
-				s.logger.Error(taskCtx, "Failed to handle scan task",
+				s.logger.Error(taskCtx, "ScannerService: Failed to handle scan task",
 					"worker_id", workerID,
 					"task_id", task.TaskID,
 					"error", err)
@@ -394,7 +399,7 @@ func (s *ScannerService) handleScanTask(ctx context.Context, req *dtos.ScanReque
 		))
 	defer span.End()
 
-	s.logger.Info(ctx, "Handling scan task", "resource_uri", req.ResourceURI)
+	s.logger.Info(ctx, "ScannerService: Handling scan task", "resource_uri", req.ResourceURI)
 	span.AddEvent("starting_scan")
 
 	startedEvt := scanning.NewTaskStartedEvent(req.JobID, req.TaskID, req.ResourceURI)
@@ -441,11 +446,11 @@ func (s *ScannerService) executeScanTask(ctx context.Context, req *dtos.ScanRequ
 			}
 			span.AddEvent("task_failed_event_published")
 
-			s.logger.Error(ctx, "Failed to start streaming scan", "err", err)
+			s.logger.Error(ctx, "ScannerService: Failed to start streaming scan", "err", err)
 			return fmt.Errorf("failed to track task: %w", err)
 		}
 
-		s.logger.Info(ctx, "Scan context cancelled, task will be handled by staleness detection",
+		s.logger.Info(ctx, "ScannerService: Scan context cancelled, task will be handled by staleness detection",
 			"task_id", req.TaskID,
 			"job_id", req.JobID)
 		span.AddEvent("scan_context_cancelled")
@@ -460,6 +465,7 @@ func (s *ScannerService) executeScanTask(ctx context.Context, req *dtos.ScanRequ
 	}
 	span.AddEvent("task_completed_event_published")
 	span.SetStatus(codes.Ok, "task completed")
+	s.logger.Info(ctx, "ScannerService: Scan task completed", "task_id", req.TaskID, "job_id", req.JobID)
 
 	return nil
 }
@@ -486,7 +492,7 @@ func (s *ScannerService) consumeStream(
 				// Publish the heartbeat event for this task.
 				evt := scanning.NewTaskHeartbeatEvent(taskID)
 				if pErr := s.domainPublisher.PublishDomainEvent(ctx, evt); pErr != nil {
-					s.logger.Error(ctx, "failed to publish heartbeat event", "err", pErr)
+					s.logger.Error(ctx, "ScannerService: failed to publish heartbeat event", "err", pErr)
 				}
 			}
 
@@ -494,7 +500,7 @@ func (s *ScannerService) consumeStream(
 			if !ok {
 				findingsChan = nil
 			} else {
-				s.logger.Info(ctx, "Got finding", "task_id", taskID, "finding", f)
+				s.logger.Info(ctx, "ScannerService: Got finding", "task_id", taskID, "finding", f)
 				// TODO: Publish...
 			}
 

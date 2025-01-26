@@ -105,6 +105,11 @@ func (t *executionTracker) HandleTaskStart(ctx context.Context, evt scanning.Tas
 	}
 	span.AddEvent("task_started")
 	span.SetStatus(codes.Ok, "tracking started")
+	t.logger.Info(ctx, "ExecutionTracker: Task started",
+		"task_id", taskID,
+		"job_id", jobID,
+		"resource_uri", resourceURI,
+	)
 
 	return nil
 }
@@ -130,6 +135,7 @@ func (t *executionTracker) HandleTaskProgress(ctx context.Context, evt scanning.
 	}
 	span.AddEvent("task_progress_updated")
 	span.SetStatus(codes.Ok, "task progress updated")
+	t.logger.Info(ctx, "ExecutionTracker: Task progress updated", "task_id", taskID)
 
 	return nil
 }
@@ -155,6 +161,7 @@ func (t *executionTracker) HandleTaskCompletion(ctx context.Context, evt scannin
 	}
 	span.AddEvent("task_completed")
 	span.SetStatus(codes.Ok, "task tracking stopped")
+	t.logger.Info(ctx, "ExecutionTracker: Task completed", "task_id", taskID, "job_id", evt.JobID)
 
 	return nil
 }
@@ -180,6 +187,7 @@ func (t *executionTracker) HandleTaskFailure(ctx context.Context, evt scanning.T
 	}
 	span.AddEvent("task_failed_successfully")
 	span.SetStatus(codes.Ok, "task failed")
+	t.logger.Info(ctx, "ExecutionTracker: Task failed", "task_id", taskID, "job_id", evt.JobID)
 
 	return nil
 }
@@ -188,8 +196,8 @@ func (t *executionTracker) HandleTaskFailure(ctx context.Context, evt scanning.T
 // 1. Marking the task as STALE in the job aggregate
 // 2. Publishing a domain event to notify other components
 // 3. Recording the event for system observability
-func (et *executionTracker) HandleTaskStale(ctx context.Context, evt scanning.TaskStaleEvent) error {
-	ctx, span := et.tracer.Start(ctx, "execution_tracker.markTaskStale",
+func (t *executionTracker) HandleTaskStale(ctx context.Context, evt scanning.TaskStaleEvent) error {
+	ctx, span := t.tracer.Start(ctx, "execution_tracker.markTaskStale",
 		trace.WithAttributes(
 			attribute.String("task_id", evt.TaskID.String()),
 			attribute.String("job_id", evt.JobID.String()),
@@ -198,14 +206,14 @@ func (et *executionTracker) HandleTaskStale(ctx context.Context, evt scanning.Ta
 		))
 	defer span.End()
 
-	task, err := et.jobService.MarkTaskStale(ctx, evt.JobID, evt.TaskID, evt.Reason)
+	task, err := t.jobService.MarkTaskStale(ctx, evt.JobID, evt.TaskID, evt.Reason)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to mark task as stale")
 		return err
 	}
 
-	sourceType, err := et.jobService.GetTaskSourceType(ctx, task.TaskID())
+	sourceType, err := t.jobService.GetTaskSourceType(ctx, task.TaskID())
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to get task source type")
@@ -223,13 +231,18 @@ func (et *executionTracker) HandleTaskStale(ctx context.Context, evt scanning.Ta
 		int(task.LastSequenceNum()),
 		task.LastCheckpoint(),
 	)
-	if err := et.domainPublisher.PublishDomainEvent(ctx, resumeEvent); err != nil {
+	if err := t.domainPublisher.PublishDomainEvent(ctx, resumeEvent); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to publish task resume event")
 		return err
 	}
 	span.AddEvent("task_marked_stale_and_resume_task_event_published")
 	span.SetStatus(codes.Ok, "task marked stale and resume task event published")
+	t.logger.Info(ctx, "ExecutionTracker: Task marked stale and resume task event published",
+		"task_id", evt.TaskID, "job_id", evt.JobID,
+		"reason", evt.Reason,
+		"stalled_since", evt.StalledSince,
+	)
 
 	return nil
 }

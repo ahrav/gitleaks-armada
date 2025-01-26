@@ -335,6 +335,7 @@ func TestUpdateTaskProgress(t *testing.T) {
 					nil,
 					scanning.ReasonPtr(scanning.StallReasonNoProgress),
 					time.Time{},
+					0,
 				)
 
 				job := scanning.ReconstructJob(
@@ -611,6 +612,7 @@ func TestMarkTaskStale(t *testing.T) {
 					nil,
 					nil,
 					time.Time{},
+					0,
 				)
 
 				s.taskRepo.On("GetTask", mock.Anything, taskID).

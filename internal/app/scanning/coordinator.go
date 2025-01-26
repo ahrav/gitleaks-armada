@@ -332,15 +332,22 @@ func (s *scanJobCoordinator) UpdateTaskProgress(ctx context.Context, progress do
 		span.SetStatus(codes.Error, "failed to load task")
 		return nil, fmt.Errorf("load task: %w", err)
 	}
+	span.SetAttributes(
+		attribute.String("task_status", string(task.Status())),
+	)
 
 	if err := task.ApplyProgress(progress); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to apply progress update")
 		return nil, fmt.Errorf("apply progress: %w", err)
 	}
-	span.AddEvent("progress_applied")
+	span.AddEvent("progress_applied",
+		trace.WithAttributes(
+			attribute.String("task_status", string(task.Status())),
+		),
+	)
 
-	if time.Since(task.EndTime()) >= s.persistInterval {
+	if time.Since(task.LastUpdate()) >= s.persistInterval {
 		if err := s.taskRepo.UpdateTask(ctx, task); err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "failed to persist updated task")

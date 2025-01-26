@@ -328,6 +328,9 @@ func (t *Task) StartTime() time.Time { return t.timeline.StartedAt() }
 // EndTime returns when this task last reported progress.
 func (t *Task) EndTime() time.Time { return t.timeline.CompletedAt() }
 
+// LastUpdate returns the time this task was last updated.
+func (t *Task) LastUpdate() time.Time { return t.timeline.LastUpdate() }
+
 // StallReason returns the reason this task is stalled.
 func (t *Task) StallReason() *StallReason { return t.stallReason }
 

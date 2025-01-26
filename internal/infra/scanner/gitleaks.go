@@ -116,7 +116,7 @@ func (s *Gitleaks) GetRules(ctx context.Context) (<-chan rules.GitleaksRuleMessa
 			case <-ctx.Done():
 				span.SetStatus(codes.Error, "context cancelled")
 				span.RecordError(ctx.Err())
-				s.logger.Warn(ctx, "Context cancelled while streaming rules")
+				s.logger.Warn(ctx, "GitleaksScanner: Context cancelled while streaming rules")
 				return
 			default:
 			}
@@ -131,7 +131,7 @@ func (s *Gitleaks) GetRules(ctx context.Context) (<-chan rules.GitleaksRuleMessa
 			case <-ctx.Done():
 				span.SetStatus(codes.Error, "context cancelled")
 				span.RecordError(ctx.Err())
-				s.logger.Warn(ctx, "Context cancelled while streaming rules")
+				s.logger.Warn(ctx, "GitleaksScanner: Context cancelled while streaming rules")
 				return
 			case ruleChan <- msg:
 				span.AddEvent("rule_streamed", trace.WithAttributes(

@@ -168,6 +168,7 @@ func (h *HeartbeatMonitor) checkForStaleTasks(ctx context.Context, threshold tim
 			span.AddEvent("stale_task_marked", trace.WithAttributes(
 				attribute.String("task_id", tID.String()),
 			))
+			h.logger.Info(ctx, "HeartbeatMonitor: Stale task marked", "task_id", tID)
 		}
 
 		// Clean up monitoring regardless of task state.
