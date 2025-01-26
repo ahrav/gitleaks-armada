@@ -4,6 +4,7 @@ package scanning
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"runtime"
 	"strconv"
@@ -294,6 +295,7 @@ func (s *ScannerService) handleTaskResumeEvent(ctx context.Context, evt events.E
 		defer func() { <-s.highPrioritySem }()
 
 		if err := s.executeScanTask(ctx, req); err != nil {
+			s.logger.Error(ctx, "Failed to handle scan task", "err", err)
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "failed to handle scan task")
 			return
@@ -405,16 +407,13 @@ func (s *ScannerService) handleScanTask(ctx context.Context, req *dtos.ScanReque
 	s.logger.Info(ctx, "Handling scan task", "resource_uri", req.ResourceURI)
 	span.AddEvent("starting_scan")
 
-	// Publish task started event only for new tasks, not resumed ones
-	if _, hasCheckpoint := req.Metadata["checkpoint"]; !hasCheckpoint {
-		startedEvt := scanning.NewTaskStartedEvent(req.JobID, req.TaskID, req.ResourceURI)
-		if err := s.domainPublisher.PublishDomainEvent(ctx, startedEvt); err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "failed to publish task started event")
-			return fmt.Errorf("failed to publish task started event: %w", err)
-		}
-		span.AddEvent("task_started_event_published")
+	startedEvt := scanning.NewTaskStartedEvent(req.JobID, req.TaskID, req.ResourceURI)
+	if err := s.domainPublisher.PublishDomainEvent(ctx, startedEvt); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to publish task started event")
+		return fmt.Errorf("failed to publish task started event: %w", err)
 	}
+	span.AddEvent("task_started_event_published")
 
 	return s.executeScanTask(ctx, req)
 }
@@ -436,19 +435,31 @@ func (s *ScannerService) executeScanTask(ctx context.Context, req *dtos.ScanRequ
 
 		return s.consumeStream(ctx, req.TaskID, streamResult)
 	})
+
+	// Only fail the task if it's not a context cancellation error.
+	// This allows the task to be handled by staleness detection and get resumed.
 	if err != nil {
+		s.logger.Error(ctx, "Failed to start streaming scan", "err", err)
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to track task")
 
-		failEvt := scanning.NewTaskFailedEvent(req.JobID, req.TaskID, err.Error())
-		if err := s.domainPublisher.PublishDomainEvent(ctx, failEvt); err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "failed to publish task failed event")
-			return fmt.Errorf("failed to publish task failed event: %w", err)
-		}
-		span.AddEvent("task_failed_event_published")
+		if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+			failEvt := scanning.NewTaskFailedEvent(req.JobID, req.TaskID, err.Error())
+			if err := s.domainPublisher.PublishDomainEvent(ctx, failEvt); err != nil {
+				span.RecordError(err)
+				span.SetStatus(codes.Error, "failed to publish task failed event")
+				return fmt.Errorf("failed to publish task failed event: %w", err)
+			}
+			span.AddEvent("task_failed_event_published")
 
-		return fmt.Errorf("failed to track task: %w", err)
+			return fmt.Errorf("failed to track task: %w", err)
+		}
+
+		s.logger.Info(ctx, "Scan context cancelled, task will be handled by staleness detection",
+			"task_id", req.TaskID,
+			"job_id", req.JobID)
+		span.AddEvent("scan_context_cancelled")
+		return nil
 	}
 
 	completedEvt := scanning.NewTaskCompletedEvent(req.JobID, req.TaskID)
@@ -475,7 +486,7 @@ func (s *ScannerService) consumeStream(
 	for {
 		select {
 		case <-ctx.Done():
-			// context canceled => stop.
+			// Return the context error directly - it will be handled by the caller
 			return ctx.Err()
 
 		case _, ok := <-heartbeatChan:
@@ -498,26 +509,29 @@ func (s *ScannerService) consumeStream(
 			}
 
 		case scanErr, ok := <-errChan:
-			// Typically, the scan is finished when this channel returns an error or closes.
 			if !ok {
 				// Channel closed => success.
 				return nil
 			}
 			// We have an actual error => scanning failed.
-			return scanErr
+			// But if it's context cancellation, pass it through
+			if errors.Is(scanErr, context.Canceled) || errors.Is(scanErr, context.DeadlineExceeded) {
+				return scanErr
+			}
+			return fmt.Errorf("scan error: %w", scanErr)
 		}
 
-		// Optionally, if both heartbeatChan and findingsChan are nil (i.e. closed),
-		// we can check if we're just waiting on errChan to close for success.
 		if heartbeatChan == nil && findingsChan == nil {
-			// If the scanner is done streaming both heartbeats and findings,
-			// we only need to see if errChan is also closed or yields an error
 			select {
 			case scanErr, ok := <-errChan:
 				if !ok {
 					return nil // success
 				}
-				return scanErr
+				// Same context cancellation check here
+				if errors.Is(scanErr, context.Canceled) || errors.Is(scanErr, context.DeadlineExceeded) {
+					return scanErr
+				}
+				return fmt.Errorf("scan error: %w", scanErr)
 			case <-ctx.Done():
 				return ctx.Err()
 			}
