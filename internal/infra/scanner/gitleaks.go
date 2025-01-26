@@ -103,7 +103,7 @@ func setupGitleaksDetector() *detect.Detector {
 // through a channel. It processes each rule from the Gitleaks detector and converts
 // them to our domain model before sending.
 func (s *Gitleaks) GetRules(ctx context.Context) (<-chan rules.GitleaksRuleMessage, error) {
-	ctx, span := s.tracer.Start(ctx, "gitleaks_scanner.get_rules")
+	ctx, span := s.tracer.Start(ctx, "gitleaks_scanner.scanning.get_rules")
 	defer span.End()
 
 	ruleChan := make(chan rules.GitleaksRuleMessage, 1)
@@ -256,7 +256,7 @@ type SourceScannerFactory func(params scannerParams) StreamScanner
 // Scan initiates the scanning process for a given task by selecting the appropriate scanner
 // based on the task's source type.
 func (s *Gitleaks) Scan(ctx context.Context, task *dtos.ScanRequest, reporter scanning.ProgressReporter) scanning.StreamResult {
-	ctx, span := s.tracer.Start(ctx, "gitleaks_scanner.scanning.scan_repository",
+	ctx, span := s.tracer.Start(ctx, "gitleaks_scanner.scanning.scan",
 		trace.WithAttributes(
 			attribute.String("task.id", task.TaskID.String()),
 			attribute.String("source.type", string(task.SourceType)),
