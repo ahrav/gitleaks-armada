@@ -12,9 +12,6 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 )
 
-// EventHandler is a function type that processes an event given its context.
-type EventHandler func(context.Context, events.EventEnvelope) error
-
 // Dispatcher manages an event-handler registry and handles event dispatching.
 // It creates a trace span for each dispatched event, looks up the corresponding
 // handler, and invokes it. If no handler is found or the handler encounters an error,
@@ -28,7 +25,7 @@ type EventHandler func(context.Context, events.EventEnvelope) error
 //	err := dispatcher.Dispatch(ctx, someEnvelope)
 type Dispatcher struct {
 	mu       sync.RWMutex
-	handlers map[events.EventType]EventHandler
+	handlers map[events.EventType]events.HandlerFunc
 	tracer   trace.Tracer
 }
 
@@ -37,7 +34,7 @@ type Dispatcher struct {
 // be registered before Dispatching any events.
 func New(tracer trace.Tracer) *Dispatcher {
 	return &Dispatcher{
-		handlers: make(map[events.EventType]EventHandler),
+		handlers: make(map[events.EventType]events.HandlerFunc),
 		tracer:   tracer,
 	}
 }
@@ -46,7 +43,7 @@ func New(tracer trace.Tracer) *Dispatcher {
 // If a handler is already registered for this event type, it will be overwritten.
 //
 // This method is safe to call concurrently.
-func (d *Dispatcher) RegisterHandler(eventType events.EventType, handler EventHandler) {
+func (d *Dispatcher) RegisterHandler(eventType events.EventType, handler events.HandlerFunc) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.handlers[eventType] = handler
@@ -65,7 +62,7 @@ func (d *Dispatcher) RegisterHandler(eventType events.EventType, handler EventHa
 //	if err != nil {
 //	    // handle or log error
 //	}
-func (d *Dispatcher) Dispatch(ctx context.Context, evt events.EventEnvelope) error {
+func (d *Dispatcher) Dispatch(ctx context.Context, evt events.EventEnvelope, ack events.AckFunc) error {
 	// Start a tracing span that includes the event type as an attribute.
 	ctx, span := d.tracer.Start(ctx, "event_dispatcher.handle_event",
 		trace.WithAttributes(
@@ -86,11 +83,12 @@ func (d *Dispatcher) Dispatch(ctx context.Context, evt events.EventEnvelope) err
 
 	span.AddEvent("handler_found")
 
-	if err := handler(ctx, evt); err != nil {
+	if err := handler(ctx, evt, ack); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
 		return err
 	}
+	ack(nil)
 
 	span.SetStatus(codes.Ok, "event dispatched successfully")
 	return nil

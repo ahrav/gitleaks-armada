@@ -152,19 +152,20 @@ func (h *HeartbeatMonitor) checkForStaleTasks(ctx context.Context, threshold tim
 	for _, tID := range potentiallyStaleTaskIDs {
 		task, err := h.taskReader.GetTask(ctx, tID)
 		if err != nil {
-			h.logger.Error(ctx, "Failed to get task status", "task_id", tID, "error", err)
+			h.logger.Error(ctx, "HeartbeatMonitor: Failed to get task status", "task_id", tID, "error", err)
 			continue
 		}
 
 		if task.IsInProgress() {
-			h.logger.Warn(ctx, "Detected stale task - failing", "task_id", tID)
+			h.logger.Warn(ctx, "HeartbeatMonitor: Detected stale task - failing", "task_id", tID)
 			staleEvt := scanning.NewTaskStaleEvent(tID, tID, scanning.StallReasonNoProgress, h.timeProvider.Now())
 
 			if err := h.stalenessHandler.HandleTaskStale(ctx, staleEvt); err != nil {
-				h.logger.Error(ctx, "Failed to mark task as stale", "task_id", tID, "error", err)
+				h.logger.Error(ctx, "HeartbeatMonitor: Failed to mark task as stale", "task_id", tID, "error", err)
+				span.RecordError(err)
+				span.SetStatus(codes.Error, "failed to mark task as stale")
 				continue
 			}
-
 			span.AddEvent("stale_task_marked", trace.WithAttributes(
 				attribute.String("task_id", tID.String()),
 			))
@@ -177,7 +178,12 @@ func (h *HeartbeatMonitor) checkForStaleTasks(ctx context.Context, threshold tim
 		h.mu.Lock()
 		delete(h.lastHeartbeatByTask, tID)
 		h.mu.Unlock()
+		span.AddEvent("stale_task_cleaned_up", trace.WithAttributes(
+			attribute.String("task_id", tID.String()),
+		))
 	}
+	span.AddEvent("stale_tasks_checked")
+	span.SetStatus(codes.Ok, "stale tasks checked")
 }
 
 // HandleHeartbeat processes incoming TaskHeartbeatEvent messages.

@@ -241,8 +241,8 @@ func (o *Orchestrator) subscribeToEvents(ctx context.Context) error {
 	if err := o.eventBus.Subscribe(
 		subCtx,
 		eventTypes,
-		func(ctx context.Context, evt events.EventEnvelope) error {
-			return o.dispatcher.Dispatch(ctx, evt)
+		func(ctx context.Context, evt events.EventEnvelope, ack events.AckFunc) error {
+			return o.dispatcher.Dispatch(ctx, evt, ack)
 		},
 	); err != nil {
 		subSpan.RecordError(err)

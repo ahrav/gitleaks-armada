@@ -28,7 +28,7 @@ type EventBus interface {
 	// Subscribe registers a handler function to process events of specified types.
 	// The handler executes for each matching event received on this bus.
 	// Returns an error if subscription setup fails.
-	Subscribe(ctx context.Context, eventTypes []EventType, handler func(context.Context, EventEnvelope) error) error
+	Subscribe(ctx context.Context, eventTypes []EventType, handler HandlerFunc) error
 
 	// Close gracefully shuts down the event bus and releases associated resources.
 	// This should be called during system shutdown to prevent resource leaks.

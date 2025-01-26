@@ -1,6 +1,9 @@
 package events
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // EventEnvelope encapsulates all event data flowing through the system, providing
 // a standardized format for event processing and distribution.
@@ -34,3 +37,10 @@ type DomainEvent interface {
 	// OccurredAt returns when this event happened in the domain.
 	OccurredAt() time.Time
 }
+
+// AckFunc is a function that can be used to acknowledge an event.
+type AckFunc func(error)
+
+// HandlerFunc is a function that can be used to handle an event.
+// It is passed an AckFunc that can be used to acknowledge the event asynchronously.
+type HandlerFunc func(ctx context.Context, evt EventEnvelope, ack AckFunc) error

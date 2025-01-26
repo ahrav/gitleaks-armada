@@ -396,8 +396,7 @@ func (t *Task) updateProgress(progress Progress) {
 	if t.status == TaskStatusStale {
 		t.recoveryAttempts++
 		t.status = TaskStatusInProgress
-		t.stallReason = nil
-		t.stalledAt = time.Time{} // Zero value to indicate no current stall
+		t.ClearStall()
 	}
 
 	t.lastSequenceNum = progress.SequenceNum()
@@ -452,6 +451,8 @@ func (t *Task) Complete() error {
 		}
 	}
 
+	// t.ClearStall()
+
 	// TODO: Uncomment once progress is tracked in source scanners.
 	// if t.itemsProcessed == 0 {
 	// 	return TaskInvalidStateError{
@@ -464,6 +465,11 @@ func (t *Task) Complete() error {
 	t.status = TaskStatusCompleted
 	t.timeline.MarkCompleted()
 	return nil
+}
+
+func (t *Task) ClearStall() {
+	t.stallReason = nil
+	t.stalledAt = time.Time{}
 }
 
 // Fail marks a task as failed.

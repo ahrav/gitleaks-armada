@@ -93,6 +93,10 @@ func NewKafkaEventBusFromConfig(
 	metrics BrokerMetrics,
 	tracer trace.Tracer,
 ) (*KafkaEventBus, error) {
+	if metrics == nil {
+		return nil, fmt.Errorf("metrics are required for kafka event bus")
+	}
+
 	producerConfig := sarama.NewConfig()
 	producerConfig.Producer.RequiredAcks = sarama.WaitForAll
 	producerConfig.Producer.Return.Successes = true
@@ -112,10 +116,7 @@ func NewKafkaEventBusFromConfig(
 	consumerConfig.Consumer.Offsets.Initial = sarama.OffsetOldest
 	consumerConfig.Consumer.Group.Session.Timeout = 20 * time.Second
 	consumerConfig.Consumer.Group.Heartbeat.Interval = 6 * time.Second
-	// TODO: Decide if we want to keep auto-commit enabled.
-	// We should probably only commit offsets if the message is successfully processed.
-	consumerConfig.Consumer.Offsets.AutoCommit.Enable = true
-	consumerConfig.Consumer.Offsets.AutoCommit.Interval = 1 * time.Second
+	consumerConfig.Consumer.Offsets.AutoCommit.Enable = false
 	consumerConfig.Version = sarama.V2_8_0_0
 
 	consumerGroup, err := sarama.NewConsumerGroup(cfg.Brokers, cfg.GroupID, consumerConfig)
@@ -236,7 +237,7 @@ func (k *KafkaEventBus) Publish(ctx context.Context, event events.EventEnvelope,
 func (k *KafkaEventBus) Subscribe(
 	ctx context.Context,
 	eventTypes []events.EventType,
-	handler func(context.Context, events.EventEnvelope) error,
+	handler events.HandlerFunc,
 ) error {
 	ctx, span := k.tracer.Start(ctx, "kafka_event_bus.subscribe",
 		trace.WithAttributes(
@@ -272,7 +273,7 @@ func (k *KafkaEventBus) Subscribe(
 func (k *KafkaEventBus) consumeLoop(
 	ctx context.Context,
 	topics []string,
-	handler func(context.Context, events.EventEnvelope) error,
+	handler events.HandlerFunc,
 ) {
 	cgHandler := &domainEventHandler{
 		eventBus:    k,
@@ -296,7 +297,7 @@ func (k *KafkaEventBus) consumeLoop(
 // and convert them into domain events for the application.
 type domainEventHandler struct {
 	eventBus    *KafkaEventBus
-	userHandler func(context.Context, events.EventEnvelope) error
+	userHandler events.HandlerFunc
 
 	logger  *logger.Logger
 	tracer  trace.Tracer
@@ -362,20 +363,24 @@ func (h *domainEventHandler) ConsumeClaim(
 			"key", dEvent.Key,
 		)
 
-		if err := h.userHandler(msgCtx, dEvent); err != nil {
-			if h.metrics != nil {
+		ack := func(err error) {
+			if err != nil {
 				h.metrics.IncConsumeError(msgCtx, msg.Topic)
+				h.logger.Error(msgCtx, "Failed to acknowledge message", "error", err)
+				span.RecordError(err)
+				span.SetStatus(codes.Error, "failed to acknowledge message")
+				return
 			}
+			h.metrics.IncMessageConsumed(msgCtx, msg.Topic)
+			sess.MarkMessage(msg, "")
+		}
+
+		if err := h.userHandler(msgCtx, dEvent, ack); err != nil {
 			h.logger.Error(msgCtx, "Failed to handle message", "error", err)
 			span.RecordError(err)
 		} else {
-			if h.metrics != nil {
-				h.metrics.IncMessageConsumed(msgCtx, msg.Topic)
-			}
 			h.logger.Info(msgCtx, "Successfully processed message", "topic", msg.Topic)
 		}
-
-		sess.MarkMessage(msg, "")
 		span.End()
 	}
 	return nil

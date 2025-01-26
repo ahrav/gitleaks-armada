@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"runtime"
 	"sync"
 	"time"
 
@@ -52,10 +51,13 @@ type ScannerService struct {
 
 	ruleProvider RuleProvider // TODO: Figure out where this should live
 
-	workers         int
-	stopCh          chan struct{}
-	workerWg        sync.WaitGroup
-	taskEvent       chan *dtos.ScanRequest
+	workers   int
+	stopCh    chan struct{}
+	workerWg  sync.WaitGroup
+	taskEvent chan *dtos.ScanRequest
+	// This is a semaphore to limit the number of high priority tasks that can be processed.
+	// We want to make sure we have a way to prioritize resuming tasks over new tasks,
+	// but we also want to make sure we don't overwhelm the system with too many high priority tasks.
 	highPrioritySem chan struct{}
 
 	logger  *logger.Logger
@@ -75,6 +77,7 @@ func NewScannerService(
 	metrics metrics,
 	tracer trace.Tracer,
 ) *ScannerService {
+	workerCount := 4 // TODO: This should be configurable or set via runtime.NumCPU()
 	// Try to get rule provider if scanner supports it. (e.g. Gitleaks)
 	ruleProvider, _ := scanner.(RuleProvider)
 	return &ScannerService{
@@ -88,10 +91,10 @@ func NewScannerService(
 		logger:           logger,
 		metrics:          metrics,
 		tracer:           tracer,
-		workers:          runtime.NumCPU(),
+		workers:          workerCount,
 		stopCh:           make(chan struct{}),
 		taskEvent:        make(chan *dtos.ScanRequest, 1),
-		highPrioritySem:  make(chan struct{}, runtime.NumCPU()/2),
+		highPrioritySem:  make(chan struct{}, workerCount), // TODO: Come back to this
 	}
 }
 
@@ -112,7 +115,7 @@ func (s *ScannerService) Run(ctx context.Context) error {
 
 	initSpan.AddEvent("starting_workers")
 	s.workerWg.Add(s.workers)
-	for i := 0; i < s.workers; i++ {
+	for i := range s.workers {
 		go func(workerID int) {
 			defer s.workerWg.Done()
 			s.workerLoop(ctx, workerID)
@@ -120,6 +123,8 @@ func (s *ScannerService) Run(ctx context.Context) error {
 	}
 	s.metrics.SetActiveWorkers(initCtx, s.workers)
 
+	// TODO: We need to make handling events more resilient once we ack (commit)
+	// the event, but fail after.
 	err := s.eventBus.Subscribe(
 		initCtx,
 		[]events.EventType{
@@ -156,21 +161,25 @@ func (s *ScannerService) Run(ctx context.Context) error {
 
 // handleEvent routes events to appropriate handlers.
 // TODO: Replace this with an events facilitator.
-func (s *ScannerService) handleEvent(ctx context.Context, evt events.EventEnvelope) error {
+func (s *ScannerService) handleEvent(ctx context.Context, evt events.EventEnvelope, ack events.AckFunc) error {
 	switch evt.Type {
 	case scanning.EventTypeTaskResume:
-		return s.handleTaskResumeEvent(ctx, evt)
+		return s.handleTaskResumeEvent(ctx, evt, ack)
 	case enumeration.EventTypeTaskCreated:
-		return s.handleTaskEvent(ctx, evt)
+		return s.handleTaskEvent(ctx, evt, ack)
 	case rules.EventTypeRulesRequested:
-		return s.handleRuleRequest(ctx, evt)
+		return s.handleRuleRequest(ctx, evt, ack)
 	default:
 		return fmt.Errorf("unknown event type: %s", evt.Type)
 	}
 }
 
 // handleRuleRequest processes rule request events and publishes current rules
-func (s *ScannerService) handleRuleRequest(ctx context.Context, evt events.EventEnvelope) error {
+func (s *ScannerService) handleRuleRequest(
+	ctx context.Context,
+	evt events.EventEnvelope,
+	ack events.AckFunc,
+) error {
 	ctx, span := s.tracer.Start(ctx, "scanner_service.scanning.handle_rule_request",
 		trace.WithAttributes(
 			attribute.String("component", "scanner_service"),
@@ -186,6 +195,7 @@ func (s *ScannerService) handleRuleRequest(ctx context.Context, evt events.Event
 		span.SetStatus(codes.Error, "failed to get rules from scanner")
 		return fmt.Errorf("failed to get rules: %w", err)
 	}
+	ack(nil)
 
 	ruleCount := 0
 	for rule := range ruleChan {
@@ -214,7 +224,11 @@ func (s *ScannerService) handleRuleRequest(ctx context.Context, evt events.Event
 
 // handleTaskEvent processes incoming task events and routes them to available workers.
 // It ensures graceful handling of shutdown scenarios to prevent task loss.
-func (s *ScannerService) handleTaskEvent(ctx context.Context, evt events.EventEnvelope) error {
+func (s *ScannerService) handleTaskEvent(
+	ctx context.Context,
+	evt events.EventEnvelope,
+	ack events.AckFunc,
+) error {
 	ctx, span := s.tracer.Start(ctx, "scanner_service.scanning.handle_task_event",
 		trace.WithSpanKind(trace.SpanKindConsumer),
 		trace.WithAttributes(
@@ -239,6 +253,7 @@ func (s *ScannerService) handleTaskEvent(ctx context.Context, evt events.EventEn
 
 	select {
 	case s.taskEvent <- s.enumACL.ToScanRequest(&tce):
+		ack(nil)
 		span.AddEvent("task_routed")
 		return nil
 	case <-ctx.Done():
@@ -251,7 +266,11 @@ func (s *ScannerService) handleTaskEvent(ctx context.Context, evt events.EventEn
 }
 
 // handleTaskResumeEvent spawns a goroutine for high-priority tasks:
-func (s *ScannerService) handleTaskResumeEvent(ctx context.Context, evt events.EventEnvelope) error {
+func (s *ScannerService) handleTaskResumeEvent(
+	ctx context.Context,
+	evt events.EventEnvelope,
+	ack events.AckFunc,
+) error {
 	ctx, span := s.tracer.Start(ctx, "scanner_service.scanning.handle_task_resume_event",
 		trace.WithAttributes(
 			attribute.String("component", "scanner_service"),
@@ -281,6 +300,7 @@ func (s *ScannerService) handleTaskResumeEvent(ctx context.Context, evt events.E
 	span.SetAttributes(attribute.String("checkpoint", req.Metadata["checkpoint"]))
 
 	s.highPrioritySem <- struct{}{}
+	ack(nil)
 	go func() {
 		defer func() { <-s.highPrioritySem }()
 
@@ -446,7 +466,6 @@ func (s *ScannerService) executeScanTask(ctx context.Context, req *dtos.ScanRequ
 			}
 			span.AddEvent("task_failed_event_published")
 
-			s.logger.Error(ctx, "ScannerService: Failed to start streaming scan", "err", err)
 			return fmt.Errorf("failed to track task: %w", err)
 		}
 
@@ -482,7 +501,6 @@ func (s *ScannerService) consumeStream(
 	for {
 		select {
 		case <-ctx.Done():
-			// Return the context error directly - it will be handled by the caller
 			return ctx.Err()
 
 		case _, ok := <-heartbeatChan:
@@ -510,7 +528,7 @@ func (s *ScannerService) consumeStream(
 				return nil
 			}
 			// We have an actual error => scanning failed.
-			// But if it's context cancellation, pass it through
+			// But if it's context cancellation, pass it through.
 			if errors.Is(scanErr, context.Canceled) || errors.Is(scanErr, context.DeadlineExceeded) {
 				return scanErr
 			}

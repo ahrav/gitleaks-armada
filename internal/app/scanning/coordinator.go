@@ -347,29 +347,30 @@ func (s *scanJobCoordinator) UpdateTaskProgress(ctx context.Context, progress do
 		),
 	)
 
-	if time.Since(task.LastUpdate()) >= s.persistInterval {
-		if err := s.taskRepo.UpdateTask(ctx, task); err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "failed to persist updated task")
-			return nil, fmt.Errorf("persist task: %w", err)
-		}
-		span.AddEvent("task_persisted_due_to_interval")
-
-		job, err := s.loadJob(ctx, task.JobID())
-		if err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "failed to load job")
-			return nil, fmt.Errorf("load job: %w", err)
-		}
-
-		if err := s.jobRepo.UpdateJob(ctx, job); err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "failed to update job status")
-			return nil, fmt.Errorf("failed to update job status: %w", err)
-		}
-		span.AddEvent("job_updated_after_task_persistence")
-		span.SetStatus(codes.Ok, "job updated successfully")
+	// TODO: Come back to uncomment this.
+	// if time.Since(task.LastUpdate()) >= s.persistInterval {
+	if err := s.taskRepo.UpdateTask(ctx, task); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to persist updated task")
+		return nil, fmt.Errorf("persist task: %w", err)
 	}
+	span.AddEvent("task_persisted_due_to_interval")
+
+	job, err := s.loadJob(ctx, task.JobID())
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to load job")
+		return nil, fmt.Errorf("load job: %w", err)
+	}
+
+	if err := s.jobRepo.UpdateJob(ctx, job); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to update job status")
+		return nil, fmt.Errorf("failed to update job status: %w", err)
+	}
+	span.AddEvent("job_updated_after_task_persistence")
+	span.SetStatus(codes.Ok, "job updated successfully")
+	// }
 	span.AddEvent("task_progress_updated")
 	span.SetStatus(codes.Ok, "task progress updated successfully")
 

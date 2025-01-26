@@ -63,10 +63,12 @@ func NewEventsFacilitator(
 }
 
 // withSpan is a helper that centralizes trace creation and error recording.
+// TODO: Revist if ack should live in here.
 func (ef *EventsFacilitator) withSpan(
 	ctx context.Context,
 	operationName string,
 	fn func(ctx context.Context, span trace.Span) error,
+	ack events.AckFunc,
 ) error {
 	ctx, span := ef.tracer.Start(ctx, operationName)
 	defer span.End()
@@ -76,6 +78,7 @@ func (ef *EventsFacilitator) withSpan(
 		span.SetStatus(codes.Error, err.Error())
 		return err
 	}
+	ack(nil)
 
 	return nil
 }
@@ -94,7 +97,11 @@ func recordPayloadTypeError(span trace.Span, payload interface{}) error {
 // Scanning
 
 // HandleTaskStarted processes a TaskStartedEvent.
-func (ef *EventsFacilitator) HandleTaskStarted(ctx context.Context, evt events.EventEnvelope) error {
+func (ef *EventsFacilitator) HandleTaskStarted(
+	ctx context.Context,
+	evt events.EventEnvelope,
+	ack events.AckFunc,
+) error {
 	return ef.withSpan(ctx, "events_facilitator.handle_task_started", func(ctx context.Context, span trace.Span) error {
 		span.AddEvent("processing_task_started")
 
@@ -115,11 +122,15 @@ func (ef *EventsFacilitator) HandleTaskStarted(ctx context.Context, evt events.E
 		span.AddEvent("task_started_tracking_completed")
 		span.SetStatus(codes.Ok, "task started tracking completed")
 		return nil
-	})
+	}, ack)
 }
 
 // HandleTaskProgressed processes a TaskProgressedEvent.
-func (ef *EventsFacilitator) HandleTaskProgressed(ctx context.Context, evt events.EventEnvelope) error {
+func (ef *EventsFacilitator) HandleTaskProgressed(
+	ctx context.Context,
+	evt events.EventEnvelope,
+	ack events.AckFunc,
+) error {
 	return ef.withSpan(ctx, "events_facilitator.handle_task_progressed", func(ctx context.Context, span trace.Span) error {
 		span.AddEvent("processing_task_progressed")
 
@@ -137,11 +148,15 @@ func (ef *EventsFacilitator) HandleTaskProgressed(ctx context.Context, evt event
 		span.AddEvent("task_progressed_event_updated")
 		span.SetStatus(codes.Ok, "task progressed event updated")
 		return nil
-	})
+	}, ack)
 }
 
 // HandleTaskCompleted processes a TaskCompletedEvent.
-func (ef *EventsFacilitator) HandleTaskCompleted(ctx context.Context, evt events.EventEnvelope) error {
+func (ef *EventsFacilitator) HandleTaskCompleted(
+	ctx context.Context,
+	evt events.EventEnvelope,
+	ack events.AckFunc,
+) error {
 	return ef.withSpan(ctx, "events_facilitator.handle_task_completed", func(ctx context.Context, span trace.Span) error {
 		span.AddEvent("processing_task_completed")
 
@@ -159,11 +174,15 @@ func (ef *EventsFacilitator) HandleTaskCompleted(ctx context.Context, evt events
 		span.AddEvent("task_completed_event_updated")
 		span.SetStatus(codes.Ok, "task completed event updated")
 		return nil
-	})
+	}, ack)
 }
 
 // HandleTaskFailed processes a TaskFailedEvent.
-func (ef *EventsFacilitator) HandleTaskFailed(ctx context.Context, evt events.EventEnvelope) error {
+func (ef *EventsFacilitator) HandleTaskFailed(
+	ctx context.Context,
+	evt events.EventEnvelope,
+	ack events.AckFunc,
+) error {
 	return ef.withSpan(ctx, "events_facilitator.handle_task_failed", func(ctx context.Context, span trace.Span) error {
 		span.AddEvent("processing_task_failed")
 
@@ -179,11 +198,15 @@ func (ef *EventsFacilitator) HandleTaskFailed(ctx context.Context, evt events.Ev
 		span.AddEvent("task_failed_event_updated")
 		span.SetStatus(codes.Ok, "task failed event updated")
 		return nil
-	})
+	}, ack)
 }
 
 // HandleTaskHeartbeat processes a TaskHeartbeatEvent.
-func (ef *EventsFacilitator) HandleTaskHeartbeat(ctx context.Context, evt events.EventEnvelope) error {
+func (ef *EventsFacilitator) HandleTaskHeartbeat(
+	ctx context.Context,
+	evt events.EventEnvelope,
+	ack events.AckFunc,
+) error {
 	return ef.withSpan(ctx, "events_facilitator.handle_task_heartbeat", func(ctx context.Context, span trace.Span) error {
 		span.AddEvent("processing_task_heartbeat")
 
@@ -197,7 +220,7 @@ func (ef *EventsFacilitator) HandleTaskHeartbeat(ctx context.Context, evt events
 		span.AddEvent("task_heartbeat_processed")
 		span.SetStatus(codes.Ok, "task heartbeat processed")
 		return nil
-	})
+	}, ack)
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -205,7 +228,11 @@ func (ef *EventsFacilitator) HandleTaskHeartbeat(ctx context.Context, evt events
 // Rules
 
 // HandleRule processes a RuleUpdatedEvent.
-func (ef *EventsFacilitator) HandleRule(ctx context.Context, evt events.EventEnvelope) error {
+func (ef *EventsFacilitator) HandleRule(
+	ctx context.Context,
+	evt events.EventEnvelope,
+	ack events.AckFunc,
+) error {
 	return ef.withSpan(ctx, "events_facilitator.handle_rule", func(ctx context.Context, span trace.Span) error {
 		span.AddEvent("processing_rule_update")
 
@@ -225,11 +252,15 @@ func (ef *EventsFacilitator) HandleRule(ctx context.Context, evt events.EventEnv
 		))
 		span.SetStatus(codes.Ok, "rule processed")
 		return nil
-	})
+	}, ack)
 }
 
 // HandleRulesPublished processes a RulePublishingCompletedEvent.
-func (ef *EventsFacilitator) HandleRulesPublished(ctx context.Context, evt events.EventEnvelope) error {
+func (ef *EventsFacilitator) HandleRulesPublished(
+	ctx context.Context,
+	evt events.EventEnvelope,
+	ack events.AckFunc,
+) error {
 	return ef.withSpan(ctx, "events_facilitator.handle_rules_published", func(ctx context.Context, span trace.Span) error {
 		span.AddEvent("processing_rules_published")
 
@@ -240,5 +271,5 @@ func (ef *EventsFacilitator) HandleRulesPublished(ctx context.Context, evt event
 		span.AddEvent("rules_update_completed")
 		span.SetStatus(codes.Ok, "rules update completed")
 		return nil
-	})
+	}, ack)
 }

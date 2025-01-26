@@ -135,6 +135,10 @@ func (s *taskStore) UpdateTask(ctx context.Context, task *scanning.Task) error {
 		defaultDBAttributes,
 		attribute.String("task_id", task.TaskID().String()),
 		attribute.String("status", string(task.Status())),
+		attribute.String("last_sequence_num", fmt.Sprintf("%d", task.LastSequenceNum())),
+		attribute.String("items_processed", fmt.Sprintf("%d", task.ItemsProcessed())),
+		attribute.String("stalled_at", task.StalledAt().String()),
+		attribute.Int("recovery_attempts", task.RecoveryAttempts()),
 	)
 
 	return storage.ExecuteAndTrace(ctx, s.tracer, "postgres.update_task", dbAttrs, func(ctx context.Context) error {
