@@ -3,11 +3,9 @@ package scanning
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"runtime"
-	"strconv"
 	"sync"
 	"time"
 
@@ -132,6 +130,7 @@ func (s *ScannerService) Run(ctx context.Context) error {
 		s.handleEvent,
 	)
 	if err != nil {
+		s.logger.Error(initCtx, "Failed to subscribe to events", "err", err)
 		initSpan.RecordError(err)
 		initSpan.SetStatus(codes.Error, "failed to subscribe to events")
 		initSpan.End()
@@ -273,23 +272,13 @@ func (s *ScannerService) handleTaskResumeEvent(ctx context.Context, evt events.E
 		"resource_uri", rEvt.ResourceURI,
 	)
 
-	req := &dtos.ScanRequest{
-		TaskID:      rEvt.TaskID,
-		JobID:       rEvt.JobID,
-		SourceType:  dtos.SourceType(rEvt.SourceType),
-		ResourceURI: rEvt.ResourceURI,
-		Metadata:    make(map[string]string),
-	}
-	req.Metadata["sequence_num"] = strconv.Itoa(rEvt.SequenceNum)
-
-	ckptJSON, err := json.Marshal(rEvt.Checkpoint)
+	req, err := dtos.NewScanRequestFromResumeEvent(&rEvt)
 	if err != nil {
 		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to marshal checkpoint")
-		return fmt.Errorf("failed to marshal checkpoint: %w", err)
+		span.SetStatus(codes.Error, "failed to create scan request")
+		return fmt.Errorf("failed to create scan request: %w", err)
 	}
-	req.Metadata["checkpoint"] = string(ckptJSON)
-	span.SetAttributes(attribute.String("checkpoint", string(ckptJSON)))
+	span.SetAttributes(attribute.String("checkpoint", req.Metadata["checkpoint"]))
 
 	s.highPrioritySem <- struct{}{}
 	go func() {

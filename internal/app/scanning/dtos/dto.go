@@ -1,7 +1,14 @@
 // Package dtos provides data transfer objects for the scanning service.
 package dtos
 
-import "github.com/google/uuid"
+import (
+	"fmt"
+	"strconv"
+
+	"github.com/google/uuid"
+
+	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
+)
 
 // SourceType identifies the external system containing resources to be scanned.
 // This determines how authentication and access will be handled.
@@ -59,4 +66,25 @@ type ScanRequest struct {
 	Metadata map[string]string
 	// Credentials contains authentication details for accessing the resource.
 	Credentials ScanCredentials
+}
+
+// NewScanRequestFromResumeEvent creates a new ScanRequest from a TaskResumeEvent.
+// This is an internal conversion within the scanning domain, not an ACL.
+func NewScanRequestFromResumeEvent(evt *scanning.TaskResumeEvent) (*ScanRequest, error) {
+	// Marshal the entire checkpoint structure
+	checkpointJSON, err := evt.Checkpoint.MarshalJSON()
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal checkpoint: %v", err)
+	}
+
+	return &ScanRequest{
+		TaskID:      evt.TaskID,
+		JobID:       evt.JobID,
+		SourceType:  SourceType(evt.SourceType),
+		ResourceURI: evt.ResourceURI,
+		Metadata: map[string]string{
+			"sequence_num": strconv.FormatInt(int64(evt.SequenceNum), 10),
+			"checkpoint":   string(checkpointJSON),
+		},
+	}, nil
 }
