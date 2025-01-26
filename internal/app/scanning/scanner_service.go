@@ -429,7 +429,6 @@ func (s *ScannerService) executeScanTask(ctx context.Context, req *dtos.ScanRequ
 	// Only fail the task if it's not a context cancellation error.
 	// This allows the task to be handled by staleness detection and get resumed.
 	if err != nil {
-		s.logger.Error(ctx, "Failed to start streaming scan", "err", err)
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to track task")
 
@@ -442,6 +441,7 @@ func (s *ScannerService) executeScanTask(ctx context.Context, req *dtos.ScanRequ
 			}
 			span.AddEvent("task_failed_event_published")
 
+			s.logger.Error(ctx, "Failed to start streaming scan", "err", err)
 			return fmt.Errorf("failed to track task: %w", err)
 		}
 

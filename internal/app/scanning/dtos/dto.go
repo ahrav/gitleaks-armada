@@ -7,7 +7,9 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
+	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 )
 
 // SourceType identifies the external system containing resources to be scanned.
@@ -68,10 +70,27 @@ type ScanRequest struct {
 	Credentials ScanCredentials
 }
 
+// NewScanRequestFromEnumerationTask creates a new ScanRequest from an enumeration TaskCreatedEvent.
+// This handles the translation between enumeration and scanning domains.
+func NewScanRequestFromEnumerationTask(task *enumeration.TaskCreatedEvent) *ScanRequest {
+	if task == nil {
+		return nil
+	}
+
+	return &ScanRequest{
+		TaskID:      task.Task.ID,
+		JobID:       task.JobID,
+		SourceType:  toScanningSourceType(task.Task.SourceType),
+		SessionID:   task.Task.SessionID(),
+		ResourceURI: task.Task.ResourceURI(),
+		Metadata:    task.Task.Metadata(),
+		Credentials: toScanningCredentials(task.Task.Credentials()),
+	}
+}
+
 // NewScanRequestFromResumeEvent creates a new ScanRequest from a TaskResumeEvent.
-// This is an internal conversion within the scanning domain, not an ACL.
+// This is an internal conversion within the scanning domain.
 func NewScanRequestFromResumeEvent(evt *scanning.TaskResumeEvent) (*ScanRequest, error) {
-	// Marshal the entire checkpoint structure
 	checkpointJSON, err := evt.Checkpoint.MarshalJSON()
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal checkpoint: %v", err)
@@ -80,11 +99,52 @@ func NewScanRequestFromResumeEvent(evt *scanning.TaskResumeEvent) (*ScanRequest,
 	return &ScanRequest{
 		TaskID:      evt.TaskID,
 		JobID:       evt.JobID,
-		SourceType:  SourceType(evt.SourceType),
+		SourceType:  toScanningSourceType(evt.SourceType),
 		ResourceURI: evt.ResourceURI,
 		Metadata: map[string]string{
 			"sequence_num": strconv.FormatInt(int64(evt.SequenceNum), 10),
 			"checkpoint":   string(checkpointJSON),
 		},
 	}, nil
+}
+
+// toScanningSourceType maps domain source types to scanning domain equivalents.
+func toScanningSourceType(e shared.SourceType) SourceType {
+	switch e {
+	case shared.SourceTypeGitHub:
+		return SourceTypeGitHub
+	case shared.SourceTypeS3:
+		return SourceTypeS3
+	case shared.SourceTypeURL:
+		return SourceTypeURL
+	default:
+		return SourceTypeUnspecified
+	}
+}
+
+// toScanningCredentials converts domain credentials to scanning domain credentials.
+func toScanningCredentials(creds *enumeration.TaskCredentials) ScanCredentials {
+	if creds == nil {
+		return ScanCredentials{Type: CredentialTypeUnknown}
+	}
+	return ScanCredentials{
+		Type:   toScanningCredentialType(creds.Type),
+		Values: creds.Values,
+	}
+}
+
+// toScanningCredentialType maps domain credential types to scanning domain equivalents.
+func toScanningCredentialType(ec enumeration.CredentialType) CredentialType {
+	switch ec {
+	case enumeration.CredentialTypeUnauthenticated:
+		return CredentialTypeUnauthenticated
+	case enumeration.CredentialTypeGitHub:
+		return CredentialTypeGitHub
+	case enumeration.CredentialTypeS3:
+		return CredentialTypeS3
+	case enumeration.CredentialTypeURL:
+		return CredentialTypeURL
+	default:
+		return CredentialTypeUnknown
+	}
 }

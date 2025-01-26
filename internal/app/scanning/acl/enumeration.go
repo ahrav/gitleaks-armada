@@ -4,7 +4,6 @@ package acl
 import (
 	"github.com/ahrav/gitleaks-armada/internal/app/scanning/dtos"
 	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
-	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 )
 
 // EnumerationACL translates enumeration domain objects into scanning domain DTOs.
@@ -16,61 +15,5 @@ type EnumerationACL struct{}
 // This translation allows the scanning domain to remain decoupled from enumeration
 // domain concepts while preserving all necessary scanning information.
 func (acl EnumerationACL) ToScanRequest(task *enumeration.TaskCreatedEvent) *dtos.ScanRequest {
-	if task == nil {
-		return nil
-	}
-
-	return &dtos.ScanRequest{
-		TaskID:      task.Task.ID,
-		JobID:       task.JobID,
-		SourceType:  toScanningSourceType(task.Task.SourceType),
-		SessionID:   task.Task.SessionID(),
-		ResourceURI: task.Task.ResourceURI(),
-		Metadata:    task.Task.Metadata(),
-		Credentials: toScanningCredentials(task.Task.Credentials()),
-	}
-}
-
-// toScanningSourceType maps enumeration domain source types to their scanning domain equivalents.
-// This internal translation ensures the scanning domain remains isolated from enumeration concepts.
-func toScanningSourceType(e shared.SourceType) dtos.SourceType {
-	switch e {
-	case shared.SourceTypeGitHub:
-		return dtos.SourceTypeGitHub
-	case shared.SourceTypeS3:
-		return dtos.SourceTypeS3
-	case shared.SourceTypeURL:
-		return dtos.SourceTypeURL
-	default:
-		return dtos.SourceTypeUnspecified
-	}
-}
-
-// toScanningCredentials converts enumeration domain credentials to scanning domain credentials.
-// Returns unknown credential type if nil credentials are provided.
-func toScanningCredentials(creds *enumeration.TaskCredentials) dtos.ScanCredentials {
-	if creds == nil {
-		return dtos.ScanCredentials{Type: dtos.CredentialTypeUnknown}
-	}
-	return dtos.ScanCredentials{
-		Type:   toScanningCredentialType(creds.Type),
-		Values: creds.Values,
-	}
-}
-
-// toScanningCredentialType maps enumeration domain credential types to scanning domain equivalents.
-// Returns unknown credential type for unrecognized enumeration credential types.
-func toScanningCredentialType(ec enumeration.CredentialType) dtos.CredentialType {
-	switch ec {
-	case enumeration.CredentialTypeUnauthenticated:
-		return dtos.CredentialTypeUnauthenticated
-	case enumeration.CredentialTypeGitHub:
-		return dtos.CredentialTypeGitHub
-	case enumeration.CredentialTypeS3:
-		return dtos.CredentialTypeS3
-	case enumeration.CredentialTypeURL:
-		return dtos.CredentialTypeURL
-	default:
-		return dtos.CredentialTypeUnknown
-	}
+	return dtos.NewScanRequestFromEnumerationTask(task)
 }
