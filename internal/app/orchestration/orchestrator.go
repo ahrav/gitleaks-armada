@@ -125,6 +125,7 @@ func NewOrchestrator(
 
 	o.taskHealthSupervisor = scan.NewTaskHealthSupervisor(
 		jobService,
+		executionTracker,
 		tracer,
 		logger,
 	)

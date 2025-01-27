@@ -27,15 +27,17 @@ type realTimeProvider struct{}
 func (realTimeProvider) Now() time.Time { return time.Now() }
 
 type TaskHealthService interface {
-	// MarkTaskStale flags a task that has become unresponsive or stopped reporting progress.
-	// This enables automated detection and recovery of failed tasks that require intervention.
-	MarkTaskStale(ctx context.Context, jobID, taskID uuid.UUID, reason domain.StallReason) (*domain.Task, error)
-
 	// UpdateHeartbeats updates the last_heartbeat_at timestamp for a list of tasks.
 	UpdateHeartbeats(ctx context.Context, heartbeats map[uuid.UUID]time.Time) (int64, error)
 
 	// FindStaleTasks retrieves tasks that have not sent a heartbeat since the given cutoff time.
 	FindStaleTasks(ctx context.Context, cutoff time.Time) ([]*domain.Task, error)
+}
+
+// TaskStateHandler is an interface that defines methods for handling task state changes.
+type TaskStateHandler interface {
+	// HandleTaskStale handles a task that has become unresponsive or stopped reporting progress.
+	HandleTaskStale(ctx context.Context, evt scanning.TaskStaleEvent) error
 }
 
 // TaskHealthSupervisor monitors task health by tracking heartbeats from running tasks.
@@ -46,6 +48,8 @@ type TaskHealthService interface {
 type TaskHealthSupervisor struct {
 	// healthSvc provides persistence and task state management operations
 	healthSvc TaskHealthService
+	// stateHandler handles task state changes
+	stateHandler TaskStateHandler
 
 	// flushInterval controls how often heartbeats are persisted to storage
 	flushInterval time.Duration
@@ -74,11 +78,13 @@ type TaskHealthSupervisor struct {
 // for persistence and task state management.
 func NewTaskHealthSupervisor(
 	healthSvc TaskHealthService,
+	stateHandler TaskStateHandler,
 	tracer trace.Tracer,
 	logger *logger.Logger,
 ) *TaskHealthSupervisor {
 	return &TaskHealthSupervisor{
 		healthSvc:          healthSvc,
+		stateHandler:       stateHandler,
 		flushInterval:      3 * time.Second,
 		stalenessCheckIntv: 10 * time.Second,
 		stalenessThreshold: 15 * time.Second,
@@ -191,12 +197,8 @@ func (h *TaskHealthSupervisor) checkForStaleTasks(ctx context.Context) {
 	for _, t := range staleTasks {
 		h.logger.Warn(ctx, "Detected stale task", "task_id", t.TaskID())
 
-		if _, err := h.healthSvc.MarkTaskStale(
-			ctx,
-			t.JobID(),
-			t.TaskID(),
-			scanning.StallReasonNoProgress,
-		); err != nil {
+		staleEvt := scanning.NewTaskStaleEvent(t.JobID(), t.TaskID(), scanning.StallReasonNoProgress, now)
+		if err := h.stateHandler.HandleTaskStale(ctx, staleEvt); err != nil {
 			h.logger.Error(ctx, "Failed to mark task stale", "task_id", t.TaskID(), "err", err)
 			span.SetStatus(codes.Error, "failed to mark task stale")
 			span.RecordError(err)
