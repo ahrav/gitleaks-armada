@@ -86,8 +86,8 @@ func NewTaskHealthSupervisor(
 		healthSvc:          healthSvc,
 		stateHandler:       stateHandler,
 		flushInterval:      3 * time.Second,
-		stalenessCheckIntv: 10 * time.Second,
-		stalenessThreshold: 20 * time.Second, // TODO: reduce this once tasks have a new status prior to IN_PROGRESS
+		stalenessCheckIntv: 15 * time.Second,
+		stalenessThreshold: 20 * time.Second,
 		tracer:             tracer,
 		logger:             logger,
 		timeProvider:       realTimeProvider{},
