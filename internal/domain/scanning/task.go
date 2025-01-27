@@ -143,28 +143,45 @@ func (c *Checkpoint) Metadata() map[string]string { return c.metadata }
 
 // MarshalJSON serializes the Checkpoint object into a JSON byte array.
 func (c *Checkpoint) MarshalJSON() ([]byte, error) {
-	return json.Marshal(&struct {
+	// Defensive: if c is nil, return JSON "null" (or error, depending on preference)
+	if c == nil {
+		return []byte("null"), nil
+	}
+
+	// Define an inner type to avoid infinite recursion of MarshalJSON.
+	type checkpointDTO struct {
 		TaskID      string            `json:"task_id"`
 		Timestamp   time.Time         `json:"timestamp"`
 		ResumeToken []byte            `json:"resume_token"`
 		Metadata    map[string]string `json:"metadata"`
-	}{
-		TaskID:      c.taskID.String(),
+	}
+
+	dto := checkpointDTO{
+		TaskID:      c.taskID.String(), // zero-value UUID -> "00000000-0000-0000-0000-000000000000"
 		Timestamp:   c.timestamp,
 		ResumeToken: c.resumeToken,
 		Metadata:    c.metadata,
-	})
+	}
+
+	return json.Marshal(&dto)
 }
 
 // UnmarshalJSON deserializes JSON data into a Checkpoint object.
 func (c *Checkpoint) UnmarshalJSON(data []byte) error {
-	aux := &struct {
+	// Defensive: if c is nil, we can’t populate it
+	if c == nil {
+		return fmt.Errorf("cannot unmarshal JSON into nil Checkpoint")
+	}
+
+	// Matching DTO for reading JSON
+	type checkpointDTO struct {
 		TaskID      string            `json:"task_id"`
 		Timestamp   time.Time         `json:"timestamp"`
 		ResumeToken []byte            `json:"resume_token"`
 		Metadata    map[string]string `json:"metadata"`
-	}{}
+	}
 
+	var aux checkpointDTO
 	if err := json.Unmarshal(data, &aux); err != nil {
 		return err
 	}

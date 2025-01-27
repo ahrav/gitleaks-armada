@@ -93,6 +93,9 @@ func (st *ScanTemplate) ScanStreaming(
 		ticker := time.NewTicker(opts.HeartbeatInterval)
 		defer ticker.Stop()
 
+		// Send a heartbeat as soon as we start the scan.
+		heartbeatChan <- struct{}{}
+
 		for {
 			select {
 			case <-ctx.Done():
