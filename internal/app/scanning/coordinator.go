@@ -36,8 +36,6 @@ type ScanJobCoordinator interface {
 	// ---------------------------
 	// Task-level operations
 	// ---------------------------
-	TaskStateReader
-
 	// StartTask begins a new scanning task and updates job metrics accordingly.
 	// This is crucial for tracking progress and ensuring all targets are processed.
 	StartTask(ctx context.Context, jobID, taskID uuid.UUID, resourceURI string) (*domain.Task, error)
