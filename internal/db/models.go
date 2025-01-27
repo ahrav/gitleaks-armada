@@ -191,6 +191,7 @@ func (ns NullScanTaskStallReason) Value() (driver.Value, error) {
 type ScanTaskStatus string
 
 const (
+	ScanTaskStatusPENDING    ScanTaskStatus = "PENDING"
 	ScanTaskStatusINPROGRESS ScanTaskStatus = "IN_PROGRESS"
 	ScanTaskStatusCOMPLETED  ScanTaskStatus = "COMPLETED"
 	ScanTaskStatusFAILED     ScanTaskStatus = "FAILED"

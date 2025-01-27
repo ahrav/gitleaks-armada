@@ -33,6 +33,7 @@ CREATE TABLE scan_job_targets (
 
 -- Scan Task Status Enum
 CREATE TYPE scan_task_status AS ENUM (
+    'PENDING',
     'IN_PROGRESS',
     'COMPLETED',
     'FAILED',
