@@ -49,7 +49,7 @@ func (r *DomainEventProgressReporter) ReportProgress(ctx context.Context, p scan
 	defer span.End()
 
 	evt := scanning.NewTaskProgressedEvent(p)
-	if err := r.domainPublisher.PublishDomainEvent(ctx, evt); err != nil {
+	if err := r.domainPublisher.PublishDomainEvent(ctx, evt, events.WithKey(p.TaskID().String())); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to publish task progressed event")
 		return err
