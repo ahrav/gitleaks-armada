@@ -228,6 +228,7 @@ type Task struct {
 	recoveryAttempts int // Track number of times task has recovered from STALE state
 
 	lastSequenceNum int64
+	lastHeartbeatAt time.Time
 	timeline        *Timeline
 
 	itemsProcessed  int64
@@ -273,6 +274,7 @@ func ReconstructTask(
 	resourceURI string,
 	status TaskStatus,
 	lastSequenceNum int64,
+	lastHeartbeatAt time.Time,
 	startTime time.Time,
 	endTime time.Time,
 	itemsProcessed int64,
@@ -290,6 +292,7 @@ func ReconstructTask(
 		resourceURI:      resourceURI,
 		status:           status,
 		lastSequenceNum:  lastSequenceNum,
+		lastHeartbeatAt:  lastHeartbeatAt,
 		timeline:         ReconstructTimeline(startTime, endTime, time.Time{}),
 		itemsProcessed:   itemsProcessed,
 		progressDetails:  progressDetails,
@@ -311,6 +314,9 @@ func (t *Task) ResourceURI() string { return t.resourceURI }
 
 // LastSequenceNum returns the sequence number of the most recent progress update.
 func (t *Task) LastSequenceNum() int64 { return t.lastSequenceNum }
+
+// LastHeartbeatAt returns the time the task last reported progress.
+func (t *Task) LastHeartbeatAt() time.Time { return t.lastHeartbeatAt }
 
 // ItemsProcessed returns the total number of items scanned by this task.
 func (t *Task) ItemsProcessed() int64 { return t.itemsProcessed }

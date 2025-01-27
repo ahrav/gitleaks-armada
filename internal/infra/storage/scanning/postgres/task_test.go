@@ -66,6 +66,7 @@ func createTestTask(t *testing.T, store *taskStore, jobID uuid.UUID, status scan
 		0,
 		time.Now().UTC(),
 		time.Time{},
+		time.Time{},
 		0,
 		nil,
 		nil,
@@ -125,6 +126,7 @@ func TestTaskStore_UpdateTask(t *testing.T) {
 		scanning.TaskStatusInProgress,
 		1,
 		task.StartTime(),
+		time.Time{},
 		time.Now().UTC(),
 		100,
 		json.RawMessage(`{"updated": "details"}`),
@@ -291,6 +293,7 @@ func TestTaskStore_GetTask_WithStallInfo(t *testing.T) {
 		0,
 		stallTime.Add(-1*time.Hour), // Start time
 		time.Time{},                 // End time
+		time.Time{},                 // Last heartbeat at
 		0,                           // Items processed
 		nil,                         // Progress details
 		nil,                         // Checkpoint

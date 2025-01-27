@@ -127,6 +127,7 @@ SELECT
     t.stall_reason,
     t.stalled_at,
     t.recovery_attempts,
+    t.last_heartbeat_at,
     t.created_at,
     t.updated_at
 FROM scan_tasks t
@@ -148,6 +149,7 @@ type FindStaleTasksRow struct {
 	StallReason      NullScanTaskStallReason
 	StalledAt        pgtype.Timestamptz
 	RecoveryAttempts int32
+	LastHeartbeatAt  pgtype.Timestamptz
 	CreatedAt        pgtype.Timestamptz
 	UpdatedAt        pgtype.Timestamptz
 }
@@ -175,6 +177,7 @@ func (q *Queries) FindStaleTasks(ctx context.Context, lastHeartbeatAt pgtype.Tim
 			&i.StallReason,
 			&i.StalledAt,
 			&i.RecoveryAttempts,
+			&i.LastHeartbeatAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -259,6 +262,7 @@ SELECT
     progress_details,
     last_checkpoint,
     stall_reason,
+    last_heartbeat_at,
     stalled_at,
     recovery_attempts,
     created_at,
@@ -279,6 +283,7 @@ type GetScanTaskRow struct {
 	ProgressDetails  []byte
 	LastCheckpoint   []byte
 	StallReason      NullScanTaskStallReason
+	LastHeartbeatAt  pgtype.Timestamptz
 	StalledAt        pgtype.Timestamptz
 	RecoveryAttempts int32
 	CreatedAt        pgtype.Timestamptz
@@ -300,6 +305,7 @@ func (q *Queries) GetScanTask(ctx context.Context, taskID pgtype.UUID) (GetScanT
 		&i.ProgressDetails,
 		&i.LastCheckpoint,
 		&i.StallReason,
+		&i.LastHeartbeatAt,
 		&i.StalledAt,
 		&i.RecoveryAttempts,
 		&i.CreatedAt,
@@ -334,6 +340,7 @@ SELECT
     t.stall_reason,
     t.stalled_at,
     t.recovery_attempts,
+    t.last_heartbeat_at,
     t.created_at,
     t.updated_at
 FROM scan_tasks t
@@ -361,6 +368,7 @@ type ListScanTasksByJobAndStatusRow struct {
 	StallReason      NullScanTaskStallReason
 	StalledAt        pgtype.Timestamptz
 	RecoveryAttempts int32
+	LastHeartbeatAt  pgtype.Timestamptz
 	CreatedAt        pgtype.Timestamptz
 	UpdatedAt        pgtype.Timestamptz
 }
@@ -388,6 +396,7 @@ func (q *Queries) ListScanTasksByJobAndStatus(ctx context.Context, arg ListScanT
 			&i.StallReason,
 			&i.StalledAt,
 			&i.RecoveryAttempts,
+			&i.LastHeartbeatAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {

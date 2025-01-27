@@ -80,6 +80,7 @@ SELECT
     progress_details,
     last_checkpoint,
     stall_reason,
+    last_heartbeat_at,
     stalled_at,
     recovery_attempts,
     created_at,
@@ -117,6 +118,7 @@ SELECT
     t.stall_reason,
     t.stalled_at,
     t.recovery_attempts,
+    t.last_heartbeat_at,
     t.created_at,
     t.updated_at
 FROM scan_tasks t
@@ -146,6 +148,7 @@ SELECT
     t.stall_reason,
     t.stalled_at,
     t.recovery_attempts,
+    t.last_heartbeat_at,
     t.created_at,
     t.updated_at
 FROM scan_tasks t
