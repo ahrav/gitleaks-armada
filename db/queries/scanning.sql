@@ -131,15 +131,6 @@ SELECT source_type FROM tasks WHERE task_id = $1;
 INSERT INTO tasks (task_id, source_type)
 VALUES ($1, $2);
 
--- name: BatchUpdateScanTaskHeartbeats :execrows
-UPDATE scan_tasks AS t
-SET
-    last_heartbeat_at = v.heartbeat_at,
-    updated_at = v.updated_at
-FROM unnest(@params::heartbeat_update_params[]) AS v(task_id, heartbeat_at, updated_at)
-WHERE t.task_id = v.task_id
-  AND t.status = 'IN_PROGRESS';
-
 -- name: FindStaleTasks :many
 SELECT
     t.task_id,

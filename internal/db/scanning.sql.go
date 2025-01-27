@@ -31,24 +31,6 @@ func (q *Queries) AssociateTarget(ctx context.Context, arg AssociateTargetParams
 	return err
 }
 
-const batchUpdateScanTaskHeartbeats = `-- name: BatchUpdateScanTaskHeartbeats :execrows
-UPDATE scan_tasks AS t
-SET
-    last_heartbeat_at = v.heartbeat_at,
-    updated_at = v.updated_at
-FROM unnest($1::heartbeat_update_params[]) AS v(task_id, heartbeat_at, updated_at)
-WHERE t.task_id = v.task_id
-  AND t.status = 'IN_PROGRESS'
-`
-
-func (q *Queries) BatchUpdateScanTaskHeartbeats(ctx context.Context, params []interface{}) (int64, error) {
-	result, err := q.db.Exec(ctx, batchUpdateScanTaskHeartbeats, params)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
 type BulkAssociateTargetsParams struct {
 	JobID        pgtype.UUID
 	ScanTargetID pgtype.UUID
