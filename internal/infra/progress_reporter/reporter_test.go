@@ -22,7 +22,6 @@ func (m *mockDomainPublisher) PublishDomainEvent(ctx context.Context, event even
 }
 
 func TestDomainEventProgressReporter_ReportProgress(t *testing.T) {
-
 	tests := []struct {
 		name    string
 		setup   func() scanning.Progress
