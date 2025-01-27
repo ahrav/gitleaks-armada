@@ -22,9 +22,9 @@ func TestNewScanTask(t *testing.T) {
 	assert.NotNil(t, task)
 	assert.Equal(t, jobID, task.JobID())
 	assert.Equal(t, taskID, task.TaskID())
-	assert.Equal(t, TaskStatusInProgress, task.Status())
+	assert.Equal(t, TaskStatusPending, task.Status())
 
-	assert.Equal(t, mockTime, task.StartTime())
+	assert.True(t, task.StartTime().IsZero())
 	assert.True(t, task.EndTime().IsZero())
 
 	assert.Equal(t, int64(0), task.LastSequenceNum())
@@ -39,12 +39,11 @@ func TestNewScanTask_DefaultTimeProvider(t *testing.T) {
 
 	jobID := uuid.New()
 	taskID := uuid.New()
-	beforeCreate := time.Now()
 
 	task := NewScanTask(jobID, taskID, "https://example.com") // No time provider specified
 
 	assert.NotNil(t, task)
-	assert.True(t, task.StartTime().After(beforeCreate) || task.StartTime().Equal(beforeCreate))
+	assert.True(t, task.StartTime().IsZero())
 }
 
 // mockTimeProvider implements TimeProvider for testing
@@ -115,34 +114,13 @@ func TestTask_ApplyProgress(t *testing.T) {
 			name: "recover from stale state",
 			setupTask: func() *Task {
 				task := NewScanTask(uuid.New(), uuid.New(), "https://example.com")
-				reason := StallReasonNoProgress
-				_ = task.MarkStale(&reason)
-				return task
-			},
-			progress: Progress{
-				sequenceNum:    1,
-				itemsProcessed: 100,
-				timestamp:      time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-			},
-			wantStatus:           TaskStatusInProgress,
-			wantItems:            100,
-			wantSeqNum:           1,
-			wantRecoveryAttempts: 1,
-		},
-		{
-			name: "multiple recoveries from stale state",
-			setupTask: func() *Task {
-				task := NewScanTask(uuid.New(), uuid.New(), "https://example.com")
-				reason := StallReasonNoProgress
 
-				// First stale cycle.
-				_ = task.MarkStale(&reason)
 				_ = task.ApplyProgress(Progress{
 					taskID:      task.TaskID(),
 					sequenceNum: 1,
 				})
 
-				// Second stale cycle.
+				reason := StallReasonNoProgress
 				_ = task.MarkStale(&reason)
 				return task
 			},
@@ -154,6 +132,38 @@ func TestTask_ApplyProgress(t *testing.T) {
 			wantStatus:           TaskStatusInProgress,
 			wantItems:            100,
 			wantSeqNum:           2,
+			wantRecoveryAttempts: 1,
+		},
+		{
+			name: "multiple recoveries from stale state",
+			setupTask: func() *Task {
+				task := NewScanTask(uuid.New(), uuid.New(), "https://example.com")
+				reason := StallReasonNoProgress
+
+				_ = task.ApplyProgress(Progress{
+					taskID:      task.TaskID(),
+					sequenceNum: 1,
+				})
+
+				// First stale cycle.
+				_ = task.MarkStale(&reason)
+				_ = task.ApplyProgress(Progress{
+					taskID:      task.TaskID(),
+					sequenceNum: 2,
+				})
+
+				// Second stale cycle.
+				_ = task.MarkStale(&reason)
+				return task
+			},
+			progress: Progress{
+				sequenceNum:    3,
+				itemsProcessed: 100,
+				timestamp:      time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+			},
+			wantStatus:           TaskStatusInProgress,
+			wantItems:            100,
+			wantSeqNum:           3,
 			wantRecoveryAttempts: 2,
 		},
 	}
@@ -238,6 +248,7 @@ func TestTask_Complete(t *testing.T) {
 			name: "successful completion",
 			setupTask: func(tp *mockTimeProvider) *Task {
 				task := NewScanTask(uuid.New(), uuid.New(), "https://example.com", WithTimeProvider(tp))
+				task.status = TaskStatusInProgress
 				task.itemsProcessed = 100
 				return task
 			},

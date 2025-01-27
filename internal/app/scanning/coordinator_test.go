@@ -274,12 +274,12 @@ func TestStartTask(t *testing.T) {
 				s.jobRepo.On("GetJob", mock.Anything, jobID).
 					Return(job, nil)
 
-				s.jobRepo.On("UpdateJob", mock.Anything, mock.MatchedBy(func(j *scanning.Job) bool {
-					// Verify the job has been updated with the task and correct status.
-					correctStatus := j.Status() == scanning.JobStatusRunning
-					correctJobID := j.JobID() == jobID
-					return correctStatus && correctJobID
-				})).Return(nil)
+				s.jobRepo.On("UpdateJob",
+					mock.Anything,
+					mock.MatchedBy(func(j *scanning.Job) bool {
+						return j.JobID() == jobID
+					}),
+				).Return(nil)
 			},
 			wantErr: false,
 		},
@@ -313,7 +313,7 @@ func TestStartTask(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.NotNil(t, task)
-			assert.Equal(t, scanning.TaskStatusInProgress, task.Status())
+			assert.Equal(t, scanning.TaskStatusPending, task.Status())
 			suite.jobRepo.AssertExpectations(t)
 			suite.taskRepo.AssertExpectations(t)
 		})
@@ -427,6 +427,16 @@ func TestCompleteTask(t *testing.T) {
 			name: "successful task completion",
 			setup: func(s *coordinatorTestSuite) {
 				task := scanning.NewScanTask(jobID, taskID, "https://example.com")
+				task.ApplyProgress(scanning.NewProgress(
+					taskID,
+					1,
+					time.Now(),
+					100,
+					0,
+					"processing",
+					nil,
+					nil,
+				))
 				job := scanning.NewJob()
 				job.AddTask(task)
 
@@ -498,6 +508,16 @@ func TestFailTask(t *testing.T) {
 			name: "successful task failure",
 			setup: func(s *coordinatorTestSuite) {
 				task := scanning.NewScanTask(jobID, taskID, "https://example.com")
+				task.ApplyProgress(scanning.NewProgress(
+					taskID,
+					1,
+					time.Now(),
+					100,
+					0,
+					"processing",
+					nil,
+					nil,
+				))
 				job := scanning.NewJob()
 				job.AddTask(task)
 
@@ -570,6 +590,16 @@ func TestMarkTaskStale(t *testing.T) {
 			name: "successful mark task as stale",
 			setup: func(s *coordinatorTestSuite) {
 				task := scanning.NewScanTask(jobID, taskID, "https://example.com")
+				task.ApplyProgress(scanning.NewProgress(
+					taskID,
+					1,
+					time.Now(),
+					100,
+					0,
+					"processing",
+					nil,
+					nil,
+				))
 
 				s.taskRepo.On("GetTask", mock.Anything, taskID).
 					Return(task, nil)

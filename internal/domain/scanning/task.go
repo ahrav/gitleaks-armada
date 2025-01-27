@@ -168,7 +168,7 @@ func (c *Checkpoint) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON deserializes JSON data into a Checkpoint object.
 func (c *Checkpoint) UnmarshalJSON(data []byte) error {
-	// Defensive: if c is nil, we can’t populate it
+	// Defensive: if c is nil, we can't populate it
 	if c == nil {
 		return fmt.Errorf("cannot unmarshal JSON into nil Checkpoint")
 	}
@@ -203,10 +203,10 @@ func (c *Checkpoint) UnmarshalJSON(data []byte) error {
 // fine-grained tracking of task progress and error conditions.
 type TaskStatus string
 
-// TODO: We need another status for when the task is created but not yet started.
-// Otherwise, we run the risk of a task getting marked as STALE if no scanner can
-// pick it up.
 const (
+	// TaskStatusPending indicates a task is created but not yet started.
+	TaskStatusPending TaskStatus = "PENDING"
+
 	// TaskStatusInProgress indicates a task is actively scanning.
 	TaskStatusInProgress TaskStatus = "IN_PROGRESS"
 
@@ -273,7 +273,7 @@ func NewScanTask(jobID uuid.UUID, taskID uuid.UUID, resourceURI string, opts ...
 		},
 		jobID:           jobID,
 		resourceURI:     resourceURI,
-		status:          TaskStatusInProgress,
+		status:          TaskStatusPending,
 		timeline:        NewTimeline(new(realTimeProvider)),
 		lastSequenceNum: 0,
 	}
@@ -402,6 +402,28 @@ func (e *OutOfOrderProgressError) Error() string {
 // ApplyProgress applies a progress update to this task's state.
 // It updates all monitoring metrics and preserves any checkpoint data.
 func (t *Task) ApplyProgress(progress Progress) error {
+	// First check if we're in a valid state to receive progress
+	if t.status != TaskStatusInProgress && t.status != TaskStatusStale && t.status != TaskStatusPending {
+		return TaskInvalidStateError{
+			taskID: t.ID,
+			status: t.status,
+			reason: TaskInvalidStateReasonWrongStatus,
+		}
+	}
+
+	// Handle state transitions before sequence number validation
+	// If task was previously stale, record recovery and reset stale-related fields
+	if t.status == TaskStatusStale {
+		t.recoveryAttempts++
+		t.status = TaskStatusInProgress
+		t.ClearStall()
+	} else if t.status == TaskStatusPending {
+		// If task is in pending state, transition to in progress
+		t.status = TaskStatusInProgress
+		t.timeline.MarkStarted()
+	}
+
+	// Now validate sequence number
 	if !t.isSeqNumValid(progress) {
 		return NewOutOfOrderProgressError(t.TaskID(), progress.SequenceNum(), t.LastSequenceNum())
 	}
@@ -417,14 +439,6 @@ func (t *Task) isSeqNumValid(progress Progress) bool {
 // updateProgress applies a progress update to this task's state.
 // It updates all monitoring metrics and preserves any checkpoint data.
 func (t *Task) updateProgress(progress Progress) {
-	// If task was previously stale, record recovery and reset stale-related fields.
-	// TODO: Consider setting a threshold for recovery attempts.
-	if t.status == TaskStatusStale {
-		t.recoveryAttempts++
-		t.status = TaskStatusInProgress
-		t.ClearStall()
-	}
-
 	t.lastSequenceNum = progress.SequenceNum()
 	t.timeline.UpdateLastUpdate()
 	t.itemsProcessed += progress.ItemsProcessed()

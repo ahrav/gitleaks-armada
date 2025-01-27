@@ -22,10 +22,8 @@ type Timeline struct {
 
 // NewTimeline creates a new Timeline instance.
 func NewTimeline(timeProvider TimeProvider) *Timeline {
-	now := timeProvider.Now()
 	return &Timeline{
-		startedAt:    now,
-		lastUpdate:   now,
+		lastUpdate:   timeProvider.Now(),
 		timeProvider: timeProvider,
 	}
 }
