@@ -33,9 +33,9 @@ type EventsFacilitator struct {
 	// scanning tasks. The EventsFacilitator delegates task-related domain operations here.
 	executionTracker scansvc.ExecutionTracker
 
-	// heartbeatMonitor is responsible for monitoring task heartbeats and failing
+	// taskHealthSupervisor is responsible for monitoring task heartbeats and failing
 	// tasks that have not sent a heartbeat within a given threshold.
-	heartbeatMonitor *scansvc.TaskHealthService
+	taskHealthSupervisor *scansvc.TaskHealthSupervisor
 
 	// rulesService is responsible for persisting rules, updating rule states, etc.
 	// The EventsFacilitator calls into it when handling rule-related events.
@@ -46,19 +46,19 @@ type EventsFacilitator struct {
 
 // NewEventsFacilitator constructs an EventsFacilitator that can process both
 // scanning task events and rule-related events. It receives a executionTracker,
-// rulesService, heartbeatMonitor, and tracer so it can delegate domain-specific logic
+// rulesService, taskHealthSupervisor, and tracer so it can delegate domain-specific logic
 // to the correct bounded context service and instrument event handling with traces.
 func NewEventsFacilitator(
 	tracker scansvc.ExecutionTracker,
-	heartbeatMonitor *scansvc.TaskHealthService,
+	taskHealthSupervisor *scansvc.TaskHealthSupervisor,
 	rulesSvc rulessvc.Service,
 	tracer trace.Tracer,
 ) *EventsFacilitator {
 	return &EventsFacilitator{
-		executionTracker: tracker,
-		heartbeatMonitor: heartbeatMonitor,
-		rulesService:     rulesSvc,
-		tracer:           tracer,
+		executionTracker:     tracker,
+		taskHealthSupervisor: taskHealthSupervisor,
+		rulesService:         rulesSvc,
+		tracer:               tracer,
 	}
 }
 
@@ -215,7 +215,7 @@ func (ef *EventsFacilitator) HandleTaskHeartbeat(
 			return recordPayloadTypeError(span, evt.Payload)
 		}
 
-		ef.heartbeatMonitor.HandleHeartbeat(ctx, heartbeatEvt)
+		ef.taskHealthSupervisor.HandleHeartbeat(ctx, heartbeatEvt)
 
 		span.AddEvent("task_heartbeat_processed")
 		span.SetStatus(codes.Ok, "task heartbeat processed")
