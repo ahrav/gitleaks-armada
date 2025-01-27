@@ -186,6 +186,9 @@ func (c *Checkpoint) UnmarshalJSON(data []byte) error {
 // fine-grained tracking of task progress and error conditions.
 type TaskStatus string
 
+// TODO: We need another status for when the task is created but not yet started.
+// Otherwise, we run the risk of a task getting marked as STALE if no scanner can
+// pick it up.
 const (
 	// TaskStatusInProgress indicates a task is actively scanning.
 	TaskStatusInProgress TaskStatus = "IN_PROGRESS"

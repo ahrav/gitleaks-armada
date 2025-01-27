@@ -540,7 +540,6 @@ func (s *coordinator) processBatch(
 			target.Metadata,
 			creds,
 		)
-		taskWriter <- task
 
 		// TODO: This likely needs some sort of retry on failure.
 		// Otherwise, we'll be in a weird inconsistent state where the task
@@ -551,6 +550,7 @@ func (s *coordinator) processBatch(
 			batchSpan.SetStatus(codes.Error, "failed to save task")
 			return fmt.Errorf("failed to save task: %w", err)
 		}
+		taskWriter <- task
 		batchSpan.AddEvent("task_saved_successfully")
 	}
 

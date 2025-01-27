@@ -423,7 +423,11 @@ func (s *ScannerService) handleScanTask(ctx context.Context, req *dtos.ScanReque
 	span.AddEvent("starting_scan")
 
 	startedEvt := scanning.NewTaskStartedEvent(req.JobID, req.TaskID, req.ResourceURI)
-	if err := s.domainPublisher.PublishDomainEvent(ctx, startedEvt); err != nil {
+	if err := s.domainPublisher.PublishDomainEvent(
+		ctx,
+		startedEvt,
+		events.WithKey(req.TaskID.String()),
+	); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to publish task started event")
 		return fmt.Errorf("failed to publish task started event: %w", err)
@@ -459,7 +463,11 @@ func (s *ScannerService) executeScanTask(ctx context.Context, req *dtos.ScanRequ
 
 		if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 			failEvt := scanning.NewTaskFailedEvent(req.JobID, req.TaskID, err.Error())
-			if err := s.domainPublisher.PublishDomainEvent(ctx, failEvt); err != nil {
+			if err := s.domainPublisher.PublishDomainEvent(
+				ctx,
+				failEvt,
+				events.WithKey(req.TaskID.String()),
+			); err != nil {
 				span.RecordError(err)
 				span.SetStatus(codes.Error, "failed to publish task failed event")
 				return fmt.Errorf("failed to publish task failed event: %w", err)
@@ -477,7 +485,11 @@ func (s *ScannerService) executeScanTask(ctx context.Context, req *dtos.ScanRequ
 	}
 
 	completedEvt := scanning.NewTaskCompletedEvent(req.JobID, req.TaskID)
-	if err := s.domainPublisher.PublishDomainEvent(ctx, completedEvt); err != nil {
+	if err := s.domainPublisher.PublishDomainEvent(
+		ctx,
+		completedEvt,
+		events.WithKey(req.TaskID.String()),
+	); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to publish task completed event")
 		return fmt.Errorf("failed to publish task completed event: %w", err)
@@ -509,7 +521,11 @@ func (s *ScannerService) consumeStream(
 			} else {
 				// Publish the heartbeat event for this task.
 				evt := scanning.NewTaskHeartbeatEvent(taskID)
-				if pErr := s.domainPublisher.PublishDomainEvent(ctx, evt); pErr != nil {
+				if pErr := s.domainPublisher.PublishDomainEvent(
+					ctx,
+					evt,
+					events.WithKey(taskID.String()),
+				); pErr != nil {
 					s.logger.Error(ctx, "ScannerService: failed to publish heartbeat event", "err", pErr)
 				}
 			}
