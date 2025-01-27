@@ -125,7 +125,6 @@ func NewOrchestrator(
 
 	o.heartbeatMonitor = scan.NewHeartbeatMonitor(
 		jobService,
-		executionTracker,
 		tracer,
 		logger,
 	)

@@ -13,26 +13,31 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
 
-type mockTaskReader struct {
-	getTaskFunc func(context.Context, uuid.UUID) (*scanning.Task, error)
+type mockMonitor struct {
+	updateHeartbeatsFunc func(context.Context, map[uuid.UUID]time.Time) (int64, error)
+	findStaleTasksFunc   func(context.Context, time.Time) ([]*scanning.Task, error)
+	markTaskStaleFunc    func(context.Context, uuid.UUID, uuid.UUID, scanning.StallReason) (*scanning.Task, error)
 }
 
-func (m *mockTaskReader) GetTask(ctx context.Context, taskID uuid.UUID) (*scanning.Task, error) {
-	if m.getTaskFunc != nil {
-		return m.getTaskFunc(ctx, taskID)
+func (m *mockMonitor) UpdateHeartbeats(ctx context.Context, beats map[uuid.UUID]time.Time) (int64, error) {
+	if m.updateHeartbeatsFunc != nil {
+		return m.updateHeartbeatsFunc(ctx, beats)
+	}
+	return int64(len(beats)), nil
+}
+
+func (m *mockMonitor) FindStaleTasks(ctx context.Context, cutoff time.Time) ([]*scanning.Task, error) {
+	if m.findStaleTasksFunc != nil {
+		return m.findStaleTasksFunc(ctx, cutoff)
 	}
 	return nil, nil
 }
 
-type mockStalenessHandler struct {
-	markStaleFunc func(context.Context, scanning.TaskStaleEvent) error
-}
-
-func (m *mockStalenessHandler) HandleTaskStale(ctx context.Context, evt scanning.TaskStaleEvent) error {
-	if m.markStaleFunc != nil {
-		return m.markStaleFunc(ctx, evt)
+func (m *mockMonitor) MarkTaskStale(ctx context.Context, jobID, taskID uuid.UUID, reason scanning.StallReason) (*scanning.Task, error) {
+	if m.markTaskStaleFunc != nil {
+		return m.markTaskStaleFunc(ctx, jobID, taskID, reason)
 	}
-	return nil
+	return nil, nil
 }
 
 func TestHeartbeatMonitor_HandleHeartbeat(t *testing.T) {
@@ -40,51 +45,67 @@ func TestHeartbeatMonitor_HandleHeartbeat(t *testing.T) {
 	mockTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	mockProvider := &mockTimeProvider{now: mockTime}
 
-	monitor := NewHeartbeatMonitor(
-		new(mockTaskReader),
-		new(mockStalenessHandler),
+	capturedBeats := make(map[uuid.UUID]time.Time)
+	monitor := &mockMonitor{
+		updateHeartbeatsFunc: func(ctx context.Context, beats map[uuid.UUID]time.Time) (int64, error) {
+			for k, v := range beats {
+				capturedBeats[k] = v
+			}
+			return int64(len(beats)), nil
+		},
+	}
+
+	heartbeatMonitor := NewHeartbeatMonitor(
+		monitor,
 		noop.NewTracerProvider().Tracer("test"),
 		logger.Noop(),
 	)
-	monitor.timeProvider = mockProvider
+	heartbeatMonitor.timeProvider = mockProvider
 
-	evt := scanning.TaskHeartbeatEvent{
-		TaskID: taskID,
+	// Set a shorter flush interval to allow the test to complete faster.
+	heartbeatMonitor.flushInterval = 50 * time.Millisecond
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	heartbeatMonitor.Start(ctx)
+
+	evt := scanning.NewTaskHeartbeatEvent(taskID)
+	heartbeatMonitor.HandleHeartbeat(context.Background(), evt)
+
+	time.Sleep(100 * time.Millisecond)
+
+	if assert.NotNil(t, capturedBeats, "Expected captured beats to not be nil") {
+		assert.Len(t, capturedBeats, 1, "Expected exactly one heartbeat")
+		assert.Equal(t, mockTime, capturedBeats[taskID], "Expected heartbeat time to match mock time")
 	}
 
-	monitor.HandleHeartbeat(context.Background(), evt)
-
-	if lastBeat, exists := monitor.lastHeartbeatByTask[taskID]; !exists {
-		t.Error("Expected heartbeat to be recorded but it wasn't")
-	} else {
-		assert.Equal(t, mockTime, lastBeat)
-	}
+	heartbeatMonitor.Stop()
 }
 
 func TestHeartbeatMonitor_CheckForStaleTasks(t *testing.T) {
 	tests := []struct {
-		name         string
-		taskID       uuid.UUID
-		taskStatus   scanning.TaskStatus
-		expectStale  bool
-		heartbeatAge time.Duration
-		staleTimeout time.Duration
+		name            string
+		taskID          uuid.UUID
+		jobID           uuid.UUID
+		expectStale     bool
+		setupStaleTasks func() []*scanning.Task
 	}{
 		{
-			name:         "in_progress_task_becomes_stale",
-			taskID:       uuid.New(),
-			taskStatus:   scanning.TaskStatusInProgress,
-			expectStale:  true,
-			heartbeatAge: 20 * time.Second,
-			staleTimeout: 15 * time.Second,
+			name:        "stale_task_marked",
+			taskID:      uuid.New(),
+			jobID:       uuid.New(),
+			expectStale: true,
+			setupStaleTasks: func() []*scanning.Task {
+				task := scanning.NewScanTask(uuid.New(), uuid.New(), "test://resource")
+				return []*scanning.Task{task}
+			},
 		},
 		{
-			name:         "completed_task_not_marked_stale",
-			taskID:       uuid.New(),
-			taskStatus:   scanning.TaskStatusCompleted,
-			expectStale:  false,
-			heartbeatAge: 20 * time.Second,
-			staleTimeout: 15 * time.Second,
+			name:        "no_stale_tasks",
+			expectStale: false,
+			setupStaleTasks: func() []*scanning.Task {
+				return nil
+			},
 		},
 	}
 
@@ -93,131 +114,107 @@ func TestHeartbeatMonitor_CheckForStaleTasks(t *testing.T) {
 			baseTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 			mockTime := &mockTimeProvider{now: baseTime}
 
-			var capturedEvent scanning.TaskStaleEvent
-			var markStaleCalled bool
-
-			taskReader := &mockTaskReader{
-				getTaskFunc: func(ctx context.Context, taskID uuid.UUID) (*scanning.Task, error) {
-					task := scanning.NewScanTask(taskID, taskID, "test://resource")
-					if tt.taskStatus == scanning.TaskStatusCompleted {
-						task.Complete()
-					}
-					return task, nil
+			var markedStaleTaskID uuid.UUID
+			monitor := &mockMonitor{
+				findStaleTasksFunc: func(ctx context.Context, cutoff time.Time) ([]*scanning.Task, error) {
+					return tt.setupStaleTasks(), nil
+				},
+				markTaskStaleFunc: func(ctx context.Context, jobID, taskID uuid.UUID, reason scanning.StallReason) (*scanning.Task, error) {
+					markedStaleTaskID = taskID
+					return nil, nil
 				},
 			}
 
-			stalenessHandler := &mockStalenessHandler{
-				markStaleFunc: func(ctx context.Context, evt scanning.TaskStaleEvent) error {
-					capturedEvent = evt
-					markStaleCalled = true
-					return nil
-				},
-			}
-
-			monitor := NewHeartbeatMonitor(
-				taskReader,
-				stalenessHandler,
+			heartbeatMonitor := NewHeartbeatMonitor(
+				monitor,
 				noop.NewTracerProvider().Tracer("test"),
 				logger.Noop(),
 			)
-			monitor.timeProvider = mockTime
-
-			monitor.lastHeartbeatByTask[tt.taskID] = baseTime.Add(-tt.heartbeatAge)
-			mockTime.now = baseTime.Add(tt.heartbeatAge)
-
-			monitor.checkForStaleTasks(context.Background(), tt.staleTimeout)
+			heartbeatMonitor.timeProvider = mockTime
+			heartbeatMonitor.checkForStaleTasks(context.Background())
 
 			if tt.expectStale {
-				if !markStaleCalled {
-					t.Error("Expected task to be marked stale, but it wasn't")
-				}
-				if capturedEvent.TaskID != tt.taskID {
-					t.Errorf("Expected task %v to be marked stale, but got %v", tt.taskID, capturedEvent.TaskID)
-				}
-				// Verify the task was removed from tracking.
-				if _, exists := monitor.lastHeartbeatByTask[tt.taskID]; exists {
-					t.Error("Expected stale task to be removed from tracking but it wasn't")
-				}
+				assert.NotEqual(t, uuid.UUID{}, markedStaleTaskID, "Expected task to be marked stale")
 			} else {
-				if markStaleCalled {
-					t.Error("Task was marked stale when it shouldn't have been")
-				}
-				// Even for non-stale tasks, we should clean up completed ones.
-				if _, exists := monitor.lastHeartbeatByTask[tt.taskID]; exists {
-					t.Error("Expected completed task to be removed from tracking but it wasn't")
-				}
+				assert.Equal(t, uuid.UUID{}, markedStaleTaskID, "Expected no tasks to be marked stale")
 			}
 		})
 	}
 }
 
-// TODO: Fix this to not use real tickers.
-// func TestHeartbeatMonitor_Start(t *testing.T) {
-// 	taskID := uuid.New()
-// 	baseTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
-// 	advancedTime := baseTime.Add(20 * time.Second)
-// 	mockProvider := &mockTimeProvider{now: baseTime}
+func TestHeartbeatMonitor_Start(t *testing.T) {
+	taskID := uuid.New()
+	baseTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	advancedTime := baseTime.Add(20 * time.Second)
+	mockProvider := &mockTimeProvider{now: baseTime}
 
-// 	var capturedEvent scanning.TaskStaleEvent
-// 	staller := &mockTaskStaller{
-// 		markStaleFunc: func(ctx context.Context, evt scanning.TaskStaleEvent) error {
-// 			capturedEvent = evt
-// 			return nil
-// 		},
-// 	}
+	var staleCalled bool
+	monitor := &mockMonitor{
+		findStaleTasksFunc: func(ctx context.Context, cutoff time.Time) ([]*scanning.Task, error) {
+			// As soon as the cutoff passes, we treat anything older than that as stale
+			return []*scanning.Task{
+				scanning.NewScanTask(uuid.New(), taskID, "test://resource"),
+			}, nil
+		},
+		markTaskStaleFunc: func(ctx context.Context, jobID, tID uuid.UUID, reason scanning.StallReason) (*scanning.Task, error) {
+			staleCalled = true
+			return nil, nil
+		},
+	}
 
-// 	monitor := NewHeartbeatMonitor(
-// 		staller,
-// 		noop.NewTracerProvider().Tracer("test"),
-// 		logger.Noop(),
-// 	)
-// 	monitor.timeProvider = mockProvider
+	heartbeatMonitor := NewHeartbeatMonitor(
+		monitor,
+		noop.NewTracerProvider().Tracer("test"),
+		logger.Noop(),
+	)
+	heartbeatMonitor.flushInterval = 30 * time.Millisecond
+	heartbeatMonitor.stalenessCheckIntv = 50 * time.Millisecond
+	heartbeatMonitor.timeProvider = mockProvider
 
-// 	ctx, cancel := context.WithCancel(context.Background())
-// 	defer cancel()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-// 	monitor.Start(ctx)
+	heartbeatMonitor.Start(ctx)
 
-// 	// Add a task that will become stale
-// 	monitor.lastHeartbeatByTask[taskID] = baseTime.Add(-20 * time.Second)
+	// Allow one flush/stale-check cycle at the original time.
+	time.Sleep(100 * time.Millisecond)
 
-// 	// Advance mock time by 20 seconds
-// 	mockProvider.now = advancedTime
+	// Advance time so the next stale check sees tasks as stale.
+	mockProvider.now = advancedTime
 
-// 	// Wait for staleness check to run
-// 	time.Sleep(stalenessLoopInterval + time.Second)
+	// Wait enough time for the next stale check to run.
+	time.Sleep(100 * time.Millisecond)
 
-// 	assert.Equal(t, taskID, capturedEvent.TaskID)
-// 	assert.Equal(t, scanning.StallReasonNoProgress, capturedEvent.Reason)
-// 	assert.Equal(t, advancedTime, capturedEvent.OccurredAt)
-// }
+	assert.True(t, staleCalled, "Expected MarkTaskStale to be called for stale tasks")
+
+	heartbeatMonitor.Stop()
+}
 
 func TestHeartbeatMonitor_ConcurrentAccess(t *testing.T) {
 	baseTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	mockProvider := &mockTimeProvider{now: baseTime}
 
-	monitor := NewHeartbeatMonitor(
-		new(mockTaskReader),
-		new(mockStalenessHandler),
+	heartbeatMonitor := NewHeartbeatMonitor(
+		new(mockMonitor),
 		noop.NewTracerProvider().Tracer("test"),
 		logger.Noop(),
 	)
-	monitor.timeProvider = mockProvider
+	heartbeatMonitor.timeProvider = mockProvider
 
 	taskID := uuid.New()
 	done := make(chan bool)
 
 	go func() {
 		for i := 0; i < 100; i++ {
-			monitor.HandleHeartbeat(context.Background(), scanning.TaskHeartbeatEvent{TaskID: taskID})
+			heartbeatMonitor.HandleHeartbeat(context.Background(), scanning.TaskHeartbeatEvent{TaskID: taskID})
 			mockProvider.SetNow(time.Millisecond)
 		}
 		done <- true
 	}()
 
 	go func() {
-		for i := 0; i < 100; i++ {
-			monitor.checkForStaleTasks(context.Background(), defaultThreshold)
+		for range 100 {
+			heartbeatMonitor.checkForStaleTasks(context.Background())
 			mockProvider.SetNow(time.Millisecond)
 		}
 		done <- true

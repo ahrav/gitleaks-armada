@@ -63,6 +63,12 @@ type ScanJobCoordinator interface {
 	// This is needed for task resume operations.
 	GetTaskSourceType(ctx context.Context, taskID uuid.UUID) (shared.SourceType, error)
 
+	// UpdateHeartbeats updates the last_heartbeat_at timestamp for a list of tasks.
+	UpdateHeartbeats(ctx context.Context, heartbeats map[uuid.UUID]time.Time) (int64, error)
+
+	// FindStaleTasks retrieves tasks that have not sent a heartbeat since the given cutoff time.
+	FindStaleTasks(ctx context.Context, cutoff time.Time) ([]*domain.Task, error)
+
 	// // RecoverTask attempts to resume execution of a previously stalled task.
 	// // It uses the last recorded checkpoint to restart the task from its last known good state.
 	// RecoverTask(ctx context.Context, jobID, taskID uuid.UUID) error
