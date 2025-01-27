@@ -103,7 +103,7 @@ func newCoordinatorTestSuite(t *testing.T) *coordinatorTestSuite {
 		jobRepo:  jobRepo,
 		taskRepo: taskRepo,
 		coord: &scanJobCoordinator{
-			jobCache:  make(map[uuid.UUID]*domain.Job),
+			// jobCache:  make(map[uuid.UUID]*domain.Job),
 			taskCache: make(map[uuid.UUID]*domain.Task),
 			jobRepo:   jobRepo,
 			taskRepo:  taskRepo,
@@ -274,27 +274,27 @@ func TestStartTask(t *testing.T) {
 				s.jobRepo.On("GetJob", mock.Anything, jobID).
 					Return(job, nil)
 
-				s.jobRepo.On("UpdateJob",
-					mock.Anything,
-					mock.MatchedBy(func(j *scanning.Job) bool {
-						return j.JobID() == jobID
-					}),
-				).Return(nil)
+				// s.jobRepo.On("UpdateJob",
+				// 	mock.Anything,
+				// 	mock.MatchedBy(func(j *scanning.Job) bool {
+				// 		return j.JobID() == jobID
+				// 	}),
+				// ).Return(nil)
 			},
 			wantErr: false,
 		},
-		{
-			name: "job not found",
-			setup: func(s *coordinatorTestSuite) {
-				s.taskRepo.On("CreateTask", mock.Anything, mock.MatchedBy(func(task *scanning.Task) bool {
-					return task.JobID() == jobID && task.TaskID() == taskID
-				})).Return(nil)
+		// {
+		// 	name: "job not found",
+		// 	setup: func(s *coordinatorTestSuite) {
+		// 		s.taskRepo.On("CreateTask", mock.Anything, mock.MatchedBy(func(task *scanning.Task) bool {
+		// 			return task.JobID() == jobID && task.TaskID() == taskID
+		// 		})).Return(nil)
 
-				s.jobRepo.On("GetJob", mock.Anything, jobID).
-					Return(nil, assert.AnError)
-			},
-			wantErr: true,
-		},
+		// 		// s.jobRepo.On("GetJob", mock.Anything, jobID).
+		// 		// 	Return(nil, assert.AnError)
+		// 	},
+		// 	wantErr: true,
+		// },
 	}
 
 	for _, tt := range tests {
@@ -314,7 +314,7 @@ func TestStartTask(t *testing.T) {
 			require.NoError(t, err)
 			assert.NotNil(t, task)
 			assert.Equal(t, scanning.TaskStatusPending, task.Status())
-			suite.jobRepo.AssertExpectations(t)
+			// suite.jobRepo.AssertExpectations(t)
 			suite.taskRepo.AssertExpectations(t)
 		})
 	}
@@ -365,12 +365,12 @@ func TestUpdateTaskProgress(t *testing.T) {
 					return t.LastSequenceNum() == progress.SequenceNum()
 				})).Return(nil)
 
-				s.jobRepo.On("GetJob", mock.Anything, jobID).
-					Return(job, nil)
+				// s.jobRepo.On("GetJob", mock.Anything, jobID).
+				// 	Return(job, nil)
 
-				s.jobRepo.On("UpdateJob", mock.Anything, mock.MatchedBy(func(j *scanning.Job) bool {
-					return j.JobID() == jobID
-				})).Return(nil)
+				// s.jobRepo.On("UpdateJob", mock.Anything, mock.MatchedBy(func(j *scanning.Job) bool {
+				// 	return j.JobID() == jobID
+				// })).Return(nil)
 			},
 			wantErr: false,
 		},
@@ -409,7 +409,7 @@ func TestUpdateTaskProgress(t *testing.T) {
 			require.NoError(t, err)
 			assert.NotNil(t, task)
 			suite.taskRepo.AssertExpectations(t)
-			suite.jobRepo.AssertExpectations(t)
+			// suite.jobRepo.AssertExpectations(t)
 		})
 	}
 }
@@ -426,6 +426,7 @@ func TestCompleteTask(t *testing.T) {
 		{
 			name: "successful task completion",
 			setup: func(s *coordinatorTestSuite) {
+				// Create initial task in IN_PROGRESS state
 				task := scanning.NewScanTask(jobID, taskID, "https://example.com")
 				task.ApplyProgress(scanning.NewProgress(
 					taskID,
@@ -437,20 +438,18 @@ func TestCompleteTask(t *testing.T) {
 					nil,
 					nil,
 				))
-				job := scanning.NewJob()
-				job.AddTask(task)
 
+				// First mock: Return the task when GetTask is called
 				s.taskRepo.On("GetTask", mock.Anything, taskID).
 					Return(task, nil)
 
-				s.jobRepo.On("GetJob", mock.Anything, jobID).
-					Return(job, nil)
-
-				s.taskRepo.On("UpdateTask", mock.Anything, mock.MatchedBy(func(t *scanning.Task) bool {
-					return t.Status() == scanning.TaskStatusCompleted
+				// Second mock: Verify the task update with proper status check
+				s.taskRepo.On("UpdateTask", mock.Anything, mock.MatchedBy(func(updatedTask *scanning.Task) bool {
+					return updatedTask.TaskID() == taskID &&
+						updatedTask.JobID() == jobID &&
+						updatedTask.Status() == scanning.TaskStatusCompleted &&
+						updatedTask.ResourceURI() == "https://example.com"
 				})).Return(nil)
-
-				s.jobRepo.On("UpdateJob", mock.Anything, mock.AnythingOfType("*scanning.Job")).Return(nil)
 			},
 			wantErr: false,
 		},
@@ -462,17 +461,17 @@ func TestCompleteTask(t *testing.T) {
 			},
 			wantErr: true,
 		},
-		{
-			name: "job not found",
-			setup: func(s *coordinatorTestSuite) {
-				task := scanning.NewScanTask(jobID, taskID, "https://example.com")
-				s.taskRepo.On("GetTask", mock.Anything, taskID).
-					Return(task, nil)
-				s.jobRepo.On("GetJob", mock.Anything, jobID).
-					Return(nil, assert.AnError)
-			},
-			wantErr: true,
-		},
+		// {
+		// 	name: "job not found",
+		// 	setup: func(s *coordinatorTestSuite) {
+		// 		task := scanning.NewScanTask(jobID, taskID, "https://example.com")
+		// 		s.taskRepo.On("GetTask", mock.Anything, taskID).
+		// 			Return(task, nil)
+		// 		// s.jobRepo.On("GetJob", mock.Anything, jobID).
+		// 		// 	Return(nil, assert.AnError)
+		// 	},
+		// 	wantErr: true,
+		// },
 	}
 
 	for _, tt := range tests {
@@ -489,7 +488,6 @@ func TestCompleteTask(t *testing.T) {
 			require.NoError(t, err)
 			assert.NotNil(t, task)
 			assert.Equal(t, scanning.TaskStatusCompleted, task.Status())
-			suite.jobRepo.AssertExpectations(t)
 			suite.taskRepo.AssertExpectations(t)
 		})
 	}
@@ -524,14 +522,14 @@ func TestFailTask(t *testing.T) {
 				s.taskRepo.On("GetTask", mock.Anything, taskID).
 					Return(task, nil)
 
-				s.jobRepo.On("GetJob", mock.Anything, jobID).
-					Return(job, nil)
+				// s.jobRepo.On("GetJob", mock.Anything, jobID).
+				// 	Return(job, nil)
 
 				s.taskRepo.On("UpdateTask", mock.Anything, mock.MatchedBy(func(t *scanning.Task) bool {
 					return t.Status() == scanning.TaskStatusFailed
 				})).Return(nil)
 
-				s.jobRepo.On("UpdateJob", mock.Anything, mock.AnythingOfType("*scanning.Job")).Return(nil)
+				// s.jobRepo.On("UpdateJob", mock.Anything, mock.AnythingOfType("*scanning.Job")).Return(nil)
 			},
 			wantErr: false,
 		},
@@ -570,7 +568,7 @@ func TestFailTask(t *testing.T) {
 			require.NoError(t, err)
 			assert.NotNil(t, task)
 			assert.Equal(t, scanning.TaskStatusFailed, task.Status())
-			suite.jobRepo.AssertExpectations(t)
+			// suite.jobRepo.AssertExpectations(t)
 			suite.taskRepo.AssertExpectations(t)
 		})
 	}

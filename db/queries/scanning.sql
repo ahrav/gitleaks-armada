@@ -153,4 +153,4 @@ SELECT
     t.updated_at
 FROM scan_tasks t
 WHERE t.status = 'IN_PROGRESS'
-  AND (t.last_heartbeat_at IS NULL OR t.last_heartbeat_at < $1);
+  AND t.last_heartbeat_at < $1;

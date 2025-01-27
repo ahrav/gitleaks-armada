@@ -487,13 +487,13 @@ func TestTaskStore_FindStaleTasks(t *testing.T) {
 		shouldBeStale bool
 		count         int
 	}{
-		{
-			name:          "no heartbeat",
-			lastHeartbeat: nil,
-			status:        scanning.TaskStatusInProgress,
-			shouldBeStale: true,
-			count:         2,
-		},
+		// {
+		// 	name:          "no heartbeat",
+		// 	lastHeartbeat: nil,
+		// 	status:        scanning.TaskStatusInProgress,
+		// 	shouldBeStale: true,
+		// 	count:         2,
+		// },
 		{
 			name:          "stale heartbeat",
 			lastHeartbeat: &[]time.Time{baseTime.Add(-10 * time.Minute)}[0], // 10 min old

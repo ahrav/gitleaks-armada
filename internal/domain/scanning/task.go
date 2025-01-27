@@ -402,7 +402,6 @@ func (e *OutOfOrderProgressError) Error() string {
 // ApplyProgress applies a progress update to this task's state.
 // It updates all monitoring metrics and preserves any checkpoint data.
 func (t *Task) ApplyProgress(progress Progress) error {
-	// First check if we're in a valid state to receive progress
 	if t.status != TaskStatusInProgress && t.status != TaskStatusStale && t.status != TaskStatusPending {
 		return TaskInvalidStateError{
 			taskID: t.ID,
@@ -411,21 +410,14 @@ func (t *Task) ApplyProgress(progress Progress) error {
 		}
 	}
 
-	// Handle state transitions before sequence number validation
-	// If task was previously stale, record recovery and reset stale-related fields
-	if t.status == TaskStatusStale {
-		t.recoveryAttempts++
-		t.status = TaskStatusInProgress
-		t.ClearStall()
-	} else if t.status == TaskStatusPending {
-		// If task is in pending state, transition to in progress
-		t.status = TaskStatusInProgress
-		t.timeline.MarkStarted()
-	}
-
-	// Now validate sequence number
 	if !t.isSeqNumValid(progress) {
 		return NewOutOfOrderProgressError(t.TaskID(), progress.SequenceNum(), t.LastSequenceNum())
+	}
+
+	// If task is in pending state, transition to in progress.
+	if t.status == TaskStatusPending {
+		t.status = TaskStatusInProgress
+		t.timeline.MarkStarted()
 	}
 
 	t.updateProgress(progress)
@@ -439,6 +431,14 @@ func (t *Task) isSeqNumValid(progress Progress) bool {
 // updateProgress applies a progress update to this task's state.
 // It updates all monitoring metrics and preserves any checkpoint data.
 func (t *Task) updateProgress(progress Progress) {
+	// If task was previously stale, record recovery and reset stale-related fields.
+	// TODO: Consider setting a threshold for recovery attempts.
+	if t.status == TaskStatusStale {
+		t.recoveryAttempts++
+		t.status = TaskStatusInProgress
+		t.ClearStall()
+	}
+
 	t.lastSequenceNum = progress.SequenceNum()
 	t.timeline.UpdateLastUpdate()
 	t.itemsProcessed += progress.ItemsProcessed()
@@ -483,7 +483,10 @@ func (e TaskInvalidStateError) Reason() TaskInvalidStateReason { return e.reason
 
 // Complete marks a task as completed.
 func (t *Task) Complete() error {
-	if t.status != TaskStatusInProgress && t.status != TaskStatusStale {
+	// TODO: Figure out if we not include pending here.
+	// It's included becaasue realy short scans never transition to IN_PROGRESS b/c we get not progress updates.
+	// At leat not yet for Git based sources.
+	if t.status != TaskStatusInProgress && t.status != TaskStatusStale && t.status != TaskStatusPending {
 		return TaskInvalidStateError{
 			taskID: t.ID,
 			status: t.status,
