@@ -26,7 +26,7 @@ type realTimeProvider struct{}
 // Now returns the current time.
 func (realTimeProvider) Now() time.Time { return time.Now() }
 
-type Monitor interface {
+type TaskHealthService interface {
 	// MarkTaskStale flags a task that has become unresponsive or stopped reporting progress.
 	// This enables automated detection and recovery of failed tasks that require intervention.
 	MarkTaskStale(ctx context.Context, jobID, taskID uuid.UUID, reason domain.StallReason) (*domain.Task, error)
@@ -38,40 +38,47 @@ type Monitor interface {
 	FindStaleTasks(ctx context.Context, cutoff time.Time) ([]*domain.Task, error)
 }
 
-// HeartbeatMonitor tracks the last heartbeat of running tasks
-// and periodically checks for tasks that have not sent a heartbeat within
-// a given threshold (indicating potential staleness or failure).
-type HeartbeatMonitor struct {
-	coordinator Monitor
+// TaskHealthSupervisor monitors task health by tracking heartbeats from running tasks.
+// It provides two main functions:
+//  1. Maintains an in-memory cache of task heartbeats that is periodically flushed to storage
+//  2. Periodically checks for and marks tasks as stale if they haven't sent a heartbeat within
+//     the configured threshold duration
+type TaskHealthSupervisor struct {
+	// healthSvc provides persistence and task state management operations
+	healthSvc TaskHealthService
 
-	flushInterval      time.Duration
+	// flushInterval controls how often heartbeats are persisted to storage
+	flushInterval time.Duration
+	// stalenessCheckIntv controls frequency of stale task checks
 	stalenessCheckIntv time.Duration
+	// stalenessThreshold is the duration after which a task with no heartbeat is considered stale
 	stalenessThreshold time.Duration
 
 	mu             sync.RWMutex
 	heartbeatCache map[uuid.UUID]time.Time
 
+	// cancel allows graceful shutdown of background goroutines
 	cancel context.CancelCauseFunc
 
-	// timeProvider is used to get the current time.
+	// timeProvider is used to get the current time
 	timeProvider timeProvider
 
-	// tracer provides distributed tracing for request flows.
+	// tracer provides distributed tracing for request flows
 	tracer trace.Tracer
-	// logger provides structured logging for operational visibility.
+	// logger provides structured logging for operational visibility
 	logger *logger.Logger
 }
 
-// NewHeartbeatMonitor creates a new HeartbeatMonitor instance.
-// The taskReader and stalenessHandler are used to handle tasks and mark them as stale.
-// TODO: revisit thresholds.
-func NewHeartbeatMonitor(
-	coordinator Monitor,
+// NewTaskHealthSupervisor creates a new TaskHealthSupervisor instance that monitors task health
+// by tracking heartbeats and detecting stale tasks. It uses the provided TaskHealthService
+// for persistence and task state management.
+func NewTaskHealthSupervisor(
+	healthSvc TaskHealthService,
 	tracer trace.Tracer,
 	logger *logger.Logger,
-) *HeartbeatMonitor {
-	return &HeartbeatMonitor{
-		coordinator:        coordinator,
+) *TaskHealthSupervisor {
+	return &TaskHealthSupervisor{
+		healthSvc:          healthSvc,
 		flushInterval:      3 * time.Second,
 		stalenessCheckIntv: 10 * time.Second,
 		stalenessThreshold: 15 * time.Second,
@@ -82,13 +89,13 @@ func NewHeartbeatMonitor(
 	}
 }
 
-// Start launches a background goroutine that periodically checks
-// for tasks that have not sent a heartbeat within `defaultThreshold`. If a task is found
-// to be stale, this loop calls TaskStaller.MarkTaskStale(...) to mark the task as stale.
+// Start launches background goroutines that:
+// 1. Periodically flush cached heartbeats to persistent storage
+// 2. Check for and mark tasks as stale if they haven't sent a heartbeat within the staleness threshold
 //
-// The loop runs until the provided context is canceled, at which point the monitor
-// stops checking for stale tasks.
-func (h *HeartbeatMonitor) Start(ctx context.Context) {
+// The goroutines run until the provided context is canceled, at which point a final
+// heartbeat flush is performed before shutdown.
+func (h *TaskHealthSupervisor) Start(ctx context.Context) {
 	ctx, span := h.tracer.Start(ctx, "heartbeat_monitor.scanning.start_staleness_loop",
 		trace.WithAttributes(
 			attribute.String("interval", h.stalenessCheckIntv.String()),
@@ -117,7 +124,7 @@ func (h *HeartbeatMonitor) Start(ctx context.Context) {
 				h.checkForStaleTasks(ctx)
 
 			case <-ctx.Done():
-				// final flush.
+				// Perform final flush before shutting down
 				h.flushHeartbeats(ctx)
 				return
 			}
@@ -125,7 +132,13 @@ func (h *HeartbeatMonitor) Start(ctx context.Context) {
 	}()
 }
 
-func (h *HeartbeatMonitor) flushHeartbeats(ctx context.Context) {
+// flushHeartbeats persists cached task heartbeats to storage. It acquires a lock,
+// copies and clears the cache, then releases the lock before performing the update
+// to minimize contention.
+func (h *TaskHealthSupervisor) flushHeartbeats(ctx context.Context) {
+	ctx, span := h.tracer.Start(ctx, "heartbeat_monitor.scanning.flush_heartbeats")
+	defer span.End()
+
 	h.mu.Lock()
 	if len(h.heartbeatCache) == 0 {
 		h.mu.Unlock()
@@ -139,108 +152,70 @@ func (h *HeartbeatMonitor) flushHeartbeats(ctx context.Context) {
 	}
 	h.mu.Unlock()
 
-	if _, err := h.coordinator.UpdateHeartbeats(ctx, batch); err != nil {
+	span.AddEvent("heartbeats_flushed", trace.WithAttributes(
+		attribute.Int("count", len(batch)),
+	))
+
+	if _, err := h.healthSvc.UpdateHeartbeats(ctx, batch); err != nil {
 		h.logger.Error(ctx, "Failed to batch update heartbeats", "err", err)
-	} else {
-		h.logger.Debug(ctx, "Flushed heartbeats", "count", len(batch))
+		span.SetStatus(codes.Error, "failed to batch update heartbeats")
+		span.RecordError(err)
+		return
 	}
+
+	span.AddEvent("heartbeats_flushed")
+	span.SetStatus(codes.Ok, "heartbeats flushed")
 }
 
-func (h *HeartbeatMonitor) checkForStaleTasks(ctx context.Context) {
+// checkForStaleTasks queries for tasks that haven't sent a heartbeat within the staleness
+// threshold and marks them as stale. This enables automated detection and recovery of
+// failed or unresponsive tasks.
+func (h *TaskHealthSupervisor) checkForStaleTasks(ctx context.Context) {
+	ctx, span := h.tracer.Start(ctx, "heartbeat_monitor.scanning.check_for_stale_tasks")
+	defer span.End()
+
 	now := h.timeProvider.Now()
 	cutoff := now.Add(-h.stalenessThreshold)
 
-	staleTasks, err := h.coordinator.FindStaleTasks(ctx, cutoff)
+	staleTasks, err := h.healthSvc.FindStaleTasks(ctx, cutoff)
 	if err != nil {
 		h.logger.Error(ctx, "Failed to find stale tasks", "err", err)
+		span.SetStatus(codes.Error, "failed to find stale tasks")
+		span.RecordError(err)
 		return
 	}
+	span.AddEvent("stale_tasks_found", trace.WithAttributes(
+		attribute.Int("count", len(staleTasks)),
+	))
 
 	for _, t := range staleTasks {
 		h.logger.Warn(ctx, "Detected stale task", "task_id", t.TaskID())
 
-		if _, err := h.coordinator.MarkTaskStale(
+		if _, err := h.healthSvc.MarkTaskStale(
 			ctx,
 			t.JobID(),
 			t.TaskID(),
 			scanning.StallReasonNoProgress,
 		); err != nil {
 			h.logger.Error(ctx, "Failed to mark task stale", "task_id", t.TaskID(), "err", err)
+			span.SetStatus(codes.Error, "failed to mark task stale")
+			span.RecordError(err)
 		} else {
 			h.logger.Info(ctx, "Task marked stale", "task_id", t.TaskID())
+			span.AddEvent("task_marked_stale", trace.WithAttributes(
+				attribute.String("task_id", t.TaskID().String()),
+			))
 		}
 	}
+
+	span.AddEvent("stale_tasks_checked")
+	span.SetStatus(codes.Ok, "stale tasks checked")
 }
 
-// checkForStaleTasks is an internal helper that scans the lastHeartbeatByTask
-// map for tasks whose last heartbeat was older than (now - threshold).
-// It marks each stale task by calling taskStaller.MarkTaskStale(...).
-// func (h *HeartbeatMonitor) checkForStaleTasks(ctx context.Context, threshold time.Duration) {
-// 	now := h.timeProvider.Now()
-// 	ctx, span := h.tracer.Start(ctx, "heartbeat_monitor.scanning.check_for_stale_tasks",
-// 		trace.WithAttributes(
-// 			attribute.String("threshold", threshold.String()),
-// 			attribute.String("now", now.Format(time.RFC3339)),
-// 		))
-// 	defer span.End()
-
-// 	span.AddEvent("checking_for_stale_tasks")
-
-// 	var potentiallyStaleTaskIDs []uuid.UUID
-
-// 	h.mu.RLock()
-// 	for taskID, lastBeat := range h.lastHeartbeatByTask {
-// 		if now.Sub(lastBeat) > threshold {
-// 			potentiallyStaleTaskIDs = append(potentiallyStaleTaskIDs, taskID)
-// 		}
-// 	}
-// 	h.mu.RUnlock()
-
-// 	span.AddEvent("potentially_stale_tasks_found", trace.WithAttributes(
-// 		attribute.Int("count", len(potentiallyStaleTaskIDs)),
-// 	))
-
-// 	// For each potentially stale task, verify state and handle accordingly.
-// 	for _, tID := range potentiallyStaleTaskIDs {
-// 		task, err := h.taskReader.GetTask(ctx, tID)
-// 		if err != nil {
-// 			h.logger.Error(ctx, "HeartbeatMonitor: Failed to get task status", "task_id", tID, "error", err)
-// 			continue
-// 		}
-
-// 		if task.IsInProgress() {
-// 			h.logger.Warn(ctx, "HeartbeatMonitor: Detected stale task - failing", "task_id", tID)
-// 			staleEvt := scanning.NewTaskStaleEvent(tID, tID, scanning.StallReasonNoProgress, h.timeProvider.Now())
-
-// 			if err := h.stalenessHandler.HandleTaskStale(ctx, staleEvt); err != nil {
-// 				h.logger.Error(ctx, "HeartbeatMonitor: Failed to mark task as stale", "task_id", tID, "error", err)
-// 				span.RecordError(err)
-// 				span.SetStatus(codes.Error, "failed to mark task as stale")
-// 				continue
-// 			}
-// 			span.AddEvent("stale_task_marked", trace.WithAttributes(
-// 				attribute.String("task_id", tID.String()),
-// 			))
-// 			h.logger.Info(ctx, "HeartbeatMonitor: Stale task marked", "task_id", tID)
-// 		}
-
-// 		// Clean up monitoring regardless of task state.
-// 		// This is okay because we will re-add the task
-// 		// when we receive a heartbeat.
-// 		h.mu.Lock()
-// 		delete(h.lastHeartbeatByTask, tID)
-// 		h.mu.Unlock()
-// 		span.AddEvent("stale_task_cleaned_up", trace.WithAttributes(
-// 			attribute.String("task_id", tID.String()),
-// 		))
-// 	}
-// 	span.AddEvent("stale_tasks_checked")
-// 	span.SetStatus(codes.Ok, "stale tasks checked")
-// }
-
-// HandleHeartbeat processes incoming TaskHeartbeatEvent messages.
-// It updates the last-seen heartbeat timestamp for the corresponding task.
-func (h *HeartbeatMonitor) HandleHeartbeat(ctx context.Context, evt scanning.TaskHeartbeatEvent) {
+// HandleHeartbeat processes an incoming task heartbeat event by caching the current
+// timestamp for the task. The cached heartbeats are periodically flushed to storage
+// by the background goroutine.
+func (h *TaskHealthSupervisor) HandleHeartbeat(ctx context.Context, evt scanning.TaskHeartbeatEvent) {
 	_, span := h.tracer.Start(ctx, "heartbeat_monitor.scanning.handle_heartbeat",
 		trace.WithAttributes(
 			attribute.String("task_id", evt.TaskID.String()),
@@ -261,9 +236,10 @@ func (h *HeartbeatMonitor) HandleHeartbeat(ctx context.Context, evt scanning.Tas
 	span.SetStatus(codes.Ok, "heartbeat received")
 }
 
-// Stop the heartbeat monitor.
-// TODO: revisit to determine if we have more cleanup to do.
-func (h *HeartbeatMonitor) Stop() {
+// Stop gracefully shuts down the TaskHealthSupervisor by canceling its background
+// goroutines. This allows any in-progress operations to complete and ensures a
+// final heartbeat flush is performed.
+func (h *TaskHealthSupervisor) Stop() {
 	if h.cancel != nil {
 		h.cancel(errors.New("heartbeat monitor stopped"))
 	}

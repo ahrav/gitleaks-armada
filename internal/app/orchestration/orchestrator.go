@@ -43,7 +43,7 @@ type Orchestrator struct {
 
 	cfgLoader loaders.Loader
 
-	heartbeatMonitor    *scan.HeartbeatMonitor
+	heartbeatMonitor    *scan.TaskHealthService
 	enumCoordinator     enumCoordinator.Coordinator
 	rulesService        rulessvc.Service
 	scanningCoordinator scan.ScanJobCoordinator
@@ -123,7 +123,7 @@ func NewOrchestrator(
 		tracer,
 	)
 
-	o.heartbeatMonitor = scan.NewHeartbeatMonitor(
+	o.heartbeatMonitor = scan.NewTaskHealthSupervisor(
 		jobService,
 		tracer,
 		logger,

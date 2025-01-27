@@ -35,7 +35,7 @@ type EventsFacilitator struct {
 
 	// heartbeatMonitor is responsible for monitoring task heartbeats and failing
 	// tasks that have not sent a heartbeat within a given threshold.
-	heartbeatMonitor *scansvc.HeartbeatMonitor
+	heartbeatMonitor *scansvc.TaskHealthService
 
 	// rulesService is responsible for persisting rules, updating rule states, etc.
 	// The EventsFacilitator calls into it when handling rule-related events.
@@ -50,7 +50,7 @@ type EventsFacilitator struct {
 // to the correct bounded context service and instrument event handling with traces.
 func NewEventsFacilitator(
 	tracker scansvc.ExecutionTracker,
-	heartbeatMonitor *scansvc.HeartbeatMonitor,
+	heartbeatMonitor *scansvc.TaskHealthService,
 	rulesSvc rulessvc.Service,
 	tracer trace.Tracer,
 ) *EventsFacilitator {

@@ -55,7 +55,7 @@ func TestHeartbeatMonitor_HandleHeartbeat(t *testing.T) {
 		},
 	}
 
-	heartbeatMonitor := NewHeartbeatMonitor(
+	heartbeatMonitor := NewTaskHealthSupervisor(
 		monitor,
 		noop.NewTracerProvider().Tracer("test"),
 		logger.Noop(),
@@ -125,7 +125,7 @@ func TestHeartbeatMonitor_CheckForStaleTasks(t *testing.T) {
 				},
 			}
 
-			heartbeatMonitor := NewHeartbeatMonitor(
+			heartbeatMonitor := NewTaskHealthSupervisor(
 				monitor,
 				noop.NewTracerProvider().Tracer("test"),
 				logger.Noop(),
@@ -162,7 +162,7 @@ func TestHeartbeatMonitor_Start(t *testing.T) {
 		},
 	}
 
-	heartbeatMonitor := NewHeartbeatMonitor(
+	heartbeatMonitor := NewTaskHealthSupervisor(
 		monitor,
 		noop.NewTracerProvider().Tracer("test"),
 		logger.Noop(),
@@ -194,7 +194,7 @@ func TestHeartbeatMonitor_ConcurrentAccess(t *testing.T) {
 	baseTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	mockProvider := &mockTimeProvider{now: baseTime}
 
-	heartbeatMonitor := NewHeartbeatMonitor(
+	heartbeatMonitor := NewTaskHealthSupervisor(
 		new(mockMonitor),
 		noop.NewTracerProvider().Tracer("test"),
 		logger.Noop(),
