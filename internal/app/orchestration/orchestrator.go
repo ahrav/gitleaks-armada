@@ -514,7 +514,6 @@ func (o *Orchestrator) startFreshEnumerations(ctx context.Context, cfg *config.C
 					if err := o.eventPublisher.PublishDomainEvent(
 						taskCtx,
 						enumeration.NewTaskCreatedEvent(job.JobID(), task),
-						events.WithKey(job.JobID().String()),
 					); err != nil {
 						taskSpan.RecordError(err)
 						taskSpan.SetStatus(codes.Error, "failed to publish task event")
