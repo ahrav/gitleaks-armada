@@ -48,6 +48,9 @@ type TaskRepository interface {
 	// FindStaleTasks retrieves tasks that have not sent a heartbeat since the given cutoff time.
 	FindStaleTasks(ctx context.Context, cutoff time.Time) ([]*Task, error)
 
+	// BatchUpdateHeartbeats updates each task's last_heartbeat_at timestamp.
+	BatchUpdateHeartbeats(ctx context.Context, heartbeats map[uuid.UUID]time.Time) (int64, error)
+
 	// ListTasksByJobAndStatus retrieves tasks associated with a job and matching a specific status.
 	ListTasksByJobAndStatus(ctx context.Context, jobID uuid.UUID, status TaskStatus) ([]*Task, error)
 }

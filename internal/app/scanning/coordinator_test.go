@@ -79,6 +79,11 @@ func (m *mockTaskRepository) FindStaleTasks(ctx context.Context, cutoff time.Tim
 	return args.Get(0).([]*scanning.Task), args.Error(1)
 }
 
+func (m *mockTaskRepository) BatchUpdateHeartbeats(ctx context.Context, heartbeats map[uuid.UUID]time.Time) (int64, error) {
+	args := m.Called(ctx, heartbeats)
+	return args.Get(0).(int64), args.Error(1)
+}
+
 type coordinatorTestSuite struct {
 	jobRepo  *mockJobRepository
 	taskRepo *mockTaskRepository
