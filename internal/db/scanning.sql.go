@@ -32,21 +32,17 @@ func (q *Queries) AssociateTarget(ctx context.Context, arg AssociateTargetParams
 }
 
 const batchUpdateScanTaskHeartbeats = `-- name: BatchUpdateScanTaskHeartbeats :execrows
-UPDATE scan_tasks
+UPDATE scan_tasks AS t
 SET
-    last_heartbeat_at = $1,
-    updated_at = $2
-WHERE task_id = ANY($3::uuid[])
+    last_heartbeat_at = v.heartbeat_at,
+    updated_at = v.updated_at
+FROM unnest($1::heartbeat_update_params[]) AS v(task_id, heartbeat_at, updated_at)
+WHERE t.task_id = v.task_id
+  AND t.status = 'IN_PROGRESS'
 `
 
-type BatchUpdateScanTaskHeartbeatsParams struct {
-	LastHeartbeatAt pgtype.Timestamptz
-	UpdatedAt       pgtype.Timestamptz
-	TaskIds         []pgtype.UUID
-}
-
-func (q *Queries) BatchUpdateScanTaskHeartbeats(ctx context.Context, arg BatchUpdateScanTaskHeartbeatsParams) (int64, error) {
-	result, err := q.db.Exec(ctx, batchUpdateScanTaskHeartbeats, arg.LastHeartbeatAt, arg.UpdatedAt, arg.TaskIds)
+func (q *Queries) BatchUpdateScanTaskHeartbeats(ctx context.Context, params []interface{}) (int64, error) {
+	result, err := q.db.Exec(ctx, batchUpdateScanTaskHeartbeats, params)
 	if err != nil {
 		return 0, err
 	}
@@ -154,7 +150,6 @@ SELECT
 FROM scan_tasks t
 WHERE t.status = 'IN_PROGRESS'
   AND (t.last_heartbeat_at IS NULL OR t.last_heartbeat_at < $1)
-ORDER BY t.created_at ASC
 `
 
 type FindStaleTasksRow struct {

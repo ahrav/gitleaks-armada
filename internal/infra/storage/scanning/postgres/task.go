@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -28,6 +29,7 @@ var _ scanning.TaskRepository = (*taskStore)(nil)
 // tracking of task progress and recovery from failures.
 type taskStore struct {
 	q      *db.Queries
+	db     *pgxpool.Pool
 	tracer trace.Tracer
 }
 
@@ -36,6 +38,7 @@ type taskStore struct {
 func NewTaskStore(pool *pgxpool.Pool, tracer trace.Tracer) *taskStore {
 	return &taskStore{
 		q:      db.New(pool),
+		db:     pool,
 		tracer: tracer,
 	}
 }
@@ -336,4 +339,47 @@ func (s *taskStore) FindStaleTasks(ctx context.Context, cutoff time.Time) ([]*sc
 	}
 
 	return tasks, nil
+}
+
+// BatchUpdateHeartbeats updates the last_heartbeat_at and updated_at for a list of tasks.
+func (s *taskStore) BatchUpdateHeartbeats(ctx context.Context, heartbeats map[uuid.UUID]time.Time) (int64, error) {
+	dbAttrs := append(
+		defaultDBAttributes,
+		attribute.Int("num_tasks", len(heartbeats)),
+	)
+
+	values := make([]string, 0, len(heartbeats))
+	args := make([]any, 0, len(heartbeats)*3)
+	i := 1
+	for taskID, heartbeatTime := range heartbeats {
+		values = append(values, fmt.Sprintf("($%d::uuid, $%d::timestamptz, $%d::timestamptz)", i, i+1, i+2))
+		args = append(args, taskID, heartbeatTime, time.Now().UTC())
+		i += 3
+	}
+
+	if len(values) == 0 {
+		return 0, nil
+	}
+
+	query := fmt.Sprintf(`
+		UPDATE scan_tasks AS t
+		SET
+			last_heartbeat_at = v.heartbeat_at,
+			updated_at = v.updated_at
+		FROM (VALUES %s) AS v(task_id, heartbeat_at, updated_at)
+		WHERE t.task_id = v.task_id
+		  AND t.status = 'IN_PROGRESS'
+	`, strings.Join(values, ","))
+
+	var rowsAffected int64
+	err := storage.ExecuteAndTrace(ctx, s.tracer, "postgres.batch_update_heartbeats", dbAttrs, func(ctx context.Context) error {
+		result, err := s.db.Exec(ctx, query, args...)
+		if err != nil {
+			return fmt.Errorf("batch update heartbeats query error: %w", err)
+		}
+		rowsAffected = result.RowsAffected()
+		return nil
+	})
+
+	return rowsAffected, err
 }

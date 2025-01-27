@@ -132,11 +132,13 @@ INSERT INTO tasks (task_id, source_type)
 VALUES ($1, $2);
 
 -- name: BatchUpdateScanTaskHeartbeats :execrows
-UPDATE scan_tasks
+UPDATE scan_tasks AS t
 SET
-    last_heartbeat_at = @last_heartbeat_at,
-    updated_at = @updated_at
-WHERE task_id = ANY(@task_ids::uuid[]);
+    last_heartbeat_at = v.heartbeat_at,
+    updated_at = v.updated_at
+FROM unnest(@params::heartbeat_update_params[]) AS v(task_id, heartbeat_at, updated_at)
+WHERE t.task_id = v.task_id
+  AND t.status = 'IN_PROGRESS';
 
 -- name: FindStaleTasks :many
 SELECT
@@ -157,5 +159,4 @@ SELECT
     t.updated_at
 FROM scan_tasks t
 WHERE t.status = 'IN_PROGRESS'
-  AND (t.last_heartbeat_at IS NULL OR t.last_heartbeat_at < $1)
-ORDER BY t.created_at ASC;
+  AND (t.last_heartbeat_at IS NULL OR t.last_heartbeat_at < $1);

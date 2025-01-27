@@ -472,40 +472,42 @@ func TestTaskStore_FindStaleTasks(t *testing.T) {
 	defer cleanup()
 
 	job := createTestScanJob(t, jobStore, ctx)
-	now := time.Now().UTC()
-	cutoff := now.Add(-5 * time.Minute)
+
+	// Use a fixed base time for all calculations.
+	baseTime := time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
+	cutoff := baseTime.Add(-5 * time.Minute)
 
 	testCases := []struct {
 		name          string
 		lastHeartbeat *time.Time
 		status        scanning.TaskStatus
 		shouldBeStale bool
-		count         int // Number of tasks to create with these conditions
+		count         int
 	}{
 		{
 			name:          "no heartbeat",
 			lastHeartbeat: nil,
 			status:        scanning.TaskStatusInProgress,
 			shouldBeStale: true,
-			count:         2, // Create two tasks with no heartbeat
+			count:         2,
 		},
 		{
 			name:          "stale heartbeat",
-			lastHeartbeat: &[]time.Time{now.Add(-10 * time.Minute)}[0],
+			lastHeartbeat: &[]time.Time{baseTime.Add(-10 * time.Minute)}[0], // 10 min old
 			status:        scanning.TaskStatusInProgress,
 			shouldBeStale: true,
-			count:         3, // Create three tasks with stale heartbeats
+			count:         3,
 		},
 		{
 			name:          "recent heartbeat",
-			lastHeartbeat: &[]time.Time{now.Add(-1 * time.Minute)}[0],
+			lastHeartbeat: &[]time.Time{baseTime.Add(-1 * time.Minute)}[0], // 1 min old
 			status:        scanning.TaskStatusInProgress,
 			shouldBeStale: false,
 			count:         1,
 		},
 		{
 			name:          "completed task with old heartbeat",
-			lastHeartbeat: &[]time.Time{now.Add(-10 * time.Minute)}[0],
+			lastHeartbeat: &[]time.Time{baseTime.Add(-10 * time.Minute)}[0], // 10 min old
 			status:        scanning.TaskStatusCompleted,
 			shouldBeStale: false,
 			count:         1,
@@ -513,20 +515,20 @@ func TestTaskStore_FindStaleTasks(t *testing.T) {
 	}
 
 	var expectedStaleTasks []*scanning.Task
+	heartbeats := make(map[uuid.UUID]time.Time)
+	totalTasks := 0
+
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			for i := 0; i < tc.count; i++ {
 				task := createTestTask(t, taskStore, job.JobID(), tc.status)
 				err := taskStore.CreateTask(ctx, task)
 				require.NoError(t, err)
+				totalTasks++
 
-				if tc.lastHeartbeat != nil {
-					_, err := taskStore.q.BatchUpdateScanTaskHeartbeats(ctx, db.BatchUpdateScanTaskHeartbeatsParams{
-						TaskIds:         []pgtype.UUID{{Bytes: task.TaskID(), Valid: true}},
-						LastHeartbeatAt: pgtype.Timestamptz{Time: *tc.lastHeartbeat, Valid: true},
-						UpdatedAt:       pgtype.Timestamptz{Time: now, Valid: true},
-					})
-					require.NoError(t, err)
+				// Only add heartbeats for in-progress tasks
+				if tc.lastHeartbeat != nil && tc.status == scanning.TaskStatusInProgress {
+					heartbeats[task.TaskID()] = *tc.lastHeartbeat
 				}
 
 				if tc.shouldBeStale {
@@ -536,12 +538,17 @@ func TestTaskStore_FindStaleTasks(t *testing.T) {
 		})
 	}
 
+	// Update heartbeats in batch.
+	if len(heartbeats) > 0 {
+		rowsAffected, err := taskStore.BatchUpdateHeartbeats(ctx, heartbeats)
+		require.NoError(t, err)
+		require.Equal(t, int64(len(heartbeats)), rowsAffected)
+	}
+
 	staleTasks, err := taskStore.FindStaleTasks(ctx, cutoff)
 	require.NoError(t, err)
 
-	// We should get back 5 stale tasks (2 with no heartbeat + 3 with stale heartbeat).
 	assert.Equal(t, len(expectedStaleTasks), len(staleTasks))
-	assert.Equal(t, 5, len(staleTasks), "should find all stale tasks (2 with no heartbeat + 3 with stale heartbeat)")
 
 	// Create maps for easier comparison.
 	expectedMap := make(map[uuid.UUID]bool)
@@ -556,4 +563,41 @@ func TestTaskStore_FindStaleTasks(t *testing.T) {
 	}
 
 	assert.Equal(t, expectedMap, actualMap)
+}
+
+func TestTaskStore_BatchUpdateHeartbeats(t *testing.T) {
+	t.Parallel()
+	ctx, _, taskStore, jobStore, cleanup := setupTaskTest(t)
+	defer cleanup()
+
+	job := createTestScanJob(t, jobStore, ctx)
+	now := time.Now().UTC()
+
+	tasks := make([]*scanning.Task, 3)
+	heartbeats := make(map[uuid.UUID]time.Time)
+
+	for i := range tasks {
+		task := createTestTask(t, taskStore, job.JobID(), scanning.TaskStatusInProgress)
+		err := taskStore.CreateTask(ctx, task)
+		require.NoError(t, err)
+		tasks[i] = task
+		heartbeats[task.TaskID()] = now.Add(time.Duration(i) * time.Minute)
+	}
+
+	rowsAffected, err := taskStore.BatchUpdateHeartbeats(ctx, heartbeats)
+	require.NoError(t, err)
+	require.Equal(t, int64(len(tasks)), rowsAffected)
+
+	// Verify none are stale.
+	staleTasks, err := taskStore.FindStaleTasks(ctx, now.Add(-1*time.Hour))
+	require.NoError(t, err)
+	assert.Empty(t, staleTasks)
+
+	// Test updating non-existent tasks.
+	nonExistentHeartbeats := map[uuid.UUID]time.Time{
+		uuid.New(): now,
+	}
+	rowsAffected, err = taskStore.BatchUpdateHeartbeats(ctx, nonExistentHeartbeats)
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), rowsAffected)
 }
