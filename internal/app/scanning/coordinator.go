@@ -554,3 +554,49 @@ func (s *scanJobCoordinator) GetTaskSourceType(ctx context.Context, taskID uuid.
 	span.SetStatus(codes.Ok, "task source type retrieved successfully")
 	return sourceType, nil
 }
+
+// UpdateHeartbeats updates the last_heartbeat_at timestamp for a list of tasks.
+func (s *scanJobCoordinator) UpdateHeartbeats(ctx context.Context, heartbeats map[uuid.UUID]time.Time) (int64, error) {
+	ctx, span := s.tracer.Start(ctx, "job_service.scanning.update_heartbeats",
+		trace.WithAttributes(
+			attribute.Int("num_heartbeats", len(heartbeats)),
+		))
+	defer span.End()
+
+	updatedTasks, err := s.taskRepo.BatchUpdateHeartbeats(ctx, heartbeats)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to update heartbeats")
+		return 0, fmt.Errorf("update heartbeats: %w", err)
+	}
+
+	span.AddEvent("heartbeats_updated", trace.WithAttributes(
+		attribute.Int("num_updated_tasks", int(updatedTasks)),
+	))
+	span.SetStatus(codes.Ok, "heartbeats updated successfully")
+
+	return updatedTasks, nil
+}
+
+// FindStaleTasks finds tasks that have not sent a heartbeat within the staleness threshold.
+func (s *scanJobCoordinator) FindStaleTasks(ctx context.Context, cutoff time.Time) ([]*domain.Task, error) {
+	ctx, span := s.tracer.Start(ctx, "job_service.scanning.find_stale_tasks",
+		trace.WithAttributes(
+			attribute.String("cutoff", cutoff.Format(time.RFC3339)),
+		))
+	defer span.End()
+
+	staleTasks, err := s.taskRepo.FindStaleTasks(ctx, cutoff)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to find stale tasks")
+		return nil, fmt.Errorf("find stale tasks: %w", err)
+	}
+
+	span.AddEvent("stale_tasks_found", trace.WithAttributes(
+		attribute.Int("num_stale_tasks", len(staleTasks)),
+	))
+	span.SetStatus(codes.Ok, "stale tasks found successfully")
+
+	return staleTasks, nil
+}
