@@ -45,18 +45,14 @@ type metricsRepositoryAdapter struct {
 // existing job and task repositories. This adapter pattern allows reuse of existing
 // persistence logic while providing a focused interface for metrics operations.
 func NewMetricsRepository(jobRepo domain.JobRepository, taskRepo domain.TaskRepository) MetricsRepository {
-	return &metricsRepositoryAdapter{
-		jobRepo:  jobRepo,
-		taskRepo: taskRepo,
-	}
+	return &metricsRepositoryAdapter{jobRepo: jobRepo, taskRepo: taskRepo}
 }
 
 // ErrInvalidMetrics indicates the provided metrics are invalid
 var ErrInvalidMetrics = errors.New("invalid metrics")
 
 // GetJobMetrics implements MetricsRepository.GetJobMetrics by retrieving metrics
-// from the underlying job repository. It could be optimized in the future to only
-// fetch metrics-related fields from the database.
+// from the underlying job repository.
 func (r *metricsRepositoryAdapter) GetJobMetrics(ctx context.Context, jobID uuid.UUID) (*domain.JobMetrics, error) {
 	if jobID == uuid.Nil {
 		return nil, fmt.Errorf("%w: invalid job ID", ErrInvalidMetrics)
@@ -134,10 +130,6 @@ type JobMetricsTracker interface {
 	// FlushMetrics persists the current state of job metrics to the backing store.
 	// This is typically called periodically to ensure durability of metrics.
 	FlushMetrics(ctx context.Context) error
-
-	// GetJobMetrics returns the current metrics for a specific job.
-	// Returns ErrNoJobMetricsFound if the job doesn't exist in memory or storage.
-	GetJobMetrics(ctx context.Context, jobID uuid.UUID) (*domain.JobMetrics, error)
 }
 
 type taskStatusEntry struct {
@@ -145,11 +137,19 @@ type taskStatusEntry struct {
 	updatedAt time.Time
 }
 
+// shouldBeCleanedUp returns true if the task is in a terminal state and has been
+// in that state for longer than the retention period, indicating it can be
+// cleaned up.
+func (t *taskStatusEntry) shouldBeCleanedUp(now time.Time, retentionPeriod time.Duration) bool {
+	return t.status == domain.TaskStatusCompleted || t.status == domain.TaskStatusFailed &&
+		now.Sub(t.updatedAt) > retentionPeriod
+}
+
 // jobMetricsTracker implements JobMetricsTracker with in-memory state and periodic persistence.
 type jobMetricsTracker struct {
 	metrics    map[uuid.UUID]*domain.JobMetrics // Job ID -> Metrics
 	taskStatus map[uuid.UUID]taskStatusEntry    // Task ID -> Status
-	repository MetricsRepository                // Using the provided adapter interface
+	repository MetricsRepository                // Adapter to underlying job and task repositories
 	logger     *logger.Logger
 	tracer     trace.Tracer
 
@@ -320,25 +320,6 @@ func (t *jobMetricsTracker) FlushMetrics(ctx context.Context) error {
 	return firstErr
 }
 
-func (t *jobMetricsTracker) GetJobMetrics(ctx context.Context, jobID uuid.UUID) (*domain.JobMetrics, error) {
-	if jobID == uuid.Nil {
-		return nil, fmt.Errorf("invalid job ID; job ID is required")
-	}
-
-	metrics, exists := t.metrics[jobID]
-	if exists {
-		return metrics.Clone(), nil
-	}
-
-	metrics, err := t.repository.GetJobMetrics(ctx, jobID)
-	if err != nil {
-		return nil, fmt.Errorf("getting job metrics: %w", err)
-	}
-
-	t.metrics[jobID] = metrics
-	return metrics.Clone(), nil
-}
-
 // startStatusCleanup runs periodic cleanup of completed/failed task statuses.
 func (t *jobMetricsTracker) startStatusCleanup(ctx context.Context) {
 	ticker := time.NewTicker(t.cleanupInterval)
@@ -358,11 +339,8 @@ func (t *jobMetricsTracker) startStatusCleanup(ctx context.Context) {
 func (t *jobMetricsTracker) cleanupTaskStatus() {
 	now := time.Now()
 	for taskID, entry := range t.taskStatus {
-		if entry.status == domain.TaskStatusCompleted || entry.status == domain.TaskStatusFailed {
-			// Only remove if it's been in terminal state longer than retention period
-			if now.Sub(entry.updatedAt) > t.retentionPeriod {
-				delete(t.taskStatus, taskID)
-			}
+		if entry.shouldBeCleanedUp(now, t.retentionPeriod) {
+			delete(t.taskStatus, taskID)
 		}
 	}
 }
