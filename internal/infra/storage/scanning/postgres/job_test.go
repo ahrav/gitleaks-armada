@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -35,7 +36,7 @@ func createTestJob(t *testing.T, status scanning.JobStatus) *scanning.Job {
 		status,
 		scanning.NewTimeline(&mockTimeProvider{current: time.Now()}),
 		nil,
-		scanning.ReconstructJobMetrics(0, 0, 0),
+		scanning.ReconstructJobMetrics(0, 0, 0, 0),
 	)
 }
 
@@ -74,13 +75,12 @@ func TestJobStore_UpdateJob(t *testing.T) {
 	timeline := scanning.NewTimeline(mockTime)
 
 	// Initialize job with zero metrics.
-	initialMetrics := scanning.ReconstructJobMetrics(0, 0, 0)
 	job := scanning.ReconstructJob(
 		uuid.New(),
 		scanning.JobStatusQueued,
 		timeline,
 		nil,
-		initialMetrics,
+		nil,
 	)
 
 	err := store.CreateJob(ctx, job)
@@ -90,10 +90,6 @@ func TestJobStore_UpdateJob(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, initialJob)
 
-	assert.Equal(t, 0, initialJob.Metrics().TotalTasks())
-	assert.Equal(t, 0, initialJob.Metrics().CompletedTasks())
-	assert.Equal(t, 0, initialJob.Metrics().FailedTasks())
-
 	// Set completion time one hour later.
 	completionTime := initialJob.StartTime().Add(time.Hour)
 	completionTimeline := scanning.ReconstructTimeline(
@@ -102,14 +98,12 @@ func TestJobStore_UpdateJob(t *testing.T) {
 		completionTime,
 	)
 
-	// Create updated metrics.
-	updatedMetrics := scanning.ReconstructJobMetrics(10, 8, 2)
 	updatedJob := scanning.ReconstructJob(
 		job.JobID(),
 		scanning.JobStatusCompleted,
 		completionTimeline,
 		nil,
-		updatedMetrics,
+		nil,
 	)
 
 	err = store.UpdateJob(ctx, updatedJob)
@@ -127,12 +121,6 @@ func TestJobStore_UpdateJob(t *testing.T) {
 		"End time should match completion time")
 	assert.WithinDuration(t, time.Now().UTC(), loaded.LastUpdateTime(), time.Second,
 		"Last update time should be close to current time")
-
-	// Verify updated metrics.
-	assert.Equal(t, 10, loaded.Metrics().TotalTasks(), "Total tasks should match")
-	assert.Equal(t, 8, loaded.Metrics().CompletedTasks(), "Completed tasks should match")
-	assert.Equal(t, 2, loaded.Metrics().FailedTasks(), "Failed tasks should match")
-	assert.Equal(t, 80.0, loaded.Metrics().CompletionPercentage(), "Completion percentage should be 80%")
 }
 
 func TestJobStore_AssociateTargets(t *testing.T) {
@@ -180,7 +168,7 @@ func TestJobStore_GetNonExistent(t *testing.T) {
 	defer cleanup()
 
 	loaded, err := store.GetJob(ctx, uuid.New())
-	require.NoError(t, err)
+	require.ErrorIs(t, err, scanning.ErrJobNotFound)
 	assert.Nil(t, loaded)
 }
 
@@ -222,4 +210,128 @@ func TestJobStore_AssociateTargetsEmpty(t *testing.T) {
 	// Associate empty target list should succeed.
 	err = store.AssociateTargets(ctx, job.JobID(), []uuid.UUID{})
 	require.NoError(t, err)
+}
+
+func TestJobStore_BulkUpdateJobMetrics(t *testing.T) {
+	t.Parallel()
+	ctx, _, store, cleanup := setupJobTest(t)
+	defer cleanup()
+
+	jobMetrics := make(map[uuid.UUID]*scanning.JobMetrics)
+
+	for i := range 3 {
+		job := createTestJob(t, scanning.JobStatusRunning)
+		err := store.CreateJob(ctx, job)
+		require.NoError(t, err)
+
+		metrics := scanning.ReconstructJobMetrics(
+			10*(i+1), // total tasks
+			5*(i+1),  // completed tasks
+			2*(i+1),  // failed tasks
+			1*(i+1),  // stale tasks
+		)
+		jobMetrics[job.JobID()] = metrics
+	}
+
+	rowsAffected, err := store.BulkUpdateJobMetrics(ctx, jobMetrics)
+	require.NoError(t, err)
+	assert.Equal(t, int64(3), rowsAffected)
+
+	for jobID, expectedMetrics := range jobMetrics {
+		metrics, err := store.q.GetJobMetrics(ctx, pgtype.UUID{Bytes: jobID, Valid: true})
+		require.NoError(t, err)
+
+		assert.Equal(t, int32(expectedMetrics.TotalTasks()), metrics.TotalTasks)
+		assert.Equal(t, int32(expectedMetrics.CompletedTasks()), metrics.CompletedTasks)
+		assert.Equal(t, int32(expectedMetrics.FailedTasks()), metrics.FailedTasks)
+		assert.Equal(t, int32(expectedMetrics.StaleTasks()), metrics.StaleTasks)
+	}
+}
+
+func TestJobStore_BulkUpdateJobMetrics_Empty(t *testing.T) {
+	t.Parallel()
+	ctx, _, store, cleanup := setupJobTest(t)
+	defer cleanup()
+
+	rowsAffected, err := store.BulkUpdateJobMetrics(ctx, make(map[uuid.UUID]*scanning.JobMetrics))
+	require.ErrorIs(t, err, scanning.ErrNoJobMetricsUpdated)
+	assert.Equal(t, int64(0), rowsAffected)
+}
+
+func TestJobStore_BulkUpdateJobMetrics_Upsert(t *testing.T) {
+	t.Parallel()
+	ctx, _, store, cleanup := setupJobTest(t)
+	defer cleanup()
+
+	job := createTestJob(t, scanning.JobStatusRunning)
+	err := store.CreateJob(ctx, job)
+	require.NoError(t, err)
+
+	// First update.
+	initialMetrics := scanning.ReconstructJobMetrics(10, 5, 2, 1)
+	updates := map[uuid.UUID]*scanning.JobMetrics{
+		job.JobID(): initialMetrics,
+	}
+
+	rowsAffected, err := store.BulkUpdateJobMetrics(ctx, updates)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), rowsAffected)
+
+	// Verify initial metrics.
+	metrics, err := store.q.GetJobMetrics(ctx, pgtype.UUID{Bytes: job.JobID(), Valid: true})
+	require.NoError(t, err)
+	assert.Equal(t, int32(10), metrics.TotalTasks)
+	assert.Equal(t, int32(5), metrics.CompletedTasks)
+
+	// Second update with different metrics.
+	updatedMetrics := scanning.ReconstructJobMetrics(20, 15, 3, 2)
+	updates[job.JobID()] = updatedMetrics
+
+	rowsAffected, err = store.BulkUpdateJobMetrics(ctx, updates)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), rowsAffected)
+
+	metrics, err = store.q.GetJobMetrics(ctx, pgtype.UUID{Bytes: job.JobID(), Valid: true})
+	require.NoError(t, err)
+	assert.Equal(t, int32(20), metrics.TotalTasks)
+	assert.Equal(t, int32(15), metrics.CompletedTasks)
+	assert.Equal(t, int32(3), metrics.FailedTasks)
+	assert.Equal(t, int32(2), metrics.StaleTasks)
+}
+
+func TestJobStore_GetJobMetrics_NonExistent(t *testing.T) {
+	t.Parallel()
+	ctx, _, store, cleanup := setupJobTest(t)
+	defer cleanup()
+
+	metrics, err := store.GetJobMetrics(ctx, uuid.New())
+	require.ErrorIs(t, err, scanning.ErrNoJobMetricsFound)
+	assert.Nil(t, metrics)
+}
+
+func TestJobStore_GetJobMetrics_ExistingMetrics(t *testing.T) {
+	t.Parallel()
+	ctx, _, store, cleanup := setupJobTest(t)
+	defer cleanup()
+
+	job := createTestJob(t, scanning.JobStatusRunning)
+	err := store.CreateJob(ctx, job)
+	require.NoError(t, err)
+
+	expectedMetrics := scanning.ReconstructJobMetrics(10, 5, 2, 1)
+	updates := map[uuid.UUID]*scanning.JobMetrics{
+		job.JobID(): expectedMetrics,
+	}
+
+	rowsAffected, err := store.BulkUpdateJobMetrics(ctx, updates)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), rowsAffected)
+
+	metrics, err := store.GetJobMetrics(ctx, job.JobID())
+	require.NoError(t, err)
+	assert.NotNil(t, metrics)
+	assert.Equal(t, expectedMetrics.TotalTasks(), metrics.TotalTasks())
+	assert.Equal(t, expectedMetrics.CompletedTasks(), metrics.CompletedTasks())
+	assert.Equal(t, expectedMetrics.FailedTasks(), metrics.FailedTasks())
+	assert.Equal(t, expectedMetrics.StaleTasks(), metrics.StaleTasks())
 }

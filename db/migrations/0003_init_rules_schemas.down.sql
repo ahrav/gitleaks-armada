@@ -1,4 +1,4 @@
--- 0002_init_rules_schemas.down.sql
+-- 0003_init_rules_schemas.down.sql
 
 -- Drop the tables in reverse order of creation
 DROP TABLE IF EXISTS findings;

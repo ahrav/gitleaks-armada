@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -24,6 +26,7 @@ var _ scanning.JobRepository = (*jobStore)(nil)
 
 type jobStore struct {
 	q      *db.Queries
+	db     *pgxpool.Pool
 	tracer trace.Tracer
 }
 
@@ -32,6 +35,7 @@ type jobStore struct {
 func NewJobStore(pool *pgxpool.Pool, tracer trace.Tracer) *jobStore {
 	return &jobStore{
 		q:      db.New(pool),
+		db:     pool,
 		tracer: tracer,
 	}
 }
@@ -80,13 +84,10 @@ func (r *jobStore) UpdateJob(ctx context.Context, job *scanning.Job) error {
 		}
 
 		rowsAffected, err := r.q.UpdateJob(ctx, db.UpdateJobParams{
-			JobID:          pgtype.UUID{Bytes: job.JobID(), Valid: true},
-			Status:         db.ScanJobStatus(job.Status()),
-			StartTime:      pgtype.Timestamptz{Time: job.StartTime(), Valid: true},
-			EndTime:        dbEndTime,
-			TotalTasks:     int32(job.Metrics().TotalTasks()),
-			CompletedTasks: int32(job.Metrics().CompletedTasks()),
-			FailedTasks:    int32(job.Metrics().FailedTasks()),
+			JobID:     pgtype.UUID{Bytes: job.JobID(), Valid: true},
+			Status:    db.ScanJobStatus(job.Status()),
+			StartTime: pgtype.Timestamptz{Time: job.StartTime(), Valid: true},
+			EndTime:   dbEndTime,
 		})
 		if err != nil {
 			return fmt.Errorf("UpdateJob query error: %w", err)
@@ -158,7 +159,7 @@ func (r *jobStore) GetJob(ctx context.Context, jobID uuid.UUID) (*scanning.Job, 
 			return fmt.Errorf("GetJob query error: %w", err)
 		}
 		if len(rows) == 0 {
-			return nil
+			return scanning.ErrJobNotFound
 		}
 
 		var targetIDs []uuid.UUID
@@ -176,24 +177,116 @@ func (r *jobStore) GetJob(ctx context.Context, jobID uuid.UUID) (*scanning.Job, 
 			firstRow.UpdatedAt.Time,
 		)
 
-		metrics := scanning.ReconstructJobMetrics(
-			int(firstRow.TotalTasks),
-			int(firstRow.CompletedTasks),
-			int(firstRow.FailedTasks),
-		)
-
 		job = scanning.ReconstructJob(
 			firstRow.JobID.Bytes,
 			scanning.JobStatus(firstRow.Status),
 			timeline,
 			targetIDs,
-			metrics,
+			nil, // TODO: I don't think we need metrics for only the job.
 		)
 		return nil
 	})
-
 	if err != nil {
 		return nil, err
 	}
+
 	return job, nil
+}
+
+// BulkUpdateJobMetrics updates metrics for multiple jobs in a single operation.
+func (r *jobStore) BulkUpdateJobMetrics(ctx context.Context, updates map[uuid.UUID]*scanning.JobMetrics) (int64, error) {
+	dbAttrs := append(
+		defaultDBAttributes,
+		attribute.Int("num_jobs", len(updates)),
+	)
+
+	values := make([]string, 0, len(updates))
+	args := make([]any, 0, len(updates)*7) // jobID + 4 metrics fields + 2 timestamps
+	i := 1
+	now := time.Now().UTC()
+
+	for jobID, metrics := range updates {
+		values = append(values, fmt.Sprintf("($%d::uuid, $%d::int, $%d::int, $%d::int, $%d::int, $%d::timestamptz, $%d::timestamptz)",
+			i, i+1, i+2, i+3, i+4, i+5, i+6))
+		args = append(args,
+			jobID,
+			metrics.TotalTasks(),
+			metrics.CompletedTasks(),
+			metrics.FailedTasks(),
+			metrics.StaleTasks(),
+			now, // created_at
+			now, // updated_at
+		)
+		i += 7
+	}
+
+	if len(values) == 0 {
+		return 0, scanning.ErrNoJobMetricsUpdated
+	}
+
+	query := fmt.Sprintf(`
+		INSERT INTO scan_job_metrics (
+			job_id,
+			total_tasks,
+			completed_tasks,
+			failed_tasks,
+			stale_tasks,
+			created_at,
+			updated_at
+		) VALUES %s
+		ON CONFLICT (job_id) DO UPDATE SET
+			total_tasks = EXCLUDED.total_tasks,
+			completed_tasks = EXCLUDED.completed_tasks,
+			failed_tasks = EXCLUDED.failed_tasks,
+			stale_tasks = EXCLUDED.stale_tasks,
+			updated_at = NOW()
+	`, strings.Join(values, ","))
+
+	var rowsAffected int64
+	err := storage.ExecuteAndTrace(ctx, r.tracer, "postgres.bulk_update_job_metrics", dbAttrs, func(ctx context.Context) error {
+		result, err := r.db.Exec(ctx, query, args...)
+		if err != nil {
+			return fmt.Errorf("bulk update job metrics query error: %w", err)
+		}
+		rowsAffected = result.RowsAffected()
+		if rowsAffected == 0 {
+			return scanning.ErrNoJobMetricsUpdated
+		}
+
+		return nil
+	})
+
+	return rowsAffected, err
+}
+
+// GetJobMetrics retrieves metrics for a specific job.
+func (r *jobStore) GetJobMetrics(ctx context.Context, jobID uuid.UUID) (*scanning.JobMetrics, error) {
+	dbAttrs := append(
+		defaultDBAttributes,
+		attribute.String("job_id", jobID.String()),
+	)
+
+	var jobMetrics *scanning.JobMetrics
+	err := storage.ExecuteAndTrace(ctx, r.tracer, "postgres.get_job_metrics", dbAttrs, func(ctx context.Context) error {
+		metrics, err := r.q.GetJobMetrics(ctx, pgtype.UUID{Bytes: jobID, Valid: true})
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return scanning.ErrNoJobMetricsFound
+			}
+			return fmt.Errorf("get job metrics query error: %w", err)
+		}
+
+		jobMetrics = scanning.ReconstructJobMetrics(
+			int(metrics.TotalTasks),
+			int(metrics.CompletedTasks),
+			int(metrics.FailedTasks),
+			int(metrics.StaleTasks),
+		)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return jobMetrics, nil
 }

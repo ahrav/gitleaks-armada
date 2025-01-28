@@ -5,11 +5,23 @@ package scanning
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
+)
+
+var (
+	// ErrJobNotFound indicates the requested job was not found in storage
+	ErrJobNotFound = errors.New("job not found")
+	// ErrTaskNotFound indicates the requested task was not found in storage
+	ErrTaskNotFound = errors.New("task not found")
+	// ErrNoJobMetricsUpdated indicates that no job metrics were updated
+	ErrNoJobMetricsUpdated = errors.New("no job metrics updated")
+	// ErrNoJobMetricsFound indicates that no job metrics were found
+	ErrNoJobMetricsFound = errors.New("no job metrics found")
 )
 
 // JobRepository defines the persistence operations for scan jobs.
@@ -27,6 +39,12 @@ type JobRepository interface {
 
 	// GetJob retrieves a job's state (including associated tasks if needed).
 	GetJob(ctx context.Context, jobID uuid.UUID) (*Job, error)
+
+	// GetJobMetrics retrieves the metrics for a job.
+	GetJobMetrics(ctx context.Context, jobID uuid.UUID) (*JobMetrics, error)
+
+	// BulkUpdateJobMetrics updates metrics for multiple jobs in a single operation.
+	BulkUpdateJobMetrics(ctx context.Context, updates map[uuid.UUID]*JobMetrics) (int64, error)
 }
 
 // TaskRepository defines the persistence operations for scan tasks.

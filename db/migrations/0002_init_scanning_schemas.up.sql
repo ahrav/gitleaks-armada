@@ -1,4 +1,4 @@
--- 0003_init_scanning_schemas.up.sql
+-- 0002_init_scanning_schemas.up.sql
 
 -- Scan Job Status Enum
 CREATE TYPE scan_job_status AS ENUM (
@@ -14,9 +14,6 @@ CREATE TABLE scan_jobs (
     status scan_job_status NOT NULL,
     start_time TIMESTAMPTZ,
     end_time TIMESTAMPTZ,
-    total_tasks INT NOT NULL DEFAULT 0,
-    completed_tasks INT NOT NULL DEFAULT 0,
-    failed_tasks INT NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -24,6 +21,19 @@ CREATE TABLE scan_jobs (
 -- Indexes
 CREATE INDEX idx_scan_jobs_status ON scan_jobs (status);
 
+-- Scan Job Metrics Table
+CREATE TABLE scan_job_metrics (
+    job_id UUID PRIMARY KEY REFERENCES scan_jobs(job_id),
+    total_tasks INT NOT NULL DEFAULT 0,
+    completed_tasks INT NOT NULL DEFAULT 0,
+    failed_tasks INT NOT NULL DEFAULT 0,
+    stale_tasks INT NOT NULL DEFAULT 0,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Indexes
+CREATE INDEX idx_scan_job_metrics ON scan_job_metrics (job_id, total_tasks, completed_tasks, failed_tasks, stale_tasks);
 
 -- Scan Job Targets Table (Associative table between scan jobs and scan targets)
 CREATE TABLE scan_job_targets (

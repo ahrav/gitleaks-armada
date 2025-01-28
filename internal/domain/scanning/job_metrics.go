@@ -6,17 +6,19 @@ type JobMetrics struct {
 	inProgressTasks int
 	completedTasks  int
 	failedTasks     int
+	staleTasks      int
 }
 
 // NewJobMetrics creates a new JobMetrics instance.
 func NewJobMetrics() *JobMetrics { return new(JobMetrics) }
 
 // ReconstructJobMetrics creates a JobMetrics instance from stored fields.
-func ReconstructJobMetrics(totalTasks, completedTasks, failedTasks int) *JobMetrics {
+func ReconstructJobMetrics(totalTasks, completedTasks, failedTasks, staleTasks int) *JobMetrics {
 	return &JobMetrics{
 		totalTasks:     totalTasks,
 		completedTasks: completedTasks,
 		failedTasks:    failedTasks,
+		staleTasks:     staleTasks,
 	}
 }
 
@@ -28,6 +30,9 @@ func (m *JobMetrics) CompletedTasks() int { return m.completedTasks }
 
 // FailedTasks returns the number of failed tasks.
 func (m *JobMetrics) FailedTasks() int { return m.failedTasks }
+
+// StaleTasks returns the number of stale tasks.
+func (m *JobMetrics) StaleTasks() int { return m.staleTasks }
 
 // SetTotalTasks updates the total number of tasks.
 func (m *JobMetrics) SetTotalTasks(total int) { m.totalTasks = total }
@@ -65,21 +70,25 @@ func (m *JobMetrics) OnTaskRemoved(status TaskStatus) {
 func (m *JobMetrics) OnTaskStatusChanged(oldStatus, newStatus TaskStatus) {
 	// Decrement old
 	switch oldStatus {
-	case TaskStatusInProgress, TaskStatusStale:
+	case TaskStatusInProgress:
 		m.inProgressTasks--
 	case TaskStatusCompleted:
 		m.completedTasks--
 	case TaskStatusFailed:
 		m.failedTasks--
+	case TaskStatusStale:
+		m.staleTasks--
 	}
 	// Increment new
 	switch newStatus {
-	case TaskStatusInProgress, TaskStatusStale:
+	case TaskStatusInProgress:
 		m.inProgressTasks++
 	case TaskStatusCompleted:
 		m.completedTasks++
 	case TaskStatusFailed:
 		m.failedTasks++
+	case TaskStatusStale:
+		m.staleTasks++
 	}
 }
 

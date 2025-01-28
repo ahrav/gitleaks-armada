@@ -43,6 +43,10 @@ func (m *mockJobRepository) GetJob(ctx context.Context, jobID uuid.UUID) (*scann
 	return nil, args.Error(1)
 }
 
+func (m *mockJobRepository) BulkUpdateJobMetrics(ctx context.Context, updates map[uuid.UUID]*domain.JobMetrics) (int64, error) {
+	return 0, nil
+}
+
 // mockTaskRepository helps test coordinator interactions with task persistence.
 type mockTaskRepository struct {
 	mock.Mock

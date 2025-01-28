@@ -1,4 +1,4 @@
--- 0002_init_rules_schemas.up.sql
+-- 0003_init_rules_schemas.up.sql
 
 -- Rules Table
 CREATE TABLE rules (

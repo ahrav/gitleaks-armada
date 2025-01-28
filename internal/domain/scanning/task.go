@@ -2,6 +2,7 @@ package scanning
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -202,6 +203,9 @@ func (c *Checkpoint) UnmarshalJSON(data []byte) error {
 // TaskStatus represents the execution state of an individual scan task. It enables
 // fine-grained tracking of task progress and error conditions.
 type TaskStatus string
+
+// ErrTaskStatusUnknown is returned when a task status is unknown.
+var ErrTaskStatusUnknown = errors.New("task status unknown")
 
 const (
 	// TaskStatusPending indicates a task is created but not yet started.
