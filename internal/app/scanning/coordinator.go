@@ -83,15 +83,13 @@ type ScanJobCoordinator interface {
 // scanJobCoordinator implements ScanJobCoordinator using a hybrid approach of
 // in-memory caching and persistent storage to balance performance with reliability.
 type scanJobCoordinator struct {
-	mu sync.RWMutex
-	// jobCache  map[uuid.UUID]*domain.Job  // Caches frequently accessed jobs
+	mu        sync.RWMutex
 	taskCache map[uuid.UUID]*domain.Task // Caches active tasks to reduce database load
 
 	jobRepo  domain.JobRepository
 	taskRepo domain.TaskRepository
 
-	persistInterval  time.Duration // Controls write frequency to reduce database load
-	staleTaskTimeout time.Duration // Helps identify and handle stuck or failed tasks
+	persistInterval time.Duration // Controls write frequency to reduce database load
 
 	tracer trace.Tracer
 }
@@ -102,36 +100,18 @@ func NewScanJobCoordinator(
 	jobRepo domain.JobRepository,
 	taskRepo domain.TaskRepository,
 	persistInterval time.Duration,
-	staleTimeout time.Duration,
 	tracer trace.Tracer,
 ) *scanJobCoordinator {
 	// Cache sizes are tuned for typical concurrent workloads while preventing excessive memory usage
-	const (
-		defaultJobCacheSize  = 64   // Optimized for typical concurrent job count
-		defaultTaskCacheSize = 1000 // Accommodates tasks across active jobs
-	)
+	const defaultTaskCacheSize = 1000 // Accommodates tasks across active jobs
 	return &scanJobCoordinator{
-		// jobCache:         make(map[uuid.UUID]*domain.Job, defaultJobCacheSize),
-		taskCache:        make(map[uuid.UUID]*domain.Task, defaultTaskCacheSize),
-		jobRepo:          jobRepo,
-		taskRepo:         taskRepo,
-		persistInterval:  persistInterval,
-		staleTaskTimeout: staleTimeout,
-		tracer:           tracer,
+		taskCache:       make(map[uuid.UUID]*domain.Task, defaultTaskCacheSize),
+		jobRepo:         jobRepo,
+		taskRepo:        taskRepo,
+		persistInterval: persistInterval,
+		tracer:          tracer,
 	}
 }
-
-// storeJobInCache adds a job to the in-memory cache to reduce database load
-// for frequently accessed jobs during active scanning operations.
-// func (s *scanJobCoordinator) storeJobInCache(ctx context.Context, job *domain.Job) {
-// 	_, span := s.tracer.Start(ctx, "job_service.scanning.store_job_in_cache")
-// 	defer span.End()
-
-// 	s.mu.Lock()
-// 	s.jobCache[job.JobID()] = job
-// 	s.mu.Unlock()
-// 	span.AddEvent("job_cached")
-// }
 
 // loadJob retrieves a job with optimistic caching. We check the cache first
 // to minimize database load during high-concurrency scanning operations.
@@ -142,11 +122,6 @@ func (s *scanJobCoordinator) loadJob(ctx context.Context, jobID uuid.UUID) (*dom
 		))
 	defer span.End()
 
-	// if job, exists := s.lookupJobInCache(ctx, jobID); exists {
-	// 	span.AddEvent("job_cached")
-	// 	return job, nil
-	// }
-
 	job, err := s.jobRepo.GetJob(ctx, jobID)
 	if err != nil {
 		span.RecordError(err)
@@ -155,25 +130,8 @@ func (s *scanJobCoordinator) loadJob(ctx context.Context, jobID uuid.UUID) (*dom
 	}
 	span.AddEvent("job_retrieved")
 
-	// s.storeJobInCache(ctx, job)
-	// span.AddEvent("job_cached")
-
 	return job, nil
 }
-
-// lookupJobInCache provides fast access to cached jobs. This is separated from loadJob
-// to allow for different caching strategies and to simplify testing.
-// func (s *scanJobCoordinator) lookupJobInCache(ctx context.Context, jobID uuid.UUID) (*domain.Job, bool) {
-// 	_, span := s.tracer.Start(ctx, "job_service.scanning.lookup_job_cache")
-// 	defer span.End()
-
-// 	s.mu.RLock()
-// 	job, exists := s.jobCache[jobID]
-// 	s.mu.RUnlock()
-// 	span.AddEvent("job_cached", trace.WithAttributes(attribute.Bool("exists", exists)))
-
-// 	return job, exists
-// }
 
 // CreateJob initializes a new scanning operation and ensures it's immediately
 // available in both the cache and persistent storage.
@@ -189,8 +147,6 @@ func (svc *scanJobCoordinator) CreateJob(ctx context.Context) (*domain.Job, erro
 	}
 	span.AddEvent("job_created")
 	span.SetStatus(codes.Ok, "job created successfully")
-
-	// svc.storeJobInCache(ctx, job)
 
 	return job, nil
 }
@@ -288,27 +244,6 @@ func (s *scanJobCoordinator) StartTask(ctx context.Context, jobID, taskID uuid.U
 	}
 	span.AddEvent("task_created_in_repo")
 
-	// job, err := s.loadJob(ctx, jobID)
-	// if err != nil {
-	// 	span.RecordError(err)
-	// 	span.SetStatus(codes.Error, "failed to load job")
-	// 	return nil, fmt.Errorf("job %s not found: %w", jobID, err)
-	// }
-
-	// if err := job.AddTask(newTask); err != nil {
-	// 	span.RecordError(err)
-	// 	span.SetStatus(codes.Error, "failed to add task to job domain")
-	// 	return nil, fmt.Errorf("adding task to job: %w", err)
-	// }
-	// span.AddEvent("task_added_to_job_domain")
-
-	// if err := s.jobRepo.UpdateJob(ctx, job); err != nil {
-	// 	span.RecordError(err)
-	// 	span.SetStatus(codes.Error, "failed to update job in repo")
-	// 	return nil, fmt.Errorf("updating job: %w", err)
-	// }
-	// span.AddEvent("job_updated_after_task_start")
-
 	s.mu.Lock()
 	s.taskCache[taskID] = newTask
 	s.mu.Unlock()
@@ -351,37 +286,15 @@ func (s *scanJobCoordinator) UpdateTaskProgress(ctx context.Context, progress do
 		),
 	)
 
-	// TODO: Come back to uncomment this.
-	// if time.Since(task.LastUpdate()) >= s.persistInterval {
-	if err := s.taskRepo.UpdateTask(ctx, task); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to persist updated task")
-		return nil, fmt.Errorf("persist task: %w", err)
+	if time.Since(task.LastUpdate()) >= s.persistInterval {
+		if err := s.taskRepo.UpdateTask(ctx, task); err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "failed to persist updated task")
+			return nil, fmt.Errorf("persist task: %w", err)
+		}
+		span.AddEvent("task_persisted_due_to_interval")
 	}
-	span.AddEvent("task_persisted_due_to_interval")
 
-	// job, err := s.loadJob(ctx, task.JobID())
-	// if err != nil {
-	// 	span.RecordError(err)
-	// 	span.SetStatus(codes.Error, "failed to load job")
-	// 	return nil, fmt.Errorf("load job: %w", err)
-	// }
-
-	// if err := job.UpdateTask(task); err != nil {
-	// 	span.RecordError(err)
-	// 	span.SetStatus(codes.Error, "failed to update job status")
-	// 	return nil, fmt.Errorf("failed to update job status: %w", err)
-	// }
-	// span.AddEvent("job_updated_with_task_update")
-
-	// if err := s.jobRepo.UpdateJob(ctx, job); err != nil {
-	// 	span.RecordError(err)
-	// 	span.SetStatus(codes.Error, "failed to update job status")
-	// 	return nil, fmt.Errorf("failed to update job status: %w", err)
-	// }
-	// span.AddEvent("job_updated_after_task_persistence")
-	// span.SetStatus(codes.Ok, "job updated successfully")
-	// }
 	span.AddEvent("task_progress_updated")
 	span.SetStatus(codes.Ok, "task progress updated successfully")
 
@@ -405,19 +318,6 @@ func (s *scanJobCoordinator) CompleteTask(ctx context.Context, jobID, taskID uui
 		return nil, fmt.Errorf("load task: %w", err)
 	}
 
-	// job, err := s.loadJob(ctx, jobID)
-	// if err != nil {
-	// 	span.RecordError(err)
-	// 	span.SetStatus(codes.Error, "failed to load job")
-	// 	return nil, fmt.Errorf("load job: %w", err)
-	// }
-
-	// if err := job.CompleteTask(taskID); err != nil {
-	// 	span.RecordError(err)
-	// 	span.SetStatus(codes.Error, "failed to complete task in job domain")
-	// 	return nil, fmt.Errorf("complete task: %w", err)
-	// }
-
 	if err := task.Complete(); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to complete task")
@@ -430,14 +330,8 @@ func (s *scanJobCoordinator) CompleteTask(ctx context.Context, jobID, taskID uui
 		span.SetStatus(codes.Error, "failed to persist completed task")
 		return nil, fmt.Errorf("persist task: %w", err)
 	}
-
-	// if err := s.jobRepo.UpdateJob(ctx, job); err != nil {
-	// 	span.RecordError(err)
-	// 	span.SetStatus(codes.Error, "failed to update job status")
-	// 	return nil, fmt.Errorf("failed to update job status: %w", err)
-	// }
-	span.AddEvent("job_updated")
-	span.SetStatus(codes.Ok, "job updated successfully")
+	span.AddEvent("task_completed_persisted")
+	span.SetStatus(codes.Ok, "task completed successfully")
 
 	return task, nil
 }
@@ -466,36 +360,13 @@ func (s *scanJobCoordinator) FailTask(ctx context.Context, jobID, taskID uuid.UU
 	}
 	span.AddEvent("task_failed")
 
-	// job, err := s.loadJob(ctx, jobID)
-	// if err != nil {
-	// 	span.RecordError(err)
-	// 	span.SetStatus(codes.Error, "failed to load job")
-	// 	return nil, fmt.Errorf("load job: %w", err)
-	// }
-
-	// if err := job.FailTask(taskID); err != nil {
-	// 	span.RecordError(err)
-	// 	span.SetStatus(codes.Error, "failed to fail task in job domain")
-	// 	return nil, fmt.Errorf("fail task: %w", err)
-	// }
-	// span.AddEvent("task_failed_in_job_domain")
-
 	if err := s.taskRepo.UpdateTask(ctx, task); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to persist failed task")
 		return nil, fmt.Errorf("persist task: %w", err)
 	}
 	span.AddEvent("task_failed_persisted")
-
-	// if err := s.jobRepo.UpdateJob(ctx, job); err != nil {
-	// 	span.RecordError(err)
-	// 	span.SetStatus(codes.Error, "failed to update job status")
-	// 	return nil, fmt.Errorf("failed to update job status: %w", err)
-	// }
-	// span.AddEvent("job_updated_with_task_failure")
-
 	span.SetStatus(codes.Ok, "task failed successfully")
-	span.AddEvent("task_failed_successfully")
 
 	return task, nil
 }

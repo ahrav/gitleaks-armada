@@ -246,7 +246,6 @@ func main() {
 		scanJobRepo,
 		scanTaskRepo,
 		time.Second*10,
-		time.Second*60,
 		tracer,
 	)
 

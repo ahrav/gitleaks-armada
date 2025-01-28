@@ -103,7 +103,6 @@ func newCoordinatorTestSuite(t *testing.T) *coordinatorTestSuite {
 		jobRepo:  jobRepo,
 		taskRepo: taskRepo,
 		coord: &scanJobCoordinator{
-			// jobCache:  make(map[uuid.UUID]*domain.Job),
 			taskCache: make(map[uuid.UUID]*domain.Task),
 			jobRepo:   jobRepo,
 			taskRepo:  taskRepo,
@@ -273,28 +272,9 @@ func TestStartTask(t *testing.T) {
 
 				s.jobRepo.On("GetJob", mock.Anything, jobID).
 					Return(job, nil)
-
-				// s.jobRepo.On("UpdateJob",
-				// 	mock.Anything,
-				// 	mock.MatchedBy(func(j *scanning.Job) bool {
-				// 		return j.JobID() == jobID
-				// 	}),
-				// ).Return(nil)
 			},
 			wantErr: false,
 		},
-		// {
-		// 	name: "job not found",
-		// 	setup: func(s *coordinatorTestSuite) {
-		// 		s.taskRepo.On("CreateTask", mock.Anything, mock.MatchedBy(func(task *scanning.Task) bool {
-		// 			return task.JobID() == jobID && task.TaskID() == taskID
-		// 		})).Return(nil)
-
-		// 		// s.jobRepo.On("GetJob", mock.Anything, jobID).
-		// 		// 	Return(nil, assert.AnError)
-		// 	},
-		// 	wantErr: true,
-		// },
 	}
 
 	for _, tt := range tests {
@@ -314,7 +294,6 @@ func TestStartTask(t *testing.T) {
 			require.NoError(t, err)
 			assert.NotNil(t, task)
 			assert.Equal(t, scanning.TaskStatusPending, task.Status())
-			// suite.jobRepo.AssertExpectations(t)
 			suite.taskRepo.AssertExpectations(t)
 		})
 	}
@@ -364,13 +343,6 @@ func TestUpdateTaskProgress(t *testing.T) {
 				s.taskRepo.On("UpdateTask", mock.Anything, mock.MatchedBy(func(t *scanning.Task) bool {
 					return t.LastSequenceNum() == progress.SequenceNum()
 				})).Return(nil)
-
-				// s.jobRepo.On("GetJob", mock.Anything, jobID).
-				// 	Return(job, nil)
-
-				// s.jobRepo.On("UpdateJob", mock.Anything, mock.MatchedBy(func(j *scanning.Job) bool {
-				// 	return j.JobID() == jobID
-				// })).Return(nil)
 			},
 			wantErr: false,
 		},
@@ -409,7 +381,6 @@ func TestUpdateTaskProgress(t *testing.T) {
 			require.NoError(t, err)
 			assert.NotNil(t, task)
 			suite.taskRepo.AssertExpectations(t)
-			// suite.jobRepo.AssertExpectations(t)
 		})
 	}
 }
@@ -461,17 +432,6 @@ func TestCompleteTask(t *testing.T) {
 			},
 			wantErr: true,
 		},
-		// {
-		// 	name: "job not found",
-		// 	setup: func(s *coordinatorTestSuite) {
-		// 		task := scanning.NewScanTask(jobID, taskID, "https://example.com")
-		// 		s.taskRepo.On("GetTask", mock.Anything, taskID).
-		// 			Return(task, nil)
-		// 		// s.jobRepo.On("GetJob", mock.Anything, jobID).
-		// 		// 	Return(nil, assert.AnError)
-		// 	},
-		// 	wantErr: true,
-		// },
 	}
 
 	for _, tt := range tests {
