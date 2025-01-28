@@ -157,26 +157,12 @@ type jobMetricsTracker struct {
 	// Protects access to metrics and taskStatus maps
 	mu sync.RWMutex
 
-	// Configuration
+	// Configuration.
+
+	// cleanupInterval is how often we look for completed/failed tasks to clean up.
 	cleanupInterval time.Duration
+	// retentionPeriod is how long we retain task statuses after completion/failure.
 	retentionPeriod time.Duration
-}
-
-// Config holds configuration options for the JobMetricsTracker.
-type Config struct {
-	// How often to clean up completed/failed task status entries.
-	CleanupInterval time.Duration
-
-	// How long to retain task status after completion/failure.
-	RetentionPeriod time.Duration
-}
-
-// DefaultConfig provides sensible defaults for JobMetricsTracker configuration.
-func DefaultConfig() Config {
-	return Config{
-		CleanupInterval: 1 * time.Hour,
-		RetentionPeriod: 24 * time.Hour,
-	}
 }
 
 // NewJobMetricsTracker creates a new JobMetricsTracker with the provided dependencies
@@ -185,16 +171,20 @@ func NewJobMetricsTracker(
 	repository MetricsRepository,
 	logger *logger.Logger,
 	tracer trace.Tracer,
-	cfg Config,
 ) JobMetricsTracker {
+	const (
+		defaultCleanupInterval = 15 * time.Minute
+		defaultRetentionPeriod = 1 * time.Hour
+	)
+
 	t := &jobMetricsTracker{
 		metrics:         make(map[uuid.UUID]*domain.JobMetrics),
 		taskStatus:      make(map[uuid.UUID]taskStatusEntry),
 		repository:      repository,
 		logger:          logger,
 		tracer:          tracer,
-		cleanupInterval: cfg.CleanupInterval,
-		retentionPeriod: cfg.RetentionPeriod,
+		cleanupInterval: defaultCleanupInterval,
+		retentionPeriod: defaultRetentionPeriod,
 	}
 
 	// Start background cleanup.

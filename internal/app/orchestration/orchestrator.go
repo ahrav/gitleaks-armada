@@ -138,7 +138,7 @@ func NewOrchestrator(
 	)
 
 	metricsRepo := scan.NewMetricsRepository(jobRepo, taskRepo)
-	metricsTracker := scan.NewJobMetricsTracker(metricsRepo, logger, tracer, scan.DefaultConfig())
+	metricsTracker := scan.NewJobMetricsTracker(metricsRepo, logger, tracer)
 
 	eventsFacilitator := NewEventsFacilitator(executionTracker, o.taskHealthSupervisor, metricsTracker, rulesService, tracer)
 	dispatcher := eventdispatcher.New(tracer)
