@@ -93,7 +93,7 @@ func NewScannerService(
 		tracer:           tracer,
 		workers:          workerCount,
 		stopCh:           make(chan struct{}),
-		taskEvent:        make(chan *dtos.ScanRequest, 1),
+		taskEvent:        make(chan *dtos.ScanRequest, workerCount*10),
 		highPrioritySem:  make(chan struct{}, workerCount), // TODO: Come back to this
 	}
 }
@@ -297,7 +297,10 @@ func (s *ScannerService) handleTaskResumeEvent(
 		span.SetStatus(codes.Error, "failed to create scan request")
 		return fmt.Errorf("failed to create scan request: %w", err)
 	}
-	span.SetAttributes(attribute.String("checkpoint", req.Metadata["checkpoint"]))
+	span.SetAttributes(
+		attribute.String("checkpoint", req.Metadata[dtos.MetadataKeyCheckpoint]),
+		attribute.String("sequence_num", req.Metadata[dtos.MetadataKeySequenceNum]),
+	)
 
 	s.highPrioritySem <- struct{}{}
 	ack(nil)
@@ -479,8 +482,11 @@ func (s *ScannerService) executeScanTask(ctx context.Context, req *dtos.ScanRequ
 
 		s.logger.Info(ctx, "ScannerService: Scan context cancelled, task will be handled by staleness detection",
 			"task_id", req.TaskID,
-			"job_id", req.JobID)
+			"job_id", req.JobID,
+			"error", err,
+		)
 		span.AddEvent("scan_context_cancelled")
+
 		return nil
 	}
 

@@ -516,20 +516,17 @@ func TestFailTask(t *testing.T) {
 					nil,
 					nil,
 				))
-				job := scanning.NewJob()
-				job.AddTask(task)
 
 				s.taskRepo.On("GetTask", mock.Anything, taskID).
 					Return(task, nil)
 
-				// s.jobRepo.On("GetJob", mock.Anything, jobID).
-				// 	Return(job, nil)
-
 				s.taskRepo.On("UpdateTask", mock.Anything, mock.MatchedBy(func(t *scanning.Task) bool {
-					return t.Status() == scanning.TaskStatusFailed
+					isMatch := t.TaskID() == taskID &&
+						t.JobID() == jobID &&
+						t.Status() == scanning.TaskStatusFailed &&
+						t.ResourceURI() == "https://example.com"
+					return isMatch
 				})).Return(nil)
-
-				// s.jobRepo.On("UpdateJob", mock.Anything, mock.AnythingOfType("*scanning.Job")).Return(nil)
 			},
 			wantErr: false,
 		},
@@ -568,7 +565,6 @@ func TestFailTask(t *testing.T) {
 			require.NoError(t, err)
 			assert.NotNil(t, task)
 			assert.Equal(t, scanning.TaskStatusFailed, task.Status())
-			// suite.jobRepo.AssertExpectations(t)
 			suite.taskRepo.AssertExpectations(t)
 		})
 	}

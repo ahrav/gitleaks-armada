@@ -71,14 +71,16 @@ func (ef *EventsFacilitator) withSpan(
 	ack events.AckFunc,
 ) error {
 	ctx, span := ef.tracer.Start(ctx, operationName)
-	defer span.End()
+	defer func() {
+		span.End()
+		ack(nil)
+	}()
 
 	if err := fn(ctx, span); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
 		return err
 	}
-	ack(nil)
 
 	return nil
 }

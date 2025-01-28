@@ -3,7 +3,6 @@ package dtos
 
 import (
 	"fmt"
-	"strconv"
 
 	"github.com/google/uuid"
 
@@ -70,6 +69,12 @@ type ScanRequest struct {
 	Credentials ScanCredentials
 }
 
+// Define a constant for the metadata key
+const (
+	MetadataKeyCheckpoint  = "checkpoint"
+	MetadataKeySequenceNum = "sequence_num"
+)
+
 // NewScanRequestFromEnumerationTask creates a new ScanRequest from an enumeration TaskCreatedEvent.
 // This handles the translation between enumeration and scanning domains.
 func NewScanRequestFromEnumerationTask(task *enumeration.TaskCreatedEvent) *ScanRequest {
@@ -102,8 +107,8 @@ func NewScanRequestFromResumeEvent(evt *scanning.TaskResumeEvent) (*ScanRequest,
 		SourceType:  toScanningSourceType(evt.SourceType),
 		ResourceURI: evt.ResourceURI,
 		Metadata: map[string]string{
-			"sequence_num": strconv.FormatInt(int64(evt.SequenceNum), 10),
-			"checkpoint":   string(checkpointJSON),
+			MetadataKeySequenceNum: fmt.Sprintf("%d", evt.SequenceNum),
+			MetadataKeyCheckpoint:  string(checkpointJSON),
 		},
 	}, nil
 }

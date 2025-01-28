@@ -241,8 +241,8 @@ func TestTask_Complete(t *testing.T) {
 	tests := []struct {
 		name           string
 		setupTask      func(*mockTimeProvider) *Task
-		expectedError  error
 		expectedReason TaskInvalidStateReason
+		verifyBehavior func(*testing.T, *Task, *mockTimeProvider)
 	}{
 		{
 			name: "successful completion",
@@ -252,15 +252,25 @@ func TestTask_Complete(t *testing.T) {
 				task.itemsProcessed = 100
 				return task
 			},
+			verifyBehavior: func(t *testing.T, task *Task, tp *mockTimeProvider) {
+				assert.Equal(t, TaskStatusCompleted, task.Status())
+				assert.Equal(t, tp.Now(), task.EndTime())
+			},
 		},
 		{
-			name: "already completed task",
+			name: "idempotent completion - already completed task",
 			setupTask: func(tp *mockTimeProvider) *Task {
 				task := NewScanTask(uuid.New(), uuid.New(), "https://example.com", WithTimeProvider(tp))
 				task.status = TaskStatusCompleted
+				task.timeline.MarkCompleted()
 				return task
 			},
-			expectedReason: TaskInvalidStateReasonWrongStatus,
+			verifyBehavior: func(t *testing.T, task *Task, tp *mockTimeProvider) {
+				// Verify the task remains completed and the end time wasn't updated
+				assert.Equal(t, TaskStatusCompleted, task.Status())
+				assert.NotEqual(t, tp.Now(), task.EndTime())
+				assert.True(t, task.EndTime().Before(tp.Now()))
+			},
 		},
 		{
 			name: "failed task",
@@ -288,6 +298,7 @@ func TestTask_Complete(t *testing.T) {
 			tp := &mockTimeProvider{currentTime: mockTime}
 			task := tt.setupTask(tp)
 
+			// Advance time to simulate some processing.
 			tp.currentTime = tp.currentTime.Add(time.Second)
 			err := task.Complete()
 
@@ -296,10 +307,25 @@ func TestTask_Complete(t *testing.T) {
 				var stateErr TaskInvalidStateError
 				require.ErrorAs(t, err, &stateErr)
 				assert.Equal(t, tt.expectedReason, stateErr.Reason())
-			} else {
-				require.NoError(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+
+			// If there's custom verification logic, run it.
+			if tt.verifyBehavior != nil {
+				tt.verifyBehavior(t, task, tp)
+			}
+
+			// Try completing again to verify idempotency.
+			if task.Status() == TaskStatusCompleted {
+				originalEndTime := task.EndTime()
+				tp.currentTime = tp.currentTime.Add(time.Second)
+
+				err = task.Complete()
+				require.NoError(t, err, "second completion should succeed")
 				assert.Equal(t, TaskStatusCompleted, task.Status())
-				assert.Equal(t, tp.Now(), task.EndTime())
+				assert.Equal(t, originalEndTime, task.EndTime(), "end time should not change on repeated completion")
 			}
 		})
 	}

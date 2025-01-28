@@ -483,6 +483,10 @@ func (e TaskInvalidStateError) Reason() TaskInvalidStateReason { return e.reason
 
 // Complete marks a task as completed.
 func (t *Task) Complete() error {
+	if t.status == TaskStatusCompleted {
+		return nil // Already completed, idempotent
+	}
+
 	// TODO: Figure out if we not include pending here.
 	// It's included becaasue realy short scans never transition to IN_PROGRESS b/c we get not progress updates.
 	// At leat not yet for Git based sources.

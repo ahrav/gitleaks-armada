@@ -90,10 +90,12 @@ func (s *Scanner) runURLScan(
 	}()
 
 	var sequenceNum atomic.Int64
-	if seqStr, ok := task.Metadata["sequence_num"]; ok {
-		if seqVal, err := strconv.ParseInt(seqStr, 10, 64); err == nil {
-			sequenceNum.Store(seqVal)
+	if seqStr, ok := task.Metadata[dtos.MetadataKeySequenceNum]; ok {
+		seqVal, err := strconv.ParseInt(seqStr, 10, 64)
+		if err != nil {
+			return fmt.Errorf("invalid sequence number format: %w", err)
 		}
+		sequenceNum.Store(seqVal)
 	}
 
 	var resumeFileIdx int64

@@ -379,8 +379,8 @@ func (s *scanJobCoordinator) UpdateTaskProgress(ctx context.Context, progress do
 	// 	span.SetStatus(codes.Error, "failed to update job status")
 	// 	return nil, fmt.Errorf("failed to update job status: %w", err)
 	// }
-	span.AddEvent("job_updated_after_task_persistence")
-	span.SetStatus(codes.Ok, "job updated successfully")
+	// span.AddEvent("job_updated_after_task_persistence")
+	// span.SetStatus(codes.Ok, "job updated successfully")
 	// }
 	span.AddEvent("task_progress_updated")
 	span.SetStatus(codes.Ok, "task progress updated successfully")
@@ -458,6 +458,13 @@ func (s *scanJobCoordinator) FailTask(ctx context.Context, jobID, taskID uuid.UU
 		span.SetStatus(codes.Error, "failed to load task")
 		return nil, fmt.Errorf("load task: %w", err)
 	}
+
+	if err := task.Fail(); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to fail task")
+		return nil, fmt.Errorf("fail task: %w", err)
+	}
+	span.AddEvent("task_failed")
 
 	// job, err := s.loadJob(ctx, jobID)
 	// if err != nil {
