@@ -102,6 +102,7 @@ func NewScanJobCoordinator(
 	persistInterval time.Duration,
 	tracer trace.Tracer,
 ) *scanJobCoordinator {
+	// TODO: If we want to use a cache, it will need to be a distributed cache.
 	// Cache sizes are tuned for typical concurrent workloads while preventing excessive memory usage
 	const defaultTaskCacheSize = 1000 // Accommodates tasks across active jobs
 	return &scanJobCoordinator{
@@ -111,26 +112,6 @@ func NewScanJobCoordinator(
 		persistInterval: persistInterval,
 		tracer:          tracer,
 	}
-}
-
-// loadJob retrieves a job with optimistic caching. We check the cache first
-// to minimize database load during high-concurrency scanning operations.
-func (s *scanJobCoordinator) loadJob(ctx context.Context, jobID uuid.UUID) (*domain.Job, error) {
-	ctx, span := s.tracer.Start(ctx, "job_service.scanning.load_job",
-		trace.WithAttributes(
-			attribute.String("job_id", jobID.String()),
-		))
-	defer span.End()
-
-	job, err := s.jobRepo.GetJob(ctx, jobID)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to get job")
-		return nil, err
-	}
-	span.AddEvent("job_retrieved")
-
-	return job, nil
 }
 
 // CreateJob initializes a new scanning operation and ensures it's immediately
@@ -178,10 +159,10 @@ func (s *scanJobCoordinator) loadTask(ctx context.Context, taskID uuid.UUID) (*d
 	ctx, span := s.tracer.Start(ctx, "job_service.scanning.load_task")
 	defer span.End()
 
-	if task, exists := s.lookupTaskInCache(ctx, taskID); exists {
-		span.AddEvent("task_loaded_from_cache")
-		return task, nil
-	}
+	// if task, exists := s.lookupTaskInCache(ctx, taskID); exists {
+	// 	span.AddEvent("task_loaded_from_cache")
+	// 	return task, nil
+	// }
 
 	task, err := s.taskRepo.GetTask(ctx, taskID)
 	if err != nil {
@@ -190,10 +171,10 @@ func (s *scanJobCoordinator) loadTask(ctx context.Context, taskID uuid.UUID) (*d
 		return nil, err
 	}
 
-	s.mu.Lock()
-	s.taskCache[taskID] = task
-	s.mu.Unlock()
-	span.AddEvent("task_cached")
+	// s.mu.Lock()
+	// s.taskCache[taskID] = task
+	// s.mu.Unlock()
+	// span.AddEvent("task_cached")
 
 	span.AddEvent("task_loaded")
 	span.SetStatus(codes.Ok, "task loaded")
@@ -203,19 +184,19 @@ func (s *scanJobCoordinator) loadTask(ctx context.Context, taskID uuid.UUID) (*d
 
 // lookupTaskInCache provides fast access to cached tasks, reducing database load
 // during frequent task status checks and updates.
-func (s *scanJobCoordinator) lookupTaskInCache(ctx context.Context, taskID uuid.UUID) (*domain.Task, bool) {
-	_, span := s.tracer.Start(ctx, "job_service.scanning.lookup_task_cache")
-	defer span.End()
+// func (s *scanJobCoordinator) lookupTaskInCache(ctx context.Context, taskID uuid.UUID) (*domain.Task, bool) {
+// 	_, span := s.tracer.Start(ctx, "job_service.scanning.lookup_task_cache")
+// 	defer span.End()
 
-	s.mu.RLock()
-	task, exists := s.taskCache[taskID]
-	s.mu.RUnlock()
+// 	s.mu.RLock()
+// 	task, exists := s.taskCache[taskID]
+// 	s.mu.RUnlock()
 
-	span.AddEvent("cache_lookup_complete", trace.WithAttributes(
-		attribute.Bool("found_in_cache", exists),
-	))
-	return task, exists
-}
+// 	span.AddEvent("cache_lookup_complete", trace.WithAttributes(
+// 		attribute.Bool("found_in_cache", exists),
+// 	))
+// 	return task, exists
+// }
 
 // StartTask initializes a new scanning task and updates the parent job's metrics.
 // The task is cached immediately to optimize subsequent progress updates.
