@@ -37,6 +37,9 @@ type EventsFacilitator struct {
 	// tasks that have not sent a heartbeat within a given threshold.
 	taskHealthSupervisor *scansvc.TaskHealthSupervisor
 
+	// metricsTracker is responsible for handling job metrics events.
+	metricsTracker scansvc.JobMetricsTracker
+
 	// rulesService is responsible for persisting rules, updating rule states, etc.
 	// The EventsFacilitator calls into it when handling rule-related events.
 	rulesService rulessvc.Service
@@ -46,17 +49,19 @@ type EventsFacilitator struct {
 
 // NewEventsFacilitator constructs an EventsFacilitator that can process both
 // scanning task events and rule-related events. It receives a executionTracker,
-// rulesService, taskHealthSupervisor, and tracer so it can delegate domain-specific logic
+// rulesService, taskHealthSupervisor, metricsTracker, and tracer so it can delegate domain-specific logic
 // to the correct bounded context service and instrument event handling with traces.
 func NewEventsFacilitator(
 	tracker scansvc.ExecutionTracker,
 	taskHealthSupervisor *scansvc.TaskHealthSupervisor,
+	metricsTracker scansvc.JobMetricsTracker,
 	rulesSvc rulessvc.Service,
 	tracer trace.Tracer,
 ) *EventsFacilitator {
 	return &EventsFacilitator{
 		executionTracker:     tracker,
 		taskHealthSupervisor: taskHealthSupervisor,
+		metricsTracker:       metricsTracker,
 		rulesService:         rulesSvc,
 		tracer:               tracer,
 	}
@@ -221,6 +226,22 @@ func (ef *EventsFacilitator) HandleTaskHeartbeat(
 
 		span.AddEvent("task_heartbeat_processed")
 		span.SetStatus(codes.Ok, "task heartbeat processed")
+		return nil
+	}, ack)
+}
+
+// HandleJobMetrics processes a JobMetricsEvent.
+func (ef *EventsFacilitator) HandleJobMetrics(
+	ctx context.Context,
+	evt events.EventEnvelope,
+	ack events.AckFunc,
+) error {
+	return ef.withSpan(ctx, "events_facilitator.handle_job_metrics", func(ctx context.Context, span trace.Span) error {
+		if err := ef.metricsTracker.HandleJobMetrics(ctx, evt); err != nil {
+			return fmt.Errorf("failed to handle job metrics: %w", err)
+		}
+
+		span.SetStatus(codes.Ok, "job metrics handled")
 		return nil
 	}, ack)
 }

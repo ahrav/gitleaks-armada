@@ -45,18 +45,11 @@ type metricsRepositoryAdapter struct {
 // NewMetricsRepository creates a new MetricsRepository implementation that wraps
 // existing job and task repositories. This adapter pattern allows reuse of existing
 // persistence logic while providing a focused interface for metrics operations.
-func NewMetricsRepository(jobRepo domain.JobRepository, taskRepo domain.TaskRepository) (MetricsRepository, error) {
-	if jobRepo == nil {
-		return nil, errors.New("job repository is required")
-	}
-	if taskRepo == nil {
-		return nil, errors.New("task repository is required")
-	}
-
+func NewMetricsRepository(jobRepo domain.JobRepository, taskRepo domain.TaskRepository) MetricsRepository {
 	return &metricsRepositoryAdapter{
 		jobRepo:  jobRepo,
 		taskRepo: taskRepo,
-	}, nil
+	}
 }
 
 // ErrInvalidMetrics indicates the provided metrics are invalid
@@ -193,17 +186,7 @@ func NewJobMetricsTracker(
 	logger *logger.Logger,
 	tracer trace.Tracer,
 	cfg Config,
-) (JobMetricsTracker, error) {
-	// if repository == nil {
-	// 	return nil, fmt.Errorf("%w: nil repository", domain.ErrInvalidInput)
-	// }
-	// if logger == nil {
-	// 	return nil, fmt.Errorf("%w: nil logger", domain.ErrInvalidInput)
-	// }
-	// if tracer == nil {
-	// 	return nil, fmt.Errorf("%w: nil tracer", domain.ErrInvalidInput)
-	// }
-
+) JobMetricsTracker {
 	t := &jobMetricsTracker{
 		metrics:         make(map[uuid.UUID]*domain.JobMetrics),
 		taskStatus:      make(map[uuid.UUID]taskStatusEntry),
@@ -217,7 +200,7 @@ func NewJobMetricsTracker(
 	// Start background cleanup.
 	go t.startStatusCleanup(context.Background())
 
-	return t, nil
+	return t
 }
 
 func (t *jobMetricsTracker) HandleJobMetrics(ctx context.Context, evt events.EventEnvelope) error {

@@ -94,7 +94,8 @@ func NewOrchestrator(
 	eventPublisher events.DomainEventPublisher,
 	enumerationService enumCoordinator.Coordinator,
 	rulesService rulessvc.Service,
-	jobService scan.ScanJobCoordinator,
+	taskRepo scanning.TaskRepository,
+	jobRepo scanning.JobRepository,
 	stateRepo enumeration.StateRepository,
 	cfgLoader loaders.Loader,
 	logger *logger.Logger,
@@ -102,35 +103,44 @@ func NewOrchestrator(
 	tracer trace.Tracer,
 ) *Orchestrator {
 	o := &Orchestrator{
-		id:                  id,
-		clusterCoordinator:  coord,
-		eventBus:            queue,
-		eventPublisher:      eventPublisher,
-		enumCoordinator:     enumerationService,
-		rulesService:        rulesService,
-		scanningCoordinator: jobService,
-		stateRepo:           stateRepo,
-		cfgLoader:           cfgLoader,
-		metrics:             metrics,
-		logger:              logger,
-		tracer:              tracer,
+		id:                 id,
+		clusterCoordinator: coord,
+		eventBus:           queue,
+		eventPublisher:     eventPublisher,
+		enumCoordinator:    enumerationService,
+		rulesService:       rulesService,
+		stateRepo:          stateRepo,
+		cfgLoader:          cfgLoader,
+		metrics:            metrics,
+		logger:             logger,
+		tracer:             tracer,
 	}
 
+	o.scanningCoordinator = scan.NewScanJobCoordinator(
+		jobRepo,
+		taskRepo,
+		time.Second*10,
+		tracer,
+	)
+
 	executionTracker := scan.NewExecutionTracker(
-		jobService,
+		o.scanningCoordinator,
 		eventPublisher,
 		logger,
 		tracer,
 	)
 
 	o.taskHealthSupervisor = scan.NewTaskHealthSupervisor(
-		jobService,
+		o.scanningCoordinator,
 		executionTracker,
 		tracer,
 		logger,
 	)
 
-	eventsFacilitator := NewEventsFacilitator(executionTracker, o.taskHealthSupervisor, rulesService, tracer)
+	metricsRepo := scan.NewMetricsRepository(jobRepo, taskRepo)
+	metricsTracker := scan.NewJobMetricsTracker(metricsRepo, logger, tracer, scan.DefaultConfig())
+
+	eventsFacilitator := NewEventsFacilitator(executionTracker, o.taskHealthSupervisor, metricsTracker, rulesService, tracer)
 	dispatcher := eventdispatcher.New(tracer)
 	dispatcher.RegisterHandler(scanning.EventTypeTaskStarted, eventsFacilitator.HandleTaskStarted)
 	dispatcher.RegisterHandler(scanning.EventTypeTaskProgressed, eventsFacilitator.HandleTaskProgressed)

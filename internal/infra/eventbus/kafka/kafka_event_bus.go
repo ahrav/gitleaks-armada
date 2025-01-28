@@ -54,6 +54,18 @@ type Config struct {
 	GroupID string
 	// ClientID uniquely identifies this client to the Kafka cluster.
 	ClientID string
+
+	// JobMetricsTopic is the topic name for publishing job metrics.
+	JobMetricsTopic string
+}
+
+// TopicConfig defines the configuration for event routing to Kafka topics.
+// This is used to define the primary and secondary topics for an event type.
+type TopicConfig struct {
+	// Primary is the main topic for this event type.
+	Primary string
+	// Secondary contains additional topics this event should be published to.
+	Secondary []string
 }
 
 var _ events.EventBus = (*KafkaEventBus)(nil)
@@ -71,9 +83,10 @@ type KafkaEventBus struct {
 	highPriorityTaskTopic string
 	rulesRequestTopic     string
 	rulesResponseTopic    string
+	jobMetricsTopic       string
 
-	// Maps domain event types to Kafka topic names.
-	topics map[events.EventType]string
+	// Maps domain event types to their topic routing configuration.
+	topicConfigs map[events.EventType]TopicConfig
 
 	logger  *logger.Logger
 	tracer  trace.Tracer
@@ -124,19 +137,30 @@ func NewKafkaEventBusFromConfig(
 		return nil, fmt.Errorf("failed to create consumer group: %w", err)
 	}
 
-	// Map domain events to their corresponding Kafka topics to enable
-	// type-safe event routing.
-	topicsMap := map[events.EventType]string{
-		enumeration.EventTypeTaskCreated: cfg.EnumerationTaskTopic,
-		rules.EventTypeRulesRequested:    cfg.RulesRequestTopic,     // controller -> scanner
-		rules.EventTypeRulesUpdated:      cfg.RulesResponseTopic,    // scanner -> controller
-		rules.EventTypeRulesPublished:    cfg.RulesResponseTopic,    // scanner -> controller
-		scanning.EventTypeTaskStarted:    cfg.ScanningTaskTopic,     // scanner -> controller
-		scanning.EventTypeTaskProgressed: cfg.ScanningTaskTopic,     // scanner -> controller
-		scanning.EventTypeTaskCompleted:  cfg.ScanningTaskTopic,     // scanner -> controller
-		scanning.EventTypeTaskFailed:     cfg.ScanningTaskTopic,     // scanner -> controller
-		scanning.EventTypeTaskResume:     cfg.HighPriorityTaskTopic, // controller -> scanner (resumption tasks)
-		scanning.EventTypeTaskHeartbeat:  cfg.ScanningTaskTopic,     // scanner -> controller (liveness only)
+	// Map domain events to their corresponding Kafka topics with routing configuration.
+	topicConfigs := map[events.EventType]TopicConfig{
+		enumeration.EventTypeTaskCreated: {Primary: cfg.EnumerationTaskTopic},
+		rules.EventTypeRulesRequested:    {Primary: cfg.RulesRequestTopic},
+		rules.EventTypeRulesUpdated:      {Primary: cfg.RulesResponseTopic},
+		rules.EventTypeRulesPublished:    {Primary: cfg.RulesResponseTopic},
+		scanning.EventTypeTaskStarted: {
+			Primary:   cfg.ScanningTaskTopic,
+			Secondary: []string{cfg.JobMetricsTopic},
+		},
+		scanning.EventTypeTaskProgressed: {
+			Primary:   cfg.ScanningTaskTopic,
+			Secondary: []string{cfg.JobMetricsTopic},
+		},
+		scanning.EventTypeTaskCompleted: {
+			Primary:   cfg.ScanningTaskTopic,
+			Secondary: []string{cfg.JobMetricsTopic},
+		},
+		scanning.EventTypeTaskFailed: {
+			Primary:   cfg.ScanningTaskTopic,
+			Secondary: []string{cfg.JobMetricsTopic},
+		},
+		scanning.EventTypeTaskHeartbeat: {Primary: cfg.ScanningTaskTopic},
+		scanning.EventTypeTaskResume:    {Primary: cfg.HighPriorityTaskTopic},
 	}
 
 	bus := &KafkaEventBus{
@@ -150,8 +174,9 @@ func NewKafkaEventBusFromConfig(
 		highPriorityTaskTopic: cfg.HighPriorityTaskTopic,
 		rulesRequestTopic:     cfg.RulesRequestTopic,
 		rulesResponseTopic:    cfg.RulesResponseTopic,
+		jobMetricsTopic:       cfg.JobMetricsTopic,
 
-		topics: topicsMap,
+		topicConfigs: topicConfigs,
 
 		logger:  logger,
 		tracer:  tracer,
@@ -161,7 +186,7 @@ func NewKafkaEventBusFromConfig(
 	return bus, nil
 }
 
-// Publish sends a domain event to the appropriate Kafka topic.
+// Publish sends a domain event to all configured Kafka topics for its type.
 // It handles serialization, routing based on event type, and includes
 // observability instrumentation for tracing and metrics.
 // TODO: Make error handling more robust. For example, we should retry
@@ -171,12 +196,12 @@ func NewKafkaEventBusFromConfig(
 // Note: We should only attempt to retry if the error is a transient one. (e.g. LEADER_NOT_AVAILABLE)
 // If the error is a permanent one, we should not retry. (e.g. INVALID_CONFIG)
 func (k *KafkaEventBus) Publish(ctx context.Context, event events.EventEnvelope, opts ...events.PublishOption) error {
-	topic, ok := k.topics[event.Type]
+	topicConfig, ok := k.topicConfigs[event.Type]
 	if !ok {
 		return fmt.Errorf("unknown event type '%s', no topic mapped", event.Type)
 	}
 
-	ctx, span := tracing.StartProducerSpan(ctx, topic, k.tracer)
+	ctx, span := tracing.StartProducerSpan(ctx, topicConfig.Primary, k.tracer)
 	defer span.End()
 
 	var pParams events.PublishParams
@@ -184,7 +209,6 @@ func (k *KafkaEventBus) Publish(ctx context.Context, event events.EventEnvelope,
 		opt(&pParams)
 	}
 
-	// TODO: Consider also handling headers here.
 	if pParams.Key != "" {
 		event.Key = pParams.Key
 		span.SetAttributes(attribute.String("event.key", event.Key))
@@ -193,40 +217,60 @@ func (k *KafkaEventBus) Publish(ctx context.Context, event events.EventEnvelope,
 	msgBytes, err := serialization.SerializeEventEnvelope(event.Type, event.Payload)
 	if err != nil {
 		span.RecordError(err)
-
 		if k.metrics != nil {
-			k.metrics.IncPublishError(ctx, topic)
+			k.metrics.IncPublishError(ctx, topicConfig.Primary)
 		}
 		return fmt.Errorf("failed to serialize payload for event %s: %w", event.Type, err)
 	}
 
+	// Publish to primary topic.
+	// TODO: Consider making this a little more ergonomic.
+	if err := k.publishToTopic(ctx, topicConfig.Primary, event.Key, msgBytes); err != nil {
+		return err
+	}
+
+	// Publish to all secondary topics.
+	for _, topic := range topicConfig.Secondary {
+		if err := k.publishToTopic(ctx, topic, event.Key, msgBytes); err != nil {
+			k.logger.Error(ctx, "Failed to publish to secondary topic",
+				"error", err,
+				"topic", topic,
+				"event_type", event.Type)
+			// Continue publishing to other topics even if one fails.
+			continue
+		}
+	}
+
+	return nil
+}
+
+// publishToTopic handles the actual publishing of a message to a single Kafka topic
+func (k *KafkaEventBus) publishToTopic(ctx context.Context, topic, key string, msgBytes []byte) error {
 	kafkaMsg := &sarama.ProducerMessage{
 		Topic: topic,
-		Key:   sarama.StringEncoder(event.Key), // Used for partition routing
+		Key:   sarama.StringEncoder(key),
 		Value: sarama.ByteEncoder(msgBytes),
 	}
 
 	tracing.InjectTraceContext(ctx, kafkaMsg)
 
-	partition, offset, sendErr := k.producer.SendMessage(kafkaMsg)
-	if sendErr != nil {
-		span.RecordError(sendErr)
-
+	partition, offset, err := k.producer.SendMessage(kafkaMsg)
+	if err != nil {
 		if k.metrics != nil {
 			k.metrics.IncPublishError(ctx, topic)
 		}
-		return fmt.Errorf("failed to send message to kafka topic %s: %w", topic, sendErr)
+		return fmt.Errorf("failed to send message to kafka topic %s: %w", topic, err)
 	}
 
 	if k.metrics != nil {
 		k.metrics.IncMessagePublished(ctx, topic)
 	}
+
 	k.logger.Info(ctx, "Published message to Kafka",
 		"topic", topic,
 		"partition", partition,
 		"offset", offset,
-		"event_type", event.Type,
-		"key", event.Key,
+		"key", key,
 	)
 
 	return nil
@@ -248,8 +292,11 @@ func (k *KafkaEventBus) Subscribe(
 	// Collect unique topics for the requested event types.
 	topicSet := make(map[string]struct{})
 	for _, et := range eventTypes {
-		if topic, ok := k.topics[et]; ok {
-			topicSet[topic] = struct{}{}
+		if topicConfig, ok := k.topicConfigs[et]; ok {
+			topicSet[topicConfig.Primary] = struct{}{}
+			for _, secondaryTopic := range topicConfig.Secondary {
+				topicSet[secondaryTopic] = struct{}{}
+			}
 		} else {
 			span.RecordError(fmt.Errorf("subscribe: unknown event type %s", et))
 			span.SetStatus(codes.Error, "unknown event type")

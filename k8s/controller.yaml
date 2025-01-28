@@ -96,6 +96,11 @@ spec:
             configMapKeyRef:
               name: scanner-config
               key: KAFKA_HIGH_PRIORITY_TASK_TOPIC
+        - name: KAFKA_JOB_METRICS_TOPIC
+          valueFrom:
+            configMapKeyRef:
+              name: scanner-config
+              key: KAFKA_JOB_METRICS_TOPIC
         resources:
           requests:
             memory: "512Mi"
