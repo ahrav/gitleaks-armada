@@ -193,53 +193,187 @@ func (r *jobStore) GetJob(ctx context.Context, jobID uuid.UUID) (*scanning.Job, 
 	return job, nil
 }
 
-// BulkUpdateJobMetrics updates metrics for multiple jobs in a single operation.
-func (r *jobStore) BulkUpdateJobMetrics(ctx context.Context, updates map[uuid.UUID]*scanning.JobMetrics) (int64, error) {
-	dbAttrs := append(
-		defaultDBAttributes,
-		attribute.Int("num_jobs", len(updates)),
-	)
+const (
+	maxBatchSize  = 1000
+	numWorkers    = 2
+	batchChanSize = 2
+)
 
-	values := make([]string, 0, len(updates))
-	args := make([]any, 0, len(updates)*7) // jobID + 4 metrics fields + 2 timestamps
-	i := 1
-	now := time.Now().UTC()
+// jobEntry holds a reference to a single update item.
+type jobEntry struct {
+	jobID   uuid.UUID
+	metrics *scanning.JobMetrics
+}
+
+type batchJob struct {
+	batch []jobEntry
+	err   chan error
+	rows  chan int64
+}
+
+// BulkUpdateJobMetrics updates metrics for multiple jobs using a pool of workers
+// to process batches concurrently.
+func (r *jobStore) BulkUpdateJobMetrics(ctx context.Context, updates map[uuid.UUID]*scanning.JobMetrics) (int64, error) {
+	if len(updates) == 0 {
+		return 0, scanning.ErrNoJobMetricsUpdated
+	}
+
+	// Channels for distributing work and receiving completion signals.
+	batchChan := make(chan batchJob, batchChanSize)
+	done := make(chan struct{})
+
+	for range numWorkers {
+		go r.batchWorker(ctx, batchChan, done)
+	}
+
+	var totalRowsAffected int64
+	var errs []error
+	var batchResults []batchJob
+
+	// Helper to queue a slice of job entries to workers.
+	sendBatch := func(entries []jobEntry) {
+		if len(entries) == 0 {
+			return
+		}
+		job := batchJob{
+			batch: entries,
+			err:   make(chan error, 1),
+			rows:  make(chan int64, 1),
+		}
+		batchChan <- job
+		batchResults = append(batchResults, job)
+	}
+
+	// Accumulate updates in a slice so we don't mutate a shared map.
+	var currentBatch []jobEntry
+	currentBatch = make([]jobEntry, 0, maxBatchSize)
 
 	for jobID, metrics := range updates {
+		select {
+		case <-ctx.Done():
+			close(batchChan)
+			return 0, ctx.Err()
+		default:
+			currentBatch = append(currentBatch, jobEntry{jobID, metrics})
+			if len(currentBatch) == maxBatchSize {
+				sendBatch(currentBatch)
+				currentBatch = currentBatch[:0] // reset for reuse
+			}
+		}
+	}
+
+	// Flush any trailing batch if it has leftover entries.
+	if len(currentBatch) > 0 {
+		sendBatch(currentBatch)
+	}
+
+	// No more batches will be queued.
+	close(batchChan)
+
+	// Wait for all workers to finish.
+	for i := 0; i < numWorkers; i++ {
+		select {
+		case <-done:
+		case <-ctx.Done():
+			return 0, ctx.Err()
+		}
+	}
+
+	// Collect results from each batch.
+	for _, job := range batchResults {
+		select {
+		case err := <-job.err:
+			if err != nil {
+				errs = append(errs, err)
+			}
+		case rows := <-job.rows:
+			totalRowsAffected += rows
+		case <-ctx.Done():
+			return totalRowsAffected, ctx.Err()
+		}
+	}
+
+	if len(errs) > 0 {
+		return totalRowsAffected, fmt.Errorf("batch update errors: %v", errs)
+	}
+	if totalRowsAffected == 0 {
+		return 0, scanning.ErrNoJobMetricsUpdated
+	}
+	return totalRowsAffected, nil
+}
+
+// batchWorker consumes batchJob messages from batchChan.
+func (r *jobStore) batchWorker(ctx context.Context, batchChan <-chan batchJob, done chan<- struct{}) {
+	defer func() {
+		select {
+		case done <- struct{}{}:
+		case <-ctx.Done():
+		}
+	}()
+
+	for job := range batchChan {
+		rows, err := r.executeBatchUpdate(ctx, job.batch)
+		if err != nil {
+			job.err <- err
+			job.rows <- 0
+			continue
+		}
+		job.err <- nil
+		job.rows <- rows
+	}
+}
+
+func (r *jobStore) executeBatchUpdate(ctx context.Context, entries []jobEntry) (int64, error) {
+	if len(entries) == 0 {
+		return 0, nil
+	}
+
+	dbAttrs := append(
+		defaultDBAttributes,
+		attribute.Int("batch_size", len(entries)),
+	)
+
+	now := time.Now().UTC()
+	// For each row, we have:
+	//   job_id + total_tasks + completed_tasks + failed_tasks + stale_tasks + created_at + updated_at
+	//
+	// We'll build a VALUES string with placeholders like:
+	//   ($1::uuid, $2::int, $3::int, $4::int, $5::int, $6::timestamptz, $7::timestamptz), ...
+	values := make([]string, 0, len(entries))
+	args := make([]any, 0, len(entries)*7) // jobID + 4 metrics fields + 2 timestamps
+	i := 1
+
+	for _, e := range entries {
 		values = append(values, fmt.Sprintf("($%d::uuid, $%d::int, $%d::int, $%d::int, $%d::int, $%d::timestamptz, $%d::timestamptz)",
 			i, i+1, i+2, i+3, i+4, i+5, i+6))
 		args = append(args,
-			jobID,
-			metrics.TotalTasks(),
-			metrics.CompletedTasks(),
-			metrics.FailedTasks(),
-			metrics.StaleTasks(),
+			e.jobID,
+			e.metrics.TotalTasks(),
+			e.metrics.CompletedTasks(),
+			e.metrics.FailedTasks(),
+			e.metrics.StaleTasks(),
 			now, // created_at
 			now, // updated_at
 		)
 		i += 7
 	}
 
-	if len(values) == 0 {
-		return 0, scanning.ErrNoJobMetricsUpdated
-	}
-
 	query := fmt.Sprintf(`
-		INSERT INTO scan_job_metrics (
-			job_id,
-			total_tasks,
-			completed_tasks,
-			failed_tasks,
-			stale_tasks,
-			created_at,
-			updated_at
-		) VALUES %s
-		ON CONFLICT (job_id) DO UPDATE SET
-			total_tasks = EXCLUDED.total_tasks,
-			completed_tasks = EXCLUDED.completed_tasks,
-			failed_tasks = EXCLUDED.failed_tasks,
-			stale_tasks = EXCLUDED.stale_tasks,
-			updated_at = NOW()
+			INSERT INTO scan_job_metrics (
+					job_id,
+					total_tasks,
+					completed_tasks,
+					failed_tasks,
+					stale_tasks,
+					created_at,
+					updated_at
+			) VALUES %s
+			ON CONFLICT (job_id) DO UPDATE SET
+					total_tasks = EXCLUDED.total_tasks,
+					completed_tasks = EXCLUDED.completed_tasks,
+					failed_tasks = EXCLUDED.failed_tasks,
+					stale_tasks = EXCLUDED.stale_tasks,
+					updated_at = NOW()
 	`, strings.Join(values, ","))
 
 	var rowsAffected int64
@@ -252,7 +386,6 @@ func (r *jobStore) BulkUpdateJobMetrics(ctx context.Context, updates map[uuid.UU
 		if rowsAffected == 0 {
 			return scanning.ErrNoJobMetricsUpdated
 		}
-
 		return nil
 	})
 
