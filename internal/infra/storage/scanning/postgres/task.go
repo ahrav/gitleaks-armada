@@ -123,13 +123,13 @@ func (s *taskStore) GetTask(ctx context.Context, taskID uuid.UUID) (*scanning.Ta
 		)
 		return nil
 	})
-
 	if err != nil {
 		return nil, err
 	}
 	if domainTask == nil {
 		return nil, pgx.ErrNoRows
 	}
+
 	return domainTask, nil
 }
 
