@@ -22,6 +22,17 @@ func ReconstructJobMetrics(totalTasks, completedTasks, failedTasks, staleTasks i
 	}
 }
 
+// Clone returns a deep copy of the JobMetrics.
+func (m *JobMetrics) Clone() *JobMetrics {
+	return &JobMetrics{
+		totalTasks:      m.totalTasks,
+		inProgressTasks: m.inProgressTasks,
+		completedTasks:  m.completedTasks,
+		failedTasks:     m.failedTasks,
+		staleTasks:      m.staleTasks,
+	}
+}
+
 // TotalTasks returns the total number of tasks.
 func (m *JobMetrics) TotalTasks() int { return m.totalTasks }
 
