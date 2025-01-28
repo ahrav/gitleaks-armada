@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -154,9 +153,6 @@ type jobMetricsTracker struct {
 	logger     *logger.Logger
 	tracer     trace.Tracer
 
-	// Protects access to metrics and taskStatus maps
-	mu sync.RWMutex
-
 	// Configuration.
 
 	// cleanupInterval is how often we look for completed/failed tasks to clean up.
@@ -201,7 +197,6 @@ func (t *jobMetricsTracker) HandleJobMetrics(ctx context.Context, evt events.Eve
 	var taskID uuid.UUID
 	var newStatus domain.TaskStatus
 
-	// Extract event details based on type
 	switch e := evt.Payload.(type) {
 	case scanning.TaskStartedEvent:
 		jobID = e.JobID
@@ -249,34 +244,26 @@ func (t *jobMetricsTracker) HandleJobMetrics(ctx context.Context, evt events.Eve
 		return nil
 	}
 
-	t.mu.Lock()
-	defer t.mu.Unlock()
+	var oldStatus domain.TaskStatus
+
+	oldStatus, err := t.getTaskStatus(ctx, taskID)
+	if err != nil {
+		return fmt.Errorf("getting task status: %w", err)
+	}
 
 	metrics, exists := t.metrics[jobID]
 	if !exists {
 		var err error
 		metrics, err = t.repository.GetJobMetrics(ctx, jobID)
 		if err != nil {
-			if errors.Is(err, domain.ErrNoJobMetricsFound) {
-				metrics = domain.NewJobMetrics()
-				t.metrics[jobID] = metrics
-			} else {
+			if !errors.Is(err, domain.ErrNoJobMetricsFound) {
 				return fmt.Errorf("getting job metrics: %w", err)
 			}
+			metrics = domain.NewJobMetrics()
 		}
-		t.metrics[jobID] = metrics
 	}
 
-	// Get previous task status if it exists.
-	oldStatus, err := t.getTaskStatusLocked(ctx, taskID)
-	if err != nil {
-		if !errors.Is(err, domain.ErrTaskNotFound) {
-			t.logger.Error(ctx, "failed to get task status",
-				"task_id", taskID.String(),
-				"error", err,
-			)
-		}
-		// Treat as a new task if we can't get the old status
+	if oldStatus == "" {
 		t.logger.Info(ctx, "treating as new task",
 			"task_id", taskID.String(),
 			"new_status", newStatus,
@@ -286,7 +273,6 @@ func (t *jobMetricsTracker) HandleJobMetrics(ctx context.Context, evt events.Eve
 		metrics.OnTaskStatusChanged(oldStatus, newStatus)
 	}
 
-	// Update task status.
 	t.taskStatus[taskID] = taskStatusEntry{
 		status:    newStatus,
 		updatedAt: time.Now(),
@@ -295,12 +281,27 @@ func (t *jobMetricsTracker) HandleJobMetrics(ctx context.Context, evt events.Eve
 	return nil
 }
 
+// getTaskStatus retrieves task status from memory or falls back to repository.
+func (t *jobMetricsTracker) getTaskStatus(ctx context.Context, taskID uuid.UUID) (domain.TaskStatus, error) {
+	if status, exists := t.taskStatus[taskID]; exists {
+		return status.status, nil
+	}
+
+	status, err := t.repository.GetTaskStatus(ctx, taskID)
+	if err != nil {
+		return "", fmt.Errorf("getting task status: %w", err)
+	}
+
+	t.taskStatus[taskID] = taskStatusEntry{
+		status:    status,
+		updatedAt: time.Now(),
+	}
+	return status, nil
+}
+
 func (t *jobMetricsTracker) FlushMetrics(ctx context.Context) error {
 	ctx, span := t.tracer.Start(ctx, "job_metrics_tracker.flush_metrics")
 	defer span.End()
-
-	t.mu.RLock()
-	defer t.mu.RUnlock()
 
 	var firstErr error
 	for jobID, metrics := range t.metrics {
@@ -320,12 +321,9 @@ func (t *jobMetricsTracker) FlushMetrics(ctx context.Context) error {
 }
 
 func (t *jobMetricsTracker) GetJobMetrics(ctx context.Context, jobID uuid.UUID) (*domain.JobMetrics, error) {
-	// if jobID == uuid.Nil {
-	// 	return nil, fmt.Errorf("%w: invalid job ID", domain.ErrInvalidInput)
-	// }
-
-	t.mu.RLock()
-	defer t.mu.RUnlock()
+	if jobID == uuid.Nil {
+		return nil, fmt.Errorf("invalid job ID; job ID is required")
+	}
 
 	metrics, exists := t.metrics[jobID]
 	if exists {
@@ -339,25 +337,6 @@ func (t *jobMetricsTracker) GetJobMetrics(ctx context.Context, jobID uuid.UUID) 
 
 	t.metrics[jobID] = metrics
 	return metrics.Clone(), nil
-}
-
-// getTaskStatusLocked retrieves task status from memory or falls back to repository.
-// Caller must hold the mutex lock.
-func (t *jobMetricsTracker) getTaskStatusLocked(ctx context.Context, taskID uuid.UUID) (domain.TaskStatus, error) {
-	if status, exists := t.taskStatus[taskID]; exists {
-		return status.status, nil
-	}
-
-	status, err := t.repository.GetTaskStatus(ctx, taskID)
-	if err != nil {
-		return "", fmt.Errorf("getting task status: %w", err)
-	}
-
-	t.taskStatus[taskID] = taskStatusEntry{
-		status:    status,
-		updatedAt: time.Now(),
-	}
-	return status, nil
 }
 
 // startStatusCleanup runs periodic cleanup of completed/failed task statuses.
@@ -377,9 +356,6 @@ func (t *jobMetricsTracker) startStatusCleanup(ctx context.Context) {
 
 // cleanupTaskStatus removes completed/failed task status entries.
 func (t *jobMetricsTracker) cleanupTaskStatus() {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
 	now := time.Now()
 	for taskID, entry := range t.taskStatus {
 		if entry.status == domain.TaskStatusCompleted || entry.status == domain.TaskStatusFailed {
