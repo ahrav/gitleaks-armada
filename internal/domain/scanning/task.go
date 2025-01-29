@@ -536,7 +536,7 @@ func (t *Task) ClearStall() {
 
 // Fail marks a task as failed.
 func (t *Task) Fail() error {
-	if t.status != TaskStatusInProgress && t.status != TaskStatusStale {
+	if t.status != TaskStatusInProgress && t.status != TaskStatusStale && t.status != TaskStatusPending {
 		return TaskInvalidStateError{
 			taskID: t.ID,
 			status: t.status,
