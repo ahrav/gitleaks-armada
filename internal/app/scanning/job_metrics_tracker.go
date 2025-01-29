@@ -167,7 +167,7 @@ func NewJobMetricsTracker(
 	repository MetricsRepository,
 	logger *logger.Logger,
 	tracer trace.Tracer,
-) JobMetricsTracker {
+) *jobMetricsTracker {
 	const (
 		defaultCleanupInterval = 15 * time.Minute
 		defaultRetentionPeriod = 1 * time.Hour
@@ -189,6 +189,22 @@ func NewJobMetricsTracker(
 	return t
 }
 
+// HandleJobMetrics processes task-related events and updates job metrics accordingly.
+// It maintains an in-memory state of task statuses and aggregates metrics per job.
+//
+// The method handles the following events:
+// - TaskStartedEvent: When a task begins execution
+// - TaskCompletedEvent: When a task successfully completes
+// - TaskFailedEvent: When a task fails to complete
+// - TaskStaleEvent: When a task is detected as stale/hung
+//
+// For each event, it:
+// 1. Updates the task's status in memory
+// 2. Updates the associated job's metrics based on the status transition
+// 3. Maintains timing information for cleanup purposes
+//
+// This event handler is crucial for maintaining accurate job progress and health metrics,
+// which are used for monitoring and reporting job execution status.
 func (t *jobMetricsTracker) HandleJobMetrics(ctx context.Context, evt events.EventEnvelope) error {
 	ctx, span := t.tracer.Start(ctx, "job_metrics_tracker.handle_job_metrics")
 	defer span.End()
@@ -299,6 +315,16 @@ func (t *jobMetricsTracker) getTaskStatus(ctx context.Context, taskID uuid.UUID)
 	return status, nil
 }
 
+// FlushMetrics persists all in-memory job metrics to the underlying storage.
+// This method is critical for durability, ensuring that job progress and statistics
+// are not lost in case of system failures or restarts.
+//
+// It attempts to flush metrics for all tracked jobs, continuing even if some updates fail.
+// If any errors occur during the flush, it logs them and returns the first error encountered
+// while attempting to complete the remaining updates.
+//
+// This method is typically called periodically by a background goroutine to ensure
+// regular persistence of metrics state.
 func (t *jobMetricsTracker) FlushMetrics(ctx context.Context) error {
 	ctx, span := t.tracer.Start(ctx, "job_metrics_tracker.flush_metrics")
 	defer span.End()

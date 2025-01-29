@@ -142,13 +142,29 @@ func NewOrchestrator(
 
 	eventsFacilitator := NewEventsFacilitator(executionTracker, o.taskHealthSupervisor, metricsTracker, rulesService, tracer)
 	dispatcher := eventdispatcher.New(tracer)
-	dispatcher.RegisterHandler(scanning.EventTypeTaskStarted, eventsFacilitator.HandleTaskStarted)
-	dispatcher.RegisterHandler(scanning.EventTypeTaskProgressed, eventsFacilitator.HandleTaskProgressed)
-	dispatcher.RegisterHandler(scanning.EventTypeTaskCompleted, eventsFacilitator.HandleTaskCompleted)
-	dispatcher.RegisterHandler(scanning.EventTypeTaskHeartbeat, eventsFacilitator.HandleTaskHeartbeat)
-	dispatcher.RegisterHandler(scanning.EventTypeTaskFailed, eventsFacilitator.HandleTaskFailed)
-	dispatcher.RegisterHandler(rules.EventTypeRulesUpdated, eventsFacilitator.HandleRule)
-	dispatcher.RegisterHandler(rules.EventTypeRulesPublished, eventsFacilitator.HandleRulesPublished)
+	dispatcher.RegisterHandlers(
+		scanning.EventTypeTaskStarted,
+		eventsFacilitator.HandleTaskStarted,
+		eventsFacilitator.HandleJobMetrics,
+	)
+	dispatcher.RegisterHandlers(
+		scanning.EventTypeTaskProgressed,
+		eventsFacilitator.HandleTaskProgressed,
+		eventsFacilitator.HandleJobMetrics,
+	)
+	dispatcher.RegisterHandlers(
+		scanning.EventTypeTaskCompleted,
+		eventsFacilitator.HandleTaskCompleted,
+		eventsFacilitator.HandleJobMetrics,
+	)
+	dispatcher.RegisterHandlers(
+		scanning.EventTypeTaskFailed,
+		eventsFacilitator.HandleTaskFailed,
+		eventsFacilitator.HandleJobMetrics,
+	)
+	dispatcher.RegisterHandlers(scanning.EventTypeTaskHeartbeat, eventsFacilitator.HandleTaskHeartbeat)
+	dispatcher.RegisterHandlers(rules.EventTypeRulesUpdated, eventsFacilitator.HandleRule)
+	dispatcher.RegisterHandlers(rules.EventTypeRulesPublished, eventsFacilitator.HandleRulesPublished)
 
 	o.dispatcher = dispatcher
 

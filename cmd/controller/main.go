@@ -203,6 +203,7 @@ func main() {
 		ScanningTaskTopic:     os.Getenv("KAFKA_SCANNING_TASK_TOPIC"),
 		ResultsTopic:          os.Getenv("KAFKA_RESULTS_TOPIC"),
 		ProgressTopic:         os.Getenv("KAFKA_PROGRESS_TOPIC"),
+		JobMetricsTopic:       os.Getenv("KAFKA_JOB_METRICS_TOPIC"),
 		HighPriorityTaskTopic: os.Getenv("KAFKA_HIGH_PRIORITY_TASK_TOPIC"),
 		RulesRequestTopic:     os.Getenv("KAFKA_RULES_REQUEST_TOPIC"),
 		RulesResponseTopic:    os.Getenv("KAFKA_RULES_RESPONSE_TOPIC"),
