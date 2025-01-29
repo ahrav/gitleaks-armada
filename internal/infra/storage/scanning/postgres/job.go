@@ -383,9 +383,6 @@ func (r *jobStore) executeBatchUpdate(ctx context.Context, entries []jobEntry) (
 			return fmt.Errorf("bulk update job metrics query error: %w", err)
 		}
 		rowsAffected = result.RowsAffected()
-		if rowsAffected == 0 {
-			return scanning.ErrNoJobMetricsUpdated
-		}
 		return nil
 	})
 
