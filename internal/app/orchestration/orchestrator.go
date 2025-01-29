@@ -142,29 +142,14 @@ func NewOrchestrator(
 
 	eventsFacilitator := NewEventsFacilitator(executionTracker, o.taskHealthSupervisor, metricsTracker, rulesService, tracer)
 	dispatcher := eventdispatcher.New(tracer)
-	dispatcher.RegisterHandlers(
-		scanning.EventTypeTaskStarted,
-		eventsFacilitator.HandleTaskStarted,
-		eventsFacilitator.HandleJobMetrics,
-	)
-	dispatcher.RegisterHandlers(
-		scanning.EventTypeTaskProgressed,
-		eventsFacilitator.HandleTaskProgressed,
-		eventsFacilitator.HandleJobMetrics,
-	)
-	dispatcher.RegisterHandlers(
-		scanning.EventTypeTaskCompleted,
-		eventsFacilitator.HandleTaskCompleted,
-		eventsFacilitator.HandleJobMetrics,
-	)
-	dispatcher.RegisterHandlers(
-		scanning.EventTypeTaskFailed,
-		eventsFacilitator.HandleTaskFailed,
-		eventsFacilitator.HandleJobMetrics,
-	)
-	dispatcher.RegisterHandlers(scanning.EventTypeTaskHeartbeat, eventsFacilitator.HandleTaskHeartbeat)
-	dispatcher.RegisterHandlers(rules.EventTypeRulesUpdated, eventsFacilitator.HandleRule)
-	dispatcher.RegisterHandlers(rules.EventTypeRulesPublished, eventsFacilitator.HandleRulesPublished)
+	dispatcher.RegisterHandler(scanning.EventTypeTaskStarted, eventsFacilitator.HandleTaskStarted)
+	dispatcher.RegisterHandler(scanning.EventTypeTaskProgressed, eventsFacilitator.HandleTaskProgressed)
+	dispatcher.RegisterHandler(scanning.EventTypeTaskCompleted, eventsFacilitator.HandleTaskCompleted)
+	dispatcher.RegisterHandler(scanning.EventTypeTaskFailed, eventsFacilitator.HandleTaskFailed)
+	dispatcher.RegisterHandler(scanning.EventTypeTaskHeartbeat, eventsFacilitator.HandleTaskHeartbeat)
+	dispatcher.RegisterHandler(rules.EventTypeRulesUpdated, eventsFacilitator.HandleRule)
+	dispatcher.RegisterHandler(rules.EventTypeRulesPublished, eventsFacilitator.HandleRulesPublished)
+	dispatcher.RegisterHandler(scanning.EventTypeTaskJobMetric, eventsFacilitator.HandleTaskJobMetric)
 
 	o.dispatcher = dispatcher
 
@@ -262,6 +247,7 @@ func (o *Orchestrator) subscribeToEvents(ctx context.Context) error {
 		scanning.EventTypeTaskCompleted,
 		scanning.EventTypeTaskFailed,
 		scanning.EventTypeTaskHeartbeat,
+		scanning.EventTypeTaskJobMetric,
 	}
 
 	if err := o.eventBus.Subscribe(

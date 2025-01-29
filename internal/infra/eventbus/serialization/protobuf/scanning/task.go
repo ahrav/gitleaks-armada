@@ -236,3 +236,60 @@ func ProtoToTaskResumeEvent(pbEvent *pb.TaskResumeEvent) (scanning.TaskResumeEve
 		checkpoint,
 	), nil
 }
+
+// TaskJobMetricEventToProto converts a domain TaskJobMetricEvent to protobuf.
+func TaskJobMetricEventToProto(e scanning.TaskJobMetricEvent) *pb.TaskJobMetricEvent {
+	return &pb.TaskJobMetricEvent{
+		JobId:     e.JobID.String(),
+		TaskId:    e.TaskID.String(),
+		Status:    TaskStatusToProto(e.Status),
+		Timestamp: e.OccurredAt().UnixNano(),
+	}
+}
+
+// ProtoToTaskJobMetricEvent converts a protobuf TaskJobMetricEvent to domain event.
+func ProtoToTaskJobMetricEvent(p *pb.TaskJobMetricEvent) (scanning.TaskJobMetricEvent, error) {
+	jobID, err := uuid.Parse(p.JobId)
+	if err != nil {
+		return scanning.TaskJobMetricEvent{}, fmt.Errorf("parse job ID: %w", err)
+	}
+
+	taskID, err := uuid.Parse(p.TaskId)
+	if err != nil {
+		return scanning.TaskJobMetricEvent{}, fmt.Errorf("parse task ID: %w", err)
+	}
+
+	return scanning.NewTaskJobMetricEvent(
+		jobID,
+		taskID,
+		ProtoToTaskStatus(p.Status),
+	), nil
+}
+
+// TaskStatusToProto converts a domain TaskStatus to its protobuf representation.
+func TaskStatusToProto(s scanning.TaskStatus) pb.TaskStatus {
+	switch s {
+	case scanning.TaskStatusInProgress:
+		return pb.TaskStatus_TASK_STATUS_IN_PROGRESS
+	case scanning.TaskStatusCompleted:
+		return pb.TaskStatus_TASK_STATUS_COMPLETED
+	case scanning.TaskStatusFailed:
+		return pb.TaskStatus_TASK_STATUS_FAILED
+	default:
+		return pb.TaskStatus_TASK_STATUS_UNSPECIFIED
+	}
+}
+
+// ProtoToTaskStatus converts a protobuf TaskStatus to its domain representation.
+func ProtoToTaskStatus(s pb.TaskStatus) scanning.TaskStatus {
+	switch s {
+	case pb.TaskStatus_TASK_STATUS_IN_PROGRESS:
+		return scanning.TaskStatusInProgress
+	case pb.TaskStatus_TASK_STATUS_COMPLETED:
+		return scanning.TaskStatusCompleted
+	case pb.TaskStatus_TASK_STATUS_FAILED:
+		return scanning.TaskStatusFailed
+	default:
+		return scanning.TaskStatusUnspecified
+	}
+}

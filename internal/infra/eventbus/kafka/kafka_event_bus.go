@@ -76,17 +76,8 @@ type KafkaEventBus struct {
 	producer      sarama.SyncProducer
 	consumerGroup sarama.ConsumerGroup
 
-	enumTaskTopic         string
-	scanTaskTopic         string
-	resultsTopic          string
-	progressTopic         string
-	highPriorityTaskTopic string
-	rulesRequestTopic     string
-	rulesResponseTopic    string
-	jobMetricsTopic       string
-
-	// Maps domain event types to their topic routing configuration.
-	topicConfigs map[events.EventType]TopicConfig
+	// Maps domain event types to their Kafka topics
+	topicMap map[events.EventType]string
 
 	logger  *logger.Logger
 	tracer  trace.Tracer
@@ -95,11 +86,7 @@ type KafkaEventBus struct {
 
 // NewKafkaEventBusFromConfig creates a new Kafka-based event bus from the provided configuration.
 // It establishes connections to Kafka brokers and configures both producer and consumer components
-// for reliable message delivery and consumption. The event bus provides a durable messaging
-// backbone for distributing domain events across services.
-// TODO: Review the configuration of the producer and consumer.
-// This will likely need to be adjusted for production use cases where we want to
-// have multiple brokers setup for redundancy and high availability.
+// for reliable message delivery and consumption.
 func NewKafkaEventBusFromConfig(
 	cfg *Config,
 	logger *logger.Logger,
@@ -137,50 +124,29 @@ func NewKafkaEventBusFromConfig(
 		return nil, fmt.Errorf("failed to create consumer group: %w", err)
 	}
 
-	// Map domain events to their corresponding Kafka topics with routing configuration.
-	topicConfigs := map[events.EventType]TopicConfig{
-		enumeration.EventTypeTaskCreated: {Primary: cfg.EnumerationTaskTopic},
-		rules.EventTypeRulesRequested:    {Primary: cfg.RulesRequestTopic},
-		rules.EventTypeRulesUpdated:      {Primary: cfg.RulesResponseTopic},
-		rules.EventTypeRulesPublished:    {Primary: cfg.RulesResponseTopic},
-		scanning.EventTypeTaskStarted: {
-			Primary:   cfg.ScanningTaskTopic,
-			Secondary: []string{cfg.JobMetricsTopic},
-		},
-		scanning.EventTypeTaskProgressed: {
-			Primary:   cfg.ScanningTaskTopic,
-			Secondary: []string{cfg.JobMetricsTopic},
-		},
-		scanning.EventTypeTaskCompleted: {
-			Primary:   cfg.ScanningTaskTopic,
-			Secondary: []string{cfg.JobMetricsTopic},
-		},
-		scanning.EventTypeTaskFailed: {
-			Primary:   cfg.ScanningTaskTopic,
-			Secondary: []string{cfg.JobMetricsTopic},
-		},
-		scanning.EventTypeTaskHeartbeat: {Primary: cfg.ScanningTaskTopic},
-		scanning.EventTypeTaskResume:    {Primary: cfg.HighPriorityTaskTopic},
+	// Map domain events to their corresponding Kafka topics.
+	// TODO: Maybe use a more performant data structure for this?
+	topicMap := map[events.EventType]string{
+		enumeration.EventTypeTaskCreated: cfg.EnumerationTaskTopic,  // controller -> scanner
+		rules.EventTypeRulesRequested:    cfg.RulesRequestTopic,     // controller -> scanner
+		rules.EventTypeRulesUpdated:      cfg.RulesResponseTopic,    // scanner -> controller
+		rules.EventTypeRulesPublished:    cfg.RulesResponseTopic,    // scanner -> controller
+		scanning.EventTypeTaskStarted:    cfg.ScanningTaskTopic,     // scanner -> controller
+		scanning.EventTypeTaskProgressed: cfg.ScanningTaskTopic,     // scanner -> controller
+		scanning.EventTypeTaskCompleted:  cfg.ScanningTaskTopic,     // scanner -> controller
+		scanning.EventTypeTaskFailed:     cfg.ScanningTaskTopic,     // scanner -> controller
+		scanning.EventTypeTaskHeartbeat:  cfg.ScanningTaskTopic,     // scanner -> controller
+		scanning.EventTypeTaskResume:     cfg.HighPriorityTaskTopic, // controller -> scanner
+		scanning.EventTypeTaskJobMetric:  cfg.JobMetricsTopic,       // scanner -> controller
 	}
 
 	bus := &KafkaEventBus{
 		producer:      producer,
 		consumerGroup: consumerGroup,
-
-		enumTaskTopic:         cfg.EnumerationTaskTopic,
-		scanTaskTopic:         cfg.ScanningTaskTopic,
-		resultsTopic:          cfg.ResultsTopic,
-		progressTopic:         cfg.ProgressTopic,
-		highPriorityTaskTopic: cfg.HighPriorityTaskTopic,
-		rulesRequestTopic:     cfg.RulesRequestTopic,
-		rulesResponseTopic:    cfg.RulesResponseTopic,
-		jobMetricsTopic:       cfg.JobMetricsTopic,
-
-		topicConfigs: topicConfigs,
-
-		logger:  logger,
-		tracer:  tracer,
-		metrics: metrics,
+		topicMap:      topicMap,
+		logger:        logger,
+		metrics:       metrics,
+		tracer:        tracer,
 	}
 
 	return bus, nil
@@ -196,12 +162,12 @@ func NewKafkaEventBusFromConfig(
 // Note: We should only attempt to retry if the error is a transient one. (e.g. LEADER_NOT_AVAILABLE)
 // If the error is a permanent one, we should not retry. (e.g. INVALID_CONFIG)
 func (k *KafkaEventBus) Publish(ctx context.Context, event events.EventEnvelope, opts ...events.PublishOption) error {
-	topicConfig, ok := k.topicConfigs[event.Type]
+	topic, ok := k.topicMap[event.Type]
 	if !ok {
 		return fmt.Errorf("unknown event type '%s', no topic mapped", event.Type)
 	}
 
-	ctx, span := tracing.StartProducerSpan(ctx, topicConfig.Primary, k.tracer)
+	ctx, span := tracing.StartProducerSpan(ctx, topic, k.tracer)
 	defer span.End()
 
 	var pParams events.PublishParams
@@ -218,27 +184,15 @@ func (k *KafkaEventBus) Publish(ctx context.Context, event events.EventEnvelope,
 	if err != nil {
 		span.RecordError(err)
 		if k.metrics != nil {
-			k.metrics.IncPublishError(ctx, topicConfig.Primary)
+			k.metrics.IncPublishError(ctx, topic)
 		}
 		return fmt.Errorf("failed to serialize payload for event %s: %w", event.Type, err)
 	}
 
 	// Publish to primary topic.
 	// TODO: Consider making this a little more ergonomic.
-	if err := k.publishToTopic(ctx, topicConfig.Primary, event.Key, msgBytes); err != nil {
+	if err := k.publishToTopic(ctx, topic, event.Key, msgBytes); err != nil {
 		return err
-	}
-
-	// Publish to all secondary topics.
-	for _, topic := range topicConfig.Secondary {
-		if err := k.publishToTopic(ctx, topic, event.Key, msgBytes); err != nil {
-			k.logger.Error(ctx, "Failed to publish to secondary topic",
-				"error", err,
-				"topic", topic,
-				"event_type", event.Type)
-			// Continue publishing to other topics even if one fails.
-			continue
-		}
 	}
 
 	return nil
@@ -292,11 +246,8 @@ func (k *KafkaEventBus) Subscribe(
 	// Collect unique topics for the requested event types.
 	topicSet := make(map[string]struct{})
 	for _, et := range eventTypes {
-		if topicConfig, ok := k.topicConfigs[et]; ok {
-			topicSet[topicConfig.Primary] = struct{}{}
-			for _, secondaryTopic := range topicConfig.Secondary {
-				topicSet[secondaryTopic] = struct{}{}
-			}
+		if topic, ok := k.topicMap[et]; ok {
+			topicSet[topic] = struct{}{}
 		} else {
 			span.RecordError(fmt.Errorf("subscribe: unknown event type %s", et))
 			span.SetStatus(codes.Error, "unknown event type")

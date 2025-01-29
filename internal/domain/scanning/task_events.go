@@ -18,6 +18,7 @@ const (
 	EventTypeTaskCompleted  events.EventType = "TaskCompleted"
 	EventTypeTaskFailed     events.EventType = "TaskFailed"
 	EventTypeTaskHeartbeat  events.EventType = "TaskHeartbeat"
+	EventTypeTaskJobMetric  events.EventType = "TaskJobMetric"
 )
 
 // TaskStartedEvent indicates a new task was added to a job.
@@ -128,7 +129,7 @@ func NewTaskCompletedEvent(jobID, taskID uuid.UUID) TaskCompletedEvent {
 func (e TaskCompletedEvent) EventType() events.EventType { return EventTypeTaskCompleted }
 func (e TaskCompletedEvent) OccurredAt() time.Time       { return e.occurredAt }
 
-// TaskFailedEvent means the task encountered a failure it can’t recover from.
+// TaskFailedEvent means the task encountered a failure it can't recover from.
 type TaskFailedEvent struct {
 	occurredAt time.Time
 	JobID      uuid.UUID
@@ -163,3 +164,23 @@ func NewTaskHeartbeatEvent(taskID uuid.UUID) TaskHeartbeatEvent {
 
 func (e TaskHeartbeatEvent) EventType() events.EventType { return EventTypeTaskHeartbeat }
 func (e TaskHeartbeatEvent) OccurredAt() time.Time       { return e.occurredAt }
+
+// TaskJobMetricEvent represents a task status change for job metrics tracking.
+type TaskJobMetricEvent struct {
+	occurredAt time.Time
+	JobID      uuid.UUID
+	TaskID     uuid.UUID
+	Status     TaskStatus
+}
+
+func NewTaskJobMetricEvent(jobID, taskID uuid.UUID, status TaskStatus) TaskJobMetricEvent {
+	return TaskJobMetricEvent{
+		occurredAt: time.Now(),
+		JobID:      jobID,
+		TaskID:     taskID,
+		Status:     status,
+	}
+}
+
+func (e TaskJobMetricEvent) EventType() events.EventType { return EventTypeTaskJobMetric }
+func (e TaskJobMetricEvent) OccurredAt() time.Time       { return e.occurredAt }

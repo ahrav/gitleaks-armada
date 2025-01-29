@@ -230,13 +230,13 @@ func (ef *EventsFacilitator) HandleTaskHeartbeat(
 	}, ack)
 }
 
-// HandleJobMetrics processes a JobMetricsEvent.
-func (ef *EventsFacilitator) HandleJobMetrics(
+// HandleTaskJobMetric processes a TaskJobMetricEvent.
+func (ef *EventsFacilitator) HandleTaskJobMetric(
 	ctx context.Context,
 	evt events.EventEnvelope,
 	ack events.AckFunc,
 ) error {
-	return ef.withSpan(ctx, "events_facilitator.handle_job_metrics", func(ctx context.Context, span trace.Span) error {
+	return ef.withSpan(ctx, "events_facilitator.handle_task_job_metric", func(ctx context.Context, span trace.Span) error {
 		if err := ef.metricsTracker.HandleJobMetrics(ctx, evt); err != nil {
 			return fmt.Errorf("failed to handle job metrics: %w", err)
 		}

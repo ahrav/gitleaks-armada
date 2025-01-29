@@ -136,6 +136,9 @@ func RegisterEventSerializers() {
 	RegisterSerializeFunc(scanning.EventTypeTaskResume, serializeTaskResume)
 	RegisterDeserializeFunc(scanning.EventTypeTaskResume, deserializeTaskResume)
 
+	RegisterSerializeFunc(scanning.EventTypeTaskJobMetric, serializeTaskJobMetric)
+	RegisterDeserializeFunc(scanning.EventTypeTaskJobMetric, deserializeTaskJobMetric)
+
 	RegisterSerializeFunc(scanning.EventTypeTaskHeartbeat, serializeTaskHeartbeat)
 	RegisterDeserializeFunc(scanning.EventTypeTaskHeartbeat, deserializeTaskHeartbeat)
 
@@ -294,6 +297,32 @@ func deserializeTaskResume(data []byte) (any, error) {
 	}
 
 	event, err := serdeScanning.ProtoToTaskResumeEvent(&pbEvent)
+	if err != nil {
+		return nil, fmt.Errorf("convert proto to domain event: %w", err)
+	}
+
+	return event, nil
+}
+
+// serializeTaskJobMetric converts a TaskJobMetricEvent to protobuf bytes.
+func serializeTaskJobMetric(payload any) ([]byte, error) {
+	event, ok := payload.(scanning.TaskJobMetricEvent)
+	if !ok {
+		return nil, fmt.Errorf("serializeTaskJobMetric: payload is not TaskJobMetricEvent, got %T", payload)
+	}
+
+	pbEvent := serdeScanning.TaskJobMetricEventToProto(event)
+	return proto.Marshal(pbEvent)
+}
+
+// deserializeTaskJobMetric converts protobuf bytes back into a TaskJobMetricEvent.
+func deserializeTaskJobMetric(data []byte) (any, error) {
+	var pbEvent pb.TaskJobMetricEvent
+	if err := proto.Unmarshal(data, &pbEvent); err != nil {
+		return nil, fmt.Errorf("unmarshal TaskJobMetricEvent: %w", err)
+	}
+
+	event, err := serdeScanning.ProtoToTaskJobMetricEvent(&pbEvent)
 	if err != nil {
 		return nil, fmt.Errorf("convert proto to domain event: %w", err)
 	}

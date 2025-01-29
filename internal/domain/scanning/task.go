@@ -222,6 +222,9 @@ const (
 
 	// TaskStatusStale indicates a task stopped reporting progress and may need recovery.
 	TaskStatusStale TaskStatus = "STALE"
+
+	// TaskStatusUnspecified is used when a task status is unknown.
+	TaskStatusUnspecified TaskStatus = "UNSPECIFIED"
 )
 
 // StallReason identifies the specific cause of a task stall, enabling targeted recovery strategies.

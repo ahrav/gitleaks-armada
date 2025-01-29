@@ -209,68 +209,21 @@ func (t *jobMetricsTracker) HandleJobMetrics(ctx context.Context, evt events.Eve
 	ctx, span := t.tracer.Start(ctx, "job_metrics_tracker.handle_job_metrics")
 	defer span.End()
 
-	var jobID uuid.UUID
-	var taskID uuid.UUID
-	var newStatus domain.TaskStatus
-
-	switch e := evt.Payload.(type) {
-	case scanning.TaskStartedEvent:
-		jobID = e.JobID
-		taskID = e.TaskID
-		newStatus = domain.TaskStatusInProgress
-		span.SetAttributes(
-			attribute.String("event_type", "task_started"),
-			attribute.String("job_id", jobID.String()),
-			attribute.String("task_id", taskID.String()),
-		)
-
-	case scanning.TaskCompletedEvent:
-		jobID = e.JobID
-		taskID = e.TaskID
-		newStatus = domain.TaskStatusCompleted
-		span.SetAttributes(
-			attribute.String("event_type", "task_completed"),
-			attribute.String("job_id", jobID.String()),
-			attribute.String("task_id", taskID.String()),
-		)
-
-	case scanning.TaskFailedEvent:
-		jobID = e.JobID
-		taskID = e.TaskID
-		newStatus = domain.TaskStatusFailed
-		span.SetAttributes(
-			attribute.String("event_type", "task_failed"),
-			attribute.String("job_id", jobID.String()),
-			attribute.String("task_id", taskID.String()),
-		)
-
-	case scanning.TaskStaleEvent:
-		jobID = e.JobID
-		taskID = e.TaskID
-		newStatus = domain.TaskStatusStale
-		span.SetAttributes(
-			attribute.String("event_type", "task_stale"),
-			attribute.String("job_id", jobID.String()),
-			attribute.String("task_id", taskID.String()),
-		)
-
-	default:
-		// Not a task status event we care about.
-		t.logger.Debug(ctx, "ignoring event", "event_type", fmt.Sprintf("%T", e))
-		return nil
+	metricEvt, ok := evt.Payload.(scanning.TaskJobMetricEvent)
+	if !ok {
+		return fmt.Errorf("expected TaskJobMetricEvent, got %T", evt.Payload)
 	}
 
-	var oldStatus domain.TaskStatus
+	span.SetAttributes(
+		attribute.String("job_id", metricEvt.JobID.String()),
+		attribute.String("task_id", metricEvt.TaskID.String()),
+		attribute.String("status", string(metricEvt.Status)),
+	)
 
-	oldStatus, err := t.getTaskStatus(ctx, taskID)
-	if err != nil {
-		return fmt.Errorf("getting task status: %w", err)
-	}
-
-	metrics, exists := t.metrics[jobID]
+	metrics, exists := t.metrics[metricEvt.JobID]
 	if !exists {
 		var err error
-		metrics, err = t.repository.GetJobMetrics(ctx, jobID)
+		metrics, err = t.repository.GetJobMetrics(ctx, metricEvt.JobID)
 		if err != nil {
 			if !errors.Is(err, domain.ErrNoJobMetricsFound) {
 				return fmt.Errorf("getting job metrics: %w", err)
@@ -279,18 +232,19 @@ func (t *jobMetricsTracker) HandleJobMetrics(ctx context.Context, evt events.Eve
 		}
 	}
 
-	if oldStatus == "" {
-		t.logger.Info(ctx, "treating as new task",
-			"task_id", taskID.String(),
-			"new_status", newStatus,
-		)
-		metrics.OnTaskAdded(newStatus)
-	} else {
-		metrics.OnTaskStatusChanged(oldStatus, newStatus)
+	oldStatus, err := t.getTaskStatus(ctx, metricEvt.TaskID)
+	if err != nil && !errors.Is(err, domain.ErrTaskNotFound) {
+		return fmt.Errorf("getting task status: %w", err)
 	}
 
-	t.taskStatus[taskID] = taskStatusEntry{
-		status:    newStatus,
+	if oldStatus == "" {
+		metrics.OnTaskAdded(metricEvt.Status)
+	} else {
+		metrics.OnTaskStatusChanged(oldStatus, metricEvt.Status)
+	}
+
+	t.taskStatus[metricEvt.TaskID] = taskStatusEntry{
+		status:    metricEvt.Status,
 		updatedAt: time.Now(),
 	}
 

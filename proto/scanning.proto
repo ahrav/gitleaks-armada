@@ -105,3 +105,10 @@ message TaskResumeEvent {
   int64 sequence_num = 6;
   Checkpoint checkpoint = 7;
 }
+
+message TaskJobMetricEvent {
+  string job_id = 1;
+  string task_id = 2;
+  TaskStatus status = 3;
+  int64 timestamp = 4;
+}
