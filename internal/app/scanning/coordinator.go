@@ -89,7 +89,7 @@ type scanJobCoordinator struct {
 	jobRepo  domain.JobRepository
 	taskRepo domain.TaskRepository
 
-	persistInterval time.Duration // Controls write frequency to reduce database load
+	// TODO: Revist the idea of a persistence interval.
 
 	tracer trace.Tracer
 }
@@ -99,18 +99,16 @@ type scanJobCoordinator struct {
 func NewScanJobCoordinator(
 	jobRepo domain.JobRepository,
 	taskRepo domain.TaskRepository,
-	persistInterval time.Duration,
 	tracer trace.Tracer,
 ) *scanJobCoordinator {
 	// TODO: If we want to use a cache, it will need to be a distributed cache.
 	// Cache sizes are tuned for typical concurrent workloads while preventing excessive memory usage
 	const defaultTaskCacheSize = 1000 // Accommodates tasks across active jobs
 	return &scanJobCoordinator{
-		taskCache:       make(map[uuid.UUID]*domain.Task, defaultTaskCacheSize),
-		jobRepo:         jobRepo,
-		taskRepo:        taskRepo,
-		persistInterval: persistInterval,
-		tracer:          tracer,
+		taskCache: make(map[uuid.UUID]*domain.Task, defaultTaskCacheSize),
+		jobRepo:   jobRepo,
+		taskRepo:  taskRepo,
+		tracer:    tracer,
 	}
 }
 
@@ -267,14 +265,12 @@ func (s *scanJobCoordinator) UpdateTaskProgress(ctx context.Context, progress do
 		),
 	)
 
-	if time.Since(task.LastUpdate()) >= s.persistInterval {
-		if err := s.taskRepo.UpdateTask(ctx, task); err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "failed to persist updated task")
-			return nil, fmt.Errorf("persist task: %w", err)
-		}
-		span.AddEvent("task_persisted_due_to_interval")
+	if err := s.taskRepo.UpdateTask(ctx, task); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to persist updated task")
+		return nil, fmt.Errorf("persist task: %w", err)
 	}
+	span.AddEvent("task_persisted_due_to_interval")
 
 	span.AddEvent("task_progress_updated")
 	span.SetStatus(codes.Ok, "task progress updated successfully")

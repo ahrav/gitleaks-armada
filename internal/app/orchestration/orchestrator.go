@@ -119,7 +119,6 @@ func NewOrchestrator(
 	o.scanningCoordinator = scan.NewScanJobCoordinator(
 		jobRepo,
 		taskRepo,
-		time.Second*10,
 		tracer,
 	)
 
