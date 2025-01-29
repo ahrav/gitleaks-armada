@@ -55,8 +55,10 @@ func (m *JobMetrics) InProgressTasks() int { return m.inProgressTasks }
 func (m *JobMetrics) OnTaskAdded(status TaskStatus) {
 	m.totalTasks++
 	switch status {
-	case TaskStatusInProgress, TaskStatusStale:
+	case TaskStatusInProgress:
 		m.inProgressTasks++
+	case TaskStatusStale:
+		m.staleTasks++
 	case TaskStatusCompleted:
 		m.completedTasks++
 	case TaskStatusFailed:

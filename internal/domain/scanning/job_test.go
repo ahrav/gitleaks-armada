@@ -21,6 +21,7 @@ func TestAddTask(t *testing.T) {
 		expectedInProgress int
 		expectedCompleted  int
 		expectedFailed     int
+		expectedStale      int
 		expectedJobStatus  JobStatus
 	}{
 		{
@@ -31,6 +32,7 @@ func TestAddTask(t *testing.T) {
 			expectedInProgress: 1,
 			expectedCompleted:  0,
 			expectedFailed:     0,
+			expectedStale:      0,
 			expectedJobStatus:  JobStatusRunning,
 		},
 		{
@@ -38,10 +40,11 @@ func TestAddTask(t *testing.T) {
 			initialJobStatus:   JobStatusQueued,
 			taskStatusToAdd:    TaskStatusStale,
 			expectedTotal:      1,
-			expectedInProgress: 1, // STALE counts as in-progress
+			expectedInProgress: 0,
 			expectedCompleted:  0,
 			expectedFailed:     0,
-			expectedJobStatus:  JobStatusRunning,
+			expectedStale:      1,
+			expectedJobStatus:  JobStatusQueued,
 		},
 		{
 			name:               "Add COMPLETED Task to QUEUED Job",
@@ -51,6 +54,7 @@ func TestAddTask(t *testing.T) {
 			expectedInProgress: 0,
 			expectedCompleted:  1,
 			expectedFailed:     0,
+			expectedStale:      0,
 			// By our logic, if all tasks are completed, job is COMPLETED
 			expectedJobStatus: JobStatusCompleted,
 		},
@@ -62,6 +66,7 @@ func TestAddTask(t *testing.T) {
 			expectedInProgress: 0,
 			expectedCompleted:  0,
 			expectedFailed:     1,
+			expectedStale:      0,
 			// If all tasks are failed => job is FAILED
 			expectedJobStatus: JobStatusFailed,
 		},

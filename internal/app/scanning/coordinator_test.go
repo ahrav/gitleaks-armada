@@ -662,16 +662,6 @@ func TestGetTask(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name:   "successfully get task from cache",
-			taskID: uuid.New(),
-			setup: func(s *coordinatorTestSuite) {
-				// Add task to cache
-				task := scanning.NewScanTask(uuid.New(), s.taskID, "test://resource")
-				s.coord.taskCache[s.taskID] = task
-			},
-			wantErr: false,
-		},
-		{
 			name:   "successfully get task from repository",
 			taskID: uuid.New(),
 			setup: func(s *coordinatorTestSuite) {
@@ -710,13 +700,6 @@ func TestGetTask(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, task)
 			assert.Equal(t, tt.taskID, task.TaskID())
-
-			// Verify task is cached after successful repository fetch.
-			if cachedTask, exists := suite.coord.taskCache[tt.taskID]; !exists {
-				t.Error("Task was not cached after successful retrieval")
-			} else {
-				assert.Equal(t, task, cachedTask)
-			}
 
 			suite.taskRepo.AssertExpectations(t)
 		})

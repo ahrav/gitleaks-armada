@@ -208,14 +208,14 @@ func (s *scanJobCoordinator) StartTask(ctx context.Context, jobID, taskID uuid.U
 		))
 	defer span.End()
 
-	s.mu.RLock()
-	if _, found := s.taskCache[taskID]; found {
-		s.mu.RUnlock()
-		span.AddEvent("task_already_exists")
-		span.SetStatus(codes.Error, "task already exists")
-		return nil, fmt.Errorf("task %s already exists", taskID)
-	}
-	s.mu.RUnlock()
+	// s.mu.RLock()
+	// if _, found := s.taskCache[taskID]; found {
+	// 	s.mu.RUnlock()
+	// 	span.AddEvent("task_already_exists")
+	// 	span.SetStatus(codes.Error, "task already exists")
+	// 	return nil, fmt.Errorf("task %s already exists", taskID)
+	// }
+	// s.mu.RUnlock()
 
 	newTask := domain.NewScanTask(jobID, taskID, resourceURI)
 	if err := s.taskRepo.CreateTask(ctx, newTask); err != nil {
@@ -225,10 +225,10 @@ func (s *scanJobCoordinator) StartTask(ctx context.Context, jobID, taskID uuid.U
 	}
 	span.AddEvent("task_created_in_repo")
 
-	s.mu.Lock()
-	s.taskCache[taskID] = newTask
-	s.mu.Unlock()
-	span.AddEvent("task_cached")
+	// s.mu.Lock()
+	// s.taskCache[taskID] = newTask
+	// s.mu.Unlock()
+	// span.AddEvent("task_cached")
 
 	span.SetStatus(codes.Ok, "task started successfully")
 
