@@ -369,6 +369,7 @@ func TestUpdateTaskProgress(t *testing.T) {
 			suite := newCoordinatorTestSuite(t)
 			progress := scanning.NewProgress(
 				taskID,
+				jobID,
 				1,
 				time.Now(),
 				100,
@@ -409,6 +410,7 @@ func TestCompleteTask(t *testing.T) {
 				task := scanning.NewScanTask(jobID, taskID, "https://example.com")
 				task.ApplyProgress(scanning.NewProgress(
 					taskID,
+					jobID,
 					1,
 					time.Now(),
 					100,
@@ -476,6 +478,7 @@ func TestFailTask(t *testing.T) {
 				task := scanning.NewScanTask(jobID, taskID, "https://example.com")
 				task.ApplyProgress(scanning.NewProgress(
 					taskID,
+					jobID,
 					1,
 					time.Now(),
 					100,
@@ -554,6 +557,7 @@ func TestMarkTaskStale(t *testing.T) {
 				task := scanning.NewScanTask(jobID, taskID, "https://example.com")
 				task.ApplyProgress(scanning.NewProgress(
 					taskID,
+					jobID,
 					1,
 					time.Now(),
 					100,

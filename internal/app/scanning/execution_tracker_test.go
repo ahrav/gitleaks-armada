@@ -203,7 +203,7 @@ func TestExecutionTracker_UpdateProgress(t *testing.T) {
 					Return(new(scanning.Task), nil)
 			},
 			event: scanning.TaskProgressedEvent{
-				Progress: scanning.NewProgress(uuid.New(), 1, time.Now(), 1, 0, "", nil, nil),
+				Progress: scanning.NewProgress(uuid.New(), uuid.New(), 1, time.Now(), 1, 0, "", nil, nil),
 			},
 			wantErr: false,
 		},
@@ -214,7 +214,7 @@ func TestExecutionTracker_UpdateProgress(t *testing.T) {
 					Return(nil, errors.New("coordinator failure"))
 			},
 			event: scanning.TaskProgressedEvent{
-				Progress: scanning.NewProgress(uuid.New(), 1, time.Now(), 1, 0, "", nil, nil),
+				Progress: scanning.NewProgress(uuid.New(), uuid.New(), 1, time.Now(), 1, 0, "", nil, nil),
 			},
 			wantErr: true,
 		},
@@ -261,7 +261,7 @@ func TestExecutionTracker_FullScanningLifecycle(t *testing.T) {
 
 	// Simulate progress.
 	for i := 0; i < 3; i++ {
-		progress := scanning.NewProgress(taskID, int64(i), time.Now(), int64(i), 0, "", nil, nil)
+		progress := scanning.NewProgress(taskID, jobID, int64(i), time.Now(), int64(i), 0, "", nil, nil)
 		err = suite.tracker.HandleTaskProgress(ctx, scanning.TaskProgressedEvent{
 			Progress: progress,
 		})

@@ -33,6 +33,7 @@ func TestDomainEventProgressReporter_ReportProgress(t *testing.T) {
 			setup: func() scanning.Progress {
 				return scanning.NewProgress(
 					uuid.New(),
+					uuid.New(),
 					1,
 					time.Now(),
 					50,
@@ -61,6 +62,7 @@ func TestDomainEventProgressReporter_ReportProgress(t *testing.T) {
 			name: "handles publisher error",
 			setup: func() scanning.Progress {
 				return scanning.NewProgress(
+					uuid.New(),
 					uuid.New(),
 					1,
 					time.Now(),

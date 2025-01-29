@@ -428,7 +428,7 @@ func TestTaskStore_UpdateTask_RecoveryFromStale(t *testing.T) {
 	assert.Equal(t, 0, stalledTask.RecoveryAttempts())
 
 	// Simulate recovery with progress update.
-	progress := scanning.NewProgress(task.TaskID(), 10, time.Now(), 100, 0, "", nil, nil)
+	progress := scanning.NewProgress(task.TaskID(), task.JobID(), 10, time.Now(), 100, 0, "", nil, nil)
 	err = stalledTask.ApplyProgress(progress)
 
 	require.NoError(t, err)
@@ -452,7 +452,7 @@ func TestTaskStore_UpdateTask_RecoveryFromStale(t *testing.T) {
 	require.NoError(t, err)
 
 	// Second recovery.
-	progress = scanning.NewProgress(task.TaskID(), 20, time.Now(), 100, 0, "", nil, nil)
+	progress = scanning.NewProgress(task.TaskID(), task.JobID(), 20, time.Now(), 100, 0, "", nil, nil)
 	err = recoveredTask.ApplyProgress(progress)
 	require.NoError(t, err)
 

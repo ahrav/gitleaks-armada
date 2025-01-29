@@ -15,6 +15,7 @@ import (
 // detailed metrics about the current scanning progress without maintaining task state.
 type Progress struct {
 	taskID          uuid.UUID
+	jobID           uuid.UUID
 	sequenceNum     int64
 	timestamp       time.Time
 	itemsProcessed  int64
@@ -28,6 +29,7 @@ type Progress struct {
 // It establishes initial state for resuming interrupted scans.
 func NewProgress(
 	taskID uuid.UUID,
+	jobID uuid.UUID,
 	sequenceNum int64,
 	timestamp time.Time,
 	itemsProcessed int64,
@@ -38,6 +40,7 @@ func NewProgress(
 ) Progress {
 	return Progress{
 		taskID:          taskID,
+		jobID:           jobID,
 		sequenceNum:     sequenceNum,
 		timestamp:       timestamp,
 		itemsProcessed:  itemsProcessed,
@@ -52,6 +55,7 @@ func NewProgress(
 // This should only be used by repositories when reconstructing from storage.
 func ReconstructProgress(
 	taskID uuid.UUID,
+	jobID uuid.UUID,
 	sequenceNum int64,
 	timestamp time.Time,
 	itemsProcessed int64,
@@ -62,6 +66,7 @@ func ReconstructProgress(
 ) Progress {
 	return Progress{
 		taskID:          taskID,
+		jobID:           jobID,
 		sequenceNum:     sequenceNum,
 		timestamp:       timestamp,
 		itemsProcessed:  itemsProcessed,
@@ -74,6 +79,9 @@ func ReconstructProgress(
 
 // TaskID returns the unique identifier for this scan task.
 func (p Progress) TaskID() uuid.UUID { return p.taskID }
+
+// JobID returns the unique identifier for the job containing this task.
+func (p Progress) JobID() uuid.UUID { return p.jobID }
 
 // SequenceNum returns the sequence number of this progress update.
 func (p Progress) SequenceNum() int64 { return p.sequenceNum }

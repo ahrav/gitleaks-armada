@@ -54,6 +54,15 @@ func (r *DomainEventProgressReporter) ReportProgress(ctx context.Context, p scan
 		span.SetStatus(codes.Error, "failed to publish task progressed event")
 		return err
 	}
+	if err := r.domainPublisher.PublishDomainEvent(
+		ctx,
+		scanning.NewTaskJobMetricEvent(p.JobID(), p.TaskID(), scanning.TaskStatusInProgress),
+		events.WithKey(p.JobID().String()),
+	); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to publish task job metric event")
+		return err
+	}
 	span.SetStatus(codes.Ok, "task progressed event published")
 	span.AddEvent("task_progressed_event_published")
 

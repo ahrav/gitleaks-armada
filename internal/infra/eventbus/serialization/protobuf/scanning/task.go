@@ -52,6 +52,7 @@ func TaskProgressedEventToProto(event scanning.TaskProgressedEvent) *pb.TaskProg
 
 	return &pb.TaskProgressedEvent{
 		TaskId:          progress.TaskID().String(),
+		JobId:           progress.JobID().String(),
 		SequenceNum:     progress.SequenceNum(),
 		Timestamp:       progress.Timestamp().UnixNano(),
 		ItemsProcessed:  progress.ItemsProcessed(),
@@ -67,6 +68,11 @@ func ProtoToTaskProgressedEvent(pbEvent *pb.TaskProgressedEvent) (scanning.TaskP
 	taskID, err := uuid.Parse(pbEvent.TaskId)
 	if err != nil {
 		return scanning.TaskProgressedEvent{}, fmt.Errorf("parse task ID: %w", err)
+	}
+
+	jobID, err := uuid.Parse(pbEvent.JobId)
+	if err != nil {
+		return scanning.TaskProgressedEvent{}, fmt.Errorf("parse job ID: %w", err)
 	}
 
 	var checkpoint *scanning.Checkpoint
@@ -86,6 +92,7 @@ func ProtoToTaskProgressedEvent(pbEvent *pb.TaskProgressedEvent) (scanning.TaskP
 
 	progress := scanning.ReconstructProgress(
 		taskID,
+		jobID,
 		pbEvent.SequenceNum,
 		time.Unix(0, pbEvent.Timestamp),
 		pbEvent.ItemsProcessed,

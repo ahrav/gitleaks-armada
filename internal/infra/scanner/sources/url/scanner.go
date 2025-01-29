@@ -108,7 +108,7 @@ func (s *Scanner) runURLScan(
 		}
 	}
 
-	scanCtx := NewScanContext(task.TaskID, resumeFileIdx, &sequenceNum, reporter)
+	scanCtx := NewScanContext(task.TaskID, task.JobID, resumeFileIdx, &sequenceNum, reporter)
 
 	format := "none"
 	if formatStr, ok := task.Metadata["archive_format"]; ok {
@@ -164,6 +164,7 @@ func (s *Scanner) runURLScan(
 // It can track the next sequence number, the progress reporter, and optional resume offsets.
 type ScanContext struct {
 	taskID        uuid.UUID
+	jobID         uuid.UUID
 	reporter      scanning.ProgressReporter
 	nextSequence  *atomic.Int64
 	resumeFileIdx int64
@@ -172,12 +173,14 @@ type ScanContext struct {
 // NewScanContext constructs a ScanContext, typically called once at the start of a scan.
 func NewScanContext(
 	taskID uuid.UUID,
+	jobID uuid.UUID,
 	resumeFileIdx int64,
 	resumeSequence *atomic.Int64,
 	reporter scanning.ProgressReporter,
 ) *ScanContext {
 	return &ScanContext{
 		taskID:        taskID,
+		jobID:         jobID,
 		reporter:      reporter,
 		nextSequence:  resumeSequence,
 		resumeFileIdx: resumeFileIdx,
@@ -208,6 +211,7 @@ func (sc *ScanContext) ReportProgress(ctx context.Context, itemsProcessed int64,
 		ctx,
 		domain.NewProgress(
 			sc.taskID,
+			sc.jobID,
 			seqNum,
 			time.Now(),
 			itemsProcessed,
