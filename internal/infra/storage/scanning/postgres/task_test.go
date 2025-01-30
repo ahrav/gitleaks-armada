@@ -217,7 +217,7 @@ func TestTaskStore_GetNonExistent(t *testing.T) {
 	defer cleanup()
 
 	loaded, err := taskStore.GetTask(ctx, uuid.New())
-	assert.ErrorIs(t, err, pgx.ErrNoRows)
+	assert.ErrorIs(t, err, scanning.ErrTaskNotFound)
 	assert.Nil(t, loaded)
 }
 

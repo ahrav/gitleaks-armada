@@ -86,7 +86,7 @@ func (s *taskStore) GetTask(ctx context.Context, taskID uuid.UUID) (*scanning.Ta
 		row, err := s.q.GetScanTask(ctx, pgtype.UUID{Bytes: taskID, Valid: true})
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
-				return nil
+				return scanning.ErrTaskNotFound
 			}
 			return fmt.Errorf("GetScanTask query error: %w", err)
 		}
@@ -125,9 +125,6 @@ func (s *taskStore) GetTask(ctx context.Context, taskID uuid.UUID) (*scanning.Ta
 	})
 	if err != nil {
 		return nil, err
-	}
-	if domainTask == nil {
-		return nil, pgx.ErrNoRows
 	}
 
 	return domainTask, nil
