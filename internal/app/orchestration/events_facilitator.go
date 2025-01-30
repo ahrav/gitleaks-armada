@@ -9,7 +9,6 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	rulessvc "github.com/ahrav/gitleaks-armada/internal/app/rules"
-	scansvc "github.com/ahrav/gitleaks-armada/internal/app/scanning"
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/rules"
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
@@ -35,7 +34,7 @@ type EventsFacilitator struct {
 
 	// taskHealthSupervisor is responsible for monitoring task heartbeats and failing
 	// tasks that have not sent a heartbeat within a given threshold.
-	taskHealthSupervisor *scansvc.TaskHealthSupervisor
+	taskHealthSupervisor scanning.TaskHealthMonitor
 
 	// metricsTracker is responsible for handling job metrics events.
 	metricsTracker scanning.JobMetricsTracker
@@ -53,7 +52,7 @@ type EventsFacilitator struct {
 // to the correct bounded context service and instrument event handling with traces.
 func NewEventsFacilitator(
 	tracker scanning.ExecutionTracker,
-	taskHealthSupervisor *scansvc.TaskHealthSupervisor,
+	taskHealthSupervisor scanning.TaskHealthMonitor,
 	metricsTracker scanning.JobMetricsTracker,
 	rulesSvc rulessvc.Service,
 	tracer trace.Tracer,

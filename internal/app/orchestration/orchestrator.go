@@ -43,7 +43,7 @@ type Orchestrator struct {
 
 	cfgLoader loaders.Loader
 
-	taskHealthSupervisor *scan.TaskHealthSupervisor
+	taskHealthSupervisor scanning.TaskHealthMonitor
 	metricsTracker       scanning.JobMetricsTracker
 	enumCoordinator      enumCoordinator.Coordinator
 	rulesService         rulessvc.Service
