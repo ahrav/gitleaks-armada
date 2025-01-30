@@ -91,6 +91,8 @@ func NewJobMetricsTracker(
 		tracer:          tracer,
 		cleanupInterval: defaultCleanupInterval,
 		retentionPeriod: defaultRetentionPeriod,
+		retryInterval:   defaultRetryInterval,
+		maxRetries:      defaultMaxRetries,
 	}
 
 	// Start background cleanup.
