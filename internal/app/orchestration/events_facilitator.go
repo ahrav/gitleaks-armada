@@ -38,7 +38,7 @@ type EventsFacilitator struct {
 	taskHealthSupervisor *scansvc.TaskHealthSupervisor
 
 	// metricsTracker is responsible for handling job metrics events.
-	metricsTracker scansvc.JobMetricsTracker
+	metricsTracker scanning.JobMetricsTracker
 
 	// rulesService is responsible for persisting rules, updating rule states, etc.
 	// The EventsFacilitator calls into it when handling rule-related events.
@@ -54,7 +54,7 @@ type EventsFacilitator struct {
 func NewEventsFacilitator(
 	tracker scansvc.ExecutionTracker,
 	taskHealthSupervisor *scansvc.TaskHealthSupervisor,
-	metricsTracker scansvc.JobMetricsTracker,
+	metricsTracker scanning.JobMetricsTracker,
 	rulesSvc rulessvc.Service,
 	tracer trace.Tracer,
 ) *EventsFacilitator {

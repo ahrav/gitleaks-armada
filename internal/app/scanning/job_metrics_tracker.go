@@ -17,128 +17,6 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
 
-// MetricsRepository defines the minimal persistence requirements for job metrics tracking.
-// This interface is designed to be implemented by adapting existing job and task repositories,
-// allowing for efficient access to metrics-specific data without requiring full entity loads.
-type MetricsRepository interface {
-	// GetJobMetrics retrieves the metrics for a specific job.
-	// Returns ErrJobNotFound if the job doesn't exist.
-	GetJobMetrics(ctx context.Context, jobID uuid.UUID) (*domain.JobMetrics, error)
-
-	// UpdateJobMetrics atomically updates the metrics for a job.
-	// Returns ErrJobNotFound if the job doesn't exist or ErrInvalidMetrics if the metrics are invalid.
-	UpdateJobMetrics(ctx context.Context, jobID uuid.UUID, metrics *domain.JobMetrics) error
-
-	// GetTaskStatus efficiently retrieves just the status of a task.
-	// Returns ErrTaskNotFound if the task doesn't exist.
-	GetTaskStatus(ctx context.Context, taskID uuid.UUID) (domain.TaskStatus, error)
-}
-
-// metricsRepositoryAdapter adapts existing job and task repositories to implement
-// the MetricsRepository interface. It provides efficient access to metrics-related
-// data by potentially optimizing database queries for specific fields.
-type metricsRepositoryAdapter struct {
-	jobRepo  domain.JobRepository
-	taskRepo domain.TaskRepository
-}
-
-// NewMetricsRepository creates a new MetricsRepository implementation that wraps
-// existing job and task repositories. This adapter pattern allows reuse of existing
-// persistence logic while providing a focused interface for metrics operations.
-func NewMetricsRepository(jobRepo domain.JobRepository, taskRepo domain.TaskRepository) *metricsRepositoryAdapter {
-	return &metricsRepositoryAdapter{jobRepo: jobRepo, taskRepo: taskRepo}
-}
-
-// ErrInvalidMetrics indicates the provided metrics are invalid
-var ErrInvalidMetrics = errors.New("invalid metrics")
-
-// GetJobMetrics implements MetricsRepository.GetJobMetrics by retrieving metrics
-// from the underlying job repository.
-func (r *metricsRepositoryAdapter) GetJobMetrics(ctx context.Context, jobID uuid.UUID) (*domain.JobMetrics, error) {
-	if jobID == uuid.Nil {
-		return nil, fmt.Errorf("%w: invalid job ID", ErrInvalidMetrics)
-	}
-
-	metrics, err := r.jobRepo.GetJobMetrics(ctx, jobID)
-	if err != nil {
-		if errors.Is(err, domain.ErrNoJobMetricsFound) {
-			return nil, fmt.Errorf("getting job metrics: %w", domain.ErrNoJobMetricsFound)
-		}
-		return nil, fmt.Errorf("getting job metrics: %w", err)
-	}
-
-	return metrics, nil
-}
-
-// UpdateJobMetrics implements MetricsRepository.UpdateJobMetrics by delegating to
-// the underlying job repository. The update is expected to be atomic to prevent
-// race conditions in concurrent updates.
-func (r *metricsRepositoryAdapter) UpdateJobMetrics(
-	ctx context.Context,
-	jobID uuid.UUID,
-	metrics *domain.JobMetrics,
-) error {
-	if jobID == uuid.Nil {
-		return fmt.Errorf("%w: invalid job ID", ErrInvalidMetrics)
-	}
-	if metrics == nil {
-		return fmt.Errorf("%w: nil metrics", ErrInvalidMetrics)
-	}
-	// if !metrics.IsValid() {
-	// 	return fmt.Errorf("%w: metrics validation failed", ErrInvalidMetrics)
-	// }
-
-	_, err := r.jobRepo.BulkUpdateJobMetrics(ctx, map[uuid.UUID]*domain.JobMetrics{
-		jobID: metrics,
-	})
-	if err != nil {
-		if errors.Is(err, domain.ErrNoJobMetricsUpdated) {
-			return fmt.Errorf("updating job metrics: %w", domain.ErrNoJobMetricsUpdated)
-		}
-		return fmt.Errorf("updating job metrics: %w", err)
-	}
-
-	return nil
-}
-
-// GetTaskStatus implements MetricsRepository.GetTaskStatus by efficiently retrieving
-// just the task status from the underlying task repository. This could be optimized
-// in the future to only fetch the status field from the database.
-func (r *metricsRepositoryAdapter) GetTaskStatus(ctx context.Context, taskID uuid.UUID) (domain.TaskStatus, error) {
-	if taskID == uuid.Nil {
-		return "", fmt.Errorf("%w: invalid task ID", domain.ErrTaskNotFound)
-	}
-
-	task, err := r.taskRepo.GetTask(ctx, taskID)
-	if err != nil {
-		if errors.Is(err, domain.ErrTaskNotFound) {
-			return "", fmt.Errorf("getting task: %w", domain.ErrTaskNotFound)
-		}
-		return "", fmt.Errorf("getting task: %w", err)
-	}
-
-	return task.Status(), nil
-}
-
-// JobMetricsTracker handles aggregation and persistence of job-level metrics
-// across distributed task processing. It maintains in-memory state of task
-// statuses and job metrics, with periodic persistence to a backing store.
-type JobMetricsTracker interface {
-	// StartMetricsFlush starts a background goroutine that periodically flushes metrics to storage.
-	StartMetricsFlush(interval time.Duration)
-
-	// HandleJobMetrics processes task-related events to update job metrics.
-	// It maintains both task status and aggregated job metrics in memory.
-	HandleJobMetrics(ctx context.Context, evt events.EventEnvelope) error
-
-	// FlushMetrics persists the current state of job metrics to the backing store.
-	// This is typically called periodically to ensure durability of metrics.
-	FlushMetrics(ctx context.Context) error
-
-	// Stop stops the background goroutines and waits for them to finish.
-	Stop(ctx context.Context)
-}
-
 type taskStatusEntry struct {
 	status    domain.TaskStatus
 	updatedAt time.Time
@@ -162,7 +40,7 @@ type pendingMetric struct {
 type jobMetricsTracker struct {
 	metrics    map[uuid.UUID]*domain.JobMetrics // Job ID -> Metrics
 	taskStatus map[uuid.UUID]taskStatusEntry    // Task ID -> Status
-	repository MetricsRepository                // Adapter to underlying job and task repositories
+	repository domain.MetricsRepository         // Adapter to underlying job and task repositories
 
 	// pendingMetrics is a list of pending metrics that we have received but
 	// haven't yet received a corresponding task status for.
@@ -192,7 +70,7 @@ type jobMetricsTracker struct {
 // NewJobMetricsTracker creates a new JobMetricsTracker with the provided dependencies
 // and configuration. It starts background cleanup of completed task statuses.
 func NewJobMetricsTracker(
-	repository MetricsRepository,
+	repository domain.MetricsRepository,
 	logger *logger.Logger,
 	tracer trace.Tracer,
 ) *jobMetricsTracker {
@@ -422,7 +300,7 @@ func (t *jobMetricsTracker) cleanupTaskStatus() {
 }
 
 // StartFlusher starts a background goroutine that periodically flushes metrics to storage.
-func (t *jobMetricsTracker) StartMetricsFlush(interval time.Duration) {
+func (t *jobMetricsTracker) LaunchMetricsFlusher(interval time.Duration) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 

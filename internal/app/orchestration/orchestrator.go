@@ -44,7 +44,7 @@ type Orchestrator struct {
 	cfgLoader loaders.Loader
 
 	taskHealthSupervisor *scan.TaskHealthSupervisor
-	metricsTracker       scan.JobMetricsTracker
+	metricsTracker       scanning.JobMetricsTracker
 	enumCoordinator      enumCoordinator.Coordinator
 	rulesService         rulessvc.Service
 	scanningCoordinator  scan.ScanJobCoordinator
@@ -137,9 +137,9 @@ func NewOrchestrator(
 		logger,
 	)
 
-	metricsRepo := scan.NewMetricsRepository(jobRepo, taskRepo)
+	metricsRepo := scan.NewMetricsRepositoryAdapter(jobRepo, taskRepo)
 	o.metricsTracker = scan.NewJobMetricsTracker(metricsRepo, logger, tracer)
-	o.metricsTracker.StartMetricsFlush(1 * time.Minute)
+	o.metricsTracker.LaunchMetricsFlusher(1 * time.Minute)
 
 	eventsFacilitator := NewEventsFacilitator(executionTracker, o.taskHealthSupervisor, o.metricsTracker, rulesService, tracer)
 	dispatcher := eventdispatcher.New(tracer)
