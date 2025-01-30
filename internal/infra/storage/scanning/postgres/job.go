@@ -205,10 +205,14 @@ type jobEntry struct {
 	metrics *scanning.JobMetrics
 }
 
+type batchResult struct {
+	rows int64
+	err  error
+}
+
 type batchJob struct {
-	batch []jobEntry
-	err   chan error
-	rows  chan int64
+	batch  []jobEntry
+	result chan batchResult
 }
 
 // BulkUpdateJobMetrics updates metrics for multiple jobs using a pool of workers
@@ -222,49 +226,58 @@ func (r *jobStore) BulkUpdateJobMetrics(ctx context.Context, updates map[uuid.UU
 	batchChan := make(chan batchJob, batchChanSize)
 	done := make(chan struct{})
 
-	for range numWorkers {
+	for i := 0; i < numWorkers; i++ {
 		go r.batchWorker(ctx, batchChan, done)
 	}
 
 	var totalRowsAffected int64
 	var errs []error
-	var batchResults []batchJob
-
-	// Helper to queue a slice of job entries to workers.
-	sendBatch := func(entries []jobEntry) {
-		if len(entries) == 0 {
-			return
-		}
-		job := batchJob{
-			batch: entries,
-			err:   make(chan error, 1),
-			rows:  make(chan int64, 1),
-		}
-		batchChan <- job
-		batchResults = append(batchResults, job)
-	}
-
-	// Accumulate updates in a slice so we don't mutate a shared map.
 	var currentBatch []jobEntry
 	currentBatch = make([]jobEntry, 0, maxBatchSize)
 
+	// Helper to queue a slice of job entries to workers.
 	for jobID, metrics := range updates {
-		select {
-		case <-ctx.Done():
-			close(batchChan)
-			return 0, ctx.Err()
-		default:
-			currentBatch = append(currentBatch, jobEntry{jobID, metrics})
-			if len(currentBatch) == maxBatchSize {
-				sendBatch(currentBatch)
-				currentBatch = currentBatch[:0] // reset for reuse
+		currentBatch = append(currentBatch, jobEntry{jobID, metrics})
+		if len(currentBatch) == maxBatchSize {
+			job := batchJob{
+				batch:  currentBatch,
+				result: make(chan batchResult, 1),
 			}
+
+			select {
+			case batchChan <- job:
+				result := <-job.result
+				if result.err != nil {
+					errs = append(errs, result.err)
+				}
+				totalRowsAffected += result.rows
+			case <-ctx.Done():
+				close(batchChan)
+				return 0, ctx.Err()
+			}
+
+			currentBatch = make([]jobEntry, 0, maxBatchSize)
 		}
 	}
 
 	// Flush any trailing batch if it has leftover entries.
 	if len(currentBatch) > 0 {
-		sendBatch(currentBatch)
+		job := batchJob{
+			batch:  currentBatch,
+			result: make(chan batchResult, 1),
+		}
+
+		select {
+		case batchChan <- job:
+			result := <-job.result
+			if result.err != nil {
+				errs = append(errs, result.err)
+			}
+			totalRowsAffected += result.rows
+		case <-ctx.Done():
+			close(batchChan)
+			return 0, ctx.Err()
+		}
 	}
 
 	// No more batches will be queued.
@@ -276,20 +289,6 @@ func (r *jobStore) BulkUpdateJobMetrics(ctx context.Context, updates map[uuid.UU
 		case <-done:
 		case <-ctx.Done():
 			return 0, ctx.Err()
-		}
-	}
-
-	// Collect results from each batch.
-	for _, job := range batchResults {
-		select {
-		case err := <-job.err:
-			if err != nil {
-				errs = append(errs, err)
-			}
-		case rows := <-job.rows:
-			totalRowsAffected += rows
-		case <-ctx.Done():
-			return totalRowsAffected, ctx.Err()
 		}
 	}
 
@@ -313,13 +312,7 @@ func (r *jobStore) batchWorker(ctx context.Context, batchChan <-chan batchJob, d
 
 	for job := range batchChan {
 		rows, err := r.executeBatchUpdate(ctx, job.batch)
-		if err != nil {
-			job.err <- err
-			job.rows <- 0
-			continue
-		}
-		job.err <- nil
-		job.rows <- rows
+		job.result <- batchResult{rows: rows, err: err}
 	}
 }
 

@@ -510,13 +510,14 @@ func TestFailTask(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "job not found",
+			name: "update task fails",
 			setup: func(s *coordinatorTestSuite) {
 				task := scanning.NewScanTask(jobID, taskID, "https://example.com")
 				s.taskRepo.On("GetTask", mock.Anything, taskID).
 					Return(task, nil)
-				s.jobRepo.On("GetJob", mock.Anything, jobID).
-					Return(nil, assert.AnError)
+				s.taskRepo.On("UpdateTask", mock.Anything, mock.MatchedBy(func(t *scanning.Task) bool {
+					return t.TaskID() == taskID && t.Status() == scanning.TaskStatusFailed
+				})).Return(assert.AnError)
 			},
 			wantErr: true,
 		},

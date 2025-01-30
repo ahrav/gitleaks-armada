@@ -29,7 +29,7 @@ func TestDomainEventProgressReporter_ReportProgress(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "successfully publishes both progress and job metric events",
+			name: "successfully publishes progress event",
 			setup: func() scanning.Progress {
 				return scanning.NewProgress(
 					uuid.New(),
@@ -55,23 +55,11 @@ func TestDomainEventProgressReporter_ReportProgress(t *testing.T) {
 						return params.Key == progress.TaskID().String()
 					}),
 				).Return(nil).Once()
-
-				p.On("PublishDomainEvent",
-					mock.AnythingOfType("*context.valueCtx"),
-					mock.AnythingOfType("scanning.TaskJobMetricEvent"),
-					mock.MatchedBy(func(opts []events.PublishOption) bool {
-						params := events.PublishParams{}
-						for _, opt := range opts {
-							opt(&params)
-						}
-						return params.Key == progress.JobID().String()
-					}),
-				).Return(nil).Once()
 			},
 			wantErr: false,
 		},
 		{
-			name: "handles publisher error for progress event",
+			name: "handles publisher error",
 			setup: func() scanning.Progress {
 				return scanning.NewProgress(
 					uuid.New(),
@@ -89,38 +77,6 @@ func TestDomainEventProgressReporter_ReportProgress(t *testing.T) {
 				p.On("PublishDomainEvent",
 					mock.AnythingOfType("*context.valueCtx"),
 					mock.AnythingOfType("scanning.TaskProgressedEvent"),
-					mock.Anything,
-				).Return(assert.AnError).Once()
-			},
-			wantErr: true,
-		},
-		{
-			name: "handles publisher error for job metric event",
-			setup: func() scanning.Progress {
-				return scanning.NewProgress(
-					uuid.New(),
-					uuid.New(),
-					1,
-					time.Now(),
-					50,
-					100,
-					"",
-					nil,
-					nil,
-				)
-			},
-			verify: func(t *testing.T, p *mockDomainPublisher, progress scanning.Progress) {
-				// Progress event succeeds.
-				p.On("PublishDomainEvent",
-					mock.AnythingOfType("*context.valueCtx"),
-					mock.AnythingOfType("scanning.TaskProgressedEvent"),
-					mock.Anything,
-				).Return(nil).Once()
-
-				// Job metric event fails.
-				p.On("PublishDomainEvent",
-					mock.AnythingOfType("*context.valueCtx"),
-					mock.AnythingOfType("scanning.TaskJobMetricEvent"),
 					mock.Anything,
 				).Return(assert.AnError).Once()
 			},
