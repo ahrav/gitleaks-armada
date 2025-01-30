@@ -44,7 +44,7 @@ type metricsRepositoryAdapter struct {
 // NewMetricsRepository creates a new MetricsRepository implementation that wraps
 // existing job and task repositories. This adapter pattern allows reuse of existing
 // persistence logic while providing a focused interface for metrics operations.
-func NewMetricsRepository(jobRepo domain.JobRepository, taskRepo domain.TaskRepository) MetricsRepository {
+func NewMetricsRepository(jobRepo domain.JobRepository, taskRepo domain.TaskRepository) *metricsRepositoryAdapter {
 	return &metricsRepositoryAdapter{jobRepo: jobRepo, taskRepo: taskRepo}
 }
 
@@ -111,9 +111,9 @@ func (r *metricsRepositoryAdapter) GetTaskStatus(ctx context.Context, taskID uui
 	task, err := r.taskRepo.GetTask(ctx, taskID)
 	if err != nil {
 		if errors.Is(err, domain.ErrTaskNotFound) {
-			return "", fmt.Errorf("getting task status: %w", domain.ErrTaskNotFound)
+			return "", fmt.Errorf("getting task: %w", domain.ErrTaskNotFound)
 		}
-		return "", fmt.Errorf("getting task status: %w", err)
+		return "", fmt.Errorf("getting task: %w", err)
 	}
 
 	return task.Status(), nil
@@ -237,7 +237,7 @@ func (t *jobMetricsTracker) HandleJobMetrics(ctx context.Context, evt events.Eve
 		return fmt.Errorf("getting task status: %w", err)
 	}
 
-	if oldStatus == "" {
+	if oldStatus == domain.TaskStatusPending {
 		metrics.OnTaskAdded(metricEvt.Status)
 	} else {
 		metrics.OnTaskStatusChanged(oldStatus, metricEvt.Status)
@@ -259,7 +259,7 @@ func (t *jobMetricsTracker) getTaskStatus(ctx context.Context, taskID uuid.UUID)
 
 	status, err := t.repository.GetTaskStatus(ctx, taskID)
 	if err != nil {
-		return "", fmt.Errorf("getting task status: %w", err)
+		return "", err
 	}
 
 	t.taskStatus[taskID] = taskStatusEntry{
