@@ -15,6 +15,8 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 )
 
+var _ domain.ScanJobCoordinator = (*scanJobCoordinator)(nil)
+
 // scanJobCoordinator implements ScanJobCoordinator using a hybrid approach of
 // in-memory caching and persistent storage to balance performance with reliability.
 type scanJobCoordinator struct {

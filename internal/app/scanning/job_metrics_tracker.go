@@ -303,7 +303,7 @@ func (t *jobMetricsTracker) cleanupTaskStatus() {
 	}
 }
 
-// StartFlusher starts a background goroutine that periodically flushes metrics to storage.
+// LaunchMetricsFlusher starts a background goroutine that periodically flushes metrics to storage.
 func (t *jobMetricsTracker) LaunchMetricsFlusher(interval time.Duration) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

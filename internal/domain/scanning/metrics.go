@@ -1,3 +1,4 @@
+// Package scanning provides domain types and interfaces for managing distributed scanning operations.
 package scanning
 
 import (
@@ -9,11 +10,20 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 )
 
+// Metrics tracking provides real-time visibility into scanning operations across
+// the distributed system. It handles the collection, aggregation, and persistence
+// of metrics data for both individual tasks and overall jobs. The metrics system
+// balances the need for real-time updates with storage efficiency through periodic
+// persistence and in-memory caching.
+
 // JobMetricsTracker handles aggregation and persistence of job-level metrics
-// across distributed task processing. It maintains in-memory state of task
-// statuses and job metrics, with periodic persistence to a backing store.
+// across distributed task processing. It maintains in-memory state for real-time
+// updates while ensuring durability through periodic persistence.
 type JobMetricsTracker interface {
-	// LaunchMetricsFlusher starts a background goroutine that periodically flushes metrics to storage.
+	// LaunchMetricsFlusher runs a metrics flushing loop that periodically persists
+	// metrics to storage. It blocks until the context is canceled or an error occurs.
+	// Callers typically run this in a separate goroutine:
+	//     go tracker.LaunchMetricsFlusher(10*time.Second)
 	// This allows us to batch updates to storage and reduce the number of round trips.
 	LaunchMetricsFlusher(interval time.Duration)
 
@@ -29,9 +39,9 @@ type JobMetricsTracker interface {
 	Stop(ctx context.Context)
 }
 
-// MetricsRepository defines the minimal persistence requirements for job metrics tracking.
-// This interface is designed to be implemented by adapting existing job and task repositories,
-// allowing for efficient access to metrics-specific data without requiring full entity loads.
+// MetricsRepository defines the persistence operations for job metrics tracking.
+// It provides efficient access to metrics data without requiring full entity loads,
+// supporting both real-time updates and historical queries.
 type MetricsRepository interface {
 	// GetJobMetrics retrieves the metrics for a specific job.
 	// Returns ErrJobNotFound if the job doesn't exist.

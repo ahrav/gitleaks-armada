@@ -139,7 +139,7 @@ func NewOrchestrator(
 
 	metricsRepo := scan.NewMetricsRepositoryAdapter(jobRepo, taskRepo)
 	o.metricsTracker = scan.NewJobMetricsTracker(metricsRepo, logger, tracer)
-	o.metricsTracker.LaunchMetricsFlusher(1 * time.Minute)
+	go o.metricsTracker.LaunchMetricsFlusher(1 * time.Minute)
 
 	eventsFacilitator := NewEventsFacilitator(executionTracker, o.taskHealthSupervisor, o.metricsTracker, rulesService, tracer)
 	dispatcher := eventdispatcher.New(tracer)

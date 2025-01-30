@@ -25,6 +25,8 @@ type realTimeProvider struct{}
 // Now returns the current time.
 func (realTimeProvider) Now() time.Time { return time.Now() }
 
+var _ scanning.TaskHealthMonitor = (*taskHealthSupervisor)(nil)
+
 // taskHealthSupervisor monitors task health by tracking heartbeats from running tasks.
 // It provides two main functions:
 //  1. Maintains an in-memory cache of task heartbeats that is periodically flushed to storage

@@ -1,14 +1,19 @@
+// Package scanning provides domain types and interfaces for managing distributed scanning operations.
 package scanning
 
 import (
 	"context"
 )
 
-// ExecutionTracker manages the lifecycle and progress monitoring of scanning tasks within jobs.
-// It acts as a coordinator between the scanning workers and the job service, ensuring task
-// state transitions are properly tracked and job status is accurately maintained. The tracker
-// processes domain events related to task execution (start, progress, completion, failure) and
-// maintains real-time progress metrics that can be queried at both the task and job level.
+// Execution tracking manages the lifecycle and progress of scanning tasks as they
+// move through the system. It provides the interfaces needed to monitor task
+// execution, handle state transitions, and maintain accurate progress information.
+// This component ensures reliable task execution and provides visibility into
+// scanning operations across the distributed system.
+
+// ExecutionTracker manages the lifecycle and progress monitoring of scanning tasks
+// within jobs. It processes task-related domain events and coordinates with the
+// job service to maintain accurate system state and progress information.
 type ExecutionTracker interface {
 	// HandleTaskStart initializes tracking for a new task by registering it with the job service
 	// and setting up initial progress metrics. If this is the first task in a job, it will
