@@ -44,6 +44,7 @@ type Orchestrator struct {
 	cfgLoader loaders.Loader
 
 	taskHealthSupervisor *scan.TaskHealthSupervisor
+	metricsTracker       scan.JobMetricsTracker
 	enumCoordinator      enumCoordinator.Coordinator
 	rulesService         rulessvc.Service
 	scanningCoordinator  scan.ScanJobCoordinator
@@ -137,9 +138,10 @@ func NewOrchestrator(
 	)
 
 	metricsRepo := scan.NewMetricsRepository(jobRepo, taskRepo)
-	metricsTracker := scan.NewJobMetricsTracker(metricsRepo, logger, tracer)
+	o.metricsTracker = scan.NewJobMetricsTracker(metricsRepo, logger, tracer)
+	o.metricsTracker.StartMetricsFlush(1 * time.Minute)
 
-	eventsFacilitator := NewEventsFacilitator(executionTracker, o.taskHealthSupervisor, metricsTracker, rulesService, tracer)
+	eventsFacilitator := NewEventsFacilitator(executionTracker, o.taskHealthSupervisor, o.metricsTracker, rulesService, tracer)
 	dispatcher := eventdispatcher.New(tracer)
 	dispatcher.RegisterHandler(scanning.EventTypeTaskStarted, eventsFacilitator.HandleTaskStarted)
 	dispatcher.RegisterHandler(scanning.EventTypeTaskProgressed, eventsFacilitator.HandleTaskProgressed)
@@ -181,6 +183,11 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 
 	o.taskHealthSupervisor.Start(orchestratorCtx)
 	runSpan.AddEvent("heartbeat_monitor_started")
+
+	defer func() {
+		o.taskHealthSupervisor.Stop()
+		o.metricsTracker.Stop(orchestratorCtx)
+	}()
 
 	readyCh, leaderCh := o.makeOrchestrationChannels()
 
