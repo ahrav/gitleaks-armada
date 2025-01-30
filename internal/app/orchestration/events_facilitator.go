@@ -31,7 +31,7 @@ import (
 type EventsFacilitator struct {
 	// executionTracker is responsible for starting, updating, and stopping tracking of
 	// scanning tasks. The EventsFacilitator delegates task-related domain operations here.
-	executionTracker scansvc.ExecutionTracker
+	executionTracker scanning.ExecutionTracker
 
 	// taskHealthSupervisor is responsible for monitoring task heartbeats and failing
 	// tasks that have not sent a heartbeat within a given threshold.
@@ -52,7 +52,7 @@ type EventsFacilitator struct {
 // rulesService, taskHealthSupervisor, metricsTracker, and tracer so it can delegate domain-specific logic
 // to the correct bounded context service and instrument event handling with traces.
 func NewEventsFacilitator(
-	tracker scansvc.ExecutionTracker,
+	tracker scanning.ExecutionTracker,
 	taskHealthSupervisor *scansvc.TaskHealthSupervisor,
 	metricsTracker scanning.JobMetricsTracker,
 	rulesSvc rulessvc.Service,

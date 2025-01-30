@@ -126,7 +126,7 @@ type trackerTestSuite struct {
 	domainPublisher *mockDomainEventPublisher
 	logger          *logger.Logger
 	tracer          trace.Tracer
-	tracker         ExecutionTracker
+	tracker         *executionTracker
 }
 
 func newTrackerTestSuite(t *testing.T) *trackerTestSuite {

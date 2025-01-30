@@ -36,6 +36,8 @@ type pendingMetric struct {
 	attempts  int
 }
 
+var _ domain.JobMetricsTracker = (*jobMetricsTracker)(nil)
+
 // jobMetricsTracker implements JobMetricsTracker with in-memory state and periodic persistence.
 type jobMetricsTracker struct {
 	metrics    map[uuid.UUID]*domain.JobMetrics // Job ID -> Metrics
