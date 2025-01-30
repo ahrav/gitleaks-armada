@@ -39,6 +39,8 @@ type pendingMetric struct {
 var _ domain.JobMetricsTracker = (*jobMetricsTracker)(nil)
 
 // jobMetricsTracker implements JobMetricsTracker with in-memory state and periodic persistence.
+// TODO: We need a way to record the overall status of the job. We will want to use
+// the metrics to determine this.
 type jobMetricsTracker struct {
 	metrics    map[uuid.UUID]*domain.JobMetrics // Job ID -> Metrics
 	taskStatus map[uuid.UUID]taskStatusEntry    // Task ID -> Status
@@ -187,6 +189,8 @@ func (t *jobMetricsTracker) runBackgroundLoop() {
 	}
 }
 
+// TODO: come back to this and see if reusing the underlying slice is a good idea.
+// Probably not worth it right now.
 func (t *jobMetricsTracker) processPendingMetrics(ctx context.Context) {
 	var remaining []pendingMetric
 	for _, pending := range t.pendingMetrics {
