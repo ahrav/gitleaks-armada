@@ -47,7 +47,7 @@ type Orchestrator struct {
 	metricsTracker       scanning.JobMetricsTracker
 	enumCoordinator      enumCoordinator.Coordinator
 	rulesService         rulessvc.Service
-	scanningCoordinator  scan.ScanJobCoordinator
+	scanningCoordinator  scanning.ScanJobCoordinator
 	stateRepo            enumeration.StateRepository
 
 	dispatcher *eventdispatcher.Dispatcher

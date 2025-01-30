@@ -18,7 +18,7 @@ import (
 // It ensures consistent state transitions and maintains accurate progress metrics
 // across the distributed system.
 type executionTracker struct {
-	jobService      ScanJobCoordinator // Manages job and task state transitions
+	jobService      scanning.ScanJobCoordinator // Manages job and task state transitions
 	domainPublisher events.DomainEventPublisher
 	logger          *logger.Logger // Structured logging for operational visibility
 	tracer          trace.Tracer   // OpenTelemetry tracing for request flows
@@ -28,7 +28,7 @@ type executionTracker struct {
 // The jobService handles state persistence and transitions, while logger and tracer
 // provide operational visibility into the progress tracking subsystem.
 func NewExecutionTracker(
-	jobService ScanJobCoordinator,
+	jobService scanning.ScanJobCoordinator,
 	domainPublisher events.DomainEventPublisher,
 	logger *logger.Logger,
 	tracer trace.Tracer,
