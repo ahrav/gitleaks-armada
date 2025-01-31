@@ -79,6 +79,12 @@ func NewScannerService(
 	tracer trace.Tracer,
 ) *ScannerService {
 	workerCount := 4 // TODO: This should be configurable or set via runtime.NumCPU()
+	componentLogger := logger.With(
+		"component", "scanner_service",
+		"scanner_service_id", id,
+		"num_workers", workerCount,
+	)
+
 	// Try to get rule provider if scanner supports it. (e.g. Gitleaks)
 	ruleProvider, _ := scanner.(RuleProvider)
 	return &ScannerService{
@@ -89,7 +95,7 @@ func NewScannerService(
 		progressReporter: pr,
 		ruleProvider:     ruleProvider,
 		enumACL:          acl.EnumerationACL{},
-		logger:           logger,
+		logger:           componentLogger,
 		metrics:          metrics,
 		tracer:           tracer,
 		workers:          workerCount,
@@ -339,7 +345,11 @@ func (s *ScannerService) handleTaskResumeEvent(
 // We need this in the event of a worker panicking, as we need to consume from the higher priority
 // resume task queue. This avoids having an in-progress task stuck behind other not started tasks.
 func (s *ScannerService) workerLoop(ctx context.Context, workerID int) {
-	s.logger.Info(ctx, "ScannerService: Starting scanner worker", "worker_id", workerID)
+	workerLogger := logger.NewLoggerContext(s.logger.With(
+		"worker_id", workerID,
+		"worker_type", "scanner",
+	))
+	workerLogger.Info(ctx, "Worker starting up")
 
 	for {
 		func() {
@@ -347,32 +357,29 @@ func (s *ScannerService) workerLoop(ctx context.Context, workerID int) {
 				// Recover from panics to prevent worker termination. This ensures service stability
 				// by containing failures to individual tasks rather than bringing down the worker.
 				if r := recover(); r != nil {
-					rctx, rspan := s.tracer.Start(ctx,
-						"scanner_service.worker.panic",
-						trace.WithAttributes(
-							attribute.Int("worker_id", workerID),
-						),
+					rctx, rspan := s.tracer.Start(ctx, "scanner_service.worker.panic",
+						trace.WithAttributes(attribute.Int("worker_id", workerID)),
 					)
 					defer rspan.End()
 
 					err := fmt.Errorf("worker panic: %v", r)
-					s.logger.Error(rctx, "ScannerService: Worker panic",
-						"worker_id", workerID, "panic", r)
+					workerLogger.Error(rctx, "Worker recovered from panic",
+						"panic", r,
+					)
 					rspan.RecordError(err)
 					rspan.SetStatus(codes.Error, "worker panic")
 				}
 			}()
 
-			s.logger.Info(ctx, "ScannerService: Worker starting", "worker_id", workerID)
-			s.doWorkerLoop(ctx, workerID)
+			s.doWorkerLoop(ctx, workerID, workerLogger)
 		}()
 
 		select {
 		case <-ctx.Done():
-			s.logger.Info(ctx, "ScannerService: Worker stopping", "worker_id", workerID)
+			workerLogger.Info(ctx, "Worker stopped - context cancelled")
 			return
 		case <-s.stopCh:
-			s.logger.Info(ctx, "ScannerService: Worker stopping", "worker_id", workerID)
+			workerLogger.Info(ctx, "Worker stopped - service shutdown")
 			return
 		case <-time.After(1 * time.Second): // Delay restart to prevent tight loop on persistent panics
 		}
@@ -382,7 +389,7 @@ func (s *ScannerService) workerLoop(ctx context.Context, workerID int) {
 // doWorkerLoop handles the core task processing loop for a worker. It continuously pulls tasks
 // from the shared task channel and processes them with proper context management and tracing.
 // The loop continues until context cancellation signals shutdown.
-func (s *ScannerService) doWorkerLoop(ctx context.Context, workerID int) {
+func (s *ScannerService) doWorkerLoop(ctx context.Context, workerID int, workerLogger *logger.LoggerContext) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -396,11 +403,18 @@ func (s *ScannerService) doWorkerLoop(ctx context.Context, workerID int) {
 					attribute.String("resource_uri", task.ResourceURI),
 				))
 
-			err := s.handleScanTask(taskCtx, task)
+			workerLogger.Add(
+				"task_id", task.TaskID,
+				"job_id", task.JobID,
+				"resource_uri", task.ResourceURI,
+				"operation", "handle_scan_task",
+			)
+
+			err := s.handleScanTask(taskCtx, task, workerLogger)
 			if err != nil {
 				taskSpan.RecordError(err)
 				taskSpan.SetStatus(codes.Error, "failed to handle scan task")
-				s.logger.Error(taskCtx, "ScannerService: Failed to handle scan task",
+				workerLogger.Error(taskCtx, "Failed to handle scan task",
 					"worker_id", workerID,
 					"task_id", task.TaskID,
 					"error", err)
@@ -413,7 +427,7 @@ func (s *ScannerService) doWorkerLoop(ctx context.Context, workerID int) {
 
 // handleScanTask executes an individual scanning task.
 // TODO: tracking progress (|TaskProgressedEvent|)
-func (s *ScannerService) handleScanTask(ctx context.Context, req *dtos.ScanRequest) error {
+func (s *ScannerService) handleScanTask(ctx context.Context, req *dtos.ScanRequest, logger *logger.LoggerContext) error {
 	ctx, span := s.tracer.Start(ctx, "scanner_service.scanning.handle_scan_task",
 		trace.WithAttributes(
 			attribute.String("component", "scanner_service"),
@@ -423,15 +437,11 @@ func (s *ScannerService) handleScanTask(ctx context.Context, req *dtos.ScanReque
 		))
 	defer span.End()
 
-	s.logger.Info(ctx, "ScannerService: Handling scan task", "resource_uri", req.ResourceURI)
+	logger.Info(ctx, "Handling scan task")
 	span.AddEvent("starting_scan")
 
 	startedEvt := scanning.NewTaskStartedEvent(req.JobID, req.TaskID, req.ResourceURI)
-	if err := s.domainPublisher.PublishDomainEvent(
-		ctx,
-		startedEvt,
-		events.WithKey(req.TaskID.String()),
-	); err != nil {
+	if err := s.domainPublisher.PublishDomainEvent(ctx, startedEvt, events.WithKey(req.TaskID.String())); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to publish task started event")
 		return fmt.Errorf("failed to publish task started event: %w", err)
@@ -443,7 +453,7 @@ func (s *ScannerService) handleScanTask(ctx context.Context, req *dtos.ScanReque
 	); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to publish task job metric event")
-		return fmt.Errorf("ScannerService: failed to publish task job metric task pending event: %w", err)
+		return fmt.Errorf("failed to publish task job metric task pending event: %w", err)
 	}
 
 	span.AddEvent("task_started_event_published")
@@ -470,7 +480,7 @@ func (s *ScannerService) executeScanTask(ctx context.Context, req *dtos.ScanRequ
 		); err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "failed to publish task job metric event")
-			return fmt.Errorf("ScannerService: failed to publish task job metric task in progress event: %w", err)
+			return fmt.Errorf("failed to publish task job metric task in progress event: %w", err)
 		}
 		streamResult := s.secretScanner.Scan(ctx, req, s.progressReporter)
 		span.AddEvent("streaming_scan_started")
@@ -493,7 +503,7 @@ func (s *ScannerService) executeScanTask(ctx context.Context, req *dtos.ScanRequ
 			); err != nil {
 				span.RecordError(err)
 				span.SetStatus(codes.Error, "failed to publish task failed event")
-				return fmt.Errorf("ScannerService: failed to publish task failed event: %w", err)
+				return fmt.Errorf("failed to publish task failed event: %w", err)
 			}
 			if err := s.domainPublisher.PublishDomainEvent(
 				ctx,
@@ -502,13 +512,13 @@ func (s *ScannerService) executeScanTask(ctx context.Context, req *dtos.ScanRequ
 			); err != nil {
 				span.RecordError(err)
 				span.SetStatus(codes.Error, "failed to publish task job metric event")
-				return fmt.Errorf("ScannerService: failed to publish task job metric task failed event: %w", err)
+				return fmt.Errorf("failed to publish task job metric task failed event: %w", err)
 			}
 			span.AddEvent("task_failed_event_published")
-			return fmt.Errorf("ScannerService: failed to track task: %w", err)
+			return fmt.Errorf("failed to track task: %w", err)
 		}
 
-		s.logger.Info(ctx, "ScannerService: Scan context cancelled, task will be handled by staleness detection",
+		s.logger.Info(ctx, "Scan cancelled - will be handled by staleness detection",
 			"task_id", req.TaskID,
 			"job_id", req.JobID,
 			"error", err,
@@ -526,7 +536,7 @@ func (s *ScannerService) executeScanTask(ctx context.Context, req *dtos.ScanRequ
 	); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to publish task completed event")
-		return fmt.Errorf("ScannerService: failed to publish task completed event: %w", err)
+		return fmt.Errorf("failed to publish task completed event: %w", err)
 	}
 	if err := s.domainPublisher.PublishDomainEvent(
 		ctx,
@@ -535,12 +545,15 @@ func (s *ScannerService) executeScanTask(ctx context.Context, req *dtos.ScanRequ
 	); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to publish task job metric event")
-		return fmt.Errorf("ScannerService: failed to publish task job metric task completed event: %w", err)
+		return fmt.Errorf("failed to publish task job metric task completed event: %w", err)
 	}
 
 	span.AddEvent("task_completed_event_published")
 	span.SetStatus(codes.Ok, "task completed")
-	s.logger.Info(ctx, "ScannerService: Scan task completed", "task_id", req.TaskID, "job_id", req.JobID)
+	s.logger.Info(ctx, "Scan completed successfully",
+		"task_id", req.TaskID,
+		"job_id", req.JobID,
+	)
 
 	return nil
 }
@@ -570,7 +583,7 @@ func (s *ScannerService) consumeStream(
 					evt,
 					events.WithKey(taskID.String()),
 				); pErr != nil {
-					s.logger.Error(ctx, "ScannerService: failed to publish heartbeat event", "err", pErr)
+					s.logger.Error(ctx, "failed to publish heartbeat event", "err", pErr)
 				}
 			}
 
@@ -578,7 +591,7 @@ func (s *ScannerService) consumeStream(
 			if !ok {
 				findingsChan = nil
 			} else {
-				s.logger.Info(ctx, "ScannerService: Got finding", "task_id", taskID, "finding", f)
+				s.logger.Info(ctx, "Got finding", "task_id", taskID, "finding", f)
 				// TODO: Publish...
 			}
 

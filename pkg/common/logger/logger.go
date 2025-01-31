@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"time"
 
 	"go.opentelemetry.io/contrib/bridges/otelslog"
@@ -212,4 +213,118 @@ func NewWithMetadata(
 		handler:   log.handler.WithAttrs(attrs),
 		traceIDFn: traceIDFn,
 	}
+}
+
+// With returns a new Logger with the given attributes added to the handler.
+func (log *Logger) With(keyvals ...any) *Logger {
+	// Convert key-value pairs to slog.Attr
+	attrs := make([]slog.Attr, 0, len(keyvals)/2)
+	for i := 0; i < len(keyvals); i += 2 {
+		if i+1 >= len(keyvals) {
+			break
+		}
+
+		// Keys must be strings.
+		key, ok := keyvals[i].(string)
+		if !ok {
+			continue
+		}
+
+		attrs = append(attrs, slog.Any(key, keyvals[i+1]))
+	}
+
+	return &Logger{
+		handler:   log.handler.WithAttrs(attrs),
+		traceIDFn: log.traceIDFn,
+	}
+}
+
+// LoggerContext provides a way to maintain mutable logging context
+type LoggerContext struct {
+	baseLogger *Logger
+	attrs      []slog.Attr
+	mu         sync.RWMutex
+}
+
+// NewLoggerContext creates a new logger context wrapper
+func NewLoggerContext(logger *Logger) *LoggerContext {
+	return &LoggerContext{baseLogger: logger}
+}
+
+// Add adds new attributes to the logging context
+func (lc *LoggerContext) Add(keyvals ...any) {
+	lc.mu.Lock()
+	defer lc.mu.Unlock()
+
+	for i := 0; i < len(keyvals); i += 2 {
+		if i+1 >= len(keyvals) {
+			break
+		}
+
+		key, ok := keyvals[i].(string)
+		if !ok {
+			continue
+		}
+
+		lc.attrs = append(lc.attrs, slog.Any(key, keyvals[i+1]))
+	}
+}
+
+// Clear removes all dynamic context
+func (lc *LoggerContext) Clear() {
+	lc.mu.Lock()
+	defer lc.mu.Unlock()
+	lc.attrs = nil
+}
+
+// getCombinedArgs combines context attributes with provided args
+func (lc *LoggerContext) getCombinedArgs(args ...any) []any {
+	lc.mu.RLock()
+	combinedArgs := make([]any, 0, len(args)+len(lc.attrs)*2)
+	for _, attr := range lc.attrs {
+		combinedArgs = append(combinedArgs, attr.Key, attr.Value.Any())
+	}
+	combinedArgs = append(combinedArgs, args...)
+	lc.mu.RUnlock()
+	return combinedArgs
+}
+
+// Debug logs at LevelDebug with the combined static and dynamic context
+func (lc *LoggerContext) Debug(ctx context.Context, msg string, args ...any) {
+	lc.baseLogger.Debug(ctx, msg, lc.getCombinedArgs(args...)...)
+}
+
+// Info logs at LevelInfo with the combined static and dynamic context
+func (lc *LoggerContext) Info(ctx context.Context, msg string, args ...any) {
+	lc.baseLogger.Info(ctx, msg, lc.getCombinedArgs(args...)...)
+}
+
+// Warn logs at LevelWarn with the combined static and dynamic context
+func (lc *LoggerContext) Warn(ctx context.Context, msg string, args ...any) {
+	lc.baseLogger.Warn(ctx, msg, lc.getCombinedArgs(args...)...)
+}
+
+// Error logs at LevelError with the combined static and dynamic context
+func (lc *LoggerContext) Error(ctx context.Context, msg string, args ...any) {
+	lc.baseLogger.Error(ctx, msg, lc.getCombinedArgs(args...)...)
+}
+
+// Debugc logs at LevelDebug with caller info and combined context
+func (lc *LoggerContext) Debugc(ctx context.Context, caller int, msg string, args ...any) {
+	lc.baseLogger.Debugc(ctx, caller, msg, lc.getCombinedArgs(args...)...)
+}
+
+// Infoc logs at LevelInfo with caller info and combined context
+func (lc *LoggerContext) Infoc(ctx context.Context, caller int, msg string, args ...any) {
+	lc.baseLogger.Infoc(ctx, caller, msg, lc.getCombinedArgs(args...)...)
+}
+
+// Warnc logs at LevelWarn with caller info and combined context
+func (lc *LoggerContext) Warnc(ctx context.Context, caller int, msg string, args ...any) {
+	lc.baseLogger.Warnc(ctx, caller, msg, lc.getCombinedArgs(args...)...)
+}
+
+// Errorc logs at LevelError with caller info and combined context
+func (lc *LoggerContext) Errorc(ctx context.Context, caller int, msg string, args ...any) {
+	lc.baseLogger.Errorc(ctx, caller, msg, lc.getCombinedArgs(args...)...)
 }

@@ -276,6 +276,8 @@ func ProtoToTaskJobMetricEvent(p *pb.TaskJobMetricEvent) (scanning.TaskJobMetric
 // TaskStatusToProto converts a domain TaskStatus to its protobuf representation.
 func TaskStatusToProto(s scanning.TaskStatus) pb.TaskStatus {
 	switch s {
+	case scanning.TaskStatusPending:
+		return pb.TaskStatus_TASK_STATUS_PENDING
 	case scanning.TaskStatusInProgress:
 		return pb.TaskStatus_TASK_STATUS_IN_PROGRESS
 	case scanning.TaskStatusCompleted:
@@ -290,6 +292,8 @@ func TaskStatusToProto(s scanning.TaskStatus) pb.TaskStatus {
 // ProtoToTaskStatus converts a protobuf TaskStatus to its domain representation.
 func ProtoToTaskStatus(s pb.TaskStatus) scanning.TaskStatus {
 	switch s {
+	case pb.TaskStatus_TASK_STATUS_PENDING:
+		return scanning.TaskStatusPending
 	case pb.TaskStatus_TASK_STATUS_IN_PROGRESS:
 		return scanning.TaskStatusInProgress
 	case pb.TaskStatus_TASK_STATUS_COMPLETED:
