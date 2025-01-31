@@ -438,7 +438,7 @@ func (s *ScannerService) handleScanTask(ctx context.Context, req *dtos.ScanReque
 	}
 	if err := s.domainPublisher.PublishDomainEvent(
 		ctx,
-		scanning.NewTaskJobMetricEvent(req.JobID, req.TaskID, domain.TaskStatusPending),
+		scanning.NewTaskJobMetricEvent(req.JobID, req.TaskID, domain.TaskStatusInProgress),
 		events.WithKey(req.JobID.String()),
 	); err != nil {
 		span.RecordError(err)
