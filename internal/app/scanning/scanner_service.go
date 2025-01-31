@@ -118,7 +118,7 @@ func (s *ScannerService) Run(ctx context.Context) error {
 			attribute.Int("num_workers", s.workers),
 		))
 
-	s.logger.Info(initCtx, "ScannerService: Starting scanner service", "id", s.id, "workers", s.workers)
+	s.logger.Info(initCtx, "Running scanner service")
 
 	initSpan.AddEvent("starting_workers")
 	s.workerWg.Add(s.workers)
@@ -142,7 +142,7 @@ func (s *ScannerService) Run(ctx context.Context) error {
 		s.handleEvent,
 	)
 	if err != nil {
-		s.logger.Error(initCtx, "ScannerService: Failed to subscribe to events", "err", err)
+		s.logger.Error(initCtx, "Failed to subscribe to events", "err", err)
 		initSpan.RecordError(err)
 		initSpan.SetStatus(codes.Error, "failed to subscribe to events")
 		initSpan.End()
@@ -152,7 +152,7 @@ func (s *ScannerService) Run(ctx context.Context) error {
 	initSpan.End()
 
 	<-initCtx.Done()
-	s.logger.Info(initCtx, "ScannerService: Stopping scanner service", "id", s.id)
+	s.logger.Info(initCtx, "Stopping scanner service", "id", s.id)
 
 	_, shutdownSpan := s.tracer.Start(initCtx, "scanner_service.scanning.shutdown")
 	defer shutdownSpan.End()
@@ -187,6 +187,10 @@ func (s *ScannerService) handleRuleRequest(
 	evt events.EventEnvelope,
 	ack events.AckFunc,
 ) error {
+	logger := logger.NewLoggerContext(s.logger.With(
+		"operation", "handle_rule_request",
+		"event_type", string(evt.Type),
+	))
 	ctx, span := s.tracer.Start(ctx, "scanner_service.scanning.handle_rule_request",
 		trace.WithAttributes(
 			attribute.String("component", "scanner_service"),
@@ -203,6 +207,7 @@ func (s *ScannerService) handleRuleRequest(
 		return fmt.Errorf("failed to get rules: %w", err)
 	}
 	ack(nil)
+	logger.Info(ctx, "Rules received")
 
 	ruleCount := 0
 	for rule := range ruleChan {
@@ -224,8 +229,9 @@ func (s *ScannerService) handleRuleRequest(
 		span.RecordError(err)
 		return fmt.Errorf("failed to publish completion event: %w", err)
 	}
-
+	logger.Info(ctx, "Rules published")
 	span.AddEvent("rules_published")
+
 	return nil
 }
 
@@ -236,6 +242,10 @@ func (s *ScannerService) handleTaskEvent(
 	evt events.EventEnvelope,
 	ack events.AckFunc,
 ) error {
+	logger := logger.NewLoggerContext(s.logger.With(
+		"operation", "handle_task_event",
+		"event_type", string(evt.Type),
+	))
 	ctx, span := s.tracer.Start(ctx, "scanner_service.scanning.handle_task_event",
 		trace.WithSpanKind(trace.SpanKindConsumer),
 		trace.WithAttributes(
@@ -249,6 +259,13 @@ func (s *ScannerService) handleTaskEvent(
 		span.SetStatus(codes.Error, "invalid event payload type")
 		return fmt.Errorf("expected TaskCreatedEvent, got %T", evt.Payload)
 	}
+	logger.Add(
+		"task_id", tce.Task.ID,
+		"resource_uri", tce.Task.ResourceURI(),
+		"source_type", tce.Task.SourceType,
+		"session_id", tce.Task.SessionID(),
+	)
+	logger.Info(ctx, "Routing task")
 
 	span.SetAttributes(
 		attribute.String("task_id", tce.Task.ID.String()),
@@ -261,6 +278,7 @@ func (s *ScannerService) handleTaskEvent(
 	select {
 	case s.taskEvent <- s.enumACL.ToScanRequest(&tce):
 		ack(nil)
+		logger.Info(ctx, "Task routed")
 		span.AddEvent("task_routed")
 		return nil
 	case <-ctx.Done():
@@ -278,6 +296,10 @@ func (s *ScannerService) handleTaskResumeEvent(
 	evt events.EventEnvelope,
 	ack events.AckFunc,
 ) error {
+	logger := logger.NewLoggerContext(s.logger.With(
+		"operation", "handle_task_resume_event",
+		"event_type", string(evt.Type),
+	))
 	ctx, span := s.tracer.Start(ctx, "scanner_service.scanning.handle_task_resume_event",
 		trace.WithAttributes(
 			attribute.String("component", "scanner_service"),
@@ -291,12 +313,8 @@ func (s *ScannerService) handleTaskResumeEvent(
 	if !ok {
 		return fmt.Errorf("invalid resume event payload: %T", evt.Payload)
 	}
-
-	s.logger.Info(ctx, "ScannerService: Resuming task",
-		"task_id", rEvt.TaskID,
-		"job_id", rEvt.JobID,
-		"resource_uri", rEvt.ResourceURI,
-	)
+	logger.Add("task_id", rEvt.TaskID, "job_id", rEvt.JobID, "resource_uri", rEvt.ResourceURI)
+	logger.Info(ctx, "Resuming task")
 
 	req, err := dtos.NewScanRequestFromResumeEvent(&rEvt)
 	if err != nil {
@@ -314,23 +332,20 @@ func (s *ScannerService) handleTaskResumeEvent(
 	go func() {
 		defer func() { <-s.highPrioritySem }()
 
-		if err := s.executeScanTask(ctx, req); err != nil {
-			s.logger.Error(ctx, "ScannerService: Failed to handle scan task", "err", err)
+		if err := s.executeScanTask(ctx, req, logger); err != nil {
+			logger.Error(ctx, "Failed to handle scan task", "err", err)
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "failed to handle scan task")
 			return
 		}
 		span.AddEvent("resume_task_handled")
 		span.SetStatus(codes.Ok, "resume_task_handled")
-		s.logger.Info(ctx, "ScannerService: Resumed task successfully",
-			"task_id", req.TaskID,
-			"job_id", req.JobID,
-			"resource_uri", req.ResourceURI,
-		)
+		logger.Info(ctx, "Resumed task successfully")
 	}()
 
 	span.AddEvent("resume_task_spawned")
 	span.SetStatus(codes.Ok, "resume_task_spawned")
+	logger.Info(ctx, "Resume task spawned")
 
 	return nil
 }
@@ -407,7 +422,7 @@ func (s *ScannerService) doWorkerLoop(ctx context.Context, workerID int, workerL
 				"task_id", task.TaskID,
 				"job_id", task.JobID,
 				"resource_uri", task.ResourceURI,
-				"operation", "handle_scan_task",
+				"operation", "do_worker_loop",
 			)
 
 			err := s.handleScanTask(taskCtx, task, workerLogger)
@@ -428,6 +443,7 @@ func (s *ScannerService) doWorkerLoop(ctx context.Context, workerID int, workerL
 // handleScanTask executes an individual scanning task.
 // TODO: tracking progress (|TaskProgressedEvent|)
 func (s *ScannerService) handleScanTask(ctx context.Context, req *dtos.ScanRequest, logger *logger.LoggerContext) error {
+	logger.Add("operation", "handle_scan_task")
 	ctx, span := s.tracer.Start(ctx, "scanner_service.scanning.handle_scan_task",
 		trace.WithAttributes(
 			attribute.String("component", "scanner_service"),
@@ -456,13 +472,15 @@ func (s *ScannerService) handleScanTask(ctx context.Context, req *dtos.ScanReque
 		return fmt.Errorf("failed to publish task job metric task pending event: %w", err)
 	}
 
+	logger.Info(ctx, "Task started event published; executing scan task")
 	span.AddEvent("task_started_event_published")
 
-	return s.executeScanTask(ctx, req)
+	return s.executeScanTask(ctx, req, logger)
 }
 
 // executeScanTask handles the core scanning logic for both new and resumed tasks
-func (s *ScannerService) executeScanTask(ctx context.Context, req *dtos.ScanRequest) error {
+func (s *ScannerService) executeScanTask(ctx context.Context, req *dtos.ScanRequest, logger *logger.LoggerContext) error {
+	logger.Add("operation", "execute_scan_task")
 	ctx, span := s.tracer.Start(ctx, "scanner_service.scanning.execute_scan_task",
 		trace.WithAttributes(
 			attribute.String("component", "scanner_service"),
@@ -482,6 +500,8 @@ func (s *ScannerService) executeScanTask(ctx context.Context, req *dtos.ScanRequ
 			span.SetStatus(codes.Error, "failed to publish task job metric event")
 			return fmt.Errorf("failed to publish task job metric task in progress event: %w", err)
 		}
+
+		logger.Info(ctx, "Task job metric event published; scanning task")
 		streamResult := s.secretScanner.Scan(ctx, req, s.progressReporter)
 		span.AddEvent("streaming_scan_started")
 
@@ -518,11 +538,7 @@ func (s *ScannerService) executeScanTask(ctx context.Context, req *dtos.ScanRequ
 			return fmt.Errorf("failed to track task: %w", err)
 		}
 
-		s.logger.Info(ctx, "Scan cancelled - will be handled by staleness detection",
-			"task_id", req.TaskID,
-			"job_id", req.JobID,
-			"error", err,
-		)
+		logger.Info(ctx, "Scan cancelled - will be handled by staleness detection", "error", err)
 		span.AddEvent("scan_context_cancelled")
 
 		return nil
@@ -550,10 +566,7 @@ func (s *ScannerService) executeScanTask(ctx context.Context, req *dtos.ScanRequ
 
 	span.AddEvent("task_completed_event_published")
 	span.SetStatus(codes.Ok, "task completed")
-	s.logger.Info(ctx, "Scan completed successfully",
-		"task_id", req.TaskID,
-		"job_id", req.JobID,
-	)
+	logger.Info(ctx, "Scan completed successfully")
 
 	return nil
 }
