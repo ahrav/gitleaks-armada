@@ -108,6 +108,75 @@ func NewJobMetricsTracker(
 	return t
 }
 
+// startStatusCleanup runs periodic cleanup of completed/failed task statuses.
+func (t *jobMetricsTracker) startStatusCleanup(ctx context.Context) {
+	ctx, span := t.tracer.Start(ctx, "job_metrics_tracker.start_status_cleanup",
+		trace.WithAttributes(
+			attribute.String("interval", t.cleanupInterval.String()),
+		))
+
+	span.AddEvent("starting_status_cleanup")
+
+	ticker := time.NewTicker(t.cleanupInterval)
+	defer ticker.Stop()
+
+	span.End()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			t.cleanupTaskStatus()
+		}
+	}
+}
+
+// cleanupTaskStatus removes completed/failed task status entries.
+func (t *jobMetricsTracker) cleanupTaskStatus() {
+	now := time.Now()
+	for taskID, entry := range t.taskStatus {
+		if entry.shouldBeCleanedUp(now, t.retentionPeriod) {
+			delete(t.taskStatus, taskID)
+		}
+	}
+}
+
+func (t *jobMetricsTracker) runBackgroundLoop() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	defer t.wg.Done()
+
+	ctx, span := t.tracer.Start(ctx, "job_metrics_tracker.run_background_loop")
+
+	span.AddEvent("starting_background_loop")
+	span.End()
+
+	ticker := time.NewTicker(t.retryInterval)
+	defer ticker.Stop()
+
+	for {
+		// If there's nothing pending, block until we get a notify or a stop.
+		if len(t.pendingMetrics) == 0 {
+			select {
+			case <-t.notifyCh:
+				// got new metrics, continue.
+			case <-t.stopCh:
+				return
+			}
+		}
+
+		select {
+		case <-ticker.C:
+			t.processPendingMetrics(ctx)
+		case <-t.notifyCh:
+			// There's new items; maybe keep them for next tick or process immediately
+		case <-t.stopCh:
+			return
+		}
+	}
+}
+
 // HandleJobMetrics processes task-related events and updates job metrics accordingly.
 // It maintains an in-memory state of task statuses and aggregates metrics per job.
 //
@@ -147,7 +216,7 @@ func (t *jobMetricsTracker) HandleJobMetrics(ctx context.Context, evt events.Eve
 			span.AddEvent("task_not_found", trace.WithAttributes(
 				attribute.String("task_id", metricEvt.TaskID.String()),
 			))
-			// We don’t have the task status yet: add to pending for retry.
+			// We don't have the task status yet: add to pending for retry.
 			t.pendingMetrics = append(t.pendingMetrics, pendingMetric{
 				event:     metricEvt,
 				timestamp: time.Now(),
@@ -171,41 +240,6 @@ func (t *jobMetricsTracker) HandleJobMetrics(ctx context.Context, evt events.Eve
 	span.SetStatus(codes.Ok, "metric processed")
 
 	return nil
-}
-
-func (t *jobMetricsTracker) runBackgroundLoop() {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	defer t.wg.Done()
-
-	ctx, span := t.tracer.Start(ctx, "job_metrics_tracker.run_background_loop")
-
-	span.AddEvent("starting_background_loop")
-	span.End()
-
-	ticker := time.NewTicker(t.retryInterval)
-	defer ticker.Stop()
-
-	for {
-		// If there’s nothing pending, block until we get a notify or a stop.
-		if len(t.pendingMetrics) == 0 {
-			select {
-			case <-t.notifyCh:
-				// got new metrics, continue.
-			case <-t.stopCh:
-				return
-			}
-		}
-
-		select {
-		case <-ticker.C:
-			t.processPendingMetrics(ctx)
-		case <-t.notifyCh:
-			// There's new items; maybe keep them for next tick or process immediately
-		case <-t.stopCh:
-			return
-		}
-	}
 }
 
 // TODO: come back to this and see if reusing the underlying slice is a good idea.
@@ -243,6 +277,7 @@ func (t *jobMetricsTracker) processPendingMetrics(ctx context.Context) {
 					attribute.String("task_id", pending.event.TaskID.String()),
 					attribute.String("error", err.Error()),
 				))
+				span.RecordError(err)
 				t.logger.Error(ctx,
 					"failed to process pending metric",
 					"task_id", pending.event.TaskID.String(),
@@ -260,7 +295,7 @@ func (t *jobMetricsTracker) processPendingMetrics(ctx context.Context) {
 }
 
 // processMetric encapsulates the core logic to update job metrics and task statuses.
-// It returns domain.ErrTaskNotFound if the task status does not yet exist (so callers
+// It returns domain.ErrTaskNotFound if the task does not yet exist (so callers
 // can decide whether to retry or add to pending).
 func (t *jobMetricsTracker) processMetric(ctx context.Context, evt scanning.TaskJobMetricEvent) error {
 	ctx, span := t.tracer.Start(ctx, "job_metrics_tracker.process_metric")
@@ -277,8 +312,6 @@ func (t *jobMetricsTracker) processMetric(ctx context.Context, evt scanning.Task
 		var err error
 		metrics, err = t.repository.GetJobMetrics(ctx, evt.JobID)
 		if err != nil {
-			// If the job doesn't exist in repository, treat it as "no metrics found"
-			// but if it's some other error, bubble up.
 			if !errors.Is(err, domain.ErrNoJobMetricsFound) {
 				return fmt.Errorf("getting job metrics: %w", err)
 			}
@@ -287,20 +320,32 @@ func (t *jobMetricsTracker) processMetric(ctx context.Context, evt scanning.Task
 		t.metrics[evt.JobID] = metrics
 	}
 
-	oldStatus, err := t.getTaskStatus(ctx, evt.TaskID)
-	if err != nil {
+	if _, err := t.repository.GetTask(ctx, evt.TaskID); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "task not found")
 		return err
 	}
+
+	// Get the previous status from our in-memory cache
+	var oldStatus domain.TaskStatus
+	if entry, exists := t.taskStatus[evt.TaskID]; exists {
+		oldStatus = entry.status
+	} else {
+		// If not in cache, this is the first time we're seeing this task
+		oldStatus = domain.TaskStatusInProgress
+	}
+
 	span.SetAttributes(
 		attribute.String("old_status", string(oldStatus)),
 	)
 
-	if oldStatus == domain.TaskStatusPending {
+	if oldStatus == domain.TaskStatusInProgress {
 		metrics.OnTaskAdded(evt.Status)
+		span.AddEvent("task_added")
 	} else {
 		metrics.OnTaskStatusChanged(oldStatus, evt.Status)
+		span.AddEvent("task_status_changed")
 	}
-	span.AddEvent("task_status_changed_recorded")
 
 	t.taskStatus[evt.TaskID] = taskStatusEntry{
 		status:    evt.Status,
@@ -310,70 +355,6 @@ func (t *jobMetricsTracker) processMetric(ctx context.Context, evt scanning.Task
 	span.SetStatus(codes.Ok, "task metrics processed")
 
 	return nil
-}
-
-// getTaskStatus retrieves task status from memory or falls back to repository.
-func (t *jobMetricsTracker) getTaskStatus(ctx context.Context, taskID uuid.UUID) (domain.TaskStatus, error) {
-	span := trace.SpanFromContext(ctx)
-	span.SetAttributes(
-		attribute.String("task_id", taskID.String()),
-	)
-
-	if status, exists := t.taskStatus[taskID]; exists {
-		span.AddEvent("task_status_found_in_cache")
-		return status.status, nil
-	}
-
-	span.AddEvent("task_status_not_found_in_cache")
-
-	status, err := t.repository.GetTaskStatus(ctx, taskID)
-	if err != nil {
-		span.RecordError(err)
-		return "", err
-	}
-	span.AddEvent("task_status_found_in_repository")
-
-	t.taskStatus[taskID] = taskStatusEntry{
-		status:    status,
-		updatedAt: time.Now(),
-	}
-	span.AddEvent("task_status_cached")
-
-	return status, nil
-}
-
-// startStatusCleanup runs periodic cleanup of completed/failed task statuses.
-func (t *jobMetricsTracker) startStatusCleanup(ctx context.Context) {
-	ctx, span := t.tracer.Start(ctx, "job_metrics_tracker.start_status_cleanup",
-		trace.WithAttributes(
-			attribute.String("interval", t.cleanupInterval.String()),
-		))
-
-	span.AddEvent("starting_status_cleanup")
-
-	ticker := time.NewTicker(t.cleanupInterval)
-	defer ticker.Stop()
-
-	span.End()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			t.cleanupTaskStatus()
-		}
-	}
-}
-
-// cleanupTaskStatus removes completed/failed task status entries.
-func (t *jobMetricsTracker) cleanupTaskStatus() {
-	now := time.Now()
-	for taskID, entry := range t.taskStatus {
-		if entry.shouldBeCleanedUp(now, t.retentionPeriod) {
-			delete(t.taskStatus, taskID)
-		}
-	}
 }
 
 // LaunchMetricsFlusher starts a background goroutine that periodically flushes metrics to storage.

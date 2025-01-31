@@ -80,21 +80,19 @@ func (r *metricsRepositoryAdapter) UpdateJobMetrics(
 	return nil
 }
 
-// GetTaskStatus implements MetricsRepository.GetTaskStatus by efficiently retrieving
-// just the task status from the underlying task repository. This could be optimized
-// in the future to only fetch the status field from the database.
-func (r *metricsRepositoryAdapter) GetTaskStatus(ctx context.Context, taskID uuid.UUID) (domain.TaskStatus, error) {
+// GetTask implements MetricsRepository.GetTask by retrieving the task from the underlying task repository.
+func (r *metricsRepositoryAdapter) GetTask(ctx context.Context, taskID uuid.UUID) (*domain.Task, error) {
 	if taskID == uuid.Nil {
-		return "", fmt.Errorf("%w: invalid task ID", domain.ErrTaskNotFound)
+		return nil, fmt.Errorf("%w: invalid task ID", domain.ErrTaskNotFound)
 	}
 
 	task, err := r.taskRepo.GetTask(ctx, taskID)
 	if err != nil {
 		if errors.Is(err, domain.ErrTaskNotFound) {
-			return "", fmt.Errorf("getting task: %w", domain.ErrTaskNotFound)
+			return nil, err
 		}
-		return "", fmt.Errorf("getting task: %w", err)
+		return nil, fmt.Errorf("getting task: %w", err)
 	}
 
-	return task.Status(), nil
+	return task, nil
 }
