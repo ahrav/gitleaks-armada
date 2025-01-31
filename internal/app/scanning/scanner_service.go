@@ -363,6 +363,7 @@ func (s *ScannerService) workerLoop(ctx context.Context, workerID int) {
 	workerLogger := logger.NewLoggerContext(s.logger.With(
 		"worker_id", workerID,
 		"worker_type", "scanner",
+		"operation", "worker_loop",
 	))
 	workerLogger.Info(ctx, "Worker starting up")
 

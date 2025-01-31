@@ -107,6 +107,7 @@ func setupGitleaksDetector() (*detect.Detector, error) {
 // through a channel. It processes each rule from the Gitleaks detector and converts
 // them to our domain model before sending.
 func (s *Gitleaks) GetRules(ctx context.Context) (<-chan rules.GitleaksRuleMessage, error) {
+	logger := s.logger.With("operation", "get_rules")
 	ctx, span := s.tracer.Start(ctx, "gitleaks_scanner.scanning.get_rules",
 		trace.WithAttributes(
 			attribute.String("component", "gitleaks_scanner"),
@@ -125,7 +126,7 @@ func (s *Gitleaks) GetRules(ctx context.Context) (<-chan rules.GitleaksRuleMessa
 			case <-ctx.Done():
 				span.SetStatus(codes.Error, "context cancelled")
 				span.RecordError(ctx.Err())
-				s.logger.Warn(ctx, "GitleaksScanner: Context cancelled while streaming rules")
+				logger.Warn(ctx, "GitleaksScanner: Context cancelled while streaming rules")
 				return
 			default:
 			}
@@ -140,7 +141,7 @@ func (s *Gitleaks) GetRules(ctx context.Context) (<-chan rules.GitleaksRuleMessa
 			case <-ctx.Done():
 				span.SetStatus(codes.Error, "context cancelled")
 				span.RecordError(ctx.Err())
-				s.logger.Warn(ctx, "GitleaksScanner: Context cancelled while streaming rules")
+				logger.Warn(ctx, "GitleaksScanner: Context cancelled while streaming rules")
 				return
 			case ruleChan <- msg:
 				span.AddEvent("rule_streamed", trace.WithAttributes(
@@ -155,7 +156,7 @@ func (s *Gitleaks) GetRules(ctx context.Context) (<-chan rules.GitleaksRuleMessa
 	}()
 
 	span.AddEvent("rule_streaming_started")
-	s.logger.Info(ctx, "Rules streaming started")
+	logger.Info(ctx, "Rules streaming started")
 
 	return ruleChan, nil
 }
@@ -264,6 +265,7 @@ type SourceScannerFactory func(params scannerParams) StreamScanner
 // based on the task's source type.
 func (s *Gitleaks) Scan(ctx context.Context, task *dtos.ScanRequest, reporter scanning.ProgressReporter) scanning.StreamResult {
 	logger := s.logger.With(
+		"operation", "scan",
 		"task.id", task.TaskID.String(),
 		"source.type", task.SourceType,
 		"source.uri", task.ResourceURI,
