@@ -58,8 +58,12 @@ func NewGitLeaks(
 	log *logger.Logger,
 	tracer trace.Tracer,
 	metrics scanning.ScannerMetrics,
-) *Gitleaks {
-	detector := setupGitleaksDetector()
+) (*Gitleaks, error) {
+	logger := log.With("component", "gitleaks_scanner")
+	detector, err := setupGitleaksDetector()
+	if err != nil {
+		return nil, err
+	}
 
 	factories := map[dtos.SourceType]SourceScannerFactory{
 		dtos.SourceTypeGitHub: func(params scannerParams) StreamScanner {
@@ -73,37 +77,42 @@ func NewGitLeaks(
 	return &Gitleaks{
 		detector:         detector,
 		scannerFactories: factories,
-		logger:           log,
+		logger:           logger,
 		tracer:           tracer,
 		metrics:          metrics,
-	}
+	}, nil
 }
 
 // setupGitleaksDetector initializes the Gitleaks detector using the embedded default configuration.
-func setupGitleaksDetector() *detect.Detector {
+func setupGitleaksDetector() (*detect.Detector, error) {
 	viper.SetConfigType("toml")
 	if err := viper.ReadConfig(bytes.NewBufferString(config.DefaultConfig)); err != nil {
-		panic(fmt.Errorf("failed to read embedded config: %w", err))
+		return nil, fmt.Errorf("failed to read embedded config: %w", err)
 	}
 
 	var vc config.ViperConfig
 	if err := viper.Unmarshal(&vc); err != nil {
-		panic(fmt.Errorf("failed to unmarshal embedded config: %w", err))
+		return nil, fmt.Errorf("failed to unmarshal embedded config: %w", err)
 	}
 
 	cfg, err := vc.Translate()
 	if err != nil {
-		panic(fmt.Errorf("failed to translate ViperConfig to Config: %w", err))
+		return nil, fmt.Errorf("failed to translate ViperConfig to Config: %w", err)
 	}
 
-	return detect.NewDetector(cfg)
+	return detect.NewDetector(cfg), nil
 }
 
 // GetRules implements the scanning.RuleProvider interface by streaming converted rules
 // through a channel. It processes each rule from the Gitleaks detector and converts
 // them to our domain model before sending.
 func (s *Gitleaks) GetRules(ctx context.Context) (<-chan rules.GitleaksRuleMessage, error) {
-	ctx, span := s.tracer.Start(ctx, "gitleaks_scanner.scanning.get_rules")
+	ctx, span := s.tracer.Start(ctx, "gitleaks_scanner.scanning.get_rules",
+		trace.WithAttributes(
+			attribute.String("component", "gitleaks_scanner"),
+			attribute.Int("num_rules", len(s.detector.Config.Rules)),
+		),
+	)
 	defer span.End()
 
 	ruleChan := make(chan rules.GitleaksRuleMessage, 1)
@@ -141,15 +150,13 @@ func (s *Gitleaks) GetRules(ctx context.Context) (<-chan rules.GitleaksRuleMessa
 			}
 		}
 
-		span.AddEvent("rules_streamed", trace.WithAttributes(
-			attribute.Int("rule_count", len(s.detector.Config.Rules)),
-		))
+		span.AddEvent("rules_streamed")
 		span.SetStatus(codes.Ok, "rules streamed")
 	}()
 
-	span.AddEvent("rule_streaming_started", trace.WithAttributes(
-		attribute.Int("total_rules", len(s.detector.Config.Rules)),
-	))
+	span.AddEvent("rule_streaming_started")
+	s.logger.Info(ctx, "Rules streaming started")
+
 	return ruleChan, nil
 }
 
@@ -256,11 +263,19 @@ type SourceScannerFactory func(params scannerParams) StreamScanner
 // Scan initiates the scanning process for a given task by selecting the appropriate scanner
 // based on the task's source type.
 func (s *Gitleaks) Scan(ctx context.Context, task *dtos.ScanRequest, reporter scanning.ProgressReporter) scanning.StreamResult {
+	logger := s.logger.With(
+		"task.id", task.TaskID.String(),
+		"source.type", task.SourceType,
+		"source.uri", task.ResourceURI,
+	)
 	ctx, span := s.tracer.Start(ctx, "gitleaks_scanner.scanning.scan",
 		trace.WithAttributes(
+			attribute.String("component", "gitleaks_scanner"),
 			attribute.String("task.id", task.TaskID.String()),
 			attribute.String("source.type", string(task.SourceType)),
-		))
+			attribute.String("source.uri", task.ResourceURI),
+		),
+	)
 	defer span.End()
 
 	scannerFactory, ok := s.scannerFactories[task.SourceType]
@@ -290,6 +305,7 @@ func (s *Gitleaks) Scan(ctx context.Context, task *dtos.ScanRequest, reporter sc
 	}
 	span.SetStatus(codes.Ok, "scan started streaming")
 	span.AddEvent("scan_started_streaming")
+	logger.Info(ctx, "Scan started streaming")
 
 	return sr
 }
