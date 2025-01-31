@@ -239,19 +239,19 @@ func (log *Logger) With(keyvals ...any) *Logger {
 	}
 }
 
-// LoggerContext provides a way to maintain mutable logging context
+// LoggerContext provides a way to maintain mutable logging context.
 type LoggerContext struct {
 	baseLogger *Logger
 	attrs      []slog.Attr
 	mu         sync.RWMutex
 }
 
-// NewLoggerContext creates a new logger context wrapper
+// NewLoggerContext creates a new logger context wrapper.
 func NewLoggerContext(logger *Logger) *LoggerContext {
 	return &LoggerContext{baseLogger: logger}
 }
 
-// Add adds new attributes to the logging context
+// Add adds new attributes to the logging context.
 func (lc *LoggerContext) Add(keyvals ...any) {
 	lc.mu.Lock()
 	defer lc.mu.Unlock()
@@ -270,14 +270,14 @@ func (lc *LoggerContext) Add(keyvals ...any) {
 	}
 }
 
-// Clear removes all dynamic context
+// Clear removes all dynamic context.
 func (lc *LoggerContext) Clear() {
 	lc.mu.Lock()
 	defer lc.mu.Unlock()
 	lc.attrs = nil
 }
 
-// getCombinedArgs combines context attributes with provided args
+// getCombinedArgs combines context attributes with provided args.
 func (lc *LoggerContext) getCombinedArgs(args ...any) []any {
 	lc.mu.RLock()
 	combinedArgs := make([]any, 0, len(args)+len(lc.attrs)*2)
@@ -289,42 +289,42 @@ func (lc *LoggerContext) getCombinedArgs(args ...any) []any {
 	return combinedArgs
 }
 
-// Debug logs at LevelDebug with the combined static and dynamic context
+// Debug logs at LevelDebug with the combined static and dynamic context.
 func (lc *LoggerContext) Debug(ctx context.Context, msg string, args ...any) {
 	lc.baseLogger.Debug(ctx, msg, lc.getCombinedArgs(args...)...)
 }
 
-// Info logs at LevelInfo with the combined static and dynamic context
+// Info logs at LevelInfo with the combined static and dynamic context.
 func (lc *LoggerContext) Info(ctx context.Context, msg string, args ...any) {
 	lc.baseLogger.Info(ctx, msg, lc.getCombinedArgs(args...)...)
 }
 
-// Warn logs at LevelWarn with the combined static and dynamic context
+// Warn logs at LevelWarn with the combined static and dynamic context.
 func (lc *LoggerContext) Warn(ctx context.Context, msg string, args ...any) {
 	lc.baseLogger.Warn(ctx, msg, lc.getCombinedArgs(args...)...)
 }
 
-// Error logs at LevelError with the combined static and dynamic context
+// Error logs at LevelError with the combined static and dynamic context.
 func (lc *LoggerContext) Error(ctx context.Context, msg string, args ...any) {
 	lc.baseLogger.Error(ctx, msg, lc.getCombinedArgs(args...)...)
 }
 
-// Debugc logs at LevelDebug with caller info and combined context
+// Debugc logs at LevelDebug with caller info and combined context.
 func (lc *LoggerContext) Debugc(ctx context.Context, caller int, msg string, args ...any) {
 	lc.baseLogger.Debugc(ctx, caller, msg, lc.getCombinedArgs(args...)...)
 }
 
-// Infoc logs at LevelInfo with caller info and combined context
+// Infoc logs at LevelInfo with caller info and combined context.
 func (lc *LoggerContext) Infoc(ctx context.Context, caller int, msg string, args ...any) {
 	lc.baseLogger.Infoc(ctx, caller, msg, lc.getCombinedArgs(args...)...)
 }
 
-// Warnc logs at LevelWarn with caller info and combined context
+// Warnc logs at LevelWarn with caller info and combined context.
 func (lc *LoggerContext) Warnc(ctx context.Context, caller int, msg string, args ...any) {
 	lc.baseLogger.Warnc(ctx, caller, msg, lc.getCombinedArgs(args...)...)
 }
 
-// Errorc logs at LevelError with caller info and combined context
+// Errorc logs at LevelError with caller info and combined context.
 func (lc *LoggerContext) Errorc(ctx context.Context, caller int, msg string, args ...any) {
 	lc.baseLogger.Errorc(ctx, caller, msg, lc.getCombinedArgs(args...)...)
 }
