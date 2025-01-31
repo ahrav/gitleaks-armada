@@ -232,6 +232,7 @@ func main() {
 	enumTaskStorage := enumStore.NewTaskStore(pool, tracer)
 	batchStorage := enumStore.NewBatchStore(pool, checkpointStorage, tracer)
 	enumCoord := enumeration.NewCoordinator(
+		hostname,
 		scanTargetRepo,
 		githubTargetRepo,
 		urlTargetRepo,

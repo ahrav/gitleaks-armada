@@ -104,6 +104,7 @@ type coordinator struct {
 // It wires together all required dependencies including repositories, domain services,
 // and external integrations needed for the enumeration workflow.
 func NewCoordinator(
+	controllerID string,
 	scanTargetRepo domain.ScanTargetRepository,
 	githubRepo domain.GithubRepository,
 	urlTargetRepo domain.URLRepository,
@@ -116,6 +117,10 @@ func NewCoordinator(
 	metrics metrics,
 	tracer trace.Tracer,
 ) Coordinator {
+	logger = logger.With(
+		"component", "enumeration_coordinator",
+		"controller_id", controllerID,
+	)
 	return &coordinator{
 		scanTargetRepo:   scanTargetRepo,
 		githubTargetRepo: githubRepo,
@@ -181,7 +186,7 @@ func (s *coordinator) failEnumeration(
 ) {
 	span.RecordError(err)
 	span.SetStatus(codes.Error, userMsg)
-	// s.logger.Error(ctx, userMsg, "error", err)
+	s.logger.Info(ctx, userMsg, "error", err)
 	errCh <- fmt.Errorf("%s: %w", userMsg, err)
 }
 
@@ -307,6 +312,11 @@ func (s *coordinator) processTargetEnumeration(
 	scanTargetWriter chan<- []uuid.UUID,
 	taskWriter chan<- *domain.Task,
 ) error {
+	logger := s.logger.With(
+		"operation", "process_target_enumeration",
+		"source_type", string(target.SourceType),
+		"session_id", state.SessionID().String(),
+	)
 	ctx, span := s.startSpan(ctx, "coordinator.enumeration.process_target_enumeration",
 		attribute.String("source_type", string(target.SourceType)),
 		attribute.String("session_id", state.SessionID().String()),
@@ -323,7 +333,7 @@ func (s *coordinator) processTargetEnumeration(
 	if err := state.MarkInProgress(); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to mark in progress")
-		s.logger.Error(ctx, "Failed to mark enumeration as in-progress", "error", err)
+		logger.Error(ctx, "Failed to mark enumeration as in-progress", "error", err)
 		return err
 	}
 	span.AddEvent("state_marked_in_progress")
@@ -331,7 +341,7 @@ func (s *coordinator) processTargetEnumeration(
 	if err := s.stateRepo.Save(ctx, state); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to save state transition")
-		s.logger.Error(ctx, "Failed to save state transition", "error", err)
+		logger.Error(ctx, "Failed to save state transition", "error", err)
 		return err
 	}
 	span.AddEvent("state_transition_saved")
@@ -351,11 +361,11 @@ func (s *coordinator) processTargetEnumeration(
 		))
 		if markErr := state.MarkFailed(err.Error()); markErr != nil {
 			span.RecordError(markErr)
-			s.logger.Error(ctx, "Failed to mark enumeration as failed", "error", markErr)
+			logger.Error(ctx, "Failed to mark enumeration as failed", "error", markErr)
 		}
 		if saveErr := s.stateRepo.Save(ctx, state); saveErr != nil {
 			span.RecordError(saveErr)
-			s.logger.Error(ctx, "Failed to save failed state", "error", saveErr)
+			logger.Error(ctx, "Failed to save failed state", "error", saveErr)
 		}
 		span.AddEvent("failed_state_saved")
 		span.SetStatus(codes.Error, "failed to create enumerator")
@@ -376,24 +386,23 @@ func (s *coordinator) processTargetEnumeration(
 	if err := s.streamEnumerate(ctx, enumerator, state, resumeCursor, creds, scanTargetWriter, taskWriter); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "enumeration stream failed")
-		s.logger.Error(ctx, "Enumeration failed",
-			"session_id", state.SessionID(),
-			"error", err)
+		logger.Error(ctx, "Enumeration failed", "error", err)
 		return err
 	}
 	span.AddEvent("enumeration_stream_completed")
 
 	if err := state.MarkCompleted(); err != nil {
 		span.RecordError(err)
-		s.logger.Error(ctx, "Failed to mark enumeration as completed", "error", err)
+		logger.Error(ctx, "Failed to mark enumeration as completed", "error", err)
 	}
 	if err := s.stateRepo.Save(ctx, state); err != nil {
 		span.RecordError(err)
-		s.logger.Error(ctx, "Failed to save enumeration state", "error", err)
+		logger.Error(ctx, "Failed to save enumeration state", "error", err)
 		return err
 	}
-
+	logger.Info(ctx, "Enumeration completed successfully")
 	span.SetStatus(codes.Ok, "enumeration completed successfully")
+
 	return nil
 }
 
@@ -408,6 +417,11 @@ func (s *coordinator) streamEnumerate(
 	scanTargetWriter chan<- []uuid.UUID,
 	taskWriter chan<- *domain.Task,
 ) error {
+	logger := s.logger.With(
+		"operation", "stream_enumerate",
+		"session_id", state.SessionID().String(),
+		"source_type", state.SourceType(),
+	)
 	ctx, span := s.startSpan(ctx, "coordinator.enumeration.stream_enumerate",
 		attribute.String("session_id", state.SessionID().String()),
 		attribute.String("source_type", state.SourceType()),
@@ -449,18 +463,19 @@ func (s *coordinator) streamEnumerate(
 		span.RecordError(err)
 		if markErr := state.MarkFailed(err.Error()); markErr != nil {
 			span.RecordError(markErr)
-			s.logger.Error(ctx, "Failed to mark enumeration as failed", "error", markErr)
+			logger.Error(ctx, "Failed to mark enumeration as failed", "error", markErr)
 		}
 		if saveErr := s.stateRepo.Save(ctx, state); saveErr != nil {
 			span.RecordError(saveErr)
-			s.logger.Error(ctx, "Failed to save enumeration state", "error", saveErr)
+			logger.Error(ctx, "Failed to save enumeration state", "error", saveErr)
 			return err
 		}
 		span.AddEvent("state_saved_successfully")
 		return err
 	}
-
+	logger.Info(ctx, "Enumeration completed successfully")
 	span.AddEvent("enumeration_completed")
+
 	return nil
 }
 
@@ -682,6 +697,10 @@ func (s *coordinator) marshalConfig(
 	target config.TargetSpec,
 	auth map[string]config.AuthConfig,
 ) json.RawMessage {
+	logger := s.logger.With(
+		"operation", "marshal_config",
+		"target_type", string(target.SourceType),
+	)
 	span := trace.SpanFromContext(ctx)
 	defer span.End()
 
@@ -698,7 +717,7 @@ func (s *coordinator) marshalConfig(
 	data, err := json.Marshal(completeConfig)
 	if err != nil {
 		span.RecordError(err)
-		s.logger.Error(ctx, "Failed to marshal target config", "error", err)
+		logger.Error(ctx, "Failed to marshal target config", "error", err)
 		return nil
 	}
 
