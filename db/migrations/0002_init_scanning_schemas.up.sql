@@ -25,6 +25,8 @@ CREATE INDEX idx_scan_jobs_status ON scan_jobs (status);
 CREATE TABLE scan_job_metrics (
     job_id UUID PRIMARY KEY REFERENCES scan_jobs(job_id),
     total_tasks INT NOT NULL DEFAULT 0,
+    pending_tasks INT NOT NULL DEFAULT 0,
+    in_progress_tasks INT NOT NULL DEFAULT 0,
     completed_tasks INT NOT NULL DEFAULT 0,
     failed_tasks INT NOT NULL DEFAULT 0,
     stale_tasks INT NOT NULL DEFAULT 0,
@@ -33,7 +35,7 @@ CREATE TABLE scan_job_metrics (
 );
 
 -- Indexes
-CREATE INDEX idx_scan_job_metrics ON scan_job_metrics (job_id, total_tasks, completed_tasks, failed_tasks, stale_tasks);
+CREATE INDEX idx_scan_job_metrics ON scan_job_metrics (job_id, total_tasks, pending_tasks, in_progress_tasks, completed_tasks, failed_tasks, stale_tasks);
 
 -- Scan Job Targets Table (Associative table between scan jobs and scan targets)
 CREATE TABLE scan_job_targets (

@@ -36,7 +36,7 @@ func createTestJob(t *testing.T, status scanning.JobStatus) *scanning.Job {
 		status,
 		scanning.NewTimeline(&mockTimeProvider{current: time.Now()}),
 		nil,
-		scanning.ReconstructJobMetrics(0, 0, 0, 0),
+		scanning.ReconstructJobMetrics(0, 0, 0, 0, 0, 0),
 	)
 }
 
@@ -226,6 +226,8 @@ func TestJobStore_BulkUpdateJobMetrics(t *testing.T) {
 
 		metrics := scanning.ReconstructJobMetrics(
 			10*(i+1), // total tasks
+			0,        // pending tasks
+			0,        // in progress tasks
 			5*(i+1),  // completed tasks
 			2*(i+1),  // failed tasks
 			1*(i+1),  // stale tasks
@@ -242,6 +244,8 @@ func TestJobStore_BulkUpdateJobMetrics(t *testing.T) {
 		require.NoError(t, err)
 
 		assert.Equal(t, int32(expectedMetrics.TotalTasks()), metrics.TotalTasks)
+		assert.Equal(t, int32(expectedMetrics.PendingTasks()), metrics.PendingTasks)
+		assert.Equal(t, int32(expectedMetrics.InProgressTasks()), metrics.InProgressTasks)
 		assert.Equal(t, int32(expectedMetrics.CompletedTasks()), metrics.CompletedTasks)
 		assert.Equal(t, int32(expectedMetrics.FailedTasks()), metrics.FailedTasks)
 		assert.Equal(t, int32(expectedMetrics.StaleTasks()), metrics.StaleTasks)
@@ -268,7 +272,7 @@ func TestJobStore_BulkUpdateJobMetrics_Upsert(t *testing.T) {
 	require.NoError(t, err)
 
 	// First update.
-	initialMetrics := scanning.ReconstructJobMetrics(10, 5, 2, 1)
+	initialMetrics := scanning.ReconstructJobMetrics(10, 0, 0, 5, 2, 1)
 	updates := map[uuid.UUID]*scanning.JobMetrics{
 		job.JobID(): initialMetrics,
 	}
@@ -284,7 +288,7 @@ func TestJobStore_BulkUpdateJobMetrics_Upsert(t *testing.T) {
 	assert.Equal(t, int32(5), metrics.CompletedTasks)
 
 	// Second update with different metrics.
-	updatedMetrics := scanning.ReconstructJobMetrics(20, 15, 3, 2)
+	updatedMetrics := scanning.ReconstructJobMetrics(20, 0, 0, 15, 3, 2)
 	updates[job.JobID()] = updatedMetrics
 
 	rowsAffected, err = store.BulkUpdateJobMetrics(ctx, updates)
@@ -318,7 +322,7 @@ func TestJobStore_GetJobMetrics_ExistingMetrics(t *testing.T) {
 	err := store.CreateJob(ctx, job)
 	require.NoError(t, err)
 
-	expectedMetrics := scanning.ReconstructJobMetrics(10, 5, 2, 1)
+	expectedMetrics := scanning.ReconstructJobMetrics(10, 0, 0, 5, 2, 1)
 	updates := map[uuid.UUID]*scanning.JobMetrics{
 		job.JobID(): expectedMetrics,
 	}

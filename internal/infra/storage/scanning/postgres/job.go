@@ -328,33 +328,37 @@ func (r *jobStore) executeBatchUpdate(ctx context.Context, entries []jobEntry) (
 
 	now := time.Now().UTC()
 	// For each row, we have:
-	//   job_id + total_tasks + completed_tasks + failed_tasks + stale_tasks + created_at + updated_at
+	//   job_id + total_tasks + pending_tasks + in_progress_tasks + completed_tasks + failed_tasks + stale_tasks + created_at + updated_at
 	//
 	// We'll build a VALUES string with placeholders like:
-	//   ($1::uuid, $2::int, $3::int, $4::int, $5::int, $6::timestamptz, $7::timestamptz), ...
+	//   ($1::uuid, $2::int, $3::int, $4::int, $5::int, $6::int, $7::int, $8::timestamptz, $9::timestamptz), ...
 	values := make([]string, 0, len(entries))
-	args := make([]any, 0, len(entries)*7) // jobID + 4 metrics fields + 2 timestamps
+	args := make([]any, 0, len(entries)*9) // jobID + 6 metrics fields + 2 timestamps
 	i := 1
 
 	for _, e := range entries {
-		values = append(values, fmt.Sprintf("($%d::uuid, $%d::int, $%d::int, $%d::int, $%d::int, $%d::timestamptz, $%d::timestamptz)",
-			i, i+1, i+2, i+3, i+4, i+5, i+6))
+		values = append(values, fmt.Sprintf("($%d::uuid, $%d::int, $%d::int, $%d::int, $%d::int, $%d::int, $%d::int, $%d::timestamptz, $%d::timestamptz)",
+			i, i+1, i+2, i+3, i+4, i+5, i+6, i+7, i+8))
 		args = append(args,
 			e.jobID,
 			e.metrics.TotalTasks(),
+			e.metrics.PendingTasks(),
+			e.metrics.InProgressTasks(),
 			e.metrics.CompletedTasks(),
 			e.metrics.FailedTasks(),
 			e.metrics.StaleTasks(),
 			now, // created_at
 			now, // updated_at
 		)
-		i += 7
+		i += 9
 	}
 
 	query := fmt.Sprintf(`
 			INSERT INTO scan_job_metrics (
 					job_id,
 					total_tasks,
+					pending_tasks,
+					in_progress_tasks,
 					completed_tasks,
 					failed_tasks,
 					stale_tasks,
@@ -363,6 +367,8 @@ func (r *jobStore) executeBatchUpdate(ctx context.Context, entries []jobEntry) (
 			) VALUES %s
 			ON CONFLICT (job_id) DO UPDATE SET
 					total_tasks = EXCLUDED.total_tasks,
+					pending_tasks = EXCLUDED.pending_tasks,
+					in_progress_tasks = EXCLUDED.in_progress_tasks,
 					completed_tasks = EXCLUDED.completed_tasks,
 					failed_tasks = EXCLUDED.failed_tasks,
 					stale_tasks = EXCLUDED.stale_tasks,
@@ -401,6 +407,8 @@ func (r *jobStore) GetJobMetrics(ctx context.Context, jobID uuid.UUID) (*scannin
 
 		jobMetrics = scanning.ReconstructJobMetrics(
 			int(metrics.TotalTasks),
+			int(metrics.PendingTasks),
+			int(metrics.InProgressTasks),
 			int(metrics.CompletedTasks),
 			int(metrics.FailedTasks),
 			int(metrics.StaleTasks),

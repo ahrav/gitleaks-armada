@@ -156,6 +156,8 @@ WHERE t.owner_controller_id = $1
 -- name: GetJobMetrics :one
 SELECT
     total_tasks,
+    pending_tasks,
+    in_progress_tasks,
     completed_tasks,
     failed_tasks,
     stale_tasks

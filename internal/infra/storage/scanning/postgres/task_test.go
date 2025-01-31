@@ -37,7 +37,7 @@ func createTestScanJob(t *testing.T, store *jobStore, ctx context.Context) *scan
 		scanning.JobStatusQueued,
 		scanning.NewTimeline(&mockTimeProvider{current: time.Now()}),
 		nil,
-		scanning.ReconstructJobMetrics(0, 0, 0, 0),
+		scanning.ReconstructJobMetrics(0, 0, 0, 0, 0, 0),
 	)
 
 	err := store.CreateJob(ctx, job)

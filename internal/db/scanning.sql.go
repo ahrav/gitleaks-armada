@@ -256,6 +256,8 @@ func (q *Queries) GetJob(ctx context.Context, jobID pgtype.UUID) ([]GetJobRow, e
 const getJobMetrics = `-- name: GetJobMetrics :one
 SELECT
     total_tasks,
+    pending_tasks,
+    in_progress_tasks,
     completed_tasks,
     failed_tasks,
     stale_tasks
@@ -264,10 +266,12 @@ WHERE job_id = $1
 `
 
 type GetJobMetricsRow struct {
-	TotalTasks     int32
-	CompletedTasks int32
-	FailedTasks    int32
-	StaleTasks     int32
+	TotalTasks      int32
+	PendingTasks    int32
+	InProgressTasks int32
+	CompletedTasks  int32
+	FailedTasks     int32
+	StaleTasks      int32
 }
 
 func (q *Queries) GetJobMetrics(ctx context.Context, jobID pgtype.UUID) (GetJobMetricsRow, error) {
@@ -275,6 +279,8 @@ func (q *Queries) GetJobMetrics(ctx context.Context, jobID pgtype.UUID) (GetJobM
 	var i GetJobMetricsRow
 	err := row.Scan(
 		&i.TotalTasks,
+		&i.PendingTasks,
+		&i.InProgressTasks,
 		&i.CompletedTasks,
 		&i.FailedTasks,
 		&i.StaleTasks,

@@ -3,6 +3,7 @@ package scanning
 // JobMetrics tracks quantitative measures for a scan job.
 type JobMetrics struct {
 	totalTasks      int
+	pendingTasks    int
 	inProgressTasks int
 	completedTasks  int
 	failedTasks     int
@@ -13,12 +14,16 @@ type JobMetrics struct {
 func NewJobMetrics() *JobMetrics { return new(JobMetrics) }
 
 // ReconstructJobMetrics creates a JobMetrics instance from stored fields.
-func ReconstructJobMetrics(totalTasks, completedTasks, failedTasks, staleTasks int) *JobMetrics {
+func ReconstructJobMetrics(
+	totalTasks, pendingTasks, inProgressTasks, completedTasks, failedTasks, staleTasks int,
+) *JobMetrics {
 	return &JobMetrics{
-		totalTasks:     totalTasks,
-		completedTasks: completedTasks,
-		failedTasks:    failedTasks,
-		staleTasks:     staleTasks,
+		totalTasks:      totalTasks,
+		pendingTasks:    pendingTasks,
+		inProgressTasks: inProgressTasks,
+		completedTasks:  completedTasks,
+		failedTasks:     failedTasks,
+		staleTasks:      staleTasks,
 	}
 }
 
@@ -26,6 +31,7 @@ func ReconstructJobMetrics(totalTasks, completedTasks, failedTasks, staleTasks i
 func (m *JobMetrics) Clone() *JobMetrics {
 	return &JobMetrics{
 		totalTasks:      m.totalTasks,
+		pendingTasks:    m.pendingTasks,
 		inProgressTasks: m.inProgressTasks,
 		completedTasks:  m.completedTasks,
 		failedTasks:     m.failedTasks,
@@ -51,12 +57,15 @@ func (m *JobMetrics) SetTotalTasks(total int) { m.totalTasks = total }
 // InProgressTasks returns the number of in progress tasks.
 func (m *JobMetrics) InProgressTasks() int { return m.inProgressTasks }
 
+// PendingTasks returns the number of pending tasks.
+func (m *JobMetrics) PendingTasks() int { return m.pendingTasks }
+
 // OnTaskAdded updates metrics for a newly created task with the given status.
 func (m *JobMetrics) OnTaskAdded(status TaskStatus) {
 	m.totalTasks++
 	switch status {
 	case TaskStatusPending:
-		// Do nothing.
+		m.pendingTasks++
 	case TaskStatusInProgress:
 		m.inProgressTasks++
 	case TaskStatusStale:
@@ -85,6 +94,8 @@ func (m *JobMetrics) OnTaskRemoved(status TaskStatus) {
 func (m *JobMetrics) OnTaskStatusChanged(oldStatus, newStatus TaskStatus) {
 	// Decrement old
 	switch oldStatus {
+	case TaskStatusPending:
+		m.pendingTasks--
 	case TaskStatusInProgress:
 		m.inProgressTasks--
 	case TaskStatusCompleted:
@@ -96,6 +107,8 @@ func (m *JobMetrics) OnTaskStatusChanged(oldStatus, newStatus TaskStatus) {
 	}
 	// Increment new
 	switch newStatus {
+	case TaskStatusPending:
+		m.pendingTasks++
 	case TaskStatusInProgress:
 		m.inProgressTasks++
 	case TaskStatusCompleted:

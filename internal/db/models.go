@@ -376,13 +376,15 @@ type ScanJob struct {
 }
 
 type ScanJobMetric struct {
-	JobID          pgtype.UUID
-	TotalTasks     int32
-	CompletedTasks int32
-	FailedTasks    int32
-	StaleTasks     int32
-	UpdatedAt      pgtype.Timestamptz
-	CreatedAt      pgtype.Timestamptz
+	JobID           pgtype.UUID
+	TotalTasks      int32
+	PendingTasks    int32
+	InProgressTasks int32
+	CompletedTasks  int32
+	FailedTasks     int32
+	StaleTasks      int32
+	UpdatedAt       pgtype.Timestamptz
+	CreatedAt       pgtype.Timestamptz
 }
 
 type ScanJobTarget struct {
