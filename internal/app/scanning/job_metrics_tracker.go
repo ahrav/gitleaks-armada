@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
@@ -129,6 +130,8 @@ func (t *jobMetricsTracker) HandleJobMetrics(ctx context.Context, evt events.Eve
 
 	metricEvt, ok := evt.Payload.(scanning.TaskJobMetricEvent)
 	if !ok {
+		span.SetStatus(codes.Error, "expected TaskJobMetricEvent")
+		span.RecordError(fmt.Errorf("expected TaskJobMetricEvent, got %T", evt.Payload))
 		return fmt.Errorf("expected TaskJobMetricEvent, got %T", evt.Payload)
 	}
 
@@ -141,11 +144,15 @@ func (t *jobMetricsTracker) HandleJobMetrics(ctx context.Context, evt events.Eve
 	// Attempt to process the metric immediately.
 	if err := t.processMetric(ctx, metricEvt); err != nil {
 		if errors.Is(err, domain.ErrTaskNotFound) {
+			span.AddEvent("task_not_found", trace.WithAttributes(
+				attribute.String("task_id", metricEvt.TaskID.String()),
+			))
 			// We don’t have the task status yet: add to pending for retry.
 			t.pendingMetrics = append(t.pendingMetrics, pendingMetric{
 				event:     metricEvt,
 				timestamp: time.Now(),
 			})
+			span.AddEvent("pending_metric_added")
 			// Notify the background loop that we have new pending work.
 			select {
 			case t.notifyCh <- struct{}{}:
@@ -153,8 +160,15 @@ func (t *jobMetricsTracker) HandleJobMetrics(ctx context.Context, evt events.Eve
 			}
 			return nil
 		}
+		span.AddEvent("failed_to_process_metric", trace.WithAttributes(
+			attribute.String("error", err.Error()),
+		))
+		span.RecordError(err)
 		return fmt.Errorf("processing metric: %w", err)
 	}
+
+	span.AddEvent("metric_processed")
+	span.SetStatus(codes.Ok, "metric processed")
 
 	return nil
 }
@@ -163,6 +177,11 @@ func (t *jobMetricsTracker) runBackgroundLoop() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	defer t.wg.Done()
+
+	ctx, span := t.tracer.Start(ctx, "job_metrics_tracker.run_background_loop")
+
+	span.AddEvent("starting_background_loop")
+	span.End()
 
 	ticker := time.NewTicker(t.retryInterval)
 	defer ticker.Stop()
@@ -192,10 +211,21 @@ func (t *jobMetricsTracker) runBackgroundLoop() {
 // TODO: come back to this and see if reusing the underlying slice is a good idea.
 // Probably not worth it right now.
 func (t *jobMetricsTracker) processPendingMetrics(ctx context.Context) {
+	ctx, span := t.tracer.Start(ctx, "job_metrics_tracker.process_pending_metrics")
+	defer span.End()
+
+	span.AddEvent("processing_pending_metrics", trace.WithAttributes(
+		attribute.Int("count", len(t.pendingMetrics)),
+	))
+
 	var remaining []pendingMetric
 	for _, pending := range t.pendingMetrics {
 		if pending.attempts > t.maxRetries {
 			// TODO: drop + do something.
+			span.AddEvent("metric_dropped", trace.WithAttributes(
+				attribute.String("task_id", pending.event.TaskID.String()),
+			))
+			t.logger.Warn(ctx, "metric dropped", "task_id", pending.event.TaskID.String())
 			continue
 		}
 
@@ -205,7 +235,14 @@ func (t *jobMetricsTracker) processPendingMetrics(ctx context.Context) {
 				// Still not found—bump attempts and re-queue.
 				pending.attempts++
 				remaining = append(remaining, pending)
+				span.AddEvent("metric_re-queued", trace.WithAttributes(
+					attribute.String("task_id", pending.event.TaskID.String()),
+				))
 			} else {
+				span.AddEvent("failed_to_process_metric", trace.WithAttributes(
+					attribute.String("task_id", pending.event.TaskID.String()),
+					attribute.String("error", err.Error()),
+				))
 				t.logger.Error(ctx,
 					"failed to process pending metric",
 					"task_id", pending.event.TaskID.String(),
@@ -214,6 +251,11 @@ func (t *jobMetricsTracker) processPendingMetrics(ctx context.Context) {
 			}
 		}
 	}
+	span.AddEvent("pending_metrics_processed", trace.WithAttributes(
+		attribute.Int("remaining", len(remaining)),
+	))
+	span.SetStatus(codes.Ok, "pending metrics processed")
+
 	t.pendingMetrics = remaining
 }
 
@@ -227,7 +269,7 @@ func (t *jobMetricsTracker) processMetric(ctx context.Context, evt scanning.Task
 	span.SetAttributes(
 		attribute.String("job_id", evt.JobID.String()),
 		attribute.String("task_id", evt.TaskID.String()),
-		attribute.String("status", string(evt.Status)),
+		attribute.String("new_status", string(evt.Status)),
 	)
 
 	metrics, exists := t.metrics[evt.JobID]
@@ -249,43 +291,70 @@ func (t *jobMetricsTracker) processMetric(ctx context.Context, evt scanning.Task
 	if err != nil {
 		return err
 	}
+	span.SetAttributes(
+		attribute.String("old_status", string(oldStatus)),
+	)
 
 	if oldStatus == domain.TaskStatusPending {
 		metrics.OnTaskAdded(evt.Status)
 	} else {
 		metrics.OnTaskStatusChanged(oldStatus, evt.Status)
 	}
+	span.AddEvent("task_status_changed_recorded")
 
 	t.taskStatus[evt.TaskID] = taskStatusEntry{
 		status:    evt.Status,
 		updatedAt: time.Now(),
 	}
+	span.AddEvent("task_status_cached")
+	span.SetStatus(codes.Ok, "task metrics processed")
 
 	return nil
 }
 
 // getTaskStatus retrieves task status from memory or falls back to repository.
 func (t *jobMetricsTracker) getTaskStatus(ctx context.Context, taskID uuid.UUID) (domain.TaskStatus, error) {
+	span := trace.SpanFromContext(ctx)
+	span.SetAttributes(
+		attribute.String("task_id", taskID.String()),
+	)
+
 	if status, exists := t.taskStatus[taskID]; exists {
+		span.AddEvent("task_status_found_in_cache")
 		return status.status, nil
 	}
 
+	span.AddEvent("task_status_not_found_in_cache")
+
 	status, err := t.repository.GetTaskStatus(ctx, taskID)
 	if err != nil {
+		span.RecordError(err)
 		return "", err
 	}
+	span.AddEvent("task_status_found_in_repository")
 
 	t.taskStatus[taskID] = taskStatusEntry{
 		status:    status,
 		updatedAt: time.Now(),
 	}
+	span.AddEvent("task_status_cached")
+
 	return status, nil
 }
 
 // startStatusCleanup runs periodic cleanup of completed/failed task statuses.
 func (t *jobMetricsTracker) startStatusCleanup(ctx context.Context) {
+	ctx, span := t.tracer.Start(ctx, "job_metrics_tracker.start_status_cleanup",
+		trace.WithAttributes(
+			attribute.String("interval", t.cleanupInterval.String()),
+		))
+
+	span.AddEvent("starting_status_cleanup")
+
 	ticker := time.NewTicker(t.cleanupInterval)
 	defer ticker.Stop()
+
+	span.End()
 
 	for {
 		select {
@@ -313,10 +382,13 @@ func (t *jobMetricsTracker) LaunchMetricsFlusher(interval time.Duration) {
 	defer cancel()
 
 	ctx, span := t.tracer.Start(ctx, "job_metrics_tracker.start_metrics_flush")
-	defer span.End()
+
+	span.AddEvent("starting_metrics_flusher")
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+
+	span.End()
 
 	for {
 		select {
@@ -347,12 +419,11 @@ func (t *jobMetricsTracker) FlushMetrics(ctx context.Context) error {
 	ctx, span := t.tracer.Start(ctx, "job_metrics_tracker.flush_metrics")
 	defer span.End()
 
-	var firstErr error
+	span.AddEvent("flushing_metrics")
+
 	for jobID, metrics := range t.metrics {
 		if err := t.repository.UpdateJobMetrics(ctx, jobID, metrics); err != nil {
-			if firstErr == nil {
-				firstErr = err
-			}
+			span.RecordError(err)
 			t.logger.Error(ctx, "failed to flush job metrics",
 				"job_id", jobID.String(),
 				"error", err,
@@ -360,16 +431,26 @@ func (t *jobMetricsTracker) FlushMetrics(ctx context.Context) error {
 			continue
 		}
 	}
+	span.AddEvent("metrics_flushed")
+	span.SetStatus(codes.Ok, "metrics flushed")
 
-	return firstErr
+	return nil
 }
 
 // Stop stops the background goroutines and waits for them to finish.
 func (t *jobMetricsTracker) Stop(ctx context.Context) {
+	_, span := t.tracer.Start(ctx, "job_metrics_tracker.stop")
+	defer span.End()
+
+	span.AddEvent("stopping_metrics_tracker")
+
 	close(t.stopCh)
 
 	// Lets flush any pending metrics.
 	t.processPendingMetrics(context.Background())
 
 	t.wg.Wait()
+
+	span.AddEvent("metrics_tracker_stopped")
+	span.SetStatus(codes.Ok, "metrics tracker stopped")
 }
