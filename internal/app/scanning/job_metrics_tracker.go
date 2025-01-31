@@ -193,6 +193,10 @@ func (t *jobMetricsTracker) runBackgroundLoop() {
 //
 // This event handler is crucial for maintaining accurate job progress and health metrics,
 // which are used for monitoring and reporting job execution status.
+// TODO: Figure out if handling job metrics independently of task status updates could be
+// problematic. There could be an instance where the task status update fails and the DB
+// never has the task. This is okay for now since we retry using our pending metrics
+// mechanism.
 func (t *jobMetricsTracker) HandleJobMetrics(ctx context.Context, evt events.EventEnvelope) error {
 	ctx, span := t.tracer.Start(ctx, "job_metrics_tracker.handle_job_metrics")
 	defer span.End()
