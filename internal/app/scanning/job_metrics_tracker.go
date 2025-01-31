@@ -326,12 +326,13 @@ func (t *jobMetricsTracker) processMetric(ctx context.Context, evt scanning.Task
 		return err
 	}
 
-	// Get the previous status from our in-memory cache
+	// Get the previous status from our in-memory cache.
 	var oldStatus domain.TaskStatus
 	if entry, exists := t.taskStatus[evt.TaskID]; exists {
 		oldStatus = entry.status
 	} else {
-		// If not in cache, this is the first time we're seeing this task
+		// If not in cache, this is the first time we're seeing this task.
+		// TODO: figure out if this should be pending or in progress.
 		oldStatus = domain.TaskStatusInProgress
 	}
 
