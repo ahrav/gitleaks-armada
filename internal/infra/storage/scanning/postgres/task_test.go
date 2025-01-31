@@ -521,7 +521,7 @@ func TestTaskStore_FindStaleTasks(t *testing.T) {
 
 	var expectedStaleTasks []scanning.StaleTaskInfo
 	heartbeats := make(map[uuid.UUID]time.Time)
-	inProgressTasks := 0 // New counter for IN_PROGRESS tasks
+	inProgressTasks := 0
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -546,7 +546,7 @@ func TestTaskStore_FindStaleTasks(t *testing.T) {
 		})
 	}
 
-	// Update heartbeats
+	// Update heartbeats.
 	if len(heartbeats) > 0 {
 		rowsAffected, err := taskStore.BatchUpdateHeartbeats(ctx, heartbeats)
 		require.NoError(t, err)
@@ -554,11 +554,9 @@ func TestTaskStore_FindStaleTasks(t *testing.T) {
 			"Should update all IN_PROGRESS tasks")
 	}
 
-	// Find stale tasks
 	staleTasks, err := taskStore.FindStaleTasks(ctx, controllerID, cutoff)
 	require.NoError(t, err)
 
-	// Verify results
 	assert.Equal(t, len(expectedStaleTasks), len(staleTasks))
 	for _, expected := range expectedStaleTasks {
 		found := false
