@@ -173,9 +173,6 @@ func (h *taskHealthSupervisor) flushHeartbeats(ctx context.Context) {
 // checkForStaleTasks queries for tasks that haven't sent a heartbeat within the staleness
 // threshold and marks them as stale. This enables automated detection and recovery of
 // failed or unresponsive tasks.
-// TODO: If we find a stale task, we need to publish a task stale event.
-// The event could get picked up by our controller if the jobID for the task is
-// the jobID our controller is responsible for updating job metrics.
 func (h *taskHealthSupervisor) checkForStaleTasks(ctx context.Context) {
 	ctx, span := h.tracer.Start(ctx, "heartbeat_monitor.scanning.check_for_stale_tasks")
 	defer span.End()
