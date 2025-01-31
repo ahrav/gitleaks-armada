@@ -135,6 +135,7 @@ func NewOrchestrator(
 		id,
 		o.scanningCoordinator,
 		executionTracker,
+		eventPublisher,
 		tracer,
 		logger,
 	)

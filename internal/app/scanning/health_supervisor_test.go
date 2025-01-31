@@ -7,13 +7,15 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/trace/noop"
 
+	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
 
-// mockHeartbeatService implements HeartbeatService for testing
+// mockHeartbeatService implements scanning.TaskHealthService for testing.
 type mockHeartbeatService struct {
 	updateHeartbeatsFunc func(context.Context, map[uuid.UUID]time.Time) (int64, error)
 	findStaleTasksFunc   func(context.Context, string, time.Time) ([]scanning.StaleTaskInfo, error)
@@ -33,15 +35,27 @@ func (m *mockHeartbeatService) FindStaleTasks(ctx context.Context, controllerID 
 	return nil, nil
 }
 
-// mockTaskStateHandler implements TaskStateHandler for testing
-type mockTaskStateHandler struct {
+// mockStateHandler implements scanning.TaskStateHandler for testing.
+type mockStateHandler struct {
 	handleTaskStaleFunc func(context.Context, scanning.TaskStaleEvent) error
 }
 
-func (m *mockTaskStateHandler) HandleTaskStale(ctx context.Context, evt scanning.TaskStaleEvent) error {
+func (m *mockStateHandler) HandleTaskStale(ctx context.Context, evt scanning.TaskStaleEvent) error {
 	if m.handleTaskStaleFunc != nil {
 		return m.handleTaskStaleFunc(ctx, evt)
 	}
+	return nil
+}
+
+// mockEventPublisher implements events.DomainEventPublisher for testing.
+type mockEventPublisher struct {
+	publishedEvents []events.DomainEvent
+	publishOptions  [][]events.PublishOption
+}
+
+func (m *mockEventPublisher) PublishDomainEvent(ctx context.Context, evt events.DomainEvent, opts ...events.PublishOption) error {
+	m.publishedEvents = append(m.publishedEvents, evt)
+	m.publishOptions = append(m.publishOptions, opts)
 	return nil
 }
 
@@ -60,10 +74,13 @@ func TestHeartbeatMonitor_HandleHeartbeat(t *testing.T) {
 		},
 	}
 
+	stateHandler := new(mockStateHandler)
+	eventPublisher := new(mockEventPublisher)
 	heartbeatMonitor := NewTaskHealthSupervisor(
 		"test-controller",
 		heartbeatSvc,
-		&mockTaskStateHandler{},
+		stateHandler,
+		eventPublisher,
 		noop.NewTracerProvider().Tracer("test"),
 		logger.Noop(),
 	)
@@ -103,8 +120,11 @@ func TestHeartbeatMonitor_CheckForStaleTasks(t *testing.T) {
 			jobID:       uuid.New(),
 			expectStale: true,
 			setupStaleTasks: func() []scanning.StaleTaskInfo {
-				task := scanning.NewStaleTaskInfo(uuid.New(), uuid.New(), "test://resource")
-				return []scanning.StaleTaskInfo{task}
+				taskID := uuid.New()
+				jobID := uuid.New()
+				return []scanning.StaleTaskInfo{
+					scanning.NewStaleTaskInfo(taskID, jobID, "test-controller"),
+				}
 			},
 		},
 		{
@@ -121,17 +141,11 @@ func TestHeartbeatMonitor_CheckForStaleTasks(t *testing.T) {
 			baseTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 			mockTime := &mockTimeProvider{now: baseTime}
 
-			var staleEventReceived bool
+			eventPublisher := new(mockEventPublisher)
+			stateHandler := new(mockStateHandler)
 			heartbeatSvc := &mockHeartbeatService{
 				findStaleTasksFunc: func(ctx context.Context, controllerID string, cutoff time.Time) ([]scanning.StaleTaskInfo, error) {
 					return tt.setupStaleTasks(), nil
-				},
-			}
-
-			stateHandler := &mockTaskStateHandler{
-				handleTaskStaleFunc: func(ctx context.Context, evt scanning.TaskStaleEvent) error {
-					staleEventReceived = true
-					return nil
 				},
 			}
 
@@ -139,6 +153,7 @@ func TestHeartbeatMonitor_CheckForStaleTasks(t *testing.T) {
 				"test-controller",
 				heartbeatSvc,
 				stateHandler,
+				eventPublisher,
 				noop.NewTracerProvider().Tracer("test"),
 				logger.Noop(),
 			)
@@ -146,9 +161,16 @@ func TestHeartbeatMonitor_CheckForStaleTasks(t *testing.T) {
 			heartbeatMonitor.checkForStaleTasks(context.Background())
 
 			if tt.expectStale {
-				assert.True(t, staleEventReceived, "Expected HandleTaskStale to be called")
+				require.Len(t, eventPublisher.publishedEvents, 1, "Expected one event to be published")
+				evt, ok := eventPublisher.publishedEvents[0].(scanning.TaskStaleEvent)
+				require.True(t, ok, "Expected event to be TaskStaleEvent")
+				assert.Equal(t, scanning.StallReasonNoProgress, evt.Reason)
+
+				// Verify publish options.
+				require.Len(t, eventPublisher.publishOptions, 1, "Expected one set of publish options")
+				assert.NotEmpty(t, eventPublisher.publishOptions[0], "Expected publish options to be set")
 			} else {
-				assert.False(t, staleEventReceived, "Expected HandleTaskStale not to be called")
+				assert.Empty(t, eventPublisher.publishedEvents, "Expected no events to be published")
 			}
 		})
 	}
@@ -156,24 +178,18 @@ func TestHeartbeatMonitor_CheckForStaleTasks(t *testing.T) {
 
 func TestHeartbeatMonitor_Start(t *testing.T) {
 	taskID := uuid.New()
+	jobID := uuid.New()
 	baseTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	advancedTime := baseTime.Add(20 * time.Second)
 	mockProvider := &mockTimeProvider{now: baseTime}
 
-	var staleEventReceived bool
+	eventPublisher := new(mockEventPublisher)
+	stateHandler := new(mockStateHandler)
 	heartbeatSvc := &mockHeartbeatService{
 		findStaleTasksFunc: func(ctx context.Context, controllerID string, cutoff time.Time) ([]scanning.StaleTaskInfo, error) {
-			// As soon as the cutoff passes, we treat anything older than that as stale
 			return []scanning.StaleTaskInfo{
-				scanning.NewStaleTaskInfo(uuid.New(), taskID, "test://resource"),
+				scanning.NewStaleTaskInfo(taskID, jobID, controllerID),
 			}, nil
-		},
-	}
-
-	stateHandler := &mockTaskStateHandler{
-		handleTaskStaleFunc: func(ctx context.Context, evt scanning.TaskStaleEvent) error {
-			staleEventReceived = true
-			return nil
 		},
 	}
 
@@ -181,12 +197,13 @@ func TestHeartbeatMonitor_Start(t *testing.T) {
 		"test-controller",
 		heartbeatSvc,
 		stateHandler,
+		eventPublisher,
 		noop.NewTracerProvider().Tracer("test"),
 		logger.Noop(),
 	)
+	heartbeatMonitor.timeProvider = mockProvider
 	heartbeatMonitor.flushInterval = 30 * time.Millisecond
 	heartbeatMonitor.stalenessCheckIntv = 50 * time.Millisecond
-	heartbeatMonitor.timeProvider = mockProvider
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -202,7 +219,8 @@ func TestHeartbeatMonitor_Start(t *testing.T) {
 	// Wait enough time for the next stale check to run.
 	time.Sleep(100 * time.Millisecond)
 
-	assert.True(t, staleEventReceived, "Expected HandleTaskStale to be called for stale tasks")
+	assert.NotEmpty(t, eventPublisher.publishedEvents, "Expected events to be published for stale tasks")
+	assert.NotEmpty(t, eventPublisher.publishOptions, "Expected publish options to be set")
 
 	heartbeatMonitor.Stop()
 }
@@ -213,8 +231,9 @@ func TestHeartbeatMonitor_ConcurrentAccess(t *testing.T) {
 
 	heartbeatMonitor := NewTaskHealthSupervisor(
 		"test-controller",
-		&mockHeartbeatService{},
-		&mockTaskStateHandler{},
+		new(mockHeartbeatService),
+		new(mockStateHandler),
+		new(mockEventPublisher),
 		noop.NewTracerProvider().Tracer("test"),
 		logger.Noop(),
 	)

@@ -11,6 +11,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
@@ -33,32 +34,35 @@ var _ scanning.TaskHealthMonitor = (*taskHealthSupervisor)(nil)
 //  2. Periodically checks for and marks tasks as stale if they haven't sent a heartbeat within
 //     the configured threshold duration
 type taskHealthSupervisor struct {
-	// healthSvc provides persistence and task state management operations
+	// healthSvc provides persistence and task state management operations.
 	healthSvc scanning.TaskHealthService
-	// stateHandler handles task state changes
+	// stateHandler handles task state changes.
 	stateHandler scanning.TaskStateHandler
 
-	// flushInterval controls how often heartbeats are persisted to storage
+	// eventPublisher is used to publish stale task events.
+	eventPublisher events.DomainEventPublisher
+
+	// flushInterval controls how often heartbeats are persisted to storage.
 	flushInterval time.Duration
-	// stalenessCheckIntv controls frequency of stale task checks
+	// stalenessCheckIntv controls frequency of stale task checks.
 	stalenessCheckIntv time.Duration
-	// stalenessThreshold is the duration after which a task with no heartbeat is considered stale
+	// stalenessThreshold is the duration after which a task with no heartbeat is considered stale.
 	stalenessThreshold time.Duration
 
 	mu             sync.RWMutex
 	heartbeatCache map[uuid.UUID]time.Time
 
-	// ID of the controller in order to only check for stale tasks for that controller
+	// ID of the controller in order to only check for stale tasks for that controller.
 	controllerID string
-	// cancel allows graceful shutdown of background goroutines
+	// cancel allows graceful shutdown of background goroutines.
 	cancel context.CancelCauseFunc
 
-	// timeProvider is used to get the current time
+	// timeProvider is used to get the current time.
 	timeProvider timeProvider
 
-	// tracer provides distributed tracing for request flows
+	// tracer provides distributed tracing for request flows.
 	tracer trace.Tracer
-	// logger provides structured logging for operational visibility
+	// logger provides structured logging for operational visibility.
 	logger *logger.Logger
 }
 
@@ -69,6 +73,7 @@ func NewTaskHealthSupervisor(
 	controllerID string,
 	healthSvc scanning.TaskHealthService,
 	stateHandler scanning.TaskStateHandler,
+	eventPublisher events.DomainEventPublisher,
 	tracer trace.Tracer,
 	logger *logger.Logger,
 ) *taskHealthSupervisor {
@@ -76,6 +81,7 @@ func NewTaskHealthSupervisor(
 		controllerID:       controllerID,
 		healthSvc:          healthSvc,
 		stateHandler:       stateHandler,
+		eventPublisher:     eventPublisher,
 		flushInterval:      3 * time.Second,
 		stalenessCheckIntv: 15 * time.Second,
 		stalenessThreshold: 20 * time.Second,
@@ -190,6 +196,10 @@ func (h *taskHealthSupervisor) checkForStaleTasks(ctx context.Context) {
 
 	for _, t := range staleTasks {
 		h.logger.Warn(ctx, "Detected stale task", "task_id", t.TaskID())
+		span.SetAttributes(
+			attribute.String("task_id", t.TaskID().String()),
+			attribute.String("job_id", t.JobID().String()),
+		)
 
 		staleEvt := scanning.NewTaskStaleEvent(t.JobID(), t.TaskID(), scanning.StallReasonNoProgress, now)
 		if err := h.stateHandler.HandleTaskStale(ctx, staleEvt); err != nil {
@@ -198,9 +208,15 @@ func (h *taskHealthSupervisor) checkForStaleTasks(ctx context.Context) {
 			span.RecordError(err)
 		} else {
 			h.logger.Info(ctx, "Task marked stale", "task_id", t.TaskID())
-			span.AddEvent("task_marked_stale", trace.WithAttributes(
-				attribute.String("task_id", t.TaskID().String()),
-			))
+			span.AddEvent("task_marked_stale")
+		}
+		if err := h.eventPublisher.PublishDomainEvent(ctx, staleEvt, events.WithKey(t.JobID().String())); err != nil {
+			h.logger.Error(ctx, "Failed to publish stale task event with job key", "task_id", t.TaskID(), "err", err)
+			span.SetStatus(codes.Error, "failed to publish stale task event with job key")
+			span.RecordError(err)
+		} else {
+			h.logger.Info(ctx, "Stale task event published with job key", "task_id", t.TaskID())
+			span.AddEvent("stale_task_event_published_job_key")
 		}
 	}
 
