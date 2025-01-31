@@ -39,6 +39,13 @@ func NewCoordinator(cfg *K8sConfig, logger *logger.Logger) (*Coordinator, error)
 		return nil, fmt.Errorf("config is required")
 	}
 
+	logger = logger.With(
+		"component", "kubernetes_coordinator",
+		"namespace", cfg.Namespace,
+		"leader_lock_id", cfg.LeaderLockID,
+		"identity", cfg.Identity,
+	)
+
 	client, err := getKubernetesClient()
 	if err != nil {
 		return nil, fmt.Errorf("creating kubernetes client for coordinator: %w", err)
@@ -74,24 +81,32 @@ func NewCoordinator(cfg *K8sConfig, logger *logger.Logger) (*Coordinator, error)
 	if err != nil {
 		return nil, fmt.Errorf("creating leader elector: %w", err)
 	}
-
 	coordinator.leaderElector = elector
+	logger.Info(context.Background(), "Leader elector created")
+
 	return coordinator, nil
 }
 
 // Start begins the leader election process and blocks until the context is canceled.
 func (c *Coordinator) Start(ctx context.Context) error {
+	c.logger.Info(ctx, "Starting leader elector")
 	go c.leaderElector.Run(ctx)
 	<-ctx.Done()
 	return nil
 }
 
 // Stop gracefully shuts down the coordinator.
-func (c *Coordinator) Stop() error { return nil }
+func (c *Coordinator) Stop() error {
+	c.logger.Info(context.Background(), "Stopping leader elector")
+	return nil
+}
 
 // OnLeadershipChange registers a callback that will be invoked when this instance
 // gains or loses leadership.
-func (c *Coordinator) OnLeadershipChange(cb func(isLeader bool)) { c.leadershipChangeCB = cb }
+func (c *Coordinator) OnLeadershipChange(cb func(isLeader bool)) {
+	c.logger.Info(context.Background(), "Registering leadership change callback")
+	c.leadershipChangeCB = cb
+}
 
 func (c *Coordinator) onStartedLeading(ctx context.Context) {
 	c.logger.Info(ctx, "became leader")
@@ -101,7 +116,7 @@ func (c *Coordinator) onStartedLeading(ctx context.Context) {
 }
 
 func (c *Coordinator) onStoppedLeading() {
-	c.logger.Info(context.Background(), "stopped being leader")
+	c.logger.Info(context.Background(), "lost leadership")
 	if c.leadershipChangeCB != nil {
 		c.leadershipChangeCB(false)
 	}
