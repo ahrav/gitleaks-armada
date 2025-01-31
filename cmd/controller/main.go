@@ -33,6 +33,10 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/common/otel"
 )
 
+const (
+	serviceType = "controller"
+)
+
 func main() {
 	_, _ = maxprocs.Set()
 
@@ -71,7 +75,7 @@ func main() {
 		"hostname":  hostname,
 		"pod":       os.Getenv("POD_NAME"),
 		"namespace": os.Getenv("POD_NAMESPACE"),
-		"app":       "controller",
+		"app":       serviceType,
 	}
 
 	log = logger.NewWithMetadata(os.Stdout, logger.LevelInfo, svcName, traceIDFn, events, metadata)
@@ -179,7 +183,7 @@ func main() {
 		Namespace:    namespace,
 		LeaderLockID: "controller-leader-lock",
 		Identity:     podName,
-		Name:         "controller",
+		Name:         serviceType,
 		WorkerName:   "worker",
 	}
 
@@ -209,6 +213,7 @@ func main() {
 		RulesResponseTopic:    os.Getenv("KAFKA_RULES_RESPONSE_TOPIC"),
 		GroupID:               os.Getenv("KAFKA_GROUP_ID"),
 		ClientID:              fmt.Sprintf("controller-%s", hostname),
+		ServiceType:           serviceType,
 	}
 	broker, err := kafka.ConnectWithRetry(kafkaCfg, log, metricCollector, tracer)
 	if err != nil {

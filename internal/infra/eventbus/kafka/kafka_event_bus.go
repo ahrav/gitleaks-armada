@@ -45,6 +45,8 @@ type Config struct {
 	ProgressTopic string
 	// HighPriorityTaskTopic is the topic for high-priority scanning tasks (e.g., resume).
 	HighPriorityTaskTopic string
+	// JobMetricsTopic is the topic name for publishing job metrics.
+	JobMetricsTopic string
 
 	// Split rules topic into two for clear direction of flow.
 	RulesRequestTopic  string // controller -> scanner
@@ -55,8 +57,8 @@ type Config struct {
 	// ClientID uniquely identifies this client to the Kafka cluster.
 	ClientID string
 
-	// JobMetricsTopic is the topic name for publishing job metrics.
-	JobMetricsTopic string
+	// ServiceType identifies the type of service (e.g., "scanner", "controller")
+	ServiceType string
 }
 
 // TopicConfig defines the configuration for event routing to Kafka topics.
@@ -96,6 +98,13 @@ func NewKafkaEventBusFromConfig(
 	if metrics == nil {
 		return nil, fmt.Errorf("metrics are required for kafka event bus")
 	}
+
+	logger = logger.With(
+		"component", "kafka_event_bus",
+		"client_id", cfg.ClientID,
+		"group_id", cfg.GroupID,
+		"service_type", cfg.ServiceType,
+	)
 
 	producerConfig := sarama.NewConfig()
 	producerConfig.Producer.RequiredAcks = sarama.WaitForAll
@@ -244,10 +253,12 @@ func (k *KafkaEventBus) Subscribe(
 	defer span.End()
 
 	// Collect unique topics for the requested event types.
+	var topics []string
 	topicSet := make(map[string]struct{})
 	for _, et := range eventTypes {
 		if topic, ok := k.topicMap[et]; ok {
 			topicSet[topic] = struct{}{}
+			topics = append(topics, topic)
 		} else {
 			span.RecordError(fmt.Errorf("subscribe: unknown event type %s", et))
 			span.SetStatus(codes.Error, "unknown event type")
@@ -255,10 +266,6 @@ func (k *KafkaEventBus) Subscribe(
 		}
 	}
 
-	var topics []string
-	for t := range topicSet {
-		topics = append(topics, t)
-	}
 	span.AddEvent("topics_collected", trace.WithAttributes(attribute.StringSlice("topics", topics)))
 
 	go k.consumeLoop(ctx, topics, handler)
