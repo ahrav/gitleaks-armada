@@ -83,8 +83,9 @@ func TestTaskStore_CreateAndGet(t *testing.T) {
 
 	job := createTestScanJob(t, jobStore, ctx)
 	task := createTestTask(t, taskStore, job.JobID(), scanning.TaskStatusInProgress)
+	controllerID := "test-controller"
 
-	err := taskStore.CreateTask(ctx, task)
+	err := taskStore.CreateTask(ctx, task, controllerID)
 	require.NoError(t, err)
 
 	loaded, err := taskStore.GetTask(ctx, task.TaskID())
@@ -109,7 +110,7 @@ func TestTaskStore_UpdateTask(t *testing.T) {
 	job := createTestScanJob(t, jobStore, ctx)
 
 	task := createTestTask(t, taskStore, job.JobID(), scanning.TaskStatusInProgress)
-	err := taskStore.CreateTask(ctx, task)
+	err := taskStore.CreateTask(ctx, task, "test-controller")
 	require.NoError(t, err)
 
 	// Update task with new state.
@@ -160,7 +161,7 @@ func TestTaskStore_UpdateTask_WithCompletion(t *testing.T) {
 	job := createTestScanJob(t, jobStore, ctx)
 
 	task := createTestTask(t, taskStore, job.JobID(), scanning.TaskStatusInProgress)
-	err := taskStore.CreateTask(ctx, task)
+	err := taskStore.CreateTask(ctx, task, "test-controller")
 	require.NoError(t, err)
 
 	// Update task to completed.
@@ -192,13 +193,13 @@ func TestTaskStore_ListTasksByJobAndStatus(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		task := createTestTask(t, taskStore, jobID, status)
 		tasks[i] = task
-		err := taskStore.CreateTask(ctx, task)
+		err := taskStore.CreateTask(ctx, task, "test-controller")
 		require.NoError(t, err)
 	}
 
 	// Create a task with different status.
 	differentStatusTask := createTestTask(t, taskStore, jobID, scanning.TaskStatusCompleted)
-	err := taskStore.CreateTask(ctx, differentStatusTask)
+	err := taskStore.CreateTask(ctx, differentStatusTask, "test-controller")
 	require.NoError(t, err)
 
 	listed, err := taskStore.ListTasksByJobAndStatus(ctx, jobID, status)
@@ -231,11 +232,11 @@ func TestTaskStore_CreateDuplicate(t *testing.T) {
 	task := createTestTask(t, taskStore, job.JobID(), scanning.TaskStatusInProgress)
 
 	// First creation should succeed.
-	err := taskStore.CreateTask(ctx, task)
+	err := taskStore.CreateTask(ctx, task, "test-controller")
 	require.NoError(t, err)
 
 	// Second creation should fail.
-	err = taskStore.CreateTask(ctx, task)
+	err = taskStore.CreateTask(ctx, task, "test-controller")
 	require.Error(t, err)
 }
 
@@ -269,7 +270,7 @@ func TestTaskStore_CreateTask_NonExistentJob(t *testing.T) {
 	defer cleanup()
 
 	task := createTestTask(t, taskStore, uuid.New(), scanning.TaskStatusInProgress)
-	err := taskStore.CreateTask(ctx, task)
+	err := taskStore.CreateTask(ctx, task, "test-controller")
 	require.Error(t, err, "should fail when parent job doesn't exist")
 }
 
@@ -302,7 +303,7 @@ func TestTaskStore_GetTask_WithStallInfo(t *testing.T) {
 		0,
 	)
 
-	err := taskStore.CreateTask(ctx, task)
+	err := taskStore.CreateTask(ctx, task, "test-controller")
 	require.NoError(t, err)
 
 	err = task.MarkStale(scanning.ReasonPtr(stallReason))
@@ -355,7 +356,7 @@ func TestTaskStore_UpdateTask_StallTransition(t *testing.T) {
 			job := createTestScanJob(t, jobStore, ctx)
 
 			task := createTestTask(t, taskStore, job.JobID(), scanning.TaskStatusInProgress)
-			err := taskStore.CreateTask(ctx, task)
+			err := taskStore.CreateTask(ctx, task, "test-controller")
 			require.NoError(t, err)
 
 			err = task.MarkStale(scanning.ReasonPtr(tc.stallReason))
@@ -383,7 +384,7 @@ func TestTaskStore_GetTaskSourceType(t *testing.T) {
 
 	job := createTestScanJob(t, jobStore, ctx)
 	task := createTestTask(t, taskStore, job.JobID(), scanning.TaskStatusInProgress)
-	err := taskStore.CreateTask(ctx, task)
+	err := taskStore.CreateTask(ctx, task, "test-controller")
 	require.NoError(t, err)
 
 	sourceType, err := taskStore.GetTaskSourceType(ctx, task.TaskID())
@@ -409,7 +410,7 @@ func TestTaskStore_UpdateTask_RecoveryFromStale(t *testing.T) {
 	job := createTestScanJob(t, jobStore, ctx)
 	task := createTestTask(t, taskStore, job.JobID(), scanning.TaskStatusInProgress)
 
-	err := taskStore.CreateTask(ctx, task)
+	err := taskStore.CreateTask(ctx, task, "test-controller")
 	require.NoError(t, err)
 
 	// First stale cycle.
@@ -476,9 +477,10 @@ func TestTaskStore_FindStaleTasks(t *testing.T) {
 
 	job := createTestScanJob(t, jobStore, ctx)
 
-	// Use a fixed base time for all calculations.
+	// Use a fixed base time for all calculations
 	baseTime := time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
 	cutoff := baseTime.Add(-5 * time.Minute)
+	controllerID := "test-controller"
 
 	testCases := []struct {
 		name          string
@@ -517,55 +519,59 @@ func TestTaskStore_FindStaleTasks(t *testing.T) {
 		},
 	}
 
-	var expectedStaleTasks []*scanning.Task
+	var expectedStaleTasks []scanning.StaleTaskInfo
 	heartbeats := make(map[uuid.UUID]time.Time)
-	totalTasks := 0
+	inProgressTasks := 0 // New counter for IN_PROGRESS tasks
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			for i := 0; i < tc.count; i++ {
 				task := createTestTask(t, taskStore, job.JobID(), tc.status)
-				err := taskStore.CreateTask(ctx, task)
+				err := taskStore.CreateTask(ctx, task, controllerID)
 				require.NoError(t, err)
-				totalTasks++
 
-				// Only add heartbeats for in-progress tasks
-				if tc.lastHeartbeat != nil && tc.status == scanning.TaskStatusInProgress {
+				if tc.status == scanning.TaskStatusInProgress {
+					inProgressTasks++
+				}
+
+				if tc.lastHeartbeat != nil {
 					heartbeats[task.TaskID()] = *tc.lastHeartbeat
 				}
 
 				if tc.shouldBeStale {
-					expectedStaleTasks = append(expectedStaleTasks, task)
+					expectedStaleTasks = append(expectedStaleTasks,
+						scanning.NewStaleTaskInfo(task.TaskID(), job.JobID(), controllerID))
 				}
 			}
 		})
 	}
 
-	// Update heartbeats in batch.
+	// Update heartbeats
 	if len(heartbeats) > 0 {
 		rowsAffected, err := taskStore.BatchUpdateHeartbeats(ctx, heartbeats)
 		require.NoError(t, err)
-		require.Equal(t, int64(len(heartbeats)), rowsAffected)
+		assert.Equal(t, int64(inProgressTasks), rowsAffected,
+			"Should update all IN_PROGRESS tasks")
 	}
 
-	staleTasks, err := taskStore.FindStaleTasks(ctx, cutoff)
+	// Find stale tasks
+	staleTasks, err := taskStore.FindStaleTasks(ctx, controllerID, cutoff)
 	require.NoError(t, err)
 
+	// Verify results
 	assert.Equal(t, len(expectedStaleTasks), len(staleTasks))
-
-	// Create maps for easier comparison.
-	expectedMap := make(map[uuid.UUID]bool)
-	for _, task := range expectedStaleTasks {
-		expectedMap[task.TaskID()] = true
+	for _, expected := range expectedStaleTasks {
+		found := false
+		for _, actual := range staleTasks {
+			if actual.TaskID() == expected.TaskID() {
+				assert.Equal(t, expected.JobID(), actual.JobID())
+				assert.Equal(t, expected.ControllerID(), actual.ControllerID())
+				found = true
+				break
+			}
+		}
+		assert.True(t, found, "Expected stale task not found: %v", expected.TaskID())
 	}
-
-	actualMap := make(map[uuid.UUID]bool)
-	for _, task := range staleTasks {
-		actualMap[task.TaskID()] = true
-		assert.Equal(t, scanning.TaskStatusInProgress, task.Status())
-	}
-
-	assert.Equal(t, expectedMap, actualMap)
 }
 
 func TestTaskStore_BatchUpdateHeartbeats(t *testing.T) {
@@ -581,7 +587,7 @@ func TestTaskStore_BatchUpdateHeartbeats(t *testing.T) {
 
 	for i := range tasks {
 		task := createTestTask(t, taskStore, job.JobID(), scanning.TaskStatusInProgress)
-		err := taskStore.CreateTask(ctx, task)
+		err := taskStore.CreateTask(ctx, task, "test-controller")
 		require.NoError(t, err)
 		tasks[i] = task
 		heartbeats[task.TaskID()] = now.Add(time.Duration(i) * time.Minute)
@@ -592,7 +598,7 @@ func TestTaskStore_BatchUpdateHeartbeats(t *testing.T) {
 	require.Equal(t, int64(len(tasks)), rowsAffected)
 
 	// Verify none are stale.
-	staleTasks, err := taskStore.FindStaleTasks(ctx, now.Add(-1*time.Hour))
+	staleTasks, err := taskStore.FindStaleTasks(ctx, "test-controller", now.Add(-1*time.Hour))
 	require.NoError(t, err)
 	assert.Empty(t, staleTasks)
 

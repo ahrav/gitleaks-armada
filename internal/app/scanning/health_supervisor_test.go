@@ -16,7 +16,7 @@ import (
 // mockHeartbeatService implements HeartbeatService for testing
 type mockHeartbeatService struct {
 	updateHeartbeatsFunc func(context.Context, map[uuid.UUID]time.Time) (int64, error)
-	findStaleTasksFunc   func(context.Context, time.Time) ([]*scanning.Task, error)
+	findStaleTasksFunc   func(context.Context, string, time.Time) ([]scanning.StaleTaskInfo, error)
 }
 
 func (m *mockHeartbeatService) UpdateHeartbeats(ctx context.Context, beats map[uuid.UUID]time.Time) (int64, error) {
@@ -26,9 +26,9 @@ func (m *mockHeartbeatService) UpdateHeartbeats(ctx context.Context, beats map[u
 	return int64(len(beats)), nil
 }
 
-func (m *mockHeartbeatService) FindStaleTasks(ctx context.Context, cutoff time.Time) ([]*scanning.Task, error) {
+func (m *mockHeartbeatService) FindStaleTasks(ctx context.Context, controllerID string, cutoff time.Time) ([]scanning.StaleTaskInfo, error) {
 	if m.findStaleTasksFunc != nil {
-		return m.findStaleTasksFunc(ctx, cutoff)
+		return m.findStaleTasksFunc(ctx, controllerID, cutoff)
 	}
 	return nil, nil
 }
@@ -61,6 +61,7 @@ func TestHeartbeatMonitor_HandleHeartbeat(t *testing.T) {
 	}
 
 	heartbeatMonitor := NewTaskHealthSupervisor(
+		"test-controller",
 		heartbeatSvc,
 		&mockTaskStateHandler{},
 		noop.NewTracerProvider().Tracer("test"),
@@ -94,22 +95,22 @@ func TestHeartbeatMonitor_CheckForStaleTasks(t *testing.T) {
 		taskID          uuid.UUID
 		jobID           uuid.UUID
 		expectStale     bool
-		setupStaleTasks func() []*scanning.Task
+		setupStaleTasks func() []scanning.StaleTaskInfo
 	}{
 		{
 			name:        "stale_task_marked",
 			taskID:      uuid.New(),
 			jobID:       uuid.New(),
 			expectStale: true,
-			setupStaleTasks: func() []*scanning.Task {
-				task := scanning.NewScanTask(uuid.New(), uuid.New(), "test://resource")
-				return []*scanning.Task{task}
+			setupStaleTasks: func() []scanning.StaleTaskInfo {
+				task := scanning.NewStaleTaskInfo(uuid.New(), uuid.New(), "test://resource")
+				return []scanning.StaleTaskInfo{task}
 			},
 		},
 		{
 			name:        "no_stale_tasks",
 			expectStale: false,
-			setupStaleTasks: func() []*scanning.Task {
+			setupStaleTasks: func() []scanning.StaleTaskInfo {
 				return nil
 			},
 		},
@@ -122,7 +123,7 @@ func TestHeartbeatMonitor_CheckForStaleTasks(t *testing.T) {
 
 			var staleEventReceived bool
 			heartbeatSvc := &mockHeartbeatService{
-				findStaleTasksFunc: func(ctx context.Context, cutoff time.Time) ([]*scanning.Task, error) {
+				findStaleTasksFunc: func(ctx context.Context, controllerID string, cutoff time.Time) ([]scanning.StaleTaskInfo, error) {
 					return tt.setupStaleTasks(), nil
 				},
 			}
@@ -135,6 +136,7 @@ func TestHeartbeatMonitor_CheckForStaleTasks(t *testing.T) {
 			}
 
 			heartbeatMonitor := NewTaskHealthSupervisor(
+				"test-controller",
 				heartbeatSvc,
 				stateHandler,
 				noop.NewTracerProvider().Tracer("test"),
@@ -160,10 +162,10 @@ func TestHeartbeatMonitor_Start(t *testing.T) {
 
 	var staleEventReceived bool
 	heartbeatSvc := &mockHeartbeatService{
-		findStaleTasksFunc: func(ctx context.Context, cutoff time.Time) ([]*scanning.Task, error) {
+		findStaleTasksFunc: func(ctx context.Context, controllerID string, cutoff time.Time) ([]scanning.StaleTaskInfo, error) {
 			// As soon as the cutoff passes, we treat anything older than that as stale
-			return []*scanning.Task{
-				scanning.NewScanTask(uuid.New(), taskID, "test://resource"),
+			return []scanning.StaleTaskInfo{
+				scanning.NewStaleTaskInfo(uuid.New(), taskID, "test://resource"),
 			}, nil
 		},
 	}
@@ -176,6 +178,7 @@ func TestHeartbeatMonitor_Start(t *testing.T) {
 	}
 
 	heartbeatMonitor := NewTaskHealthSupervisor(
+		"test-controller",
 		heartbeatSvc,
 		stateHandler,
 		noop.NewTracerProvider().Tracer("test"),
@@ -209,6 +212,7 @@ func TestHeartbeatMonitor_ConcurrentAccess(t *testing.T) {
 	mockProvider := &mockTimeProvider{now: baseTime}
 
 	heartbeatMonitor := NewTaskHealthSupervisor(
+		"test-controller",
 		&mockHeartbeatService{},
 		&mockTaskStateHandler{},
 		noop.NewTracerProvider().Tracer("test"),

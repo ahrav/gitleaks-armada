@@ -18,6 +18,7 @@ import (
 // It ensures consistent state transitions and maintains accurate progress metrics
 // across the distributed system.
 type executionTracker struct {
+	controllerID    string
 	jobService      scanning.ScanJobCoordinator // Manages job and task state transitions
 	domainPublisher events.DomainEventPublisher
 	logger          *logger.Logger // Structured logging for operational visibility
@@ -28,12 +29,14 @@ type executionTracker struct {
 // The jobService handles state persistence and transitions, while logger and tracer
 // provide operational visibility into the progress tracking subsystem.
 func NewExecutionTracker(
+	controllerID string,
 	jobService scanning.ScanJobCoordinator,
 	domainPublisher events.DomainEventPublisher,
 	logger *logger.Logger,
 	tracer trace.Tracer,
 ) *executionTracker {
 	return &executionTracker{
+		controllerID:    controllerID,
 		jobService:      jobService,
 		domainPublisher: domainPublisher,
 		logger:          logger,
@@ -58,7 +61,7 @@ func (t *executionTracker) HandleTaskStart(ctx context.Context, evt scanning.Tas
 	defer span.End()
 
 	// Initialize task state in job aggregate before any other operations
-	_, err := t.jobService.StartTask(ctx, jobID, taskID, resourceURI)
+	_, err := t.jobService.StartTask(ctx, jobID, taskID, resourceURI, t.controllerID)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to start task tracking")

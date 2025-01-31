@@ -56,7 +56,7 @@ type mockTaskRepository struct {
 	mock.Mock
 }
 
-func (m *mockTaskRepository) CreateTask(ctx context.Context, task *scanning.Task) error {
+func (m *mockTaskRepository) CreateTask(ctx context.Context, task *scanning.Task, controllerID string) error {
 	return m.Called(ctx, task).Error(0)
 }
 
@@ -82,9 +82,9 @@ func (m *mockTaskRepository) ListTasksByJobAndStatus(ctx context.Context, jobID 
 	return args.Get(0).([]*scanning.Task), args.Error(1)
 }
 
-func (m *mockTaskRepository) FindStaleTasks(ctx context.Context, cutoff time.Time) ([]*scanning.Task, error) {
-	args := m.Called(ctx, cutoff)
-	return args.Get(0).([]*scanning.Task), args.Error(1)
+func (m *mockTaskRepository) FindStaleTasks(ctx context.Context, controllerID string, cutoff time.Time) ([]scanning.StaleTaskInfo, error) {
+	args := m.Called(ctx, controllerID, cutoff)
+	return args.Get(0).([]scanning.StaleTaskInfo), args.Error(1)
 }
 
 func (m *mockTaskRepository) BatchUpdateHeartbeats(ctx context.Context, heartbeats map[uuid.UUID]time.Time) (int64, error) {
@@ -292,7 +292,7 @@ func TestStartTask(t *testing.T) {
 			suite := newCoordinatorTestSuite(t)
 			tt.setup(suite)
 
-			task, err := suite.coord.StartTask(context.Background(), jobID, taskID, "https://example.com")
+			task, err := suite.coord.StartTask(context.Background(), jobID, taskID, "https://example.com", "test-controller")
 
 			if tt.wantErr {
 				require.Error(t, err)

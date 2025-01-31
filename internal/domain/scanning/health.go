@@ -35,7 +35,7 @@ type TaskHealthService interface {
 	UpdateHeartbeats(ctx context.Context, heartbeats map[uuid.UUID]time.Time) (int64, error)
 
 	// FindStaleTasks retrieves tasks that have not sent a heartbeat since the given cutoff time.
-	FindStaleTasks(ctx context.Context, cutoff time.Time) ([]*Task, error)
+	FindStaleTasks(ctx context.Context, controllerID string, cutoff time.Time) ([]StaleTaskInfo, error)
 }
 
 // TaskStateHandler defines how the system reacts to task state changes,

@@ -36,7 +36,7 @@ type ScanJobCoordinator interface {
 	// ---------------------------
 	// StartTask begins a new scanning task and updates job metrics accordingly.
 	// This is crucial for tracking progress and ensuring all targets are processed.
-	StartTask(ctx context.Context, jobID, taskID uuid.UUID, resourceURI string) (*Task, error)
+	StartTask(ctx context.Context, jobID, taskID uuid.UUID, resourceURI string, controllerID string) (*Task, error)
 
 	// UpdateTaskProgress handles incremental updates from running scanners.
 	// Updates are cached in memory and periodically persisted to reduce database load
@@ -63,7 +63,7 @@ type ScanJobCoordinator interface {
 	UpdateHeartbeats(ctx context.Context, heartbeats map[uuid.UUID]time.Time) (int64, error)
 
 	// FindStaleTasks retrieves tasks that have not sent a heartbeat since the given cutoff time.
-	FindStaleTasks(ctx context.Context, cutoff time.Time) ([]*Task, error)
+	FindStaleTasks(ctx context.Context, controllerID string, cutoff time.Time) ([]StaleTaskInfo, error)
 
 	// // RecoverTask attempts to resume execution of a previously stalled task.
 	// // It uses the last recorded checkpoint to restart the task from its last known good state.

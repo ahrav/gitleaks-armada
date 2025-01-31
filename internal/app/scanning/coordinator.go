@@ -135,11 +135,12 @@ func (s *scanJobCoordinator) loadTask(ctx context.Context, taskID uuid.UUID) (*d
 
 // StartTask initializes a new scanning task and updates the parent job's metrics.
 // The task is cached immediately to optimize subsequent progress updates.
-func (s *scanJobCoordinator) StartTask(ctx context.Context, jobID, taskID uuid.UUID, resourceURI string) (*domain.Task, error) {
+func (s *scanJobCoordinator) StartTask(ctx context.Context, jobID, taskID uuid.UUID, resourceURI string, controllerID string) (*domain.Task, error) {
 	ctx, span := s.tracer.Start(ctx, "job_service.scanning.start_task",
 		trace.WithAttributes(
 			attribute.String("job_id", jobID.String()),
 			attribute.String("task_id", taskID.String()),
+			attribute.String("controller_id", controllerID),
 		))
 	defer span.End()
 
@@ -153,7 +154,7 @@ func (s *scanJobCoordinator) StartTask(ctx context.Context, jobID, taskID uuid.U
 	// s.mu.RUnlock()
 
 	newTask := domain.NewScanTask(jobID, taskID, resourceURI)
-	if err := s.taskRepo.CreateTask(ctx, newTask); err != nil {
+	if err := s.taskRepo.CreateTask(ctx, newTask, controllerID); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to create task in repo")
 		return nil, fmt.Errorf("creating task: %w", err)
@@ -385,14 +386,15 @@ func (s *scanJobCoordinator) UpdateHeartbeats(ctx context.Context, heartbeats ma
 }
 
 // FindStaleTasks finds tasks that have not sent a heartbeat within the staleness threshold.
-func (s *scanJobCoordinator) FindStaleTasks(ctx context.Context, cutoff time.Time) ([]*domain.Task, error) {
+func (s *scanJobCoordinator) FindStaleTasks(ctx context.Context, controllerID string, cutoff time.Time) ([]domain.StaleTaskInfo, error) {
 	ctx, span := s.tracer.Start(ctx, "job_service.scanning.find_stale_tasks",
 		trace.WithAttributes(
+			attribute.String("controller_id", controllerID),
 			attribute.String("cutoff", cutoff.Format(time.RFC3339)),
 		))
 	defer span.End()
 
-	staleTasks, err := s.taskRepo.FindStaleTasks(ctx, cutoff)
+	staleTasks, err := s.taskRepo.FindStaleTasks(ctx, controllerID, cutoff)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to find stale tasks")

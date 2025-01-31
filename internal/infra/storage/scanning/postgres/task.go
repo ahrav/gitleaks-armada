@@ -45,23 +45,25 @@ func NewTaskStore(pool *pgxpool.Pool, tracer trace.Tracer) *taskStore {
 
 // CreateTask persists a new task's initial state in the database. It establishes
 // the task's relationship to its parent job and initializes monitoring state.
-func (s *taskStore) CreateTask(ctx context.Context, task *scanning.Task) error {
+func (s *taskStore) CreateTask(ctx context.Context, task *scanning.Task, controllerID string) error {
 	dbAttrs := append(
 		defaultDBAttributes,
 		attribute.String("task_id", task.TaskID().String()),
 		attribute.String("job_id", task.JobID().String()),
 		attribute.String("resource_uri", task.ResourceURI()),
 		attribute.String("status", string(task.Status())),
+		attribute.String("controller_id", controllerID),
 	)
 
 	return storage.ExecuteAndTrace(ctx, s.tracer, "postgres.create_task", dbAttrs, func(ctx context.Context) error {
 		params := db.CreateScanTaskParams{
-			TaskID:          pgtype.UUID{Bytes: task.TaskID(), Valid: true},
-			JobID:           pgtype.UUID{Bytes: task.JobID(), Valid: true},
-			ResourceUri:     task.ResourceURI(),
-			Status:          db.ScanTaskStatus(task.Status()),
-			LastSequenceNum: task.LastSequenceNum(),
-			StartTime:       pgtype.Timestamptz{Time: task.StartTime(), Valid: true},
+			TaskID:            pgtype.UUID{Bytes: task.TaskID(), Valid: true},
+			JobID:             pgtype.UUID{Bytes: task.JobID(), Valid: true},
+			ResourceUri:       task.ResourceURI(),
+			Status:            db.ScanTaskStatus(task.Status()),
+			LastSequenceNum:   task.LastSequenceNum(),
+			StartTime:         pgtype.Timestamptz{Time: task.StartTime(), Valid: true},
+			OwnerControllerID: controllerID,
 		}
 
 		err := s.q.CreateScanTask(ctx, params)
@@ -279,20 +281,23 @@ func (s *taskStore) GetTaskSourceType(ctx context.Context, taskID uuid.UUID) (sh
 }
 
 // FindStaleTasks retrieves tasks that have not sent a heartbeat since the given cutoff time.
-func (s *taskStore) FindStaleTasks(ctx context.Context, cutoff time.Time) ([]*scanning.Task, error) {
+func (s *taskStore) FindStaleTasks(ctx context.Context, controllerID string, cutoff time.Time) ([]scanning.StaleTaskInfo, error) {
 	dbAttrs := append(
 		defaultDBAttributes,
 		attribute.String("cutoff", cutoff.String()),
 	)
 
-	var tasks []*scanning.Task
+	var tasks []scanning.StaleTaskInfo
 
 	err := storage.ExecuteAndTrace(ctx, s.tracer, "postgres.find_stale_tasks", dbAttrs, func(ctx context.Context) error {
 		span := trace.SpanFromContext(ctx)
 
-		rows, err := s.q.FindStaleTasks(ctx, pgtype.Timestamptz{
-			Time:  cutoff,
-			Valid: true,
+		rows, err := s.q.FindStaleTasks(ctx, db.FindStaleTasksParams{
+			OwnerControllerID: controllerID,
+			LastHeartbeatAt: pgtype.Timestamptz{
+				Time:  cutoff,
+				Valid: true,
+			},
 		})
 		if err != nil {
 			return fmt.Errorf("FindStaleTasks query error: %w", err)
@@ -300,37 +305,7 @@ func (s *taskStore) FindStaleTasks(ctx context.Context, cutoff time.Time) ([]*sc
 		span.SetAttributes(attribute.Int("num_tasks", len(rows)))
 
 		for _, row := range rows {
-			var checkpoint *scanning.Checkpoint
-			if len(row.LastCheckpoint) > 0 {
-				var cp scanning.Checkpoint
-				if jerr := json.Unmarshal(row.LastCheckpoint, &cp); jerr == nil {
-					checkpoint = &cp
-				}
-			}
-
-			var stallReason *scanning.StallReason
-			if row.StallReason.Valid {
-				r := scanning.StallReason(row.StallReason.ScanTaskStallReason)
-				stallReason = &r
-			}
-
-			task := scanning.ReconstructTask(
-				row.TaskID.Bytes,
-				row.JobID.Bytes,
-				row.ResourceUri,
-				scanning.TaskStatus(row.Status),
-				row.LastSequenceNum,
-				row.LastHeartbeatAt.Time,
-				row.StartTime.Time,
-				row.EndTime.Time,
-				row.ItemsProcessed,
-				row.ProgressDetails,
-				checkpoint,
-				stallReason,
-				row.StalledAt.Time,
-				int(row.RecoveryAttempts),
-			)
-			tasks = append(tasks, task)
+			tasks = append(tasks, scanning.NewStaleTaskInfo(row.TaskID.Bytes, row.JobID.Bytes, controllerID))
 		}
 		return nil
 	})

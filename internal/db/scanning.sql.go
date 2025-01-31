@@ -77,6 +77,7 @@ const createScanTask = `-- name: CreateScanTask :exec
 INSERT INTO scan_tasks (
     task_id,
     job_id,
+    owner_controller_id,
     status,
     resource_uri,
     last_sequence_num,
@@ -84,26 +85,29 @@ INSERT INTO scan_tasks (
 ) VALUES (
     $1, -- task_id UUID
     $2, -- job_id UUID
-    $3, -- status TEXT (TaskStatus)
-    $4, -- resource_uri VARCHAR(1024)
-    $5, -- last_sequence_num BIGINT
-    $6 -- start_time TIMESTAMPTZ
+    $3, -- owner_controller_id VARCHAR(255)
+    $4, -- status TEXT (TaskStatus)
+    $5, -- resource_uri VARCHAR(1024)
+    $6, -- last_sequence_num BIGINT
+    $7 -- start_time TIMESTAMPTZ
 )
 `
 
 type CreateScanTaskParams struct {
-	TaskID          pgtype.UUID
-	JobID           pgtype.UUID
-	Status          ScanTaskStatus
-	ResourceUri     string
-	LastSequenceNum int64
-	StartTime       pgtype.Timestamptz
+	TaskID            pgtype.UUID
+	JobID             pgtype.UUID
+	OwnerControllerID string
+	Status            ScanTaskStatus
+	ResourceUri       string
+	LastSequenceNum   int64
+	StartTime         pgtype.Timestamptz
 }
 
 func (q *Queries) CreateScanTask(ctx context.Context, arg CreateScanTaskParams) error {
 	_, err := q.db.Exec(ctx, createScanTask,
 		arg.TaskID,
 		arg.JobID,
+		arg.OwnerControllerID,
 		arg.Status,
 		arg.ResourceUri,
 		arg.LastSequenceNum,
@@ -116,6 +120,7 @@ const findStaleTasks = `-- name: FindStaleTasks :many
 SELECT
     t.task_id,
     t.job_id,
+    t.owner_controller_id,
     t.status,
     t.resource_uri,
     t.last_sequence_num,
@@ -132,30 +137,37 @@ SELECT
     t.updated_at
 FROM scan_tasks t
 WHERE t.status = 'IN_PROGRESS'
-  AND t.last_heartbeat_at < $1
+  AND t.owner_controller_id = $1
+  AND t.last_heartbeat_at < $2
 `
 
-type FindStaleTasksRow struct {
-	TaskID           pgtype.UUID
-	JobID            pgtype.UUID
-	Status           ScanTaskStatus
-	ResourceUri      string
-	LastSequenceNum  int64
-	StartTime        pgtype.Timestamptz
-	EndTime          pgtype.Timestamptz
-	ItemsProcessed   int64
-	ProgressDetails  []byte
-	LastCheckpoint   []byte
-	StallReason      NullScanTaskStallReason
-	StalledAt        pgtype.Timestamptz
-	RecoveryAttempts int32
-	LastHeartbeatAt  pgtype.Timestamptz
-	CreatedAt        pgtype.Timestamptz
-	UpdatedAt        pgtype.Timestamptz
+type FindStaleTasksParams struct {
+	OwnerControllerID string
+	LastHeartbeatAt   pgtype.Timestamptz
 }
 
-func (q *Queries) FindStaleTasks(ctx context.Context, lastHeartbeatAt pgtype.Timestamptz) ([]FindStaleTasksRow, error) {
-	rows, err := q.db.Query(ctx, findStaleTasks, lastHeartbeatAt)
+type FindStaleTasksRow struct {
+	TaskID            pgtype.UUID
+	JobID             pgtype.UUID
+	OwnerControllerID string
+	Status            ScanTaskStatus
+	ResourceUri       string
+	LastSequenceNum   int64
+	StartTime         pgtype.Timestamptz
+	EndTime           pgtype.Timestamptz
+	ItemsProcessed    int64
+	ProgressDetails   []byte
+	LastCheckpoint    []byte
+	StallReason       NullScanTaskStallReason
+	StalledAt         pgtype.Timestamptz
+	RecoveryAttempts  int32
+	LastHeartbeatAt   pgtype.Timestamptz
+	CreatedAt         pgtype.Timestamptz
+	UpdatedAt         pgtype.Timestamptz
+}
+
+func (q *Queries) FindStaleTasks(ctx context.Context, arg FindStaleTasksParams) ([]FindStaleTasksRow, error) {
+	rows, err := q.db.Query(ctx, findStaleTasks, arg.OwnerControllerID, arg.LastHeartbeatAt)
 	if err != nil {
 		return nil, err
 	}
@@ -166,6 +178,7 @@ func (q *Queries) FindStaleTasks(ctx context.Context, lastHeartbeatAt pgtype.Tim
 		if err := rows.Scan(
 			&i.TaskID,
 			&i.JobID,
+			&i.OwnerControllerID,
 			&i.Status,
 			&i.ResourceUri,
 			&i.LastSequenceNum,

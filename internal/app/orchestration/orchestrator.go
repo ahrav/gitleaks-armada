@@ -124,6 +124,7 @@ func NewOrchestrator(
 	)
 
 	executionTracker := scan.NewExecutionTracker(
+		id,
 		o.scanningCoordinator,
 		eventPublisher,
 		logger,
@@ -131,6 +132,7 @@ func NewOrchestrator(
 	)
 
 	o.taskHealthSupervisor = scan.NewTaskHealthSupervisor(
+		id,
 		o.scanningCoordinator,
 		executionTracker,
 		tracer,

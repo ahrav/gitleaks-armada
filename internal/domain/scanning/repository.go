@@ -52,7 +52,7 @@ type JobRepository interface {
 // task state and progress data.
 type TaskRepository interface {
 	// CreateTask persists a new task's initial state.
-	CreateTask(ctx context.Context, task *Task) error
+	CreateTask(ctx context.Context, task *Task, controllerID string) error
 
 	// GetTask retrieves a task's current state.
 	GetTask(ctx context.Context, taskID uuid.UUID) (*Task, error)
@@ -63,8 +63,9 @@ type TaskRepository interface {
 	// GetTaskSourceType retrieves the source type for a task from the core tasks table
 	GetTaskSourceType(ctx context.Context, taskID uuid.UUID) (shared.SourceType, error)
 
-	// FindStaleTasks retrieves tasks that have not sent a heartbeat since the given cutoff time.
-	FindStaleTasks(ctx context.Context, cutoff time.Time) ([]*Task, error)
+	// FindStaleTasks retrieves tasks that have not sent a heartbeat since the given cutoff time
+	// and belong to the specified controller.
+	FindStaleTasks(ctx context.Context, controllerID string, cutoff time.Time) ([]StaleTaskInfo, error)
 
 	// BatchUpdateHeartbeats updates each task's last_heartbeat_at timestamp.
 	BatchUpdateHeartbeats(ctx context.Context, heartbeats map[uuid.UUID]time.Time) (int64, error)

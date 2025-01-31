@@ -36,8 +36,8 @@ func (m *mockScanJobCoordinator) LinkTargets(ctx context.Context, jobID uuid.UUI
 	return m.Called(ctx, jobID, targets).Error(0)
 }
 
-func (m *mockScanJobCoordinator) StartTask(ctx context.Context, jobID, taskID uuid.UUID, resourceURI string) (*scanning.Task, error) {
-	args := m.Called(ctx, jobID, taskID, resourceURI)
+func (m *mockScanJobCoordinator) StartTask(ctx context.Context, jobID, taskID uuid.UUID, resourceURI string, controllerID string) (*scanning.Task, error) {
+	args := m.Called(ctx, jobID, taskID, resourceURI, controllerID)
 	if task := args.Get(0); task != nil {
 		return task.(*scanning.Task), args.Error(1)
 	}
@@ -105,9 +105,9 @@ func (m *mockScanJobCoordinator) GetTask(ctx context.Context, taskID uuid.UUID) 
 	return nil, args.Error(1)
 }
 
-func (m *mockScanJobCoordinator) FindStaleTasks(ctx context.Context, cutoff time.Time) ([]*scanning.Task, error) {
-	args := m.Called(ctx, cutoff)
-	return args.Get(0).([]*scanning.Task), args.Error(1)
+func (m *mockScanJobCoordinator) FindStaleTasks(ctx context.Context, controllerID string, cutoff time.Time) ([]scanning.StaleTaskInfo, error) {
+	args := m.Called(ctx, controllerID, cutoff)
+	return args.Get(0).([]scanning.StaleTaskInfo), args.Error(1)
 }
 
 func (m *mockScanJobCoordinator) UpdateHeartbeats(ctx context.Context, heartbeats map[uuid.UUID]time.Time) (int64, error) {
@@ -142,7 +142,7 @@ func newTrackerTestSuite(t *testing.T) *trackerTestSuite {
 		domainPublisher: domainPublisher,
 		logger:          logger,
 		tracer:          tracer,
-		tracker:         NewExecutionTracker(jobCoordinator, domainPublisher, logger, tracer),
+		tracker:         NewExecutionTracker("test-controller", jobCoordinator, domainPublisher, logger, tracer),
 	}
 }
 
@@ -156,7 +156,7 @@ func TestExecutionTracker_StartTracking(t *testing.T) {
 		{
 			name: "successful task start",
 			setup: func(m *mockScanJobCoordinator) {
-				m.On("StartTask", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+				m.On("StartTask", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(new(scanning.Task), nil)
 			},
 			event:   scanning.TaskStartedEvent{JobID: uuid.New(), TaskID: uuid.New()},
@@ -165,7 +165,7 @@ func TestExecutionTracker_StartTracking(t *testing.T) {
 		{
 			name: "coordinator failure",
 			setup: func(m *mockScanJobCoordinator) {
-				m.On("StartTask", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+				m.On("StartTask", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(nil, errors.New("coordinator failure"))
 			},
 			event:   scanning.TaskStartedEvent{JobID: uuid.New(), TaskID: uuid.New()},
@@ -243,7 +243,7 @@ func TestExecutionTracker_FullScanningLifecycle(t *testing.T) {
 	resourceURI := "https://example.com"
 
 	// Setup expectations for the full lifecycle.
-	suite.jobCoordinator.On("StartTask", mock.Anything, jobID, taskID, resourceURI).
+	suite.jobCoordinator.On("StartTask", mock.Anything, jobID, taskID, resourceURI, "test-controller").
 		Return(new(scanning.Task), nil)
 	suite.jobCoordinator.On("UpdateTaskProgress", mock.Anything, mock.Anything).
 		Return(new(scanning.Task), nil).Times(3)

@@ -48,6 +48,8 @@ type taskHealthSupervisor struct {
 	mu             sync.RWMutex
 	heartbeatCache map[uuid.UUID]time.Time
 
+	// ID of the controller in order to only check for stale tasks for that controller
+	controllerID string
 	// cancel allows graceful shutdown of background goroutines
 	cancel context.CancelCauseFunc
 
@@ -64,12 +66,14 @@ type taskHealthSupervisor struct {
 // by tracking heartbeats and detecting stale tasks. It uses the provided TaskHealthService
 // for persistence and task state management.
 func NewTaskHealthSupervisor(
+	controllerID string,
 	healthSvc scanning.TaskHealthService,
 	stateHandler scanning.TaskStateHandler,
 	tracer trace.Tracer,
 	logger *logger.Logger,
 ) *taskHealthSupervisor {
 	return &taskHealthSupervisor{
+		controllerID:       controllerID,
 		healthSvc:          healthSvc,
 		stateHandler:       stateHandler,
 		flushInterval:      3 * time.Second,
@@ -175,7 +179,7 @@ func (h *taskHealthSupervisor) checkForStaleTasks(ctx context.Context) {
 	now := h.timeProvider.Now()
 	cutoff := now.Add(-h.stalenessThreshold)
 
-	staleTasks, err := h.healthSvc.FindStaleTasks(ctx, cutoff)
+	staleTasks, err := h.healthSvc.FindStaleTasks(ctx, h.controllerID, cutoff)
 	if err != nil {
 		h.logger.Error(ctx, "Failed to find stale tasks", "err", err)
 		span.SetStatus(codes.Error, "failed to find stale tasks")

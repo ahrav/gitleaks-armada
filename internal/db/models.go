@@ -402,22 +402,23 @@ type ScanTarget struct {
 }
 
 type ScanTask struct {
-	TaskID           pgtype.UUID
-	JobID            pgtype.UUID
-	Status           ScanTaskStatus
-	ResourceUri      string
-	LastSequenceNum  int64
-	LastHeartbeatAt  pgtype.Timestamptz
-	StartTime        pgtype.Timestamptz
-	EndTime          pgtype.Timestamptz
-	ItemsProcessed   int64
-	ProgressDetails  []byte
-	LastCheckpoint   []byte
-	StallReason      NullScanTaskStallReason
-	RecoveryAttempts int32
-	StalledAt        pgtype.Timestamptz
-	CreatedAt        pgtype.Timestamptz
-	UpdatedAt        pgtype.Timestamptz
+	TaskID            pgtype.UUID
+	JobID             pgtype.UUID
+	OwnerControllerID string
+	Status            ScanTaskStatus
+	ResourceUri       string
+	LastSequenceNum   int64
+	LastHeartbeatAt   pgtype.Timestamptz
+	StartTime         pgtype.Timestamptz
+	EndTime           pgtype.Timestamptz
+	ItemsProcessed    int64
+	ProgressDetails   []byte
+	LastCheckpoint    []byte
+	StallReason       NullScanTaskStallReason
+	RecoveryAttempts  int32
+	StalledAt         pgtype.Timestamptz
+	CreatedAt         pgtype.Timestamptz
+	UpdatedAt         pgtype.Timestamptz
 }
 
 type Task struct {
