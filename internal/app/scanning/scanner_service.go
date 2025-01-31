@@ -438,12 +438,12 @@ func (s *ScannerService) handleScanTask(ctx context.Context, req *dtos.ScanReque
 	}
 	if err := s.domainPublisher.PublishDomainEvent(
 		ctx,
-		scanning.NewTaskJobMetricEvent(req.JobID, req.TaskID, domain.TaskStatusInProgress),
+		scanning.NewTaskJobMetricEvent(req.JobID, req.TaskID, domain.TaskStatusPending),
 		events.WithKey(req.JobID.String()),
 	); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to publish task job metric event")
-		return fmt.Errorf("ScannerService: failed to publish task job metric event during execute_scan_task: %w", err)
+		return fmt.Errorf("ScannerService: failed to publish task job metric task pending event: %w", err)
 	}
 
 	span.AddEvent("task_started_event_published")
@@ -463,6 +463,15 @@ func (s *ScannerService) executeScanTask(ctx context.Context, req *dtos.ScanRequ
 	defer span.End()
 
 	err := s.metrics.TrackTask(ctx, func() error {
+		if err := s.domainPublisher.PublishDomainEvent(
+			ctx,
+			scanning.NewTaskJobMetricEvent(req.JobID, req.TaskID, domain.TaskStatusInProgress),
+			events.WithKey(req.JobID.String()),
+		); err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "failed to publish task job metric event")
+			return fmt.Errorf("ScannerService: failed to publish task job metric task in progress event: %w", err)
+		}
 		streamResult := s.secretScanner.Scan(ctx, req, s.progressReporter)
 		span.AddEvent("streaming_scan_started")
 
@@ -484,7 +493,7 @@ func (s *ScannerService) executeScanTask(ctx context.Context, req *dtos.ScanRequ
 			); err != nil {
 				span.RecordError(err)
 				span.SetStatus(codes.Error, "failed to publish task failed event")
-				return fmt.Errorf("ScannerService: failed to publish task failed event during execute_scan_task: %w", err)
+				return fmt.Errorf("ScannerService: failed to publish task failed event: %w", err)
 			}
 			if err := s.domainPublisher.PublishDomainEvent(
 				ctx,
@@ -493,7 +502,7 @@ func (s *ScannerService) executeScanTask(ctx context.Context, req *dtos.ScanRequ
 			); err != nil {
 				span.RecordError(err)
 				span.SetStatus(codes.Error, "failed to publish task job metric event")
-				return fmt.Errorf("ScannerService: failed to publish task job metric event during execute_scan_task: %w", err)
+				return fmt.Errorf("ScannerService: failed to publish task job metric task failed event: %w", err)
 			}
 			span.AddEvent("task_failed_event_published")
 			return fmt.Errorf("ScannerService: failed to track task: %w", err)
@@ -517,7 +526,7 @@ func (s *ScannerService) executeScanTask(ctx context.Context, req *dtos.ScanRequ
 	); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to publish task completed event")
-		return fmt.Errorf("ScannerService: failed to publish task completed event during execute_scan_task: %w", err)
+		return fmt.Errorf("ScannerService: failed to publish task completed event: %w", err)
 	}
 	if err := s.domainPublisher.PublishDomainEvent(
 		ctx,
@@ -526,7 +535,7 @@ func (s *ScannerService) executeScanTask(ctx context.Context, req *dtos.ScanRequ
 	); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to publish task job metric event")
-		return fmt.Errorf("ScannerService: failed to publish task job metric event during execute_scan_task: %w", err)
+		return fmt.Errorf("ScannerService: failed to publish task job metric task completed event: %w", err)
 	}
 
 	span.AddEvent("task_completed_event_published")
