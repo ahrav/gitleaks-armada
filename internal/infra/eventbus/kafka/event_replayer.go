@@ -3,6 +3,8 @@ package kafka
 import (
 	"context"
 	"fmt"
+	"sync"
+	"time"
 
 	"github.com/IBM/sarama"
 	"go.opentelemetry.io/otel/attribute"
@@ -45,14 +47,35 @@ type ReplayConfig struct {
 	Topics  []string
 }
 
-// EventReplayer is responsible for replaying events from Kafka topics
+// EventReplayerMetrics defines metrics operations needed to monitor event replay operations.
+type EventReplayerMetrics interface {
+	// Replay metrics.
+	IncReplayStarted(ctx context.Context)
+	IncReplayCompleted(ctx context.Context)
+	IncReplayErrors(ctx context.Context)
+
+	// Message metrics.
+	IncMessageReplayed(ctx context.Context, topic string)
+	IncMessageReplayError(ctx context.Context, topic string)
+
+	// Batch metrics.
+	ObserveReplayBatchSize(ctx context.Context, size int)
+	ObserveReplayDuration(ctx context.Context, duration time.Duration)
+}
+
+var _ events.EventReplayer = (*eventReplayer)(nil)
+
+// eventReplayer is responsible for replaying events from Kafka topics
 // starting from a specified position.
-type EventReplayer struct {
-	client  sarama.Client
-	config  *ReplayConfig
+type eventReplayer struct {
+	config *ReplayConfig
+
+	client     sarama.Client
+	shutdownWg sync.WaitGroup
+
 	logger  *logger.Logger
 	tracer  trace.Tracer
-	metrics BrokerMetrics
+	metrics EventReplayerMetrics
 }
 
 // NewEventReplayer creates a new EventReplayer instance with the provided configuration,
@@ -62,9 +85,9 @@ func NewEventReplayer(
 	controllerID string,
 	cfg *ReplayConfig,
 	logger *logger.Logger,
-	metrics BrokerMetrics,
+	metrics EventReplayerMetrics,
 	tracer trace.Tracer,
-) (*EventReplayer, error) {
+) (*eventReplayer, error) {
 	config := sarama.NewConfig()
 	config.Consumer.Return.Errors = true
 	config.Version = sarama.V2_8_0_0
@@ -76,7 +99,7 @@ func NewEventReplayer(
 		return nil, fmt.Errorf("creating kafka client: %w", err)
 	}
 
-	return &EventReplayer{
+	return &eventReplayer{
 		client:  client,
 		config:  cfg,
 		logger:  logger,
@@ -88,10 +111,11 @@ func NewEventReplayer(
 // ReplayEvents replays events from Kafka starting from the specified position.
 // It returns a channel of events.EventEnvelope that will receive the replayed events.
 // The method handles errors and logs them appropriately.
-func (r *EventReplayer) ReplayEvents(
+func (r *eventReplayer) ReplayEvents(
 	ctx context.Context,
 	from events.StreamPosition,
 ) (<-chan events.EventEnvelope, error) {
+	r.metrics.IncReplayStarted(ctx)
 	evtLogger := r.logger.With("position", from.Identifier())
 	// Create an outer span for parameter validation and consumer creation.
 	ctx, span := r.tracer.Start(ctx, "kafka_replayer.replay_events", trace.WithAttributes(
@@ -101,6 +125,7 @@ func (r *EventReplayer) ReplayEvents(
 	defer span.End()
 
 	if err := from.Validate(); err != nil {
+		r.metrics.IncReplayErrors(ctx)
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "invalid position")
 		return nil, fmt.Errorf("invalid position: %w", err)
@@ -112,6 +137,7 @@ func (r *EventReplayer) ReplayEvents(
 		offset    int64
 	)
 	if _, err := fmt.Sscanf(identifier, "%d:%d", &partition, &offset); err != nil {
+		r.metrics.IncReplayErrors(ctx)
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "invalid position identifier format")
 		return nil, fmt.Errorf("invalid position identifier format: %w", err)
@@ -123,6 +149,7 @@ func (r *EventReplayer) ReplayEvents(
 
 	consumer, err := sarama.NewConsumerFromClient(r.client)
 	if err != nil {
+		r.metrics.IncReplayErrors(ctx)
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "creating consumer")
 		return nil, fmt.Errorf("creating consumer: %w", err)
@@ -136,10 +163,14 @@ func (r *EventReplayer) ReplayEvents(
 	eventCh := make(chan events.EventEnvelope, 1)
 
 	// Start consuming in a separate goroutine to stream events to the caller.
+	r.shutdownWg.Add(1)
 	go func() {
-		// Ensure we close the event channel and the consumer.
-		defer close(eventCh)
+		startTime := time.Now()
 		defer func() {
+			r.metrics.ObserveReplayDuration(ctx, time.Since(startTime))
+			r.metrics.IncReplayCompleted(ctx)
+			r.shutdownWg.Done()
+			close(eventCh)
 			if err := consumer.Close(); err != nil {
 				evtLogger.Error(ctx, "Error closing consumer", "error", err)
 			}
@@ -153,11 +184,11 @@ func (r *EventReplayer) ReplayEvents(
 				attribute.Int64("partition", int64(partition)),
 				attribute.Int64("offset", offset),
 			))
-			// (Note: Instead of deferring topicSpan.End() here, we’ll end it explicitly when the topic is done.)
 			topicLogger := logger.NewLoggerContext(evtLogger.With("topic", topic, "partition", partition, "offset", offset))
 
 			partitionConsumer, err := consumer.ConsumePartition(topic, partition, offset)
 			if err != nil {
+				r.metrics.IncReplayErrors(topicCtx)
 				topicLogger.Error(topicCtx, "Failed to create partition consumer", "error", err)
 				topicSpan.RecordError(err)
 				topicSpan.SetStatus(codes.Error, "failed to create partition consumer")
@@ -167,70 +198,7 @@ func (r *EventReplayer) ReplayEvents(
 			}
 			topicSpan.AddEvent("partition_consumer_created")
 
-			// Wrap the partition consumer loop in its own function scope so that
-			// we can use a defer to close the partition consumer without affecting
-			// subsequent iterations.
-			// TODO: maybe extract into a helper function?
-			func() {
-				defer partitionConsumer.Close()
-
-				var msgCount int64 = 0
-				for {
-					select {
-					case msg := <-partitionConsumer.Messages():
-						evtType, domainBytes, err := serialization.UnmarshalUniversalEnvelope(msg.Value)
-						if err != nil {
-							topicLogger.Error(topicCtx, "Failed to unmarshal event", "error", err, "msg_offset", msg.Offset)
-							topicSpan.RecordError(err)
-							continue
-						}
-
-						payload, err := serialization.DeserializePayload(evtType, domainBytes)
-						if err != nil {
-							topicLogger.Error(topicCtx, "Failed to deserialize payload", "error", err, "msg_offset", msg.Offset)
-							topicSpan.RecordError(err)
-							continue
-						}
-
-						evt := events.EventEnvelope{
-							Type:      evtType,
-							Key:       string(msg.Key),
-							Timestamp: msg.Timestamp,
-							Payload:   payload,
-							Metadata: events.EventMetadata{
-								Partition: msg.Partition,
-								Offset:    msg.Offset,
-							},
-						}
-
-						select {
-						case eventCh <- evt:
-							topicLogger.Debug(topicCtx, "Replayed event", "msg_offset", msg.Offset)
-						case <-topicCtx.Done():
-							topicSpan.AddEvent("context cancelled")
-							return
-						}
-
-						msgCount++
-						// Every 100 messages, record a batch event instead of starting a new span per message.
-						if msgCount%100 == 0 {
-							topicSpan.AddEvent("processed_100_messages", trace.WithAttributes(
-								attribute.Int64("msg_count", msgCount),
-							))
-						}
-
-					case <-topicCtx.Done():
-						topicSpan.AddEvent("context cancelled")
-						return
-
-					case err := <-partitionConsumer.Errors():
-						topicLogger.Error(topicCtx, "Error consuming message", "error", err)
-						topicSpan.RecordError(err)
-					}
-				}
-			}() // end of partitionConsumer loop
-
-			// End the topic-specific span once its work is done.
+			r.processPartitionMessages(topicCtx, partitionConsumer, topicLogger, eventCh, topic)
 			topicSpan.End()
 		}
 	}()
@@ -238,8 +206,91 @@ func (r *EventReplayer) ReplayEvents(
 	return eventCh, nil
 }
 
+// processPartitionMessages processes messages from a Kafka partition consumer.
+// It handles message deserialization, error handling, and sends events to the provided channel.
+// The method maintains tracing and logging context throughout message processing.
+func (r *eventReplayer) processPartitionMessages(
+	ctx context.Context,
+	partitionConsumer sarama.PartitionConsumer,
+	logger *logger.LoggerContext,
+	eventCh chan<- events.EventEnvelope,
+	topic string,
+) {
+	span := trace.SpanFromContext(ctx)
+	defer partitionConsumer.Close()
+
+	var msgCount int64 = 0
+	batchSize := 0
+	for {
+		select {
+		case msg := <-partitionConsumer.Messages():
+			evtType, domainBytes, err := serialization.UnmarshalUniversalEnvelope(msg.Value)
+			if err != nil {
+				r.metrics.IncMessageReplayError(ctx, topic)
+				logger.Error(ctx, "Failed to unmarshal event", "error", err, "msg_offset", msg.Offset)
+				span.RecordError(err)
+				continue
+			}
+
+			payload, err := serialization.DeserializePayload(evtType, domainBytes)
+			if err != nil {
+				r.metrics.IncMessageReplayError(ctx, topic)
+				logger.Error(ctx, "Failed to deserialize payload", "error", err, "msg_offset", msg.Offset)
+				span.RecordError(err)
+				continue
+			}
+
+			evt := events.EventEnvelope{
+				Type:      evtType,
+				Key:       string(msg.Key),
+				Timestamp: msg.Timestamp,
+				Payload:   payload,
+				Metadata: events.EventMetadata{
+					Partition: msg.Partition,
+					Offset:    msg.Offset,
+				},
+			}
+
+			select {
+			case eventCh <- evt:
+				r.metrics.IncMessageReplayed(ctx, topic)
+				logger.Debug(ctx, "Replayed event", "msg_offset", msg.Offset)
+			case <-ctx.Done():
+				span.AddEvent("context cancelled")
+				return
+			}
+
+			msgCount++
+			batchSize++
+			// Every 100 messages, record a batch event instead of starting a new span per message.
+			// TODO: Maybe make this configurable after we have a better understanding of how often this happens.
+			if msgCount%100 == 0 {
+				r.metrics.ObserveReplayBatchSize(ctx, batchSize)
+				batchSize = 0
+				span.AddEvent("processed_100_messages", trace.WithAttributes(
+					attribute.Int64("msg_count", msgCount),
+				))
+			}
+
+		case <-ctx.Done():
+			if batchSize > 0 {
+				r.metrics.ObserveReplayBatchSize(ctx, batchSize)
+			}
+			span.AddEvent("context cancelled")
+			return
+
+		case err := <-partitionConsumer.Errors():
+			r.metrics.IncMessageReplayError(ctx, topic)
+			logger.Error(ctx, "Error consuming message", "error", err)
+			span.RecordError(err)
+		}
+	}
+}
+
 // Close closes the Kafka client associated with the EventReplayer.
 // It should be called to clean up resources when the EventReplayer is no longer needed.
-func (r *EventReplayer) Close() error {
+// Note: Close should only be called once. Calling it multiple times will result in an panic.
+func (r *eventReplayer) Close() error {
+	r.shutdownWg.Wait()
 	return r.client.Close()
 }

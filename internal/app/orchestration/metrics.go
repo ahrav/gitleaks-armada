@@ -12,8 +12,11 @@ import (
 
 // OrchestrationMetrics defines metrics operations needed by the orchestrator.
 type OrchestrationMetrics interface {
-	// Messaging metrics
-	kafka.BrokerMetrics
+	// EventBus metrics.
+	kafka.EventBusMetrics
+
+	// EventReplayer metrics.
+	kafka.EventReplayerMetrics
 
 	// Leader election metrics
 	SetLeaderStatus(ctx context.Context, isLeader bool)
@@ -84,6 +87,15 @@ type orchestrationMetrics struct {
 	jobsCreated           metric.Int64Counter
 	jobsCompleted         metric.Int64Counter
 	jobsFailed            metric.Int64Counter
+
+	// Event replay metrics
+	replayStarted       metric.Int64Counter
+	replayCompleted     metric.Int64Counter
+	replayErrors        metric.Int64Counter
+	messagesReplayed    metric.Int64Counter
+	messageReplayErrors metric.Int64Counter
+	replayBatchSize     metric.Int64Histogram
+	replayDuration      metric.Float64Histogram
 }
 
 const namespace = "controller"
@@ -270,6 +282,55 @@ func NewOrchestrationMetrics(mp metric.MeterProvider) (*orchestrationMetrics, er
 		return nil, err
 	}
 
+	if c.replayStarted, err = meter.Int64Counter(
+		"replay_started_total",
+		metric.WithDescription("Total number of event replay operations started"),
+	); err != nil {
+		return nil, err
+	}
+
+	if c.replayCompleted, err = meter.Int64Counter(
+		"replay_completed_total",
+		metric.WithDescription("Total number of event replay operations completed successfully"),
+	); err != nil {
+		return nil, err
+	}
+
+	if c.replayErrors, err = meter.Int64Counter(
+		"replay_errors_total",
+		metric.WithDescription("Total number of event replay operation failures"),
+	); err != nil {
+		return nil, err
+	}
+
+	if c.messagesReplayed, err = meter.Int64Counter(
+		"messages_replayed_total",
+		metric.WithDescription("Total number of messages replayed"),
+	); err != nil {
+		return nil, err
+	}
+
+	if c.messageReplayErrors, err = meter.Int64Counter(
+		"message_replay_errors_total",
+		metric.WithDescription("Total number of message replay errors"),
+	); err != nil {
+		return nil, err
+	}
+
+	if c.replayBatchSize, err = meter.Int64Histogram(
+		"replay_batch_size",
+		metric.WithDescription("Size of message batches during replay"),
+	); err != nil {
+		return nil, err
+	}
+
+	if c.replayDuration, err = meter.Float64Histogram(
+		"replay_duration_seconds",
+		metric.WithDescription("Duration of replay operations in seconds"),
+	); err != nil {
+		return nil, err
+	}
+
 	return c, nil
 }
 
@@ -367,4 +428,33 @@ func (c *orchestrationMetrics) IncJobsCompleted(ctx context.Context) {
 
 func (c *orchestrationMetrics) IncJobsFailed(ctx context.Context) {
 	c.jobsFailed.Add(ctx, 1)
+}
+
+// EventReplayerMetrics implementation
+func (c *orchestrationMetrics) IncReplayStarted(ctx context.Context) {
+	c.replayStarted.Add(ctx, 1)
+}
+
+func (c *orchestrationMetrics) IncReplayCompleted(ctx context.Context) {
+	c.replayCompleted.Add(ctx, 1)
+}
+
+func (c *orchestrationMetrics) IncReplayErrors(ctx context.Context) {
+	c.replayErrors.Add(ctx, 1)
+}
+
+func (c *orchestrationMetrics) IncMessageReplayed(ctx context.Context, topic string) {
+	c.messagesReplayed.Add(ctx, 1, metric.WithAttributes(attribute.String("topic", topic)))
+}
+
+func (c *orchestrationMetrics) IncMessageReplayError(ctx context.Context, topic string) {
+	c.messageReplayErrors.Add(ctx, 1, metric.WithAttributes(attribute.String("topic", topic)))
+}
+
+func (c *orchestrationMetrics) ObserveReplayBatchSize(ctx context.Context, size int) {
+	c.replayBatchSize.Record(ctx, int64(size))
+}
+
+func (c *orchestrationMetrics) ObserveReplayDuration(ctx context.Context, duration time.Duration) {
+	c.replayDuration.Record(ctx, duration.Seconds())
 }

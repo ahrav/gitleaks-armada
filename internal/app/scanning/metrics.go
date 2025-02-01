@@ -13,8 +13,8 @@ import (
 
 // ScannerMetrics defines metrics operations needed by the scanner.
 type ScannerMetrics interface {
-	kafka.BrokerMetrics // Messaging metrics
-	SourceScanMetrics   // Common scan metrics across all sources.
+	kafka.EventBusMetrics // Messaging metrics
+	SourceScanMetrics     // Common scan metrics across all sources.
 
 	// Task metrics
 	IncTasksProcessed(ctx context.Context)

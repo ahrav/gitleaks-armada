@@ -20,9 +20,9 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
 
-// BrokerMetrics defines metrics operations needed to monitor Kafka message handling.
+// EventBusMetrics defines metrics operations needed to monitor Kafka message handling.
 // It enables tracking of successful and failed message publishing/consumption.
-type BrokerMetrics interface {
+type EventBusMetrics interface {
 	IncMessagePublished(ctx context.Context, topic string)
 	IncMessageConsumed(ctx context.Context, topic string)
 	IncPublishError(ctx context.Context, topic string)
@@ -83,7 +83,7 @@ type EventBus struct {
 
 	logger  *logger.Logger
 	tracer  trace.Tracer
-	metrics BrokerMetrics
+	metrics EventBusMetrics
 }
 
 // NewEventBusFromConfig creates a new Kafka-based event bus from the provided configuration.
@@ -92,7 +92,7 @@ type EventBus struct {
 func NewEventBusFromConfig(
 	cfg *Config,
 	logger *logger.Logger,
-	metrics BrokerMetrics,
+	metrics EventBusMetrics,
 	tracer trace.Tracer,
 ) (*EventBus, error) {
 	if metrics == nil {
@@ -306,7 +306,7 @@ type domainEventHandler struct {
 
 	logger  *logger.Logger
 	tracer  trace.Tracer
-	metrics BrokerMetrics
+	metrics EventBusMetrics
 }
 
 func (h *domainEventHandler) Setup(sess sarama.ConsumerGroupSession) error {
