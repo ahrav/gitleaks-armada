@@ -352,6 +352,13 @@ type GithubRepository struct {
 	UpdatedAt pgtype.Timestamptz
 }
 
+type JobMetricsCheckpoint struct {
+	JobID           pgtype.UUID
+	PartitionID     int32
+	PartitionOffset int64
+	LastProcessedAt pgtype.Timestamptz
+}
+
 type Rule struct {
 	ID          int64
 	RuleID      string

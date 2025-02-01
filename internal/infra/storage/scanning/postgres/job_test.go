@@ -339,3 +339,106 @@ func TestJobStore_GetJobMetrics_ExistingMetrics(t *testing.T) {
 	assert.Equal(t, expectedMetrics.FailedTasks(), metrics.FailedTasks())
 	assert.Equal(t, expectedMetrics.StaleTasks(), metrics.StaleTasks())
 }
+
+func TestJobStore_StoreAndGetCheckpoints(t *testing.T) {
+	t.Parallel()
+	ctx, _, store, cleanup := setupJobTest(t)
+	defer cleanup()
+
+	job := createTestJob(t, scanning.JobStatusRunning)
+	err := store.CreateJob(ctx, job)
+	require.NoError(t, err)
+
+	// Store checkpoints for multiple partitions.
+	checkpoints := map[int32]int64{
+		0: 100,
+		1: 200,
+		2: 300,
+	}
+
+	for partitionID, offset := range checkpoints {
+		err = store.StoreCheckpoint(ctx, job.JobID(), partitionID, offset)
+		require.NoError(t, err)
+	}
+
+	stored, err := store.GetCheckpoints(ctx, job.JobID())
+	require.NoError(t, err)
+	assert.Equal(t, checkpoints, stored)
+}
+
+func TestJobStore_StoreCheckpoint_NonExistentJob(t *testing.T) {
+	t.Parallel()
+	ctx, _, store, cleanup := setupJobTest(t)
+	defer cleanup()
+
+	err := store.StoreCheckpoint(ctx, uuid.New(), 0, 100)
+	require.Error(t, err)
+}
+
+func TestJobStore_GetCheckpoints_NonExistentJob(t *testing.T) {
+	t.Parallel()
+	ctx, _, store, cleanup := setupJobTest(t)
+	defer cleanup()
+
+	checkpoints, err := store.GetCheckpoints(ctx, uuid.New())
+	require.ErrorIs(t, err, scanning.ErrNoCheckpointsFound)
+	assert.Empty(t, checkpoints)
+}
+
+func TestJobStore_UpdateMetricsAndCheckpoint(t *testing.T) {
+	t.Parallel()
+	ctx, _, store, cleanup := setupJobTest(t)
+	defer cleanup()
+
+	job := createTestJob(t, scanning.JobStatusRunning)
+	err := store.CreateJob(ctx, job)
+	require.NoError(t, err)
+
+	// Update metrics and checkpoint atomically.
+	metrics := scanning.ReconstructJobMetrics(10, 2, 3, 4, 1, 0)
+	err = store.UpdateMetricsAndCheckpoint(ctx, job.JobID(), metrics, 0, 100)
+	require.NoError(t, err)
+
+	storedMetrics, err := store.GetJobMetrics(ctx, job.JobID())
+	require.NoError(t, err)
+	assert.Equal(t, metrics.TotalTasks(), storedMetrics.TotalTasks())
+	assert.Equal(t, metrics.PendingTasks(), storedMetrics.PendingTasks())
+	assert.Equal(t, metrics.InProgressTasks(), storedMetrics.InProgressTasks())
+	assert.Equal(t, metrics.CompletedTasks(), storedMetrics.CompletedTasks())
+	assert.Equal(t, metrics.FailedTasks(), storedMetrics.FailedTasks())
+	assert.Equal(t, metrics.StaleTasks(), storedMetrics.StaleTasks())
+
+	checkpoints, err := store.GetCheckpoints(ctx, job.JobID())
+	require.NoError(t, err)
+	assert.Equal(t, int64(100), checkpoints[0])
+}
+
+func TestJobStore_UpdateMetricsAndCheckpoint_NonExistentJob(t *testing.T) {
+	t.Parallel()
+	ctx, _, store, cleanup := setupJobTest(t)
+	defer cleanup()
+
+	metrics := scanning.ReconstructJobMetrics(10, 2, 3, 4, 1, 0)
+	err := store.UpdateMetricsAndCheckpoint(ctx, uuid.New(), metrics, 0, 100)
+	require.Error(t, err)
+}
+
+func TestJobStore_StoreCheckpoint_UpdateExisting(t *testing.T) {
+	t.Parallel()
+	ctx, _, store, cleanup := setupJobTest(t)
+	defer cleanup()
+
+	job := createTestJob(t, scanning.JobStatusRunning)
+	err := store.CreateJob(ctx, job)
+	require.NoError(t, err)
+
+	err = store.StoreCheckpoint(ctx, job.JobID(), 0, 100)
+	require.NoError(t, err)
+
+	err = store.StoreCheckpoint(ctx, job.JobID(), 0, 200)
+	require.NoError(t, err)
+
+	checkpoints, err := store.GetCheckpoints(ctx, job.JobID())
+	require.NoError(t, err)
+	assert.Equal(t, int64(200), checkpoints[0])
+}

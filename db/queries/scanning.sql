@@ -163,3 +163,68 @@ SELECT
     stale_tasks
 FROM scan_job_metrics
 WHERE job_id = $1;
+
+-- name: GetJobCheckpoints :many
+SELECT partition_id, partition_offset
+FROM job_metrics_checkpoints
+WHERE job_id = $1;
+-- SELECT jmc.partition_id, jmc.partition_offset
+-- FROM scan_jobs sj
+-- LEFT JOIN job_metrics_checkpoints jmc ON jmc.job_id = sj.job_id
+-- WHERE sj.job_id = $1;
+
+-- name: StoreCheckpoint :exec
+INSERT INTO job_metrics_checkpoints (
+    job_id,
+    partition_id,
+    partition_offset,
+    last_processed_at
+) VALUES (
+    $1, $2, $3, NOW()
+)
+ON CONFLICT (job_id, partition_id)
+DO UPDATE SET
+    partition_offset = EXCLUDED.partition_offset,
+    last_processed_at = NOW();
+
+-- name: UpdateJobMetricsAndCheckpoint :exec
+WITH checkpoint_update AS (
+    INSERT INTO job_metrics_checkpoints (
+        job_id,
+        partition_id,
+        partition_offset,
+        last_processed_at
+    ) VALUES (
+        $1, $2, $3, NOW()
+    )
+    ON CONFLICT (job_id, partition_id)
+    DO UPDATE SET
+        partition_offset = EXCLUDED.partition_offset,
+        last_processed_at = NOW()
+),
+metrics_upsert AS (
+    INSERT INTO scan_job_metrics (
+        job_id,
+        total_tasks,
+        pending_tasks,
+        in_progress_tasks,
+        completed_tasks,
+        failed_tasks,
+        stale_tasks,
+        created_at,
+        updated_at
+    ) VALUES (
+        $1, $4, $5, $6, $7, $8, $9, NOW(), NOW()
+    )
+    ON CONFLICT (job_id)
+    DO UPDATE SET
+        total_tasks = EXCLUDED.total_tasks,
+        pending_tasks = EXCLUDED.pending_tasks,
+        in_progress_tasks = EXCLUDED.in_progress_tasks,
+        completed_tasks = EXCLUDED.completed_tasks,
+        failed_tasks = EXCLUDED.failed_tasks,
+        stale_tasks = EXCLUDED.stale_tasks,
+        updated_at = NOW()
+    RETURNING job_id
+)
+SELECT job_id FROM metrics_upsert;

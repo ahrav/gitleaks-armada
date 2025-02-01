@@ -421,3 +421,90 @@ func (r *jobStore) GetJobMetrics(ctx context.Context, jobID uuid.UUID) (*scannin
 
 	return jobMetrics, nil
 }
+
+// StoreCheckpoint stores a checkpoint for a job's metrics processing.
+func (r *jobStore) StoreCheckpoint(ctx context.Context, jobID uuid.UUID, partitionID int32, offset int64) error {
+	dbAttrs := append(
+		defaultDBAttributes,
+		attribute.String("job_id", jobID.String()),
+		attribute.Int("partition_id", int(partitionID)),
+		attribute.Int64("offset", offset),
+	)
+
+	return storage.ExecuteAndTrace(ctx, r.tracer, "postgres.store_checkpoint", dbAttrs, func(ctx context.Context) error {
+		err := r.q.StoreCheckpoint(ctx, db.StoreCheckpointParams{
+			JobID:           pgtype.UUID{Bytes: jobID, Valid: true},
+			PartitionID:     partitionID,
+			PartitionOffset: offset,
+		})
+		if err != nil {
+			return fmt.Errorf("store checkpoint error: %w", err)
+		}
+		return nil
+	})
+}
+
+// GetCheckpoints retrieves all checkpoints for a job's metrics
+func (r *jobStore) GetCheckpoints(ctx context.Context, jobID uuid.UUID) (map[int32]int64, error) {
+	dbAttrs := append(
+		defaultDBAttributes,
+		attribute.String("job_id", jobID.String()),
+	)
+
+	var checkpoints map[int32]int64
+	err := storage.ExecuteAndTrace(ctx, r.tracer, "postgres.get_checkpoints", dbAttrs, func(ctx context.Context) error {
+		rows, err := r.q.GetJobCheckpoints(ctx, pgtype.UUID{Bytes: jobID, Valid: true})
+		if err != nil {
+			return fmt.Errorf("get checkpoints error: %w", err)
+		}
+
+		if len(rows) == 0 {
+			return scanning.ErrNoCheckpointsFound
+		}
+
+		checkpoints = make(map[int32]int64, len(rows))
+		for _, row := range rows {
+			checkpoints[row.PartitionID] = row.PartitionOffset
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return checkpoints, nil
+}
+
+// UpdateMetricsAndCheckpoint atomically updates both job metrics and checkpoint.
+func (r *jobStore) UpdateMetricsAndCheckpoint(
+	ctx context.Context,
+	jobID uuid.UUID,
+	metrics *scanning.JobMetrics,
+	partitionID int32,
+	offset int64,
+) error {
+	dbAttrs := append(
+		defaultDBAttributes,
+		attribute.String("job_id", jobID.String()),
+		attribute.Int("partition_id", int(partitionID)),
+		attribute.Int64("offset", offset),
+	)
+
+	return storage.ExecuteAndTrace(ctx, r.tracer, "postgres.update_metrics_and_checkpoint", dbAttrs, func(ctx context.Context) error {
+		err := r.q.UpdateJobMetricsAndCheckpoint(ctx, db.UpdateJobMetricsAndCheckpointParams{
+			JobID:           pgtype.UUID{Bytes: jobID, Valid: true},
+			PartitionID:     partitionID,
+			PartitionOffset: offset,
+			TotalTasks:      int32(metrics.TotalTasks()),
+			PendingTasks:    int32(metrics.PendingTasks()),
+			InProgressTasks: int32(metrics.InProgressTasks()),
+			CompletedTasks:  int32(metrics.CompletedTasks()),
+			FailedTasks:     int32(metrics.FailedTasks()),
+			StaleTasks:      int32(metrics.StaleTasks()),
+		})
+		if err != nil {
+			return fmt.Errorf("update metrics and checkpoint error: %w", err)
+		}
+		return nil
+	})
+}

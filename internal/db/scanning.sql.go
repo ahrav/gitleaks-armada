@@ -253,6 +253,37 @@ func (q *Queries) GetJob(ctx context.Context, jobID pgtype.UUID) ([]GetJobRow, e
 	return items, nil
 }
 
+const getJobCheckpoints = `-- name: GetJobCheckpoints :many
+SELECT partition_id, partition_offset
+FROM job_metrics_checkpoints
+WHERE job_id = $1
+`
+
+type GetJobCheckpointsRow struct {
+	PartitionID     int32
+	PartitionOffset int64
+}
+
+func (q *Queries) GetJobCheckpoints(ctx context.Context, jobID pgtype.UUID) ([]GetJobCheckpointsRow, error) {
+	rows, err := q.db.Query(ctx, getJobCheckpoints, jobID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetJobCheckpointsRow
+	for rows.Next() {
+		var i GetJobCheckpointsRow
+		if err := rows.Scan(&i.PartitionID, &i.PartitionOffset); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getJobMetrics = `-- name: GetJobMetrics :one
 SELECT
     total_tasks,
@@ -449,6 +480,37 @@ func (q *Queries) ListScanTasksByJobAndStatus(ctx context.Context, arg ListScanT
 	return items, nil
 }
 
+const storeCheckpoint = `-- name: StoreCheckpoint :exec
+
+INSERT INTO job_metrics_checkpoints (
+    job_id,
+    partition_id,
+    partition_offset,
+    last_processed_at
+) VALUES (
+    $1, $2, $3, NOW()
+)
+ON CONFLICT (job_id, partition_id)
+DO UPDATE SET
+    partition_offset = EXCLUDED.partition_offset,
+    last_processed_at = NOW()
+`
+
+type StoreCheckpointParams struct {
+	JobID           pgtype.UUID
+	PartitionID     int32
+	PartitionOffset int64
+}
+
+// SELECT jmc.partition_id, jmc.partition_offset
+// FROM scan_jobs sj
+// LEFT JOIN job_metrics_checkpoints jmc ON jmc.job_id = sj.job_id
+// WHERE sj.job_id = $1;
+func (q *Queries) StoreCheckpoint(ctx context.Context, arg StoreCheckpointParams) error {
+	_, err := q.db.Exec(ctx, storeCheckpoint, arg.JobID, arg.PartitionID, arg.PartitionOffset)
+	return err
+}
+
 const updateJob = `-- name: UpdateJob :execrows
 UPDATE scan_jobs
 SET status = $2,
@@ -476,6 +538,76 @@ func (q *Queries) UpdateJob(ctx context.Context, arg UpdateJobParams) (int64, er
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const updateJobMetricsAndCheckpoint = `-- name: UpdateJobMetricsAndCheckpoint :exec
+WITH checkpoint_update AS (
+    INSERT INTO job_metrics_checkpoints (
+        job_id,
+        partition_id,
+        partition_offset,
+        last_processed_at
+    ) VALUES (
+        $1, $2, $3, NOW()
+    )
+    ON CONFLICT (job_id, partition_id)
+    DO UPDATE SET
+        partition_offset = EXCLUDED.partition_offset,
+        last_processed_at = NOW()
+),
+metrics_upsert AS (
+    INSERT INTO scan_job_metrics (
+        job_id,
+        total_tasks,
+        pending_tasks,
+        in_progress_tasks,
+        completed_tasks,
+        failed_tasks,
+        stale_tasks,
+        created_at,
+        updated_at
+    ) VALUES (
+        $1, $4, $5, $6, $7, $8, $9, NOW(), NOW()
+    )
+    ON CONFLICT (job_id)
+    DO UPDATE SET
+        total_tasks = EXCLUDED.total_tasks,
+        pending_tasks = EXCLUDED.pending_tasks,
+        in_progress_tasks = EXCLUDED.in_progress_tasks,
+        completed_tasks = EXCLUDED.completed_tasks,
+        failed_tasks = EXCLUDED.failed_tasks,
+        stale_tasks = EXCLUDED.stale_tasks,
+        updated_at = NOW()
+    RETURNING job_id
+)
+SELECT job_id FROM metrics_upsert
+`
+
+type UpdateJobMetricsAndCheckpointParams struct {
+	JobID           pgtype.UUID
+	PartitionID     int32
+	PartitionOffset int64
+	TotalTasks      int32
+	PendingTasks    int32
+	InProgressTasks int32
+	CompletedTasks  int32
+	FailedTasks     int32
+	StaleTasks      int32
+}
+
+func (q *Queries) UpdateJobMetricsAndCheckpoint(ctx context.Context, arg UpdateJobMetricsAndCheckpointParams) error {
+	_, err := q.db.Exec(ctx, updateJobMetricsAndCheckpoint,
+		arg.JobID,
+		arg.PartitionID,
+		arg.PartitionOffset,
+		arg.TotalTasks,
+		arg.PendingTasks,
+		arg.InProgressTasks,
+		arg.CompletedTasks,
+		arg.FailedTasks,
+		arg.StaleTasks,
+	)
+	return err
 }
 
 const updateScanTask = `-- name: UpdateScanTask :execrows

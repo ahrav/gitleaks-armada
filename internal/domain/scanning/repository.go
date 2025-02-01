@@ -22,6 +22,8 @@ var (
 	ErrNoJobMetricsUpdated = errors.New("no job metrics updated")
 	// ErrNoJobMetricsFound indicates that no job metrics were found
 	ErrNoJobMetricsFound = errors.New("no job metrics found")
+	// ErrNoCheckpointsFound indicates that no checkpoints were found
+	ErrNoCheckpointsFound = errors.New("no checkpoints found")
 )
 
 // JobRepository defines the persistence operations for scan jobs.
@@ -45,6 +47,21 @@ type JobRepository interface {
 
 	// BulkUpdateJobMetrics updates metrics for multiple jobs in a single operation.
 	BulkUpdateJobMetrics(ctx context.Context, updates map[uuid.UUID]*JobMetrics) (int64, error)
+
+	// StoreCheckpoint stores a checkpoint for a job's metrics processing.
+	StoreCheckpoint(ctx context.Context, jobID uuid.UUID, partitionID int32, offset int64) error
+
+	// GetCheckpoints retrieves all checkpoints for a job's metrics.
+	GetCheckpoints(ctx context.Context, jobID uuid.UUID) (map[int32]int64, error)
+
+	// UpdateMetricsAndCheckpoint atomically updates both the metrics and checkpoint for a job.
+	UpdateMetricsAndCheckpoint(
+		ctx context.Context,
+		jobID uuid.UUID,
+		metrics *JobMetrics,
+		partitionID int32,
+		offset int64,
+	) error
 }
 
 // TaskRepository defines the persistence operations for scan tasks.

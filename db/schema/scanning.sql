@@ -37,6 +37,15 @@ CREATE TABLE scan_job_metrics (
 -- Indexes
 CREATE INDEX idx_scan_job_metrics ON scan_job_metrics (job_id, total_tasks, pending_tasks, in_progress_tasks, completed_tasks, failed_tasks, stale_tasks);
 
+-- Job Metrics Checkpoints Table
+CREATE TABLE job_metrics_checkpoints (
+    job_id UUID NOT NULL REFERENCES scan_jobs (job_id),
+    partition_id INT NOT NULL,
+    partition_offset BIGINT NOT NULL,
+    last_processed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (job_id, partition_id)
+);
+
 -- Scan Job Targets Table (Associative table between scan jobs and scan targets)
 CREATE TABLE scan_job_targets (
     job_id UUID NOT NULL REFERENCES scan_jobs (job_id),

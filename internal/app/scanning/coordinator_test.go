@@ -51,6 +51,18 @@ func (m *mockJobRepository) GetJobMetrics(ctx context.Context, jobID uuid.UUID) 
 	return nil, nil
 }
 
+func (m *mockJobRepository) StoreCheckpoint(ctx context.Context, jobID uuid.UUID, partitionID int32, offset int64) error {
+	return m.Called(ctx, jobID, partitionID, offset).Error(0)
+}
+
+func (m *mockJobRepository) GetCheckpoints(ctx context.Context, jobID uuid.UUID) (map[int32]int64, error) {
+	return nil, nil
+}
+
+func (m *mockJobRepository) UpdateMetricsAndCheckpoint(ctx context.Context, jobID uuid.UUID, metrics *domain.JobMetrics, partitionID int32, offset int64) error {
+	return m.Called(ctx, jobID, metrics, partitionID, offset).Error(0)
+}
+
 // mockTaskRepository helps test coordinator interactions with task persistence.
 type mockTaskRepository struct {
 	mock.Mock
