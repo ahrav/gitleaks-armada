@@ -70,11 +70,11 @@ type TopicConfig struct {
 	Secondary []string
 }
 
-var _ events.EventBus = (*KafkaEventBus)(nil)
+var _ events.EventBus = (*EventBus)(nil)
 
-// KafkaEventBus implements the EventBus interface using Kafka as the underlying message broker.
+// EventBus implements the EventBus interface using Kafka as the underlying message broker.
 // It handles publishing and subscribing to domain events across distributed services.
-type KafkaEventBus struct {
+type EventBus struct {
 	producer      sarama.SyncProducer
 	consumerGroup sarama.ConsumerGroup
 
@@ -86,15 +86,15 @@ type KafkaEventBus struct {
 	metrics BrokerMetrics
 }
 
-// NewKafkaEventBusFromConfig creates a new Kafka-based event bus from the provided configuration.
+// NewEventBusFromConfig creates a new Kafka-based event bus from the provided configuration.
 // It establishes connections to Kafka brokers and configures both producer and consumer components
 // for reliable message delivery and consumption.
-func NewKafkaEventBusFromConfig(
+func NewEventBusFromConfig(
 	cfg *Config,
 	logger *logger.Logger,
 	metrics BrokerMetrics,
 	tracer trace.Tracer,
-) (*KafkaEventBus, error) {
+) (*EventBus, error) {
 	if metrics == nil {
 		return nil, fmt.Errorf("metrics are required for kafka event bus")
 	}
@@ -149,7 +149,7 @@ func NewKafkaEventBusFromConfig(
 		scanning.EventTypeTaskJobMetric:  cfg.JobMetricsTopic,       // scanner -> controller
 	}
 
-	bus := &KafkaEventBus{
+	bus := &EventBus{
 		producer:      producer,
 		consumerGroup: consumerGroup,
 		topicMap:      topicMap,
@@ -170,13 +170,13 @@ func NewKafkaEventBusFromConfig(
 // want to lose events.
 // Note: We should only attempt to retry if the error is a transient one. (e.g. LEADER_NOT_AVAILABLE)
 // If the error is a permanent one, we should not retry. (e.g. INVALID_CONFIG)
-func (k *KafkaEventBus) Publish(ctx context.Context, event events.EventEnvelope, opts ...events.PublishOption) error {
-	topic, ok := k.topicMap[event.Type]
+func (b *EventBus) Publish(ctx context.Context, event events.EventEnvelope, opts ...events.PublishOption) error {
+	topic, ok := b.topicMap[event.Type]
 	if !ok {
 		return fmt.Errorf("unknown event type '%s', no topic mapped", event.Type)
 	}
 
-	ctx, span := tracing.StartProducerSpan(ctx, topic, k.tracer)
+	ctx, span := tracing.StartProducerSpan(ctx, topic, b.tracer)
 	defer span.End()
 
 	var pParams events.PublishParams
@@ -192,15 +192,15 @@ func (k *KafkaEventBus) Publish(ctx context.Context, event events.EventEnvelope,
 	msgBytes, err := serialization.SerializeEventEnvelope(event.Type, event.Payload)
 	if err != nil {
 		span.RecordError(err)
-		if k.metrics != nil {
-			k.metrics.IncPublishError(ctx, topic)
+		if b.metrics != nil {
+			b.metrics.IncPublishError(ctx, topic)
 		}
 		return fmt.Errorf("failed to serialize payload for event %s: %w", event.Type, err)
 	}
 
 	// Publish to primary topic.
 	// TODO: Consider making this a little more ergonomic.
-	if err := k.publishToTopic(ctx, topic, event.Key, msgBytes); err != nil {
+	if err := b.publishToTopic(ctx, topic, event.Key, msgBytes); err != nil {
 		return err
 	}
 
@@ -208,7 +208,7 @@ func (k *KafkaEventBus) Publish(ctx context.Context, event events.EventEnvelope,
 }
 
 // publishToTopic handles the actual publishing of a message to a single Kafka topic
-func (k *KafkaEventBus) publishToTopic(ctx context.Context, topic, key string, msgBytes []byte) error {
+func (b *EventBus) publishToTopic(ctx context.Context, topic, key string, msgBytes []byte) error {
 	kafkaMsg := &sarama.ProducerMessage{
 		Topic: topic,
 		Key:   sarama.StringEncoder(key),
@@ -217,19 +217,19 @@ func (k *KafkaEventBus) publishToTopic(ctx context.Context, topic, key string, m
 
 	tracing.InjectTraceContext(ctx, kafkaMsg)
 
-	partition, offset, err := k.producer.SendMessage(kafkaMsg)
+	partition, offset, err := b.producer.SendMessage(kafkaMsg)
 	if err != nil {
-		if k.metrics != nil {
-			k.metrics.IncPublishError(ctx, topic)
+		if b.metrics != nil {
+			b.metrics.IncPublishError(ctx, topic)
 		}
 		return fmt.Errorf("failed to send message to kafka topic %s: %w", topic, err)
 	}
 
-	if k.metrics != nil {
-		k.metrics.IncMessagePublished(ctx, topic)
+	if b.metrics != nil {
+		b.metrics.IncMessagePublished(ctx, topic)
 	}
 
-	k.logger.Info(ctx, "Published message to Kafka",
+	b.logger.Info(ctx, "Published message to Kafka",
 		"topic", topic,
 		"partition", partition,
 		"offset", offset,
@@ -241,12 +241,12 @@ func (k *KafkaEventBus) publishToTopic(ctx context.Context, topic, key string, m
 
 // Subscribe registers a handler function to process domain events from specified event types.
 // It manages consumer group membership and message processing in a separate goroutine.
-func (k *KafkaEventBus) Subscribe(
+func (b *EventBus) Subscribe(
 	ctx context.Context,
 	eventTypes []events.EventType,
 	handler events.HandlerFunc,
 ) error {
-	ctx, span := k.tracer.Start(ctx, "kafka_event_bus.subscribe",
+	ctx, span := b.tracer.Start(ctx, "kafka_event_bus.subscribe",
 		trace.WithAttributes(
 			attribute.String("component", "kafka_event_bus"),
 		))
@@ -256,7 +256,7 @@ func (k *KafkaEventBus) Subscribe(
 	var topics []string
 	topicSet := make(map[string]struct{})
 	for _, et := range eventTypes {
-		if topic, ok := k.topicMap[et]; ok {
+		if topic, ok := b.topicMap[et]; ok {
 			topicSet[topic] = struct{}{}
 			topics = append(topics, topic)
 		} else {
@@ -268,29 +268,29 @@ func (k *KafkaEventBus) Subscribe(
 
 	span.AddEvent("topics_collected", trace.WithAttributes(attribute.StringSlice("topics", topics)))
 
-	go k.consumeLoop(ctx, topics, handler)
-	k.logger.Info(ctx, "Subscribed to events", "event_types", eventTypes)
+	go b.consumeLoop(ctx, topics, handler)
+	b.logger.Info(ctx, "Subscribed to events", "event_types", eventTypes)
 
 	return nil
 }
 
 // consumeLoop maintains a continuous consumer group session for processing messages.
-func (k *KafkaEventBus) consumeLoop(
+func (b *EventBus) consumeLoop(
 	ctx context.Context,
 	topics []string,
 	handler events.HandlerFunc,
 ) {
 	cgHandler := &domainEventHandler{
-		eventBus:    k,
+		eventBus:    b,
 		userHandler: handler,
-		logger:      k.logger,
-		tracer:      k.tracer,
-		metrics:     k.metrics,
+		logger:      b.logger,
+		tracer:      b.tracer,
+		metrics:     b.metrics,
 	}
 
 	for {
-		if err := k.consumerGroup.Consume(ctx, topics, cgHandler); err != nil {
-			k.logger.Error(ctx, "Error from consumer group", "error", err)
+		if err := b.consumerGroup.Consume(ctx, topics, cgHandler); err != nil {
+			b.logger.Error(ctx, "Error from consumer group", "error", err)
 		}
 		if ctx.Err() != nil {
 			return
@@ -301,7 +301,7 @@ func (k *KafkaEventBus) consumeLoop(
 // domainEventHandler implements sarama.ConsumerGroupHandler to process Kafka messages
 // and convert them into domain events for the application.
 type domainEventHandler struct {
-	eventBus    *KafkaEventBus
+	eventBus    *EventBus
 	userHandler events.HandlerFunc
 
 	logger  *logger.Logger
@@ -403,9 +403,9 @@ func (h *domainEventHandler) logPartitionStart(ctx context.Context, partition in
 }
 
 // Close gracefully shuts down the event bus by closing both producer and consumer connections.
-func (k *KafkaEventBus) Close() error {
-	if err := k.producer.Close(); err != nil {
+func (b *EventBus) Close() error {
+	if err := b.producer.Close(); err != nil {
 		return err
 	}
-	return k.consumerGroup.Close()
+	return b.consumerGroup.Close()
 }

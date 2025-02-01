@@ -23,7 +23,7 @@ func ConnectWithRetry(cfg *Config, logger *logger.Logger, metrics BrokerMetrics,
 
 	operation := func() error {
 		var err error
-		broker, err = NewKafkaEventBusFromConfig(cfg, logger, metrics, tracer)
+		broker, err = NewEventBusFromConfig(cfg, logger, metrics, tracer)
 		if err != nil {
 			return err
 		}
