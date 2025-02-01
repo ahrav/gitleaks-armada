@@ -40,6 +40,9 @@ type EventReplayer interface {
 	// ReplayEvents replays events from a specific position
 	// Returns a channel of events to allow for streaming processing
 	ReplayEvents(ctx context.Context, position StreamPosition) (<-chan EventEnvelope, error)
+
+	// Close the replayer and release associated resources.
+	Close() error
 }
 
 // StreamPosition represents a unique position in an event stream
