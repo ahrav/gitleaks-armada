@@ -358,6 +358,10 @@ func (h *domainEventHandler) ConsumeClaim(
 			Key:       string(msg.Key),
 			Timestamp: time.Now(),
 			Payload:   payloadObj,
+			Metadata: events.EventMetadata{
+				Partition: claim.Partition(),
+				Offset:    msg.Offset,
+			},
 		}
 
 		h.logger.Info(msgCtx, "Received Kafka message",
