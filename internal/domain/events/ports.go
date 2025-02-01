@@ -34,3 +34,23 @@ type EventBus interface {
 	// This should be called during system shutdown to prevent resource leaks.
 	Close() error
 }
+
+// EventReplayer enables replaying events from a specific position in the event stream.
+type EventReplayer interface {
+	// ReplayEvents replays events from a specific position
+	// Returns a channel of events to allow for streaming processing
+	ReplayEvents(ctx context.Context, position StreamPosition) (<-chan EventEnvelope, error)
+}
+
+// StreamPosition represents a unique position in an event stream
+// from which replay can begin. The exact meaning of the position
+// is specific to each message bus implementation.
+type StreamPosition interface {
+	// Identifier returns a unique identifier for this position
+	// in the event stream
+	Identifier() string
+
+	// Validate checks if this position is valid
+	// Returns an error if the position is invalid for this implementation
+	Validate() error
+}
