@@ -26,6 +26,15 @@ type EventEnvelope struct {
 	// Payload contains the actual event data (e.g., Task, ScanProgress).
 	// The concrete type depends on the EventType.
 	Payload any
+
+	// Metadata contains transport-specific information about the event.
+	Metadata EventMetadata
+}
+
+// EventMetadata contains transport-specific information about the event.
+type EventMetadata struct {
+	Partition int32
+	Offset    int64
 }
 
 // DomainEvent is the interface that *all* strongly typed domain events implement.
