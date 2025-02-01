@@ -47,6 +47,8 @@ type jobMetricsTracker struct {
 	taskStatus map[uuid.UUID]taskStatusEntry    // Task ID -> Status
 	repository domain.MetricsRepository         // Adapter to underlying job and task repositories
 
+	checkpoints map[uuid.UUID]map[int32]int64 // Job ID -> Partition ID -> Offset
+
 	// pendingMetrics is a list of pending metrics that we have received but
 	// haven't yet received a corresponding task status for.
 	pendingMetrics []pendingMetric
@@ -90,6 +92,7 @@ func NewJobMetricsTracker(
 		metrics:         make(map[uuid.UUID]*domain.JobMetrics),
 		taskStatus:      make(map[uuid.UUID]taskStatusEntry),
 		repository:      repository,
+		checkpoints:     make(map[uuid.UUID]map[int32]int64),
 		notifyCh:        make(chan struct{}, 1), // dont block on sending to notifyCh
 		stopCh:          make(chan struct{}),
 		logger:          logger,
@@ -214,6 +217,35 @@ func (t *jobMetricsTracker) HandleJobMetrics(ctx context.Context, evt events.Eve
 		attribute.String("status", string(metricEvt.Status)),
 	)
 
+	// Check if we need state recovery.
+	metrics, exists := t.metrics[metricEvt.JobID]
+	if !exists {
+		var err error
+		metrics, err = t.repository.GetJobMetrics(ctx, metricEvt.JobID)
+		if err != nil && !errors.Is(err, domain.ErrNoJobMetricsFound) {
+			return fmt.Errorf("getting job metrics: %w", err)
+		}
+		if metrics == nil {
+			metrics = domain.NewJobMetrics()
+		}
+
+		checkpoints, err := t.repository.GetCheckpoints(ctx, metricEvt.JobID)
+		if err != nil {
+			return fmt.Errorf("getting checkpoints: %w", err)
+		}
+
+		// Only replay if this partition has previous events.
+		metadata := evt.Metadata
+		if lastOffset, ok := checkpoints[metadata.Partition]; ok {
+			if err := t.replayEvents(ctx, metricEvt.JobID, metadata.Partition, lastOffset); err != nil {
+				return fmt.Errorf("replaying events: %w", err)
+			}
+		}
+
+		t.metrics[metricEvt.JobID] = metrics
+		t.checkpoints[metricEvt.JobID] = checkpoints
+	}
+
 	// Attempt to process the metric immediately.
 	if err := t.processMetric(ctx, metricEvt); err != nil {
 		if errors.Is(err, domain.ErrTaskNotFound) {
@@ -242,6 +274,31 @@ func (t *jobMetricsTracker) HandleJobMetrics(ctx context.Context, evt events.Eve
 
 	span.AddEvent("metric_processed")
 	span.SetStatus(codes.Ok, "metric processed")
+
+	return nil
+}
+
+func (t *jobMetricsTracker) replayEvents(ctx context.Context, jobID uuid.UUID, partition int32, fromOffset int64) error {
+	events, err := t.kafkaClient.ConsumeFromOffset(ctx, partition, fromOffset)
+	if err != nil {
+		return fmt.Errorf("consuming events: %w", err)
+	}
+
+	for _, evt := range events {
+		if metricEvt, ok := evt.Payload.(scanning.TaskJobMetricEvent); ok {
+			if metricEvt.JobID == jobID {
+				if err := t.processMetric(ctx, metricEvt); err != nil {
+					// During replay, if task not found, just skip it
+					// These are historical events, so if task doesn't exist
+					// now, it likely never will
+					if errors.Is(err, domain.ErrTaskNotFound) {
+						continue
+					}
+					return fmt.Errorf("processing replayed event: %w", err)
+				}
+			}
+		}
+	}
 
 	return nil
 }
@@ -311,18 +368,7 @@ func (t *jobMetricsTracker) processMetric(ctx context.Context, evt scanning.Task
 		attribute.String("new_status", string(evt.Status)),
 	)
 
-	metrics, exists := t.metrics[evt.JobID]
-	if !exists {
-		var err error
-		metrics, err = t.repository.GetJobMetrics(ctx, evt.JobID)
-		if err != nil {
-			if !errors.Is(err, domain.ErrNoJobMetricsFound) {
-				return fmt.Errorf("getting job metrics: %w", err)
-			}
-			metrics = domain.NewJobMetrics()
-		}
-		t.metrics[evt.JobID] = metrics
-	}
+	metrics := t.metrics[evt.JobID]
 
 	if _, err := t.repository.GetTask(ctx, evt.TaskID); err != nil {
 		span.RecordError(err)
