@@ -335,16 +335,14 @@ func (t *jobMetricsTracker) processMetric(ctx context.Context, evt scanning.Task
 	if entry, exists := t.taskStatus[evt.TaskID]; exists {
 		oldStatus = entry.status
 	} else {
-		// If not in cache, this is the first time we're seeing this task.
-		// TODO: figure out if this should be pending or in progress.
-		oldStatus = domain.TaskStatusInProgress
+		oldStatus = domain.TaskStatusPending
 	}
 
 	span.SetAttributes(
 		attribute.String("old_status", string(oldStatus)),
 	)
 
-	if oldStatus == domain.TaskStatusInProgress {
+	if oldStatus == domain.TaskStatusPending {
 		metrics.OnTaskAdded(evt.Status)
 		span.AddEvent("task_added")
 	} else {
