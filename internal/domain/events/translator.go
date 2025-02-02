@@ -4,9 +4,7 @@ package events
 // event bus-specific constructs. It avoids duplication of translation logic across
 // components like DomainEventPublisher and DomainEventReplayer, ensuring consistency
 // and maintainability.
-type DomainEventTranslator struct {
-	positionTranslator PositionTranslator
-}
+type DomainEventTranslator struct{ positionTranslator PositionTranslator }
 
 // NewDomainEventTranslator creates a new DomainEventTranslator with the provided
 // PositionTranslator. This ensures that all required dependencies are properly

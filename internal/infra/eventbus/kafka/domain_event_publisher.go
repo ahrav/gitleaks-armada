@@ -20,8 +20,8 @@ type DomainEventPublisher struct {
 // NewDomainEventPublisher creates a new publisher that will distribute domain
 // events through the provided event bus. The event bus handles the actual
 // interaction with Kafka.
-func NewDomainEventPublisher(eventBus events.EventBus, translator *events.DomainEventTranslator) *DomainEventPublisher {
-	return &DomainEventPublisher{eventBus: eventBus, translator: translator}
+func NewDomainEventPublisher(bus events.EventBus, translator *events.DomainEventTranslator) *DomainEventPublisher {
+	return &DomainEventPublisher{eventBus: bus, translator: translator}
 }
 
 // PublishDomainEvent sends a domain event through the Kafka event bus. It automatically
