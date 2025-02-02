@@ -51,10 +51,6 @@ type MetricsRepository interface {
 	// Returns ErrJobNotFound if the job doesn't exist.
 	GetJobMetrics(ctx context.Context, jobID uuid.UUID) (*JobMetrics, error)
 
-	// UpdateJobMetrics atomically updates the metrics for a job.
-	// Returns ErrJobNotFound if the job doesn't exist or ErrInvalidMetrics if the metrics are invalid.
-	UpdateJobMetrics(ctx context.Context, jobID uuid.UUID, metrics *JobMetrics) error
-
 	// GetTask retrieves a task's current state.
 	GetTask(ctx context.Context, taskID uuid.UUID) (*Task, error)
 

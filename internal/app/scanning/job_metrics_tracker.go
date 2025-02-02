@@ -57,6 +57,7 @@ type jobMetricsTracker struct {
 	stopCh         chan struct{}  // channel used to signal shutdown
 	wg             sync.WaitGroup // used to wait for background goroutine(s)
 
+	// TODO: Enhance logging.
 	logger *logger.Logger
 	tracer trace.Tracer
 
@@ -474,16 +475,37 @@ func (t *jobMetricsTracker) FlushMetrics(ctx context.Context) error {
 	ctx, span := t.tracer.Start(ctx, "job_metrics_tracker.flush_metrics")
 	defer span.End()
 
-	span.AddEvent("flushing_metrics")
+	span.AddEvent("starting_metrics_flush")
 
 	for jobID, metrics := range t.metrics {
-		if err := t.repository.UpdateJobMetrics(ctx, jobID, metrics); err != nil {
-			span.RecordError(err)
-			t.logger.Error(ctx, "failed to flush job metrics",
-				"job_id", jobID.String(),
-				"error", err,
-			)
+		chckpt := t.checkpoints[jobID]
+		if len(chckpt) == 0 {
+			span.AddEvent("no_partitions_to_flush", trace.WithAttributes(
+				attribute.String("job_id", jobID.String()),
+			))
 			continue
+		}
+		span.AddEvent("flushing_partitions", trace.WithAttributes(
+			attribute.String("job_id", jobID.String()),
+			attribute.Int("num_partitions", len(chckpt)),
+		))
+
+		for partition, offset := range chckpt {
+			if err := t.repository.UpdateMetricsAndCheckpoint(ctx, jobID, metrics, partition, offset); err != nil {
+				span.RecordError(err)
+				t.logger.Error(ctx, "failed to flush job metrics",
+					"job_id", jobID.String(),
+					"partition", partition,
+					"offset", offset,
+					"error", err,
+				)
+				continue
+			}
+			span.AddEvent("metrics_partition_flushed", trace.WithAttributes(
+				attribute.String("job_id", jobID.String()),
+				attribute.Int("partition", int(partition)),
+				attribute.Int64("offset", offset),
+			))
 		}
 	}
 	span.AddEvent("metrics_flushed")
