@@ -35,6 +35,18 @@ type EventBus interface {
 	Close() error
 }
 
+// PositionTranslator translates position metadata into a messaging system-specific position.
+type PositionTranslator interface {
+	// ToStreamPosition converts position metadata into a messaging system-specific position.
+	ToStreamPosition(metadata PositionMetadata) (StreamPosition, error)
+}
+
+// DomainEventReplayer enables replaying domain events from a specific position in the event stream.
+type DomainEventReplayer interface {
+	// ReplayFromPosition replays domain events from a specific position in the event stream.
+	ReplayFromPosition(ctx context.Context, position DomainPosition) (<-chan EventEnvelope, error)
+}
+
 // EventReplayer enables replaying events from a specific position in the event stream.
 type EventReplayer interface {
 	// ReplayEvents replays events from a specific position
@@ -43,17 +55,4 @@ type EventReplayer interface {
 
 	// Close the replayer and release associated resources.
 	Close() error
-}
-
-// StreamPosition represents a unique position in an event stream
-// from which replay can begin. The exact meaning of the position
-// is specific to each message bus implementation.
-type StreamPosition interface {
-	// Identifier returns a unique identifier for this position
-	// in the event stream
-	Identifier() string
-
-	// Validate checks if this position is valid
-	// Returns an error if the position is invalid for this implementation
-	Validate() error
 }

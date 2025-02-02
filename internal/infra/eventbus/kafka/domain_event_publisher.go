@@ -6,27 +6,26 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 )
 
-// Verify KafkaDomainEventPublisher implements domain.DomainEventPublisher interface.
-var _ events.DomainEventPublisher = (*KafkaDomainEventPublisher)(nil)
+var _ events.DomainEventPublisher = (*DomainEventPublisher)(nil)
 
-// KafkaDomainEventPublisher implements the domain.DomainEventPublisher interface using
+// DomainEventPublisher implements the domain.DomainEventPublisher interface using
 // Kafka as the underlying message transport. It adapts domain-level events to the
 // event bus abstraction for reliable, asynchronous event distribution.
-type KafkaDomainEventPublisher struct {
+type DomainEventPublisher struct {
 	eventBus events.EventBus
 	// TODO: add logger, metrics, etc.
 }
 
-// NewKafkaDomainEventPublisher creates a new publisher that will distribute domain
+// NewDomainEventPublisher creates a new publisher that will distribute domain
 // events through the provided event bus. The event bus handles the actual
 // interaction with Kafka.
-func NewKafkaDomainEventPublisher(eventBus events.EventBus) *KafkaDomainEventPublisher {
-	return &KafkaDomainEventPublisher{eventBus: eventBus}
+func NewDomainEventPublisher(eventBus events.EventBus) *DomainEventPublisher {
+	return &DomainEventPublisher{eventBus: eventBus}
 }
 
 // PublishDomainEvent sends a domain event through the Kafka event bus. It automatically
 // adds a timestamp and converts domain-level publishing options to event bus options.
-func (pub *KafkaDomainEventPublisher) PublishDomainEvent(ctx context.Context, event events.DomainEvent, domainOpts ...events.PublishOption) error {
+func (pub *DomainEventPublisher) PublishDomainEvent(ctx context.Context, event events.DomainEvent, domainOpts ...events.PublishOption) error {
 	evt := events.EventEnvelope{
 		Type:      event.EventType(),
 		Timestamp: event.OccurredAt(),

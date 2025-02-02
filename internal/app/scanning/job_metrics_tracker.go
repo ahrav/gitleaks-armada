@@ -48,6 +48,7 @@ type jobMetricsTracker struct {
 	repository domain.MetricsRepository         // Adapter to underlying job and task repositories
 
 	checkpoints map[uuid.UUID]map[int32]int64 // Job ID -> Partition ID -> Offset
+	replayer    events.DomainEventReplayer    // Replayer for consuming events to recover state
 
 	// pendingMetrics is a list of pending metrics that we have received but
 	// haven't yet received a corresponding task status for.
@@ -78,6 +79,7 @@ type jobMetricsTracker struct {
 // and configuration. It starts background cleanup of completed task statuses.
 func NewJobMetricsTracker(
 	repository domain.MetricsRepository,
+	replayer events.DomainEventReplayer,
 	logger *logger.Logger,
 	tracer trace.Tracer,
 ) *jobMetricsTracker {
@@ -93,6 +95,7 @@ func NewJobMetricsTracker(
 		taskStatus:      make(map[uuid.UUID]taskStatusEntry),
 		repository:      repository,
 		checkpoints:     make(map[uuid.UUID]map[int32]int64),
+		replayer:        replayer,
 		notifyCh:        make(chan struct{}, 1), // dont block on sending to notifyCh
 		stopCh:          make(chan struct{}),
 		logger:          logger,
@@ -218,11 +221,12 @@ func (t *jobMetricsTracker) HandleJobMetrics(ctx context.Context, evt events.Eve
 	)
 
 	// Check if we need state recovery.
-	metrics, exists := t.metrics[metricEvt.JobID]
+	_, exists := t.metrics[metricEvt.JobID]
 	if !exists {
-		var err error
-		metrics, err = t.repository.GetJobMetrics(ctx, metricEvt.JobID)
+		metrics, err := t.repository.GetJobMetrics(ctx, metricEvt.JobID)
 		if err != nil && !errors.Is(err, domain.ErrNoJobMetricsFound) {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "getting job metrics")
 			return fmt.Errorf("getting job metrics: %w", err)
 		}
 		if metrics == nil {
@@ -231,15 +235,24 @@ func (t *jobMetricsTracker) HandleJobMetrics(ctx context.Context, evt events.Eve
 
 		checkpoints, err := t.repository.GetCheckpoints(ctx, metricEvt.JobID)
 		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "getting checkpoints")
 			return fmt.Errorf("getting checkpoints: %w", err)
 		}
 
 		// Only replay if this partition has previous events.
 		metadata := evt.Metadata
 		if lastOffset, ok := checkpoints[metadata.Partition]; ok {
+			span.AddEvent("replaying_events", trace.WithAttributes(
+				attribute.Int("partition", int(metadata.Partition)),
+				attribute.Int64("offset", lastOffset),
+			))
 			if err := t.replayEvents(ctx, metricEvt.JobID, metadata.Partition, lastOffset); err != nil {
+				span.RecordError(err)
+				span.SetStatus(codes.Error, "replaying events")
 				return fmt.Errorf("replaying events: %w", err)
 			}
+			span.AddEvent("events_replayed_successfully")
 		}
 
 		t.metrics[metricEvt.JobID] = metrics
@@ -279,12 +292,18 @@ func (t *jobMetricsTracker) HandleJobMetrics(ctx context.Context, evt events.Eve
 }
 
 func (t *jobMetricsTracker) replayEvents(ctx context.Context, jobID uuid.UUID, partition int32, fromOffset int64) error {
-	events, err := t.kafkaClient.ConsumeFromOffset(ctx, partition, fromOffset)
+	ctx, span := t.tracer.Start(ctx, "job_metrics_tracker.replay_events")
+	defer span.End()
+
+	events, err := t.replayer.ReplayFromPosition(ctx, scanning.NewJobMetricsPosition(jobID, partition, fromOffset))
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "replaying events")
 		return fmt.Errorf("consuming events: %w", err)
 	}
+	span.AddEvent("starting_event_replay_stream")
 
-	for _, evt := range events {
+	for evt := range events {
 		if metricEvt, ok := evt.Payload.(scanning.TaskJobMetricEvent); ok {
 			if metricEvt.JobID == jobID {
 				if err := t.processMetric(ctx, metricEvt); err != nil {
@@ -292,13 +311,19 @@ func (t *jobMetricsTracker) replayEvents(ctx context.Context, jobID uuid.UUID, p
 					// These are historical events, so if task doesn't exist
 					// now, it likely never will
 					if errors.Is(err, domain.ErrTaskNotFound) {
+						span.RecordError(err)
+						// TODO: log this.
 						continue
 					}
+					span.RecordError(err)
+					span.SetStatus(codes.Error, "processing replayed event")
 					return fmt.Errorf("processing replayed event: %w", err)
 				}
 			}
 		}
 	}
+	span.AddEvent("event_replay_stream_completed")
+	span.SetStatus(codes.Ok, "event replay stream completed")
 
 	return nil
 }

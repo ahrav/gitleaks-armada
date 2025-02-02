@@ -74,6 +74,7 @@ type Orchestrator struct {
 //   - coord: Implements leader election using distributed locks
 //   - queue: Reliable message queue for distributing work items
 //   - eventPublisher: Broadcasts domain events for system observability
+//   - eventReplayer: Replays domain events from a specific position
 //   - enumerationService: Implements scanning logic and target discovery
 //   - rulesService: Manages scanning rules and their updates
 //   - jobService: Handles job lifecycle (creation, updates, completion)
@@ -93,6 +94,7 @@ func NewOrchestrator(
 	coord cluster.Coordinator,
 	queue events.EventBus,
 	eventPublisher events.DomainEventPublisher,
+	eventReplayer events.DomainEventReplayer,
 	enumerationService enumCoordinator.Coordinator,
 	rulesService rulessvc.Service,
 	taskRepo scanning.TaskRepository,
@@ -145,7 +147,7 @@ func NewOrchestrator(
 	)
 
 	metricsRepo := scan.NewMetricsRepositoryAdapter(jobRepo, taskRepo)
-	o.metricsTracker = scan.NewJobMetricsTracker(metricsRepo, componentLogger, tracer)
+	o.metricsTracker = scan.NewJobMetricsTracker(metricsRepo, eventReplayer, componentLogger, tracer)
 	go o.metricsTracker.LaunchMetricsFlusher(30 * time.Second)
 
 	eventsFacilitator := NewEventsFacilitator(

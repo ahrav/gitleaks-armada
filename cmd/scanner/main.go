@@ -134,7 +134,7 @@ func main() {
 	}
 	log.Info(ctx, "Scanner connected to Kafka")
 
-	eventPublisher := kafka.NewKafkaDomainEventPublisher(broker)
+	eventPublisher := kafka.NewDomainEventPublisher(broker)
 	gitleaksScanner, err := scanner.NewGitLeaks(ctx, eventPublisher, log, tracer, metricsCollector)
 	if err != nil {
 		log.Error(ctx, "failed to create gitleaks scanner", "error", err)

@@ -47,6 +47,36 @@ type DomainEvent interface {
 	OccurredAt() time.Time
 }
 
+// PositionMetadata contains metadata about the position of an event in the event stream.
+type PositionMetadata struct {
+	// EntityType is the type of entity this position is for (e.g. "job_metrics", "task_progress").
+	EntityType EntityType
+	// EntityID is an opaque identifier for this position.
+	EntityID string
+}
+
+// DomainPosition represents a unique position in a domain event stream.
+// It is used to identify the position of an event in the event stream.
+type DomainPosition interface {
+	// EntityType returns the type of entity this position is for (e.g. "job_metrics", "task_progress").
+	EntityType() EntityType
+	// EntityID returns an opaque identifier for this position.
+	EntityID() string
+}
+
+// StreamPosition represents a unique position in an event stream
+// from which replay can begin. The exact meaning of the position
+// is specific to each message bus implementation.
+type StreamPosition interface {
+	// Identifier returns a unique identifier for this position
+	// in the event stream
+	Identifier() string
+
+	// Validate checks if this position is valid
+	// Returns an error if the position is invalid for this implementation
+	Validate() error
+}
+
 // AckFunc is a function that can be used to acknowledge an event.
 type AckFunc func(error)
 

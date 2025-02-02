@@ -222,12 +222,33 @@ func main() {
 	}
 	log.Info(ctx, "Controller connected to Kafka")
 
+	eventReplayer, err := kafka.NewEventReplayer(
+		fmt.Sprintf("controller-%s", hostname),
+		&kafka.ReplayConfig{
+			Brokers: strings.Split(os.Getenv("KAFKA_BROKERS"), ","),
+			// TODO: Add all the other topics which we need to replay events from.
+			Topics: []string{
+				os.Getenv("KAFKA_JOB_METRICS_TOPIC"),
+			},
+		},
+		log,
+		metricCollector,
+		tracer,
+	)
+	if err != nil {
+		log.Error(ctx, "failed to create event replayer", "error", err)
+		os.Exit(1)
+	}
+
+	positionTranslator := kafka.NewKafkaPositionTranslator()
+	domainEventReplayer := kafka.NewDomainEventReplayer(eventReplayer, positionTranslator)
+
 	scanTargetRepo := enumStore.NewScanTargetStore(pool, tracer)
 	githubTargetRepo := enumStore.NewGithubRepositoryStore(pool, tracer)
 	urlTargetRepo := enumStore.NewURLTargetStore(pool, tracer)
 	checkpointStorage := enumStore.NewCheckpointStore(pool, tracer)
 	enumStateStorage := enumStore.NewEnumerationSessionStateStore(pool, checkpointStorage, tracer)
-	eventPublisher := kafka.NewKafkaDomainEventPublisher(broker)
+	eventPublisher := kafka.NewDomainEventPublisher(broker)
 	enumFactory := enumeration.NewEnumerationFactory(http.DefaultClient, tracer)
 	enumTaskStorage := enumStore.NewTaskStore(pool, tracer)
 	batchStorage := enumStore.NewBatchStore(pool, checkpointStorage, tracer)
@@ -256,6 +277,7 @@ func main() {
 		coord,
 		broker,
 		eventPublisher,
+		domainEventReplayer,
 		enumCoord,
 		rulesService,
 		scanTaskRepo,
