@@ -31,6 +31,8 @@ func (e ErrInvalidOffset) Error() string {
 	return fmt.Sprintf("invalid offset: %s", e.Offset)
 }
 
+var _ events.StreamPosition = (*Position)(nil)
+
 // Position represents a specific location in a Kafka partition,
 // identified by a partition number and an offset.
 // It is used to specify where to start replaying events in a Kafka topic.
