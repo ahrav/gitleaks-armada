@@ -17,7 +17,19 @@ type RuleTranslator interface {
 	Translate(entityID string) (Position, error)
 }
 
-var _ RuleTranslator = (*JobMetricsTranslationRule)(nil)
+// ErrInvalidPartition is an error type for invalid partition values.
+type ErrInvalidPartition struct{ Partition string }
+
+func (e ErrInvalidPartition) Error() string {
+	return fmt.Sprintf("invalid partition: %s", e.Partition)
+}
+
+// ErrInvalidOffset is an error type for invalid offset values.
+type ErrInvalidOffset struct{ Offset string }
+
+func (e ErrInvalidOffset) Error() string {
+	return fmt.Sprintf("invalid offset: %s", e.Offset)
+}
 
 // Position represents a specific location in a Kafka partition,
 // identified by a partition number and an offset.
@@ -35,14 +47,22 @@ func (p Position) Identifier() string { return fmt.Sprintf("%d:%d", p.Partition,
 // Returns an error if the Position is invalid.
 func (p Position) Validate() error {
 	if p.Partition < 0 {
-		return fmt.Errorf("invalid partition: %d", p.Partition)
+		return ErrInvalidPartition{Partition: fmt.Sprintf("%d", p.Partition)}
 	}
 	if p.Offset < 0 {
-		return fmt.Errorf("invalid offset: %d", p.Offset)
+		return ErrInvalidOffset{Offset: fmt.Sprintf("%d", p.Offset)}
 	}
 	return nil
 }
 
+// ErrInvalidPositionFormat is an error type for invalid job metrics position formats.
+type ErrInvalidPositionFormat struct{ EntityID string }
+
+func (e ErrInvalidPositionFormat) Error() string {
+	return fmt.Sprintf("invalid job metrics position format: %s", e.EntityID)
+}
+
+var _ RuleTranslator = (*JobMetricsTranslationRule)(nil)
 
 // JobMetricsTranslationRule implements RuleTranslator for job metrics entity IDs.
 // It expects entity IDs in the format "partition:offset" and parses them into Kafka positions.
@@ -53,23 +73,30 @@ type JobMetricsTranslationRule struct{}
 func (r JobMetricsTranslationRule) Translate(entityID string) (Position, error) {
 	parts := strings.Split(entityID, ":")
 	if len(parts) != 2 {
-		return Position{}, fmt.Errorf("invalid job metrics position format: %s", entityID)
+		return Position{}, ErrInvalidPositionFormat{EntityID: entityID}
 	}
 
 	partition, err := strconv.ParseInt(parts[0], 10, 32)
 	if err != nil {
-		return Position{}, fmt.Errorf("invalid partition: %w", err)
+		return Position{}, ErrInvalidPartition{Partition: parts[0]}
 	}
 
 	offset, err := strconv.ParseInt(parts[1], 10, 64)
 	if err != nil {
-		return Position{}, fmt.Errorf("invalid offset: %w", err)
+		return Position{}, ErrInvalidOffset{Offset: parts[1]}
 	}
 
 	return Position{
 		Partition: int32(partition),
 		Offset:    offset,
 	}, nil
+}
+
+// ErrNoTranslationRule is an error type for when no translation rule exists for an entity type.
+type ErrNoTranslationRule struct{ EntityType events.StreamType }
+
+func (e ErrNoTranslationRule) Error() string {
+	return fmt.Sprintf("no translation rule for entity type: %s", e.EntityType)
 }
 
 var _ events.PositionTranslator = (*KafkaPositionTranslator)(nil)
@@ -96,7 +123,7 @@ func NewKafkaPositionTranslator() *KafkaPositionTranslator {
 func (t *KafkaPositionTranslator) ToStreamPosition(metadata events.PositionMetadata) (events.StreamPosition, error) {
 	rule, exists := t.rules[metadata.EntityType]
 	if !exists {
-		return nil, fmt.Errorf("no translation rule for entity type: %s", metadata.EntityType)
+		return nil, ErrNoTranslationRule{EntityType: metadata.EntityType}
 	}
 
 	return rule.Translate(metadata.EntityID)
