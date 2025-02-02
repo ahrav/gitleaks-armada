@@ -26,7 +26,11 @@ func NewDomainEventPublisher(eventBus events.EventBus, translator *events.Domain
 
 // PublishDomainEvent sends a domain event through the Kafka event bus. It automatically
 // adds a timestamp and converts domain-level publishing options to event bus options.
-func (pub *DomainEventPublisher) PublishDomainEvent(ctx context.Context, event events.DomainEvent, domainOpts ...events.PublishOption) error {
+func (pub *DomainEventPublisher) PublishDomainEvent(
+	ctx context.Context,
+	event events.DomainEvent,
+	domainOpts ...events.PublishOption,
+) error {
 	evt := events.EventEnvelope{
 		Type:      event.EventType(),
 		Timestamp: event.OccurredAt(),

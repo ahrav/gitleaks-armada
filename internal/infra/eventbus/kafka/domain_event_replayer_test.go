@@ -23,12 +23,12 @@ func (m *MockEventReplayer) ReplayEvents(ctx context.Context, pos events.StreamP
 
 func (m *MockEventReplayer) Close() error { return m.closeFunc() }
 
-// MockDomainEventTranslator is a manual mock implementation of events.DomainEventTranslator.
-type MockDomainEventTranslator struct {
+// MockDomainEventReplayerTranslator is a manual mock implementation of events.DomainEventTranslator.
+type MockDomainEventReplayerTranslator struct {
 	translateFunc func(metadata events.PositionMetadata) (events.StreamPosition, error)
 }
 
-func (m *MockDomainEventTranslator) ToStreamPosition(metadata events.PositionMetadata) (events.StreamPosition, error) {
+func (m *MockDomainEventReplayerTranslator) ToStreamPosition(metadata events.PositionMetadata) (events.StreamPosition, error) {
 	return m.translateFunc(metadata)
 }
 
@@ -54,7 +54,7 @@ func TestDomainEventReplayer_ReplayFromPosition_Success(t *testing.T) {
 	pos := &MockDomainPosition{streamType: "test", streamID: "123"}
 	streamPos := new(MockStreamPosition)
 
-	mockTranslator := &MockDomainEventTranslator{
+	mockTranslator := &MockDomainEventReplayerTranslator{
 		translateFunc: func(metadata events.PositionMetadata) (events.StreamPosition, error) {
 			return streamPos, nil
 		},
@@ -79,7 +79,7 @@ func TestDomainEventReplayer_ReplayFromPosition_Success(t *testing.T) {
 func TestDomainEventReplayer_ReplayFromPosition_TranslationError(t *testing.T) {
 	ctx := context.Background()
 	pos := &MockDomainPosition{streamType: "test", streamID: "123"}
-	mockTranslator := &MockDomainEventTranslator{
+	mockTranslator := &MockDomainEventReplayerTranslator{
 		translateFunc: func(metadata events.PositionMetadata) (events.StreamPosition, error) {
 			return nil, errors.New("translation failed")
 		},
@@ -103,7 +103,7 @@ func TestDomainEventReplayer_ReplayFromPosition_ReplayError(t *testing.T) {
 	pos := &MockDomainPosition{streamType: "test", streamID: "123"}
 	streamPos := new(MockStreamPosition)
 
-	mockTranslator := &MockDomainEventTranslator{
+	mockTranslator := &MockDomainEventReplayerTranslator{
 		translateFunc: func(metadata events.PositionMetadata) (events.StreamPosition, error) {
 			return streamPos, nil
 		},
@@ -127,7 +127,7 @@ func TestDomainEventReplayer_ReplayFromPosition_ContextCancellation(t *testing.T
 	pos := &MockDomainPosition{streamType: "test", streamID: "123"}
 	streamPos := new(MockStreamPosition)
 
-	mockTranslator := &MockDomainEventTranslator{
+	mockTranslator := &MockDomainEventReplayerTranslator{
 		translateFunc: func(metadata events.PositionMetadata) (events.StreamPosition, error) {
 			return streamPos, nil
 		},
@@ -153,7 +153,7 @@ func TestDomainEventReplayer_ReplayFromPosition_ChannelClosure(t *testing.T) {
 	pos := &MockDomainPosition{streamType: "test", streamID: "123"}
 	streamPos := new(MockStreamPosition)
 
-	mockTranslator := &MockDomainEventTranslator{
+	mockTranslator := &MockDomainEventReplayerTranslator{
 		translateFunc: func(metadata events.PositionMetadata) (events.StreamPosition, error) {
 			return streamPos, nil
 		},
@@ -181,7 +181,7 @@ func TestDomainEventReplayer_ReplayFromPosition_Concurrency(t *testing.T) {
 	pos := &MockDomainPosition{streamType: "test", streamID: "123"}
 	streamPos := new(MockStreamPosition)
 
-	mockTranslator := &MockDomainEventTranslator{
+	mockTranslator := &MockDomainEventReplayerTranslator{
 		translateFunc: func(metadata events.PositionMetadata) (events.StreamPosition, error) {
 			return streamPos, nil
 		},
