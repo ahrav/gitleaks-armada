@@ -12,15 +12,16 @@ var _ events.DomainEventPublisher = (*DomainEventPublisher)(nil)
 // Kafka as the underlying message transport. It adapts domain-level events to the
 // event bus abstraction for reliable, asynchronous event distribution.
 type DomainEventPublisher struct {
-	eventBus events.EventBus
+	eventBus   events.EventBus
+	translator *events.DomainEventTranslator
 	// TODO: add logger, metrics, etc.
 }
 
 // NewDomainEventPublisher creates a new publisher that will distribute domain
 // events through the provided event bus. The event bus handles the actual
 // interaction with Kafka.
-func NewDomainEventPublisher(eventBus events.EventBus) *DomainEventPublisher {
-	return &DomainEventPublisher{eventBus: eventBus}
+func NewDomainEventPublisher(eventBus events.EventBus, translator *events.DomainEventTranslator) *DomainEventPublisher {
+	return &DomainEventPublisher{eventBus: eventBus, translator: translator}
 }
 
 // PublishDomainEvent sends a domain event through the Kafka event bus. It automatically
@@ -32,27 +33,7 @@ func (pub *DomainEventPublisher) PublishDomainEvent(ctx context.Context, event e
 		Payload:   event,
 	}
 
-	opts := convertDomainOptionsToEventOptions(domainOpts)
+	opts := pub.translator.ConvertDomainOptions(domainOpts)
 
 	return pub.eventBus.Publish(ctx, evt, opts...)
-}
-
-// convertDomainOptionsToEventOptions transforms domain-level publishing options into
-// event bus options. This allows the domain layer to remain decoupled from the
-// event bus implementation while preserving configuration like routing keys and headers.
-func convertDomainOptionsToEventOptions(domainOpts []events.PublishOption) []events.PublishOption {
-	dp := events.PublishParams{}
-	for _, dOpt := range domainOpts {
-		dOpt(&dp)
-	}
-
-	var eventOpts []events.PublishOption
-	if dp.Key != "" {
-		eventOpts = append(eventOpts, events.WithKey(dp.Key))
-	}
-	if len(dp.Headers) > 0 {
-		eventOpts = append(eventOpts, events.WithHeaders(dp.Headers))
-	}
-
-	return eventOpts
 }

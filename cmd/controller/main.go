@@ -23,6 +23,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/app/orchestration"
 	"github.com/ahrav/gitleaks-armada/internal/app/rules"
 	"github.com/ahrav/gitleaks-armada/internal/config/loaders/fileloader"
+	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/infra/cluster/kubernetes"
 	"github.com/ahrav/gitleaks-armada/internal/infra/eventbus/kafka"
 	enumStore "github.com/ahrav/gitleaks-armada/internal/infra/storage/enumeration/postgres"
@@ -47,7 +48,7 @@ func main() {
 
 	var log *logger.Logger
 
-	events := logger.Events{
+	logEvents := logger.Events{
 		Error: func(ctx context.Context, r logger.Record) {
 			errorAttrs := map[string]any{
 				"error_message": r.Message,
@@ -78,7 +79,7 @@ func main() {
 		"app":       serviceType,
 	}
 
-	log = logger.NewWithMetadata(os.Stdout, logger.LevelInfo, svcName, traceIDFn, events, metadata)
+	log = logger.NewWithMetadata(os.Stdout, logger.LevelInfo, svcName, traceIDFn, logEvents, metadata)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -240,15 +241,16 @@ func main() {
 		os.Exit(1)
 	}
 
-	positionTranslator := kafka.NewKafkaPositionTranslator()
-	domainEventReplayer := kafka.NewDomainEventReplayer(eventReplayer, positionTranslator)
+	kafkaPosTranslator := kafka.NewKafkaPositionTranslator()
+	domainEventTranslator := events.NewDomainEventTranslator(kafkaPosTranslator)
+	domainEventReplayer := kafka.NewDomainEventReplayer(eventReplayer, domainEventTranslator)
 
 	scanTargetRepo := enumStore.NewScanTargetStore(pool, tracer)
 	githubTargetRepo := enumStore.NewGithubRepositoryStore(pool, tracer)
 	urlTargetRepo := enumStore.NewURLTargetStore(pool, tracer)
 	checkpointStorage := enumStore.NewCheckpointStore(pool, tracer)
 	enumStateStorage := enumStore.NewEnumerationSessionStateStore(pool, checkpointStorage, tracer)
-	eventPublisher := kafka.NewDomainEventPublisher(broker)
+	eventPublisher := kafka.NewDomainEventPublisher(broker, domainEventTranslator)
 	enumFactory := enumeration.NewEnumerationFactory(http.DefaultClient, tracer)
 	enumTaskStorage := enumStore.NewTaskStore(pool, tracer)
 	batchStorage := enumStore.NewBatchStore(pool, checkpointStorage, tracer)

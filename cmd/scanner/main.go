@@ -15,6 +15,7 @@ import (
 	"go.uber.org/automaxprocs/maxprocs"
 
 	"github.com/ahrav/gitleaks-armada/internal/app/scanning"
+	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/infra/eventbus/kafka"
 	progressreporter "github.com/ahrav/gitleaks-armada/internal/infra/progress_reporter"
 	"github.com/ahrav/gitleaks-armada/internal/infra/scanner"
@@ -33,7 +34,7 @@ func main() {
 
 	var log *logger.Logger
 
-	events := logger.Events{
+	logEvents := logger.Events{
 		Error: func(ctx context.Context, r logger.Record) {
 			errorAttrs := map[string]any{
 				"error_message": r.Message,
@@ -64,7 +65,7 @@ func main() {
 		"app":       "scanner",
 	}
 
-	log = logger.NewWithMetadata(os.Stdout, logger.LevelInfo, svcName, traceIDFn, events, metadata)
+	log = logger.NewWithMetadata(os.Stdout, logger.LevelInfo, svcName, traceIDFn, logEvents, metadata)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -134,7 +135,8 @@ func main() {
 	}
 	log.Info(ctx, "Scanner connected to Kafka")
 
-	eventPublisher := kafka.NewDomainEventPublisher(broker)
+	domainEventTranslator := events.NewDomainEventTranslator(kafka.NewKafkaPositionTranslator())
+	eventPublisher := kafka.NewDomainEventPublisher(broker, domainEventTranslator)
 	gitleaksScanner, err := scanner.NewGitLeaks(ctx, eventPublisher, log, tracer, metricsCollector)
 	if err != nil {
 		log.Error(ctx, "failed to create gitleaks scanner", "error", err)

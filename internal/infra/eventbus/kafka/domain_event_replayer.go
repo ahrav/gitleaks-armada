@@ -15,13 +15,16 @@ var _ events.DomainEventReplayer = (*DomainEventReplayer)(nil)
 // TODO: add metrics, logger, tracing, etc.
 type DomainEventReplayer struct {
 	eventReplayer events.EventReplayer
-	translator    events.PositionTranslator
+	translator    *events.DomainEventTranslator
 }
 
 // NewDomainEventReplayer creates a new instance of DomainEventReplayer.
 // It requires an event replayer to fetch events and a translator to convert domain positions
 // into stream positions. This ensures the replayer can correctly interpret and replay events.
-func NewDomainEventReplayer(replayer events.EventReplayer, translator events.PositionTranslator) *DomainEventReplayer {
+func NewDomainEventReplayer(
+	replayer events.EventReplayer,
+	translator *events.DomainEventTranslator,
+) *DomainEventReplayer {
 	return &DomainEventReplayer{eventReplayer: replayer, translator: translator}
 }
 
