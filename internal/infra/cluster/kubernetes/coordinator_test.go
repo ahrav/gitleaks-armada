@@ -2,9 +2,11 @@ package kubernetes
 
 import (
 	"context"
+	"io"
 	"testing"
 	"time"
 
+	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
@@ -24,6 +26,7 @@ func TestCoordinator_LeaderElection(t *testing.T) {
 	coordinator := &Coordinator{
 		client: fakeClient,
 		config: cfg,
+		logger: logger.New(io.Discard, logger.LevelDebug, "test", nil),
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
