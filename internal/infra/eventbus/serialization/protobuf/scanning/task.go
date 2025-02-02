@@ -1,13 +1,13 @@
 package scanning
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
+	serializationerrors "github.com/ahrav/gitleaks-armada/internal/infra/eventbus/serialization/errors"
 	pb "github.com/ahrav/gitleaks-armada/proto"
 )
 
@@ -22,18 +22,26 @@ func TaskStartedEventToProto(event scanning.TaskStartedEvent) *pb.TaskStartedEve
 }
 
 // ProtoToTaskStartedEvent converts a protobuf TaskStartedEvent to its domain representation.
-func ProtoToTaskStartedEvent(pbEvent *pb.TaskStartedEvent) (scanning.TaskStartedEvent, error) {
-	jobID, err := uuid.Parse(pbEvent.JobId)
-	if err != nil {
-		return scanning.TaskStartedEvent{}, fmt.Errorf("parse job ID: %w", err)
+func ProtoToTaskStartedEvent(event *pb.TaskStartedEvent) (*scanning.TaskStartedEvent, error) {
+	if event == nil {
+		return nil, serializationerrors.ErrNilEvent{EventType: "TaskStarted"}
 	}
 
-	taskID, err := uuid.Parse(pbEvent.TaskId)
+	jobID, err := uuid.Parse(event.JobId)
 	if err != nil {
-		return scanning.TaskStartedEvent{}, fmt.Errorf("parse task ID: %w", err)
+		return nil, serializationerrors.ErrInvalidUUID{Field: "job ID", Err: err}
 	}
 
-	return scanning.NewTaskStartedEvent(jobID, taskID, pbEvent.ResourceUri), nil
+	taskID, err := uuid.Parse(event.TaskId)
+	if err != nil {
+		return nil, serializationerrors.ErrInvalidUUID{Field: "task ID", Err: err}
+	}
+
+	return &scanning.TaskStartedEvent{
+		JobID:       jobID,
+		TaskID:      taskID,
+		ResourceURI: event.ResourceUri,
+	}, nil
 }
 
 // TaskProgressedEventToProto converts a domain TaskProgressedEvent to its protobuf representation.
@@ -64,41 +72,45 @@ func TaskProgressedEventToProto(event scanning.TaskProgressedEvent) *pb.TaskProg
 }
 
 // ProtoToTaskProgressedEvent converts a protobuf TaskProgressedEvent to its domain representation.
-func ProtoToTaskProgressedEvent(pbEvent *pb.TaskProgressedEvent) (scanning.TaskProgressedEvent, error) {
-	taskID, err := uuid.Parse(pbEvent.TaskId)
-	if err != nil {
-		return scanning.TaskProgressedEvent{}, fmt.Errorf("parse task ID: %w", err)
+func ProtoToTaskProgressedEvent(event *pb.TaskProgressedEvent) (scanning.TaskProgressedEvent, error) {
+	if event == nil {
+		return scanning.TaskProgressedEvent{}, serializationerrors.ErrNilEvent{EventType: "TaskProgressed"}
 	}
 
-	jobID, err := uuid.Parse(pbEvent.JobId)
+	taskID, err := uuid.Parse(event.TaskId)
 	if err != nil {
-		return scanning.TaskProgressedEvent{}, fmt.Errorf("parse job ID: %w", err)
+		return scanning.TaskProgressedEvent{}, serializationerrors.ErrInvalidUUID{Field: "task ID", Err: err}
+	}
+
+	jobID, err := uuid.Parse(event.JobId)
+	if err != nil {
+		return scanning.TaskProgressedEvent{}, serializationerrors.ErrInvalidUUID{Field: "job ID", Err: err}
 	}
 
 	var checkpoint *scanning.Checkpoint
-	if pbEvent.Checkpoint != nil {
-		checkpointTaskID, err := uuid.Parse(pbEvent.Checkpoint.TaskId)
+	if event.Checkpoint != nil {
+		checkpointTaskID, err := uuid.Parse(event.Checkpoint.TaskId)
 		if err != nil {
-			return scanning.TaskProgressedEvent{}, fmt.Errorf("parse checkpoint task ID: %w", err)
+			return scanning.TaskProgressedEvent{}, serializationerrors.ErrInvalidUUID{Field: "checkpoint task ID", Err: err}
 		}
 
 		checkpoint = scanning.ReconstructCheckpoint(
 			checkpointTaskID,
-			time.Unix(0, pbEvent.Checkpoint.Timestamp),
-			pbEvent.Checkpoint.ResumeToken,
-			pbEvent.Checkpoint.Metadata,
+			time.Unix(0, event.Checkpoint.Timestamp),
+			event.Checkpoint.ResumeToken,
+			event.Checkpoint.Metadata,
 		)
 	}
 
 	progress := scanning.ReconstructProgress(
 		taskID,
 		jobID,
-		pbEvent.SequenceNum,
-		time.Unix(0, pbEvent.Timestamp),
-		pbEvent.ItemsProcessed,
-		pbEvent.ErrorCount,
-		pbEvent.Message,
-		pbEvent.ProgressDetails,
+		event.SequenceNum,
+		time.Unix(0, event.Timestamp),
+		event.ItemsProcessed,
+		event.ErrorCount,
+		event.Message,
+		event.ProgressDetails,
 		checkpoint,
 	)
 
@@ -116,14 +128,18 @@ func TaskCompletedEventToProto(event scanning.TaskCompletedEvent) *pb.TaskComple
 
 // ProtoToTaskCompletedEvent converts a protobuf TaskCompletedEvent to its domain representation.
 func ProtoToTaskCompletedEvent(pbEvent *pb.TaskCompletedEvent) (scanning.TaskCompletedEvent, error) {
+	if pbEvent == nil {
+		return scanning.TaskCompletedEvent{}, serializationerrors.ErrNilEvent{EventType: "TaskCompleted"}
+	}
+
 	jobID, err := uuid.Parse(pbEvent.JobId)
 	if err != nil {
-		return scanning.TaskCompletedEvent{}, fmt.Errorf("parse job ID: %w", err)
+		return scanning.TaskCompletedEvent{}, serializationerrors.ErrInvalidUUID{Field: "job ID", Err: err}
 	}
 
 	taskID, err := uuid.Parse(pbEvent.TaskId)
 	if err != nil {
-		return scanning.TaskCompletedEvent{}, fmt.Errorf("parse task ID: %w", err)
+		return scanning.TaskCompletedEvent{}, serializationerrors.ErrInvalidUUID{Field: "task ID", Err: err}
 	}
 
 	return scanning.NewTaskCompletedEvent(jobID, taskID), nil
@@ -143,12 +159,12 @@ func TaskFailedEventToProto(event scanning.TaskFailedEvent) *pb.TaskFailedEvent 
 func ProtoToTaskFailedEvent(pbEvent *pb.TaskFailedEvent) (scanning.TaskFailedEvent, error) {
 	jobID, err := uuid.Parse(pbEvent.JobId)
 	if err != nil {
-		return scanning.TaskFailedEvent{}, fmt.Errorf("parse job ID: %w", err)
+		return scanning.TaskFailedEvent{}, serializationerrors.ErrInvalidUUID{Field: "job ID", Err: err}
 	}
 
 	taskID, err := uuid.Parse(pbEvent.TaskId)
 	if err != nil {
-		return scanning.TaskFailedEvent{}, fmt.Errorf("parse task ID: %w", err)
+		return scanning.TaskFailedEvent{}, serializationerrors.ErrInvalidUUID{Field: "task ID", Err: err}
 	}
 
 	return scanning.NewTaskFailedEvent(jobID, taskID, pbEvent.Reason), nil
@@ -164,9 +180,13 @@ func TaskHeartbeatEventToProto(event scanning.TaskHeartbeatEvent) *pb.TaskHeartb
 
 // ProtoToTaskHeartbeatEvent converts a protobuf TaskHeartbeatEvent to its domain representation.
 func ProtoToTaskHeartbeatEvent(pbEvent *pb.TaskHeartbeatEvent) (scanning.TaskHeartbeatEvent, error) {
+	if pbEvent == nil {
+		return scanning.TaskHeartbeatEvent{}, serializationerrors.ErrNilEvent{EventType: "TaskHeartbeat"}
+	}
+
 	taskID, err := uuid.Parse(pbEvent.TaskId)
 	if err != nil {
-		return scanning.TaskHeartbeatEvent{}, fmt.Errorf("parse task ID: %w", err)
+		return scanning.TaskHeartbeatEvent{}, serializationerrors.ErrInvalidUUID{Field: "task ID", Err: err}
 	}
 
 	return scanning.NewTaskHeartbeatEvent(taskID), nil
@@ -181,12 +201,12 @@ var taskSourceTypeToProto = map[shared.SourceType]pb.SourceType{
 // TaskResumeEventToProto converts a domain TaskResumeEvent to its protobuf representation.
 func TaskResumeEventToProto(event scanning.TaskResumeEvent) *pb.TaskResumeEvent {
 	var checkpoint *pb.Checkpoint
-	if cp := event.Checkpoint; cp != nil {
+	if event.Checkpoint != nil {
 		checkpoint = &pb.Checkpoint{
-			TaskId:      cp.TaskID().String(),
-			Timestamp:   cp.Timestamp().UnixNano(),
-			ResumeToken: cp.ResumeToken(),
-			Metadata:    cp.Metadata(),
+			TaskId:      event.Checkpoint.TaskID().String(),
+			Timestamp:   event.Checkpoint.Timestamp().UnixNano(),
+			ResumeToken: event.Checkpoint.ResumeToken(),
+			Metadata:    event.Checkpoint.Metadata(),
 		}
 	}
 
@@ -194,9 +214,9 @@ func TaskResumeEventToProto(event scanning.TaskResumeEvent) *pb.TaskResumeEvent 
 		JobId:       event.JobID.String(),
 		TaskId:      event.TaskID.String(),
 		SourceType:  taskSourceTypeToProto[event.SourceType],
-		Timestamp:   event.OccurredAt().UnixNano(),
 		ResourceUri: event.ResourceURI,
 		SequenceNum: int64(event.SequenceNum),
+		Timestamp:   time.Now().UnixNano(),
 		Checkpoint:  checkpoint,
 	}
 }
@@ -208,40 +228,50 @@ var protoSourceTypeToTaskSourceType = map[pb.SourceType]shared.SourceType{
 }
 
 // ProtoToTaskResumeEvent converts a protobuf TaskResumeEvent to its domain representation.
-func ProtoToTaskResumeEvent(pbEvent *pb.TaskResumeEvent) (scanning.TaskResumeEvent, error) {
-	jobID, err := uuid.Parse(pbEvent.JobId)
-	if err != nil {
-		return scanning.TaskResumeEvent{}, fmt.Errorf("parse job ID: %w", err)
+func ProtoToTaskResumeEvent(event *pb.TaskResumeEvent) (*scanning.TaskResumeEvent, error) {
+	if event == nil {
+		return nil, serializationerrors.ErrNilEvent{EventType: "TaskResume"}
 	}
 
-	taskID, err := uuid.Parse(pbEvent.TaskId)
+	jobID, err := uuid.Parse(event.JobId)
 	if err != nil {
-		return scanning.TaskResumeEvent{}, fmt.Errorf("parse task ID: %w", err)
+		return nil, serializationerrors.ErrInvalidUUID{Field: "job ID", Err: err}
+	}
+
+	taskID, err := uuid.Parse(event.TaskId)
+	if err != nil {
+		return nil, serializationerrors.ErrInvalidUUID{Field: "task ID", Err: err}
 	}
 
 	var checkpoint *scanning.Checkpoint
-	if pbEvent.Checkpoint != nil {
-		checkpointTaskID, err := uuid.Parse(pbEvent.Checkpoint.TaskId)
+	if event.Checkpoint != nil {
+		checkpointTaskID, err := uuid.Parse(event.Checkpoint.TaskId)
 		if err != nil {
-			return scanning.TaskResumeEvent{}, fmt.Errorf("parse checkpoint task ID: %w", err)
+			return nil, serializationerrors.ErrInvalidUUID{Field: "checkpoint task ID", Err: err}
 		}
 
 		checkpoint = scanning.ReconstructCheckpoint(
 			checkpointTaskID,
-			time.Unix(0, pbEvent.Checkpoint.Timestamp),
-			pbEvent.Checkpoint.ResumeToken,
-			pbEvent.Checkpoint.Metadata,
+			time.Unix(0, event.Checkpoint.Timestamp),
+			event.Checkpoint.ResumeToken,
+			event.Checkpoint.Metadata,
 		)
 	}
 
-	return scanning.NewTaskResumeEvent(
+	sourceType, exists := protoSourceTypeToTaskSourceType[event.SourceType]
+	if !exists {
+		return nil, serializationerrors.ErrInvalidSourceType{Value: event.SourceType}
+	}
+
+	result := scanning.NewTaskResumeEvent(
 		jobID,
 		taskID,
-		protoSourceTypeToTaskSourceType[pbEvent.SourceType],
-		pbEvent.ResourceUri,
-		int(pbEvent.SequenceNum),
+		sourceType,
+		event.ResourceUri,
+		int(event.SequenceNum),
 		checkpoint,
-	), nil
+	)
+	return &result, nil
 }
 
 // TaskJobMetricEventToProto converts a domain TaskJobMetricEvent to protobuf.
@@ -256,21 +286,22 @@ func TaskJobMetricEventToProto(e scanning.TaskJobMetricEvent) *pb.TaskJobMetricE
 
 // ProtoToTaskJobMetricEvent converts a protobuf TaskJobMetricEvent to domain event.
 func ProtoToTaskJobMetricEvent(p *pb.TaskJobMetricEvent) (scanning.TaskJobMetricEvent, error) {
+	if p == nil {
+		return scanning.TaskJobMetricEvent{}, serializationerrors.ErrNilEvent{EventType: "TaskJobMetric"}
+	}
+
 	jobID, err := uuid.Parse(p.JobId)
 	if err != nil {
-		return scanning.TaskJobMetricEvent{}, fmt.Errorf("parse job ID: %w", err)
+		return scanning.TaskJobMetricEvent{}, serializationerrors.ErrInvalidUUID{Field: "job ID", Err: err}
 	}
 
 	taskID, err := uuid.Parse(p.TaskId)
 	if err != nil {
-		return scanning.TaskJobMetricEvent{}, fmt.Errorf("parse task ID: %w", err)
+		return scanning.TaskJobMetricEvent{}, serializationerrors.ErrInvalidUUID{Field: "task ID", Err: err}
 	}
 
-	return scanning.NewTaskJobMetricEvent(
-		jobID,
-		taskID,
-		ProtoToTaskStatus(p.Status),
-	), nil
+	status := ProtoToTaskStatus(p.Status)
+	return scanning.NewTaskJobMetricEvent(jobID, taskID, status), nil
 }
 
 // TaskStatusToProto converts a domain TaskStatus to its protobuf representation.
