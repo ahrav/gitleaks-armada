@@ -22,26 +22,22 @@ func TaskStartedEventToProto(event scanning.TaskStartedEvent) *pb.TaskStartedEve
 }
 
 // ProtoToTaskStartedEvent converts a protobuf TaskStartedEvent to its domain representation.
-func ProtoToTaskStartedEvent(event *pb.TaskStartedEvent) (*scanning.TaskStartedEvent, error) {
+func ProtoToTaskStartedEvent(event *pb.TaskStartedEvent) (scanning.TaskStartedEvent, error) {
 	if event == nil {
-		return nil, serializationerrors.ErrNilEvent{EventType: "TaskStarted"}
+		return scanning.TaskStartedEvent{}, serializationerrors.ErrNilEvent{EventType: "TaskStarted"}
 	}
 
 	jobID, err := uuid.Parse(event.JobId)
 	if err != nil {
-		return nil, serializationerrors.ErrInvalidUUID{Field: "job ID", Err: err}
+		return scanning.TaskStartedEvent{}, serializationerrors.ErrInvalidUUID{Field: "job ID", Err: err}
 	}
 
 	taskID, err := uuid.Parse(event.TaskId)
 	if err != nil {
-		return nil, serializationerrors.ErrInvalidUUID{Field: "task ID", Err: err}
+		return scanning.TaskStartedEvent{}, serializationerrors.ErrInvalidUUID{Field: "task ID", Err: err}
 	}
 
-	return &scanning.TaskStartedEvent{
-		JobID:       jobID,
-		TaskID:      taskID,
-		ResourceURI: event.ResourceUri,
-	}, nil
+	return scanning.NewTaskStartedEvent(jobID, taskID, event.ResourceUri), nil
 }
 
 // TaskProgressedEventToProto converts a domain TaskProgressedEvent to its protobuf representation.
