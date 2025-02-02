@@ -68,4 +68,6 @@ type MetricsRepository interface {
 		partition int32,
 		offset int64,
 	) error
+
+	// TODO: BulkUpdateMetricsAndCheckpoint.
 }

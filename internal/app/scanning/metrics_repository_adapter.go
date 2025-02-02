@@ -17,6 +17,7 @@ var _ domain.MetricsRepository = (*metricsRepositoryAdapter)(nil)
 
 // metricsRepositoryAdapter adapts existing job and task repositories to implement
 // the MetricsRepository interface.
+// TODO: BulkUpdateMetricsAndCheckpoint.
 type metricsRepositoryAdapter struct {
 	jobRepo  domain.JobRepository
 	taskRepo domain.TaskRepository
