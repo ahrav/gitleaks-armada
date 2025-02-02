@@ -8,9 +8,6 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 )
 
-const (
-	JobMetricsEntityType events.EntityType = "job_metrics"
-)
 
 // JobMetricsPosition represents a position in the job metrics stream.
 // It is used to identify the position of a job in the job metrics stream.
@@ -25,8 +22,8 @@ func NewJobMetricsPosition(jobID uuid.UUID, partition int32, offset int64) JobMe
 	return JobMetricsPosition{JobID: jobID, Partition: partition, Offset: offset}
 }
 
-// EntityType returns the type of entity this position is for.
-func (p JobMetricsPosition) EntityType() events.EntityType { return JobMetricsEntityType }
+// StreamType returns the type of entity this position is for.
+func (p JobMetricsPosition) StreamType() events.StreamType { return JobMetricsEntityType }
 
-// EntityID returns a unique identifier for the position.
-func (p JobMetricsPosition) EntityID() string { return fmt.Sprintf("%d:%d", p.Partition, p.Offset) }
+// StreamID returns a unique identifier for the position.
+func (p JobMetricsPosition) StreamID() string { return fmt.Sprintf("%d:%d", p.Partition, p.Offset) }

@@ -10,6 +10,10 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 )
 
+const (
+	JobMetricsEntityType events.StreamType = "job_metrics"
+)
+
 // Metrics tracking provides real-time visibility into scanning operations across
 // the distributed system. It handles the collection, aggregation, and persistence
 // of metrics data for both individual tasks and overall jobs. The metrics system

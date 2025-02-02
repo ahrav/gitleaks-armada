@@ -29,9 +29,12 @@ func NewDomainEventReplayer(replayer events.EventReplayer, translator events.Pos
 // It translates the domain position into a stream position using the translator and then
 // fetches the events using the event replayer. Returns a channel of event envelopes or an error
 // if the translation or replay fails.
-func (r *DomainEventReplayer) ReplayFromPosition(ctx context.Context, pos events.DomainPosition) (<-chan events.EventEnvelope, error) {
+func (r *DomainEventReplayer) ReplayFromPosition(
+	ctx context.Context,
+	pos events.DomainPosition,
+) (<-chan events.EventEnvelope, error) {
 	// Extract metadata from the domain position to prepare for translation.
-	metadata := events.PositionMetadata{EntityType: pos.EntityType(), EntityID: pos.EntityID()}
+	metadata := events.PositionMetadata{EntityType: pos.StreamType(), EntityID: pos.StreamID()}
 
 	// Translate the domain position into a stream position.
 	// This is necessary because the event replayer operates on stream positions.

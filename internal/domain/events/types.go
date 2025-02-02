@@ -5,12 +5,13 @@ package events
 // scan progress updates, and rule changes.
 type EventType string
 
-// EntityType identifies the category of domain entity associated with an event position.
+// StreamType identifies different types of event streams in the system.
 // It enables the event replayer to properly interpret and reconstruct domain events
-// during replay. Each entity type (e.g. "job_metrics", "task_progress") has its own
-// unique structure and replay semantics. The EntityType is used in conjunction with
+// during replay.
+// Each entity type (e.g. "job_metrics", "task_progress") has its own
+// unique structure and replay semantics. The StreamType is used in conjunction with
 // DomainPosition and PositionMetadata to provide type-safe event replay capabilities.
-type EntityType string
+type StreamType string
 
 // Domain event type constants.
 // These describe "something happened" in your scanning system.

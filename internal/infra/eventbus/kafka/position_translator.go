@@ -19,6 +19,31 @@ type RuleTranslator interface {
 
 var _ RuleTranslator = (*JobMetricsTranslationRule)(nil)
 
+// Position represents a specific location in a Kafka partition,
+// identified by a partition number and an offset.
+// It is used to specify where to start replaying events in a Kafka topic.
+type Position struct {
+	Partition int32
+	Offset    int64
+}
+
+// Identifier returns a string representation of the Position in the format "partition:offset".
+func (p Position) Identifier() string { return fmt.Sprintf("%d:%d", p.Partition, p.Offset) }
+
+// Validate checks if the Position is valid.
+// A valid Position has a non-negative partition and offset.
+// Returns an error if the Position is invalid.
+func (p Position) Validate() error {
+	if p.Partition < 0 {
+		return fmt.Errorf("invalid partition: %d", p.Partition)
+	}
+	if p.Offset < 0 {
+		return fmt.Errorf("invalid offset: %d", p.Offset)
+	}
+	return nil
+}
+
+
 // JobMetricsTranslationRule implements RuleTranslator for job metrics entity IDs.
 // It expects entity IDs in the format "partition:offset" and parses them into Kafka positions.
 type JobMetricsTranslationRule struct{}
@@ -53,14 +78,14 @@ var _ events.PositionTranslator = (*KafkaPositionTranslator)(nil)
 // It uses a set of rules, each associated with a specific entity type, to perform the translation.
 // If no rule exists for a given entity type, an error is returned.
 type KafkaPositionTranslator struct {
-	rules map[events.EntityType]RuleTranslator
+	rules map[events.StreamType]RuleTranslator
 }
 
 // NewKafkaPositionTranslator initializes a new KafkaPositionTranslator with default rules.
 // Currently, it includes a rule for translating job metrics entity IDs.
 func NewKafkaPositionTranslator() *KafkaPositionTranslator {
 	return &KafkaPositionTranslator{
-		rules: map[events.EntityType]RuleTranslator{
+		rules: map[events.StreamType]RuleTranslator{
 			scanning.JobMetricsEntityType: JobMetricsTranslationRule{},
 		},
 	}

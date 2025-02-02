@@ -50,7 +50,7 @@ type DomainEvent interface {
 // PositionMetadata contains metadata about the position of an event in the event stream.
 type PositionMetadata struct {
 	// EntityType is the type of entity this position is for (e.g. "job_metrics", "task_progress").
-	EntityType EntityType
+	EntityType StreamType
 	// EntityID is an opaque identifier for this position.
 	EntityID string
 }
@@ -58,10 +58,10 @@ type PositionMetadata struct {
 // DomainPosition represents a unique position in a domain event stream.
 // It is used to identify the position of an event in the event stream.
 type DomainPosition interface {
-	// EntityType returns the type of entity this position is for (e.g. "job_metrics", "task_progress").
-	EntityType() EntityType
-	// EntityID returns an opaque identifier for this position.
-	EntityID() string
+	// StreamType returns the type of entity this position is for (e.g. "job_metrics", "task_progress").
+	StreamType() StreamType
+	// StreamID returns an opaque identifier for this position.
+	StreamID() string
 }
 
 // StreamPosition represents a unique position in an event stream
