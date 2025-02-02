@@ -160,7 +160,10 @@ func serializeEnumerationTaskCreated(payload any) ([]byte, error) {
 	if !ok {
 		return nil, fmt.Errorf("serializeEnumerationTaskCreated: payload is not TaskCreatedEvent, got %T", payload)
 	}
-	pbTask := serdeEnum.TaskToProto(event.Task, event.JobID)
+	pbTask, err := serdeEnum.TaskToProto(event.Task, event.JobID)
+	if err != nil {
+		return nil, fmt.Errorf("convert domain to proto: %w", err)
+	}
 	return proto.Marshal(pbTask)
 }
 
@@ -170,7 +173,10 @@ func deserializeEnumerationTaskCreated(data []byte) (any, error) {
 	if err := proto.Unmarshal(data, &pbTask); err != nil {
 		return nil, fmt.Errorf("unmarshal EnumerationTask: %w", err)
 	}
-	t := serdeEnum.ProtoToTask(&pbTask)
+	t, err := serdeEnum.ProtoToTask(&pbTask)
+	if err != nil {
+		return nil, fmt.Errorf("convert proto to domain: %w", err)
+	}
 	return enumeration.NewTaskCreatedEvent(uuid.MustParse(pbTask.JobId), t), nil
 }
 
