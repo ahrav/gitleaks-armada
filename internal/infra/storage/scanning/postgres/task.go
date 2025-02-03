@@ -62,7 +62,6 @@ func (s *taskStore) CreateTask(ctx context.Context, task *scanning.Task, control
 			ResourceUri:       task.ResourceURI(),
 			Status:            db.ScanTaskStatus(task.Status()),
 			LastSequenceNum:   task.LastSequenceNum(),
-			StartTime:         pgtype.Timestamptz{Time: task.StartTime(), Valid: true},
 			OwnerControllerID: controllerID,
 		}
 
@@ -154,6 +153,12 @@ func (s *taskStore) UpdateTask(ctx context.Context, task *scanning.Task) error {
 			span.SetAttributes(attribute.String("end_time", endTime.Time.String()))
 		}
 
+		var startTime pgtype.Timestamptz
+		if !task.StartTime().IsZero() {
+			startTime = pgtype.Timestamptz{Time: task.StartTime(), Valid: true}
+			span.SetAttributes(attribute.String("start_time", startTime.Time.String()))
+		}
+
 		var checkpointJSON []byte
 		if task.LastCheckpoint() != nil {
 			checkpointJSON, _ = json.Marshal(task.LastCheckpoint())
@@ -170,6 +175,7 @@ func (s *taskStore) UpdateTask(ctx context.Context, task *scanning.Task) error {
 			TaskID:           pgtype.UUID{Bytes: task.TaskID(), Valid: true},
 			Status:           db.ScanTaskStatus(task.Status()),
 			LastSequenceNum:  task.LastSequenceNum(),
+			StartTime:        startTime,
 			EndTime:          endTime,
 			ItemsProcessed:   task.ItemsProcessed(),
 			ProgressDetails:  task.ProgressDetails(),

@@ -79,7 +79,7 @@ CREATE TABLE scan_tasks (
     resource_uri      VARCHAR(1024) NOT NULL,
     last_sequence_num BIGINT NOT NULL DEFAULT 0,
     last_heartbeat_at TIMESTAMPTZ,
-    start_time        TIMESTAMPTZ NOT NULL,
+    start_time        TIMESTAMPTZ,
     end_time          TIMESTAMPTZ,
     items_processed   BIGINT NOT NULL DEFAULT 0,
     progress_details  JSONB,

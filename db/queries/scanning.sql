@@ -51,16 +51,14 @@ INSERT INTO scan_tasks (
     owner_controller_id,
     status,
     resource_uri,
-    last_sequence_num,
-    start_time
+    last_sequence_num
 ) VALUES (
     $1, -- task_id UUID
     $2, -- job_id UUID
     $3, -- owner_controller_id VARCHAR(255)
     $4, -- status TEXT (TaskStatus)
     $5, -- resource_uri VARCHAR(1024)
-    $6, -- last_sequence_num BIGINT
-    $7 -- start_time TIMESTAMPTZ
+    $6  -- last_sequence_num BIGINT
 );
 
 -- name: GetScanTask :one
@@ -96,6 +94,7 @@ SET
     stall_reason = $8,
     stalled_at = $9,
     recovery_attempts = $10,
+    start_time = $11,
     updated_at = NOW()
 WHERE task_id = $1;
 

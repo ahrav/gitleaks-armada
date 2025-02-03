@@ -608,3 +608,48 @@ func TestTaskStore_BatchUpdateHeartbeats(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(0), rowsAffected)
 }
+
+func TestTaskStore_UpdateTask_StartTimeSetOnTransition(t *testing.T) {
+	t.Parallel()
+	ctx, _, taskStore, jobStore, cleanup := setupTaskTest(t)
+	defer cleanup()
+
+	job := createTestScanJob(t, jobStore, ctx)
+
+	task := createTestTask(t, taskStore, job.JobID(), scanning.TaskStatusPending)
+	err := taskStore.CreateTask(ctx, task, "test-controller")
+	require.NoError(t, err)
+
+	initialTask, err := taskStore.GetTask(ctx, task.TaskID())
+	require.NoError(t, err)
+	assert.Equal(t, scanning.TaskStatusPending, initialTask.Status())
+	assert.True(t, initialTask.StartTime().IsZero(), "Start time should be zero for PENDING task")
+
+	// Simulate progress update that transitions task to IN_PROGRESS.
+	progress := scanning.NewProgress(
+		task.TaskID(),
+		job.JobID(),
+		1, // sequence number
+		time.Now().UTC(),
+		10,  // items processed
+		0,   // error count
+		"",  // message
+		nil, // progress details
+		nil, // checkpoint
+	)
+
+	err = task.ApplyProgress(progress)
+	require.NoError(t, err)
+	assert.Equal(t, scanning.TaskStatusInProgress, task.Status())
+	assert.False(t, task.StartTime().IsZero(), "Start time should be set after transition")
+
+	err = taskStore.UpdateTask(ctx, task)
+	require.NoError(t, err)
+
+	updatedTask, err := taskStore.GetTask(ctx, task.TaskID())
+	require.NoError(t, err)
+	assert.Equal(t, scanning.TaskStatusInProgress, updatedTask.Status())
+	assert.False(t, updatedTask.StartTime().IsZero(), "Start time should be persisted")
+	assert.WithinDuration(t, task.StartTime(), updatedTask.StartTime(), time.Second,
+		"Persisted start time should match the task's start time")
+}
