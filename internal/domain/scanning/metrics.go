@@ -37,7 +37,7 @@ type JobMetricsTracker interface {
 
 	// FlushMetrics persists the current state of job metrics to the backing store.
 	// This is typically called periodically to ensure durability of metrics.
-	FlushMetrics(ctx context.Context) error
+	FlushMetrics(ctx context.Context)
 
 	// Stop stops the background goroutines and waits for them to finish.
 	Stop(ctx context.Context)
