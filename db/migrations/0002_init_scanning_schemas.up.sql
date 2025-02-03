@@ -43,7 +43,7 @@ CREATE TABLE job_metrics_checkpoints (
     partition_id INT NOT NULL,
     partition_offset BIGINT NOT NULL,
     last_processed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (job_id, partition_id)
+    PRIMARY KEY (job_id, partition_id, partition_offset)
 );
 
 -- Scan Job Targets Table (Associative table between scan jobs and scan targets)

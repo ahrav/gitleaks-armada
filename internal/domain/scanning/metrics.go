@@ -54,9 +54,6 @@ type MetricsRepository interface {
 	// GetTask retrieves a task's current state.
 	GetTask(ctx context.Context, taskID uuid.UUID) (*Task, error)
 
-	// StoreCheckpoint stores a checkpoint for a job's metrics.
-	StoreCheckpoint(ctx context.Context, jobID uuid.UUID, partition int32, offset int64) error
-
 	// GetCheckpoints retrieves all checkpoints for a job's metrics.
 	GetCheckpoints(ctx context.Context, jobID uuid.UUID) (map[int32]int64, error)
 

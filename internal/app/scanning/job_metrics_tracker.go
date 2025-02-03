@@ -234,30 +234,36 @@ func (t *jobMetricsTracker) HandleJobMetrics(ctx context.Context, evt events.Eve
 			metrics = domain.NewJobMetrics()
 		}
 
+		t.metrics[metricEvt.JobID] = metrics
+
 		checkpoints, err := t.repository.GetCheckpoints(ctx, metricEvt.JobID)
 		if err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "getting checkpoints")
-			return fmt.Errorf("getting checkpoints: %w", err)
+			if !errors.Is(err, domain.ErrNoCheckpointsFound) {
+				span.RecordError(err)
+				span.SetStatus(codes.Error, "getting checkpoints")
+				return fmt.Errorf("getting checkpoints: %w", err)
+			}
+			span.AddEvent("no_checkpoints_found")
 		}
 
 		// Only replay if this partition has previous events.
-		metadata := evt.Metadata
-		if lastOffset, ok := checkpoints[metadata.Partition]; ok {
-			span.AddEvent("replaying_events", trace.WithAttributes(
-				attribute.Int("partition", int(metadata.Partition)),
-				attribute.Int64("offset", lastOffset),
-			))
-			if err := t.replayEvents(ctx, metricEvt.JobID, metadata.Partition, lastOffset); err != nil {
-				span.RecordError(err)
-				span.SetStatus(codes.Error, "replaying events")
-				return fmt.Errorf("replaying events: %w", err)
+		if len(checkpoints) > 0 {
+			metadata := evt.Metadata
+			if lastOffset, ok := checkpoints[metadata.Partition]; ok {
+				span.AddEvent("replaying_events", trace.WithAttributes(
+					attribute.Int("partition", int(metadata.Partition)),
+					attribute.Int64("offset", lastOffset),
+				))
+				if err := t.replayEvents(ctx, metricEvt.JobID, metadata.Partition, lastOffset); err != nil {
+					span.RecordError(err)
+					span.SetStatus(codes.Error, "replaying events")
+					return fmt.Errorf("replaying events: %w", err)
+				}
+				span.AddEvent("events_replayed_successfully")
 			}
-			span.AddEvent("events_replayed_successfully")
-		}
 
-		t.metrics[metricEvt.JobID] = metrics
-		t.checkpoints[metricEvt.JobID] = checkpoints
+			t.checkpoints[metricEvt.JobID] = checkpoints
+		}
 	}
 
 	// Attempt to process the metric immediately.
@@ -285,6 +291,10 @@ func (t *jobMetricsTracker) HandleJobMetrics(ctx context.Context, evt events.Eve
 		span.RecordError(err)
 		return fmt.Errorf("processing metric: %w", err)
 	}
+	if t.checkpoints[metricEvt.JobID] == nil {
+		t.checkpoints[metricEvt.JobID] = make(map[int32]int64)
+	}
+	t.checkpoints[metricEvt.JobID][evt.Metadata.Partition] = evt.Metadata.Offset
 
 	span.AddEvent("metric_processed")
 	span.SetStatus(codes.Ok, "metric processed")

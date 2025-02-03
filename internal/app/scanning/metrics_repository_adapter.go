@@ -98,12 +98,6 @@ func (r *metricsRepositoryAdapter) GetTask(ctx context.Context, taskID uuid.UUID
 	return task, nil
 }
 
-// StoreCheckpoint implements MetricsRepository.StoreCheckpoint by delegating to
-// the underlying job repository.
-func (r *metricsRepositoryAdapter) StoreCheckpoint(ctx context.Context, jobID uuid.UUID, partitionID int32, offset int64) error {
-	return r.jobRepo.StoreCheckpoint(ctx, jobID, partitionID, offset)
-}
-
 // GetCheckpoints implements MetricsRepository.GetCheckpoints by delegating to
 // the underlying job repository.
 func (r *metricsRepositoryAdapter) GetCheckpoints(ctx context.Context, jobID uuid.UUID) (map[int32]int64, error) {

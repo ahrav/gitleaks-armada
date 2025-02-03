@@ -422,28 +422,6 @@ func (r *jobStore) GetJobMetrics(ctx context.Context, jobID uuid.UUID) (*scannin
 	return jobMetrics, nil
 }
 
-// StoreCheckpoint stores a checkpoint for a job's metrics processing.
-func (r *jobStore) StoreCheckpoint(ctx context.Context, jobID uuid.UUID, partitionID int32, offset int64) error {
-	dbAttrs := append(
-		defaultDBAttributes,
-		attribute.String("job_id", jobID.String()),
-		attribute.Int("partition_id", int(partitionID)),
-		attribute.Int64("offset", offset),
-	)
-
-	return storage.ExecuteAndTrace(ctx, r.tracer, "postgres.store_checkpoint", dbAttrs, func(ctx context.Context) error {
-		err := r.q.StoreCheckpoint(ctx, db.StoreCheckpointParams{
-			JobID:           pgtype.UUID{Bytes: jobID, Valid: true},
-			PartitionID:     partitionID,
-			PartitionOffset: offset,
-		})
-		if err != nil {
-			return fmt.Errorf("store checkpoint error: %w", err)
-		}
-		return nil
-	})
-}
-
 // GetCheckpoints retrieves all checkpoints for a job's metrics
 func (r *jobStore) GetCheckpoints(ctx context.Context, jobID uuid.UUID) (map[int32]int64, error) {
 	dbAttrs := append(

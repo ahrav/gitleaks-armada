@@ -480,37 +480,6 @@ func (q *Queries) ListScanTasksByJobAndStatus(ctx context.Context, arg ListScanT
 	return items, nil
 }
 
-const storeCheckpoint = `-- name: StoreCheckpoint :exec
-
-INSERT INTO job_metrics_checkpoints (
-    job_id,
-    partition_id,
-    partition_offset,
-    last_processed_at
-) VALUES (
-    $1, $2, $3, NOW()
-)
-ON CONFLICT (job_id, partition_id)
-DO UPDATE SET
-    partition_offset = EXCLUDED.partition_offset,
-    last_processed_at = NOW()
-`
-
-type StoreCheckpointParams struct {
-	JobID           pgtype.UUID
-	PartitionID     int32
-	PartitionOffset int64
-}
-
-// SELECT jmc.partition_id, jmc.partition_offset
-// FROM scan_jobs sj
-// LEFT JOIN job_metrics_checkpoints jmc ON jmc.job_id = sj.job_id
-// WHERE sj.job_id = $1;
-func (q *Queries) StoreCheckpoint(ctx context.Context, arg StoreCheckpointParams) error {
-	_, err := q.db.Exec(ctx, storeCheckpoint, arg.JobID, arg.PartitionID, arg.PartitionOffset)
-	return err
-}
-
 const updateJob = `-- name: UpdateJob :execrows
 UPDATE scan_jobs
 SET status = $2,
@@ -550,8 +519,9 @@ WITH checkpoint_update AS (
     ) VALUES (
         $1, $2, $3, NOW()
     )
-    ON CONFLICT (job_id, partition_id)
+    ON CONFLICT (job_id, partition_id, partition_offset)
     DO UPDATE SET
+        partition_id = EXCLUDED.partition_id,
         partition_offset = EXCLUDED.partition_offset,
         last_processed_at = NOW()
 ),

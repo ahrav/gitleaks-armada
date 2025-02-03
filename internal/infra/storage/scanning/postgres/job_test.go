@@ -340,41 +340,6 @@ func TestJobStore_GetJobMetrics_ExistingMetrics(t *testing.T) {
 	assert.Equal(t, expectedMetrics.StaleTasks(), metrics.StaleTasks())
 }
 
-func TestJobStore_StoreAndGetCheckpoints(t *testing.T) {
-	t.Parallel()
-	ctx, _, store, cleanup := setupJobTest(t)
-	defer cleanup()
-
-	job := createTestJob(t, scanning.JobStatusRunning)
-	err := store.CreateJob(ctx, job)
-	require.NoError(t, err)
-
-	// Store checkpoints for multiple partitions.
-	checkpoints := map[int32]int64{
-		0: 100,
-		1: 200,
-		2: 300,
-	}
-
-	for partitionID, offset := range checkpoints {
-		err = store.StoreCheckpoint(ctx, job.JobID(), partitionID, offset)
-		require.NoError(t, err)
-	}
-
-	stored, err := store.GetCheckpoints(ctx, job.JobID())
-	require.NoError(t, err)
-	assert.Equal(t, checkpoints, stored)
-}
-
-func TestJobStore_StoreCheckpoint_NonExistentJob(t *testing.T) {
-	t.Parallel()
-	ctx, _, store, cleanup := setupJobTest(t)
-	defer cleanup()
-
-	err := store.StoreCheckpoint(ctx, uuid.New(), 0, 100)
-	require.Error(t, err)
-}
-
 func TestJobStore_GetCheckpoints_NonExistentJob(t *testing.T) {
 	t.Parallel()
 	ctx, _, store, cleanup := setupJobTest(t)
@@ -421,24 +386,4 @@ func TestJobStore_UpdateMetricsAndCheckpoint_NonExistentJob(t *testing.T) {
 	metrics := scanning.ReconstructJobMetrics(10, 2, 3, 4, 1, 0)
 	err := store.UpdateMetricsAndCheckpoint(ctx, uuid.New(), metrics, 0, 100)
 	require.Error(t, err)
-}
-
-func TestJobStore_StoreCheckpoint_UpdateExisting(t *testing.T) {
-	t.Parallel()
-	ctx, _, store, cleanup := setupJobTest(t)
-	defer cleanup()
-
-	job := createTestJob(t, scanning.JobStatusRunning)
-	err := store.CreateJob(ctx, job)
-	require.NoError(t, err)
-
-	err = store.StoreCheckpoint(ctx, job.JobID(), 0, 100)
-	require.NoError(t, err)
-
-	err = store.StoreCheckpoint(ctx, job.JobID(), 0, 200)
-	require.NoError(t, err)
-
-	checkpoints, err := store.GetCheckpoints(ctx, job.JobID())
-	require.NoError(t, err)
-	assert.Equal(t, int64(200), checkpoints[0])
 }

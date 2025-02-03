@@ -48,9 +48,6 @@ type JobRepository interface {
 	// BulkUpdateJobMetrics updates metrics for multiple jobs in a single operation.
 	BulkUpdateJobMetrics(ctx context.Context, updates map[uuid.UUID]*JobMetrics) (int64, error)
 
-	// StoreCheckpoint stores a checkpoint for a job's metrics processing.
-	StoreCheckpoint(ctx context.Context, jobID uuid.UUID, partitionID int32, offset int64) error
-
 	// GetCheckpoints retrieves all checkpoints for a job's metrics.
 	GetCheckpoints(ctx context.Context, jobID uuid.UUID) (map[int32]int64, error)
 
