@@ -383,7 +383,7 @@ func (t *jobMetricsTracker) replayEvents(ctx context.Context, jobID uuid.UUID, p
 					// now, it likely never will
 					if errors.Is(err, domain.ErrTaskNotFound) {
 						span.RecordError(err)
-						logger.Error(ctx, "task not found, skipping event", "error", err)
+						logger.Warn(ctx, "task not found, skipping event", "error", err)
 						continue
 					}
 					span.RecordError(err)
