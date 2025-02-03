@@ -153,6 +153,7 @@ func (s *taskStore) UpdateTask(ctx context.Context, task *scanning.Task) error {
 			span.SetAttributes(attribute.String("end_time", endTime.Time.String()))
 		}
 
+		// TODO: I don't like this. We shouldn't have to set the start time on every update.
 		var startTime pgtype.Timestamptz
 		if !task.StartTime().IsZero() {
 			startTime = pgtype.Timestamptz{Time: task.StartTime(), Valid: true}
