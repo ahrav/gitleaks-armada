@@ -327,7 +327,7 @@ func (t *jobMetricsTracker) HandleJobMetrics(ctx context.Context, evt events.Eve
 				attribute.String("task_id", metricEvt.TaskID.String()),
 			))
 			// We don't have the task status yet: add to pending for retry.
-			t.pendingMetrics[metricEvt.JobID] = append(t.pendingMetrics[metricEvt.TaskID], pendingMetric{
+			t.pendingMetrics[metricEvt.TaskID] = append(t.pendingMetrics[metricEvt.TaskID], pendingMetric{
 				event:     metricEvt,
 				timestamp: time.Now(),
 			})
@@ -446,6 +446,7 @@ func (t *jobMetricsTracker) processPendingMetrics(ctx context.Context) {
 					remaining[taskID] = append(remaining[taskID], pending)
 					span.AddEvent("metric_re-queued", trace.WithAttributes(
 						attribute.String("task_id", taskID.String()),
+						attribute.Int("attempts", pending.attempts),
 					))
 				} else {
 					span.AddEvent("failed_to_process_metric", trace.WithAttributes(
