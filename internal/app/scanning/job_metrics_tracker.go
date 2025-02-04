@@ -252,6 +252,9 @@ func (t *jobMetricsTracker) HandleJobMetrics(ctx context.Context, evt events.Eve
 		"status", metricEvt.Status,
 	)
 
+	// If we already have a pending metric for this task, append to the list.
+	// This enforces task status changes are processed in order.
+	// This avoids any regressive transitions.
 	if _, exists := t.pendingMetrics[metricEvt.TaskID]; exists {
 		span.AddEvent("task_id_in_pending_metrics")
 		logger.Debug(ctx, "task_id in pending metrics, appending to list")
