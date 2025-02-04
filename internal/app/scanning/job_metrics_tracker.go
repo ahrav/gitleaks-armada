@@ -500,23 +500,27 @@ func (t *jobMetricsTracker) processMetric(ctx context.Context, evt scanning.Task
 	}
 
 	// Get the previous status from our in-memory cache.
-	var oldStatus domain.TaskStatus
-	if entry, exists := t.taskStatus[evt.TaskID]; exists {
+	oldStatus := domain.TaskStatusPending
+	entry, exists := t.taskStatus[evt.TaskID]
+	if exists {
 		oldStatus = entry.status
-	} else {
-		oldStatus = domain.TaskStatusPending
 	}
 
 	span.SetAttributes(
 		attribute.String("old_status", string(oldStatus)),
 	)
 
-	if oldStatus == domain.TaskStatusPending && evt.Status == domain.TaskStatusPending {
+	if !exists {
+		// First time aggregating metrics for this task.
 		metrics.OnTaskAdded(evt.Status)
 		span.AddEvent("task_added")
 	} else {
-		metrics.OnTaskStatusChanged(oldStatus, evt.Status)
-		span.AddEvent("task_status_changed")
+		if oldStatus != evt.Status {
+			metrics.OnTaskStatusChanged(oldStatus, evt.Status)
+			span.AddEvent("task_status_changed")
+		} else {
+			span.AddEvent("task_status_unchanged")
+		}
 	}
 
 	t.taskStatus[evt.TaskID] = taskStatusEntry{
