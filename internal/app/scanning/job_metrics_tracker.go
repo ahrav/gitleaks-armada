@@ -50,9 +50,9 @@ type jobMetricsTracker struct {
 	checkpoints map[uuid.UUID]map[int32]int64 // Job ID -> Partition ID -> Offset
 	replayer    events.DomainEventReplayer    // Replayer for consuming events to recover state
 
-	// pendingMetrics is a list of pending metrics that we have received but
+	// pendingMetrics is a map of task ID to a list of pending metrics that we have received but
 	// haven't yet received a corresponding task status for.
-	pendingMetrics []pendingMetric
+	pendingMetrics map[uuid.UUID][]pendingMetric
 	notifyCh       chan struct{}  // channel used to signal new work
 	stopCh         chan struct{}  // channel used to signal shutdown
 	wg             sync.WaitGroup // used to wait for background goroutine(s)
@@ -98,6 +98,7 @@ func NewJobMetricsTracker(
 		repository:      repository,
 		checkpoints:     make(map[uuid.UUID]map[int32]int64),
 		replayer:        replayer,
+		pendingMetrics:  make(map[uuid.UUID][]pendingMetric),
 		notifyCh:        make(chan struct{}, 1), // dont block on sending to notifyCh
 		stopCh:          make(chan struct{}),
 		logger:          logger,
@@ -316,7 +317,7 @@ func (t *jobMetricsTracker) HandleJobMetrics(ctx context.Context, evt events.Eve
 				attribute.String("task_id", metricEvt.TaskID.String()),
 			))
 			// We don't have the task status yet: add to pending for retry.
-			t.pendingMetrics = append(t.pendingMetrics, pendingMetric{
+			t.pendingMetrics[metricEvt.JobID] = append(t.pendingMetrics[metricEvt.TaskID], pendingMetric{
 				event:     metricEvt,
 				timestamp: time.Now(),
 			})
@@ -415,37 +416,39 @@ func (t *jobMetricsTracker) processPendingMetrics(ctx context.Context) {
 		attribute.Int("count", len(t.pendingMetrics)),
 	))
 
-	var remaining []pendingMetric
-	for _, pending := range t.pendingMetrics {
-		if pending.attempts > t.maxRetries {
-			// TODO: drop + do something.
-			span.AddEvent("metric_dropped", trace.WithAttributes(
-				attribute.String("task_id", pending.event.TaskID.String()),
-			))
-			logger.Warn(ctx, "metric dropped", "task_id", pending.event.TaskID.String())
-			continue
-		}
+	remaining := make(map[uuid.UUID][]pendingMetric)
+	for taskID, metrics := range t.pendingMetrics {
+		for _, pending := range metrics {
+			if pending.attempts > t.maxRetries {
+				// TODO: drop + do something.
+				span.AddEvent("metric_dropped", trace.WithAttributes(
+					attribute.String("task_id", pending.event.TaskID.String()),
+				))
+				logger.Warn(ctx, "metric dropped", "task_id", taskID.String())
+				continue
+			}
 
-		err := t.processMetric(ctx, pending.event)
-		if err != nil {
-			if errors.Is(err, domain.ErrTaskNotFound) {
-				// Still not found—bump attempts and re-queue.
-				pending.attempts++
-				remaining = append(remaining, pending)
-				span.AddEvent("metric_re-queued", trace.WithAttributes(
-					attribute.String("task_id", pending.event.TaskID.String()),
-				))
-			} else {
-				span.AddEvent("failed_to_process_metric", trace.WithAttributes(
-					attribute.String("task_id", pending.event.TaskID.String()),
-					attribute.String("error", err.Error()),
-				))
-				span.RecordError(err)
-				logger.Error(ctx,
-					"failed to process pending metric",
-					"task_id", pending.event.TaskID.String(),
-					"error", err,
-				)
+			err := t.processMetric(ctx, pending.event)
+			if err != nil {
+				if errors.Is(err, domain.ErrTaskNotFound) {
+					// Still not found—bump attempts and re-queue.
+					pending.attempts++
+					remaining[taskID] = append(remaining[taskID], pending)
+					span.AddEvent("metric_re-queued", trace.WithAttributes(
+						attribute.String("task_id", taskID.String()),
+					))
+				} else {
+					span.AddEvent("failed_to_process_metric", trace.WithAttributes(
+						attribute.String("task_id", taskID.String()),
+						attribute.String("error", err.Error()),
+					))
+					span.RecordError(err)
+					logger.Error(ctx,
+						"failed to process pending metric",
+						"task_id", taskID.String(),
+						"error", err,
+					)
+				}
 			}
 		}
 	}
