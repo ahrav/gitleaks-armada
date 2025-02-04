@@ -26,8 +26,9 @@ type taskStatusEntry struct {
 // shouldBeCleanedUp returns true if the task is in a terminal state and has been
 // in that state for longer than the retention period, indicating it can be
 // cleaned up.
+// TODO: Add OnTaskStatusChanged to the metrics.
 func (t *taskStatusEntry) shouldBeCleanedUp(now time.Time, retentionPeriod time.Duration) bool {
-	return t.status == domain.TaskStatusCompleted || t.status == domain.TaskStatusFailed &&
+	return (t.status == domain.TaskStatusCompleted || t.status == domain.TaskStatusFailed) &&
 		now.Sub(t.updatedAt) > retentionPeriod
 }
 
@@ -510,7 +511,7 @@ func (t *jobMetricsTracker) processMetric(ctx context.Context, evt scanning.Task
 		attribute.String("old_status", string(oldStatus)),
 	)
 
-	if oldStatus == domain.TaskStatusPending {
+	if oldStatus == domain.TaskStatusPending && evt.Status == domain.TaskStatusPending {
 		metrics.OnTaskAdded(evt.Status)
 		span.AddEvent("task_added")
 	} else {
