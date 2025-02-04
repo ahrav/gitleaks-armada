@@ -268,6 +268,7 @@ func (t *jobMetricsTracker) HandleJobMetrics(ctx context.Context, evt events.Eve
 	// Check if we need state recovery.
 	_, exists := t.metrics[metricEvt.JobID]
 	if !exists {
+		span.AddEvent("no_job_metrics_found_in_memory")
 		metrics, err := t.repository.GetJobMetrics(ctx, metricEvt.JobID)
 		if err != nil && !errors.Is(err, domain.ErrNoJobMetricsFound) {
 			span.RecordError(err)
@@ -276,6 +277,7 @@ func (t *jobMetricsTracker) HandleJobMetrics(ctx context.Context, evt events.Eve
 			return err
 		}
 		if metrics == nil {
+			span.AddEvent("no_job_metrics_found_in_db")
 			logger.Debug(ctx, "no job metrics found, creating new job metrics")
 			metrics = domain.NewJobMetrics()
 		}
@@ -431,25 +433,25 @@ func (t *jobMetricsTracker) processPendingMetrics(ctx context.Context) {
 
 	remaining := make(map[uuid.UUID][]pendingMetric)
 	for taskID, metrics := range t.pendingMetrics {
-		for _, pending := range metrics {
-			if pending.attempts > t.maxRetries {
+		for _, pendingMetric := range metrics {
+			if pendingMetric.attempts > t.maxRetries {
 				// TODO: drop + do something.
 				span.AddEvent("metric_dropped", trace.WithAttributes(
-					attribute.String("task_id", pending.event.TaskID.String()),
+					attribute.String("task_id", pendingMetric.event.TaskID.String()),
 				))
 				logger.Warn(ctx, "metric dropped", "task_id", taskID.String())
 				continue
 			}
 
-			err := t.processMetric(ctx, pending.event)
+			err := t.processMetric(ctx, pendingMetric.event)
 			if err != nil {
 				if errors.Is(err, domain.ErrTaskNotFound) {
 					// Still not found—bump attempts and re-queue.
-					pending.attempts++
-					remaining[taskID] = append(remaining[taskID], pending)
+					pendingMetric.attempts++
+					remaining[taskID] = append(remaining[taskID], pendingMetric)
 					span.AddEvent("metric_re-queued", trace.WithAttributes(
 						attribute.String("task_id", taskID.String()),
-						attribute.Int("attempts", pending.attempts),
+						attribute.Int("attempts", pendingMetric.attempts),
 					))
 				} else {
 					span.AddEvent("failed_to_process_metric", trace.WithAttributes(
@@ -612,8 +614,6 @@ func (t *jobMetricsTracker) FlushMetrics(ctx context.Context) {
 	span.AddEvent("metrics_flushed")
 	span.SetStatus(codes.Ok, "metrics flushed")
 	logger.Info(ctx, "metrics flushed")
-
-	return
 }
 
 // Stop stops the background goroutines and waits for them to finish.
