@@ -252,6 +252,16 @@ func (t *jobMetricsTracker) HandleJobMetrics(ctx context.Context, evt events.Eve
 		"status", metricEvt.Status,
 	)
 
+	if _, exists := t.pendingMetrics[metricEvt.TaskID]; exists {
+		span.AddEvent("task_id_in_pending_metrics")
+		logger.Debug(ctx, "task_id in pending metrics, appending to list")
+		t.pendingMetrics[metricEvt.TaskID] = append(t.pendingMetrics[metricEvt.TaskID], pendingMetric{
+			event:     metricEvt,
+			timestamp: time.Now(),
+		})
+		return nil
+	}
+
 	// Check if we need state recovery.
 	_, exists := t.metrics[metricEvt.JobID]
 	if !exists {
