@@ -56,6 +56,8 @@ func TestDomainEventReplayer_ReplayFromPosition_Success(t *testing.T) {
 
 	mockTranslator := &MockDomainEventReplayerTranslator{
 		translateFunc: func(metadata events.PositionMetadata) (events.StreamPosition, error) {
+			assert.Equal(t, events.StreamType("test"), metadata.EntityType)
+			assert.Equal(t, "123", metadata.EntityID)
 			return streamPos, nil
 		},
 	}
@@ -81,6 +83,8 @@ func TestDomainEventReplayer_ReplayFromPosition_TranslationError(t *testing.T) {
 	pos := &MockDomainPosition{streamType: "test", streamID: "123"}
 	mockTranslator := &MockDomainEventReplayerTranslator{
 		translateFunc: func(metadata events.PositionMetadata) (events.StreamPosition, error) {
+			assert.Equal(t, events.StreamType("test"), metadata.EntityType)
+			assert.Equal(t, "123", metadata.EntityID)
 			return nil, errors.New("translation failed")
 		},
 	}

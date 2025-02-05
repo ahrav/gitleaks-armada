@@ -7,16 +7,18 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 )
 
+var _ events.DomainOffsetCommitter = (*DomainOffsetCommitter)(nil)
+
 // DomainOffsetCommitter implements OffsetCommitter (the domain interface)
 // It uses a PositionTranslator to convert a DomainPosition to a StreamPosition,
 // then delegates the commit to the underlying KafkaOffsetCommitter.
 // TODO: add metrics, logger, tracing, etc.
 type DomainOffsetCommitter struct {
 	translator events.PositionTranslator // translates DomainPosition → StreamPosition
-	commiter   *KafkaOffsetCommitter
+	commiter   events.OffsetCommitter
 }
 
-func NewDomainOffsetCommitter(translator events.PositionTranslator, commiter *KafkaOffsetCommitter) *DomainOffsetCommitter {
+func NewDomainOffsetCommitter(translator events.PositionTranslator, commiter events.OffsetCommitter) *DomainOffsetCommitter {
 	return &DomainOffsetCommitter{translator: translator, commiter: commiter}
 }
 
