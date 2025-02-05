@@ -11,5 +11,7 @@ import (
 func NewTopicMapper(cfg *kafka.Config) kafka.TopicMapper {
 	return kafka.NewStaticTopicMapper(map[events.StreamType]string{
 		scanning.JobMetricsStreamType: cfg.JobMetricsTopic,
+		// TODO: Add all the other topics which we need to replay events from or
+		// commit offsets for.
 	})
 }

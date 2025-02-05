@@ -234,6 +234,7 @@ func main() {
 			TopicMapper: topicMapper,
 		},
 		log,
+		metricCollector,
 		tracer,
 	)
 	if err != nil {

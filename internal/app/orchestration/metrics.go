@@ -18,6 +18,9 @@ type OrchestrationMetrics interface {
 	// EventReplayer metrics.
 	kafka.EventReplayerMetrics
 
+	// OffsetCommitter metrics.
+	kafka.OffsetCommitterMetrics
+
 	// Leader election metrics
 	SetLeaderStatus(ctx context.Context, isLeader bool)
 
@@ -96,6 +99,14 @@ type orchestrationMetrics struct {
 	messageReplayErrors metric.Int64Counter
 	replayBatchSize     metric.Int64Histogram
 	replayDuration      metric.Float64Histogram
+
+	// Offset committer metrics
+	commitsStarted    metric.Int64Counter
+	commitsCompleted  metric.Int64Counter
+	commitErrors      metric.Int64Counter
+	partitionsManaged metric.Int64Counter
+	partitionErrors   metric.Int64Counter
+	commitDuration    metric.Float64Histogram
 }
 
 const namespace = "controller"
@@ -331,6 +342,50 @@ func NewOrchestrationMetrics(mp metric.MeterProvider) (*orchestrationMetrics, er
 		return nil, err
 	}
 
+	// Initialize offset committer metrics
+	if c.commitsStarted, err = meter.Int64Counter(
+		"commits_started_total",
+		metric.WithDescription("Total number of offset commit operations started"),
+	); err != nil {
+		return nil, err
+	}
+
+	if c.commitsCompleted, err = meter.Int64Counter(
+		"commits_completed_total",
+		metric.WithDescription("Total number of offset commit operations completed successfully"),
+	); err != nil {
+		return nil, err
+	}
+
+	if c.commitErrors, err = meter.Int64Counter(
+		"commit_errors_total",
+		metric.WithDescription("Total number of offset commit operation errors"),
+	); err != nil {
+		return nil, err
+	}
+
+	if c.partitionsManaged, err = meter.Int64Counter(
+		"partitions_managed_total",
+		metric.WithDescription("Total number of partitions successfully managed"),
+	); err != nil {
+		return nil, err
+	}
+
+	if c.partitionErrors, err = meter.Int64Counter(
+		"partition_management_errors_total",
+		metric.WithDescription("Total number of partition management errors"),
+	); err != nil {
+		return nil, err
+	}
+
+	if c.commitDuration, err = meter.Float64Histogram(
+		"commit_duration_seconds",
+		metric.WithDescription("Time taken to commit offsets"),
+		metric.WithUnit("s"),
+	); err != nil {
+		return nil, err
+	}
+
 	return c, nil
 }
 
@@ -457,4 +512,33 @@ func (c *orchestrationMetrics) ObserveReplayBatchSize(ctx context.Context, size 
 
 func (c *orchestrationMetrics) ObserveReplayDuration(ctx context.Context, duration time.Duration) {
 	c.replayDuration.Record(ctx, duration.Seconds())
+}
+
+// OffsetCommitterMetrics implementation
+func (c *orchestrationMetrics) IncCommitStarted(ctx context.Context) {
+	c.commitsStarted.Add(ctx, 1)
+}
+
+func (c *orchestrationMetrics) IncCommitCompleted(ctx context.Context) {
+	c.commitsCompleted.Add(ctx, 1)
+}
+
+func (c *orchestrationMetrics) IncCommitErrors(ctx context.Context) {
+	c.commitErrors.Add(ctx, 1)
+}
+
+func (c *orchestrationMetrics) IncPartitionManaged(ctx context.Context, topic string) {
+	c.partitionsManaged.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("topic", topic),
+	))
+}
+
+func (c *orchestrationMetrics) IncPartitionManagementError(ctx context.Context, topic string) {
+	c.partitionErrors.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("topic", topic),
+	))
+}
+
+func (c *orchestrationMetrics) ObserveCommitDuration(ctx context.Context, duration time.Duration) {
+	c.commitDuration.Record(ctx, duration.Seconds())
 }

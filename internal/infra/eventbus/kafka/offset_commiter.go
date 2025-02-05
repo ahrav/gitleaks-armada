@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/IBM/sarama"
 	"go.opentelemetry.io/otel/attribute"
@@ -14,7 +15,22 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
 
-var _ events.OffsetCommitter = (*KafkaOffsetCommitter)(nil)
+// OffsetCommitterMetrics defines metrics operations needed to monitor offset commit operations.
+type OffsetCommitterMetrics interface {
+	// Commit metrics.
+	IncCommitStarted(ctx context.Context)
+	IncCommitCompleted(ctx context.Context)
+	IncCommitErrors(ctx context.Context)
+
+	// Partition management metrics.
+	IncPartitionManaged(ctx context.Context, topic string)
+	IncPartitionManagementError(ctx context.Context, topic string)
+
+	// Performance metrics.
+	ObserveCommitDuration(ctx context.Context, duration time.Duration)
+}
+
+var _ events.OffsetCommitter = (*offsetCommiter)(nil)
 
 // OffsetCommitterConfig contains the configuration required to commit offsets to Kafka.
 type OffsetCommitterConfig struct {
@@ -24,10 +40,10 @@ type OffsetCommitterConfig struct {
 	TopicMapper TopicMapper
 }
 
-// KafkaOffsetCommitter manages and persists consumer group offsets for Kafka topics.
+// offsetCommiter manages and persists consumer group offsets for Kafka topics.
 // It provides thread-safe offset management across multiple partitions and ensures
 // exactly-once message processing semantics by tracking consumption progress.
-type KafkaOffsetCommitter struct {
+type offsetCommiter struct {
 	topicMapper TopicMapper
 
 	offsetMgr sarama.OffsetManager
@@ -35,9 +51,9 @@ type KafkaOffsetCommitter struct {
 	mu    sync.Mutex
 	pomap map[string]map[int32]sarama.PartitionOffsetManager
 
-	logger *logger.Logger
-	tracer trace.Tracer
-	// TODO: add metrics
+	logger  *logger.Logger
+	tracer  trace.Tracer
+	metrics OffsetCommitterMetrics
 }
 
 // NewKafkaOffsetCommitter creates a new KafkaOffsetCommitter with the specified offset manager,
@@ -45,8 +61,9 @@ type KafkaOffsetCommitter struct {
 func NewKafkaOffsetCommitter(
 	cfg *OffsetCommitterConfig,
 	logger *logger.Logger,
+	metrics OffsetCommitterMetrics,
 	tracer trace.Tracer,
-) (*KafkaOffsetCommitter, error) {
+) (*offsetCommiter, error) {
 	config := sarama.NewConfig()
 	config.Consumer.Return.Errors = true
 	config.Version = sarama.V2_8_0_0
@@ -64,19 +81,26 @@ func NewKafkaOffsetCommitter(
 		return nil, fmt.Errorf("creating kafka offset manager for offset committer: %w", err)
 	}
 
-	return &KafkaOffsetCommitter{
+	return &offsetCommiter{
 		offsetMgr:   mgr,
 		topicMapper: cfg.TopicMapper,
 		pomap:       make(map[string]map[int32]sarama.PartitionOffsetManager),
 		logger:      logger,
 		tracer:      tracer,
+		metrics:     metrics,
 	}, nil
 }
 
 // CommitPosition persists the given stream position to Kafka's offset management system.
 // It expects a position identifier in the format "partition:offset" and ensures
 // thread-safe access to partition-specific offset managers.
-func (k *KafkaOffsetCommitter) CommitPosition(ctx context.Context, streamPos events.StreamPosition) error {
+func (k *offsetCommiter) CommitPosition(ctx context.Context, streamPos events.StreamPosition) error {
+	start := time.Now()
+	k.metrics.IncCommitStarted(ctx)
+	defer func() {
+		k.metrics.ObserveCommitDuration(ctx, time.Since(start))
+	}()
+
 	logr := logger.NewLoggerContext(k.logger.With("stream_position", streamPos.Identifier()))
 	ctx, span := k.tracer.Start(ctx, "kafka_offset_committer.commit_position", trace.WithAttributes(
 		attribute.String("component", "kafka_offset_committer"),
@@ -86,6 +110,7 @@ func (k *KafkaOffsetCommitter) CommitPosition(ctx context.Context, streamPos eve
 	logr.Debug(ctx, "Starting offset commit")
 
 	if err := streamPos.Validate(); err != nil {
+		k.metrics.IncCommitErrors(ctx)
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "invalid position")
 		return fmt.Errorf("invalid position: %w", err)
@@ -97,12 +122,14 @@ func (k *KafkaOffsetCommitter) CommitPosition(ctx context.Context, streamPos eve
 		offset    int64
 	)
 	if _, err := fmt.Sscanf(identifier, "%d:%d", &partition, &offset); err != nil {
+		k.metrics.IncCommitErrors(ctx)
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "invalid position identifier format")
 		return fmt.Errorf("invalid position identifier format: %w", err)
 	}
 	topic, err := k.topicMapper.GetTopicForStreamType(events.StreamType(identifier))
 	if err != nil {
+		k.metrics.IncCommitErrors(ctx)
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "invalid entity type")
 		return fmt.Errorf("invalid entity type: %w", err)
@@ -130,10 +157,12 @@ func (k *KafkaOffsetCommitter) CommitPosition(ctx context.Context, streamPos eve
 		var err error
 		pom, err = k.offsetMgr.ManagePartition(topic, partition)
 		if err != nil {
+			k.metrics.IncPartitionManagementError(ctx, topic)
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "failed to manage partition")
 			return fmt.Errorf("failed to manage partition %d: %w", partition, err)
 		}
+		k.metrics.IncPartitionManaged(ctx, topic)
 		topicMap[partition] = pom
 		span.AddEvent("partition_managed")
 	}
@@ -142,6 +171,8 @@ func (k *KafkaOffsetCommitter) CommitPosition(ctx context.Context, streamPos eve
 	pom.MarkOffset(offset+1, "committed by KafkaOffsetCommitter")
 	logr.Debug(ctx, "Successfully marked offset")
 	span.AddEvent("offset_marked")
+
+	k.metrics.IncCommitCompleted(ctx)
 	span.SetStatus(codes.Ok, "position committed")
 
 	return nil
@@ -150,7 +181,7 @@ func (k *KafkaOffsetCommitter) CommitPosition(ctx context.Context, streamPos eve
 // Close releases all resources held by the offset committer, including partition managers
 // and the main offset manager. It should be called when the committer is no longer needed
 // to prevent resource leaks.
-func (k *KafkaOffsetCommitter) Close() error {
+func (k *offsetCommiter) Close() error {
 	ctx, span := k.tracer.Start(context.Background(), "kafka_offset_committer.close", trace.WithAttributes(
 		attribute.String("component", "kafka_offset_committer"),
 	))
