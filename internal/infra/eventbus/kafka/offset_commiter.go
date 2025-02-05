@@ -60,6 +60,7 @@ func (k *KafkaOffsetCommitter) CommitPosition(ctx context.Context, streamPos eve
 		attribute.String("stream_position", streamPos.Identifier()),
 	))
 	defer span.End()
+	logr.Debug(ctx, "Starting offset commit")
 
 	if err := streamPos.Validate(); err != nil {
 		span.RecordError(err)
@@ -101,6 +102,7 @@ func (k *KafkaOffsetCommitter) CommitPosition(ctx context.Context, streamPos eve
 
 	// Mark the next offset (X+1).
 	pom.MarkOffset(offset+1, "committed by KafkaOffsetCommitter")
+	logr.Debug(ctx, "Successfully marked offset")
 	span.AddEvent("offset_marked")
 	span.SetStatus(codes.Ok, "position committed")
 
