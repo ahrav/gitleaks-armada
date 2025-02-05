@@ -56,31 +56,31 @@ type orchestrationMetrics struct {
 	publishErrors     metric.Int64Counter
 	consumeErrors     metric.Int64Counter
 
-	// EnumerationTask metrics
+	// EnumerationTask metrics.
 	enumerationTasksEnqueued        metric.Int64Counter
 	enumerationTasksRetried         metric.Int64Counter
 	enumerationTasksFailedToEnqueue metric.Int64Counter
 
-	// Enumeration metrics
+	// Enumeration metrics.
 	enumerationTime   metric.Float64Histogram
 	activeEnumeration metric.Int64UpDownCounter
 
-	// Target metrics
+	// Target metrics.
 	targetsProcessed     metric.Int64Counter
 	targetProcessingTime metric.Float64Histogram
 
-	// Leader election metrics
+	// Leader election metrics.
 	leaderStatus metric.Int64UpDownCounter
 
-	// Config metrics
+	// Config metrics.
 	configReloads      metric.Int64Counter
 	configReloadErrors metric.Int64Counter
 
-	// Rules storage metrics
+	// Rules storage metrics.
 	rulesSaved     metric.Int64Counter // Total number of individual rules saved to DB
 	ruleSaveErrors metric.Int64Counter // Total number of errors saving rules to DB
 
-	// Enumeration metrics
+	// Enumeration metrics.
 	enumerationsStarted   metric.Int64Counter
 	enumerationsCompleted metric.Int64Counter
 	enumerationErrors     metric.Int64Counter
@@ -91,7 +91,7 @@ type orchestrationMetrics struct {
 	jobsCompleted         metric.Int64Counter
 	jobsFailed            metric.Int64Counter
 
-	// Event replay metrics
+	// Event replay metrics.
 	replayStarted       metric.Int64Counter
 	replayCompleted     metric.Int64Counter
 	replayErrors        metric.Int64Counter
@@ -99,8 +99,11 @@ type orchestrationMetrics struct {
 	messageReplayErrors metric.Int64Counter
 	replayBatchSize     metric.Int64Histogram
 	replayDuration      metric.Float64Histogram
+	// Lag check metrics for replayer.
+	consumerLag    metric.Float64Histogram
+	lagCheckErrors metric.Int64Counter
 
-	// Offset committer metrics
+	// Offset committer metrics.
 	commitsStarted    metric.Int64Counter
 	commitsCompleted  metric.Int64Counter
 	commitErrors      metric.Int64Counter
@@ -386,6 +389,22 @@ func NewOrchestrationMetrics(mp metric.MeterProvider) (*orchestrationMetrics, er
 		return nil, err
 	}
 
+	// Add lag check metrics
+	if c.consumerLag, err = meter.Float64Histogram(
+		"consumer_lag",
+		metric.WithDescription("Consumer lag by topic and partition"),
+		metric.WithUnit("messages"),
+	); err != nil {
+		return nil, err
+	}
+
+	if c.lagCheckErrors, err = meter.Int64Counter(
+		"lag_check_errors_total",
+		metric.WithDescription("Total number of consumer lag check errors"),
+	); err != nil {
+		return nil, err
+	}
+
 	return c, nil
 }
 
@@ -512,6 +531,19 @@ func (c *orchestrationMetrics) ObserveReplayBatchSize(ctx context.Context, size 
 
 func (c *orchestrationMetrics) ObserveReplayDuration(ctx context.Context, duration time.Duration) {
 	c.replayDuration.Record(ctx, duration.Seconds())
+}
+
+func (c *orchestrationMetrics) ObserveConsumerLag(ctx context.Context, topic string, partition int32, lag int64) {
+	c.consumerLag.Record(ctx, float64(lag), metric.WithAttributes(
+		attribute.String("topic", topic),
+		attribute.Int("partition", int(partition)),
+	))
+}
+
+func (c *orchestrationMetrics) IncLagCheckError(ctx context.Context, topic string) {
+	c.lagCheckErrors.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("topic", topic),
+	))
 }
 
 // OffsetCommitterMetrics implementation

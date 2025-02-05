@@ -30,6 +30,10 @@ type EventReplayerMetrics interface {
 	// Batch metrics.
 	ObserveReplayBatchSize(ctx context.Context, size int)
 	ObserveReplayDuration(ctx context.Context, duration time.Duration)
+
+	// Consumer lag metrics.
+	ObserveConsumerLag(ctx context.Context, topic string, partition int32, lag int64)
+	IncLagCheckError(ctx context.Context, topic string)
 }
 
 var _ events.EventReplayer = (*eventReplayer)(nil)
@@ -40,6 +44,9 @@ type ReplayConfig struct {
 	ClientID    string
 	Brokers     []string
 	TopicMapper TopicMapper
+
+	// Lag monitoring configuration.
+	LagCheckInterval time.Duration // Default to 5s if not set
 }
 
 // eventReplayer is responsible for replaying events from Kafka topics
@@ -47,8 +54,11 @@ type ReplayConfig struct {
 type eventReplayer struct {
 	topicMapper TopicMapper
 
+	client     sarama.Client
 	consumer   sarama.Consumer
 	shutdownWg sync.WaitGroup
+
+	lagCheckInterval time.Duration
 
 	logger  *logger.Logger
 	tracer  trace.Tracer
@@ -80,12 +90,20 @@ func NewEventReplayer(
 		return nil, fmt.Errorf("creating kafka consumer for event replayer: %w", err)
 	}
 
+	const defaultLagCheckInterval = 5 * time.Second
+	lagCheckInterval := cfg.LagCheckInterval
+	if lagCheckInterval == 0 {
+		lagCheckInterval = defaultLagCheckInterval
+	}
+
 	return &eventReplayer{
-		topicMapper: cfg.TopicMapper,
-		consumer:    consumer,
-		logger:      logger,
-		metrics:     metrics,
-		tracer:      tracer,
+		topicMapper:      cfg.TopicMapper,
+		client:           client,
+		consumer:         consumer,
+		lagCheckInterval: lagCheckInterval,
+		logger:           logger,
+		metrics:          metrics,
+		tracer:           tracer,
 	}, nil
 }
 
@@ -172,7 +190,7 @@ func (r *eventReplayer) ReplayEvents(
 		}
 		topicSpan.AddEvent("partition_consumer_created")
 
-		r.processPartitionMessages(topicCtx, partitionConsumer, topic, eventCh, evtLogger)
+		r.processPartitionMessages(topicCtx, partitionConsumer, topic, partition, eventCh, evtLogger)
 	}()
 
 	return eventCh, nil
@@ -185,16 +203,31 @@ func (r *eventReplayer) processPartitionMessages(
 	ctx context.Context,
 	partitionConsumer sarama.PartitionConsumer,
 	topic string,
+	partitionID int32,
 	eventCh chan<- events.EventEnvelope,
 	logger *logger.LoggerContext,
 ) {
 	span := trace.SpanFromContext(ctx)
 	defer partitionConsumer.Close()
 
+	lagTicker := time.NewTicker(r.lagCheckInterval)
+	defer lagTicker.Stop()
+
 	var msgCount int64 = 0
 	batchSize := 0
 	for {
 		select {
+		case <-lagTicker.C:
+			latestOffset, err := r.client.GetOffset(topic, partitionID, sarama.OffsetNewest)
+			if err != nil {
+				r.metrics.IncLagCheckError(ctx, topic)
+				logger.Error(ctx, "Failed to get latest offset", "error", err)
+				span.RecordError(err)
+				continue
+			}
+
+			lag := latestOffset - partitionConsumer.HighWaterMarkOffset()
+			logger.Info(ctx, "Lag", "lag", lag)
 		case msg := <-partitionConsumer.Messages():
 			evtType, domainBytes, err := serialization.UnmarshalUniversalEnvelope(msg.Value)
 			if err != nil {
