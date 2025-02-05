@@ -97,7 +97,7 @@ func (r *eventReplayer) ReplayEvents(
 	from events.StreamPosition,
 ) (<-chan events.EventEnvelope, error) {
 	r.metrics.IncReplayStarted(ctx)
-	evtLogger := r.logger.With("position", from.Identifier())
+	evtLogger := logger.NewLoggerContext(r.logger.With("position", from.Identifier()))
 	// Create an outer span for parameter validation and consumer creation.
 	ctx, span := r.tracer.Start(ctx, "kafka_replayer.replay_events", trace.WithAttributes(
 		attribute.String("component", "event_replayer"),
@@ -137,6 +137,7 @@ func (r *eventReplayer) ReplayEvents(
 		attribute.Int64("offset", offset),
 		attribute.String("topic", topic),
 	)
+	evtLogger.Add("entity_type", entityType, "partition", partition, "offset", offset, "topic", topic)
 
 	// Create a channel for sending events.
 	// This channel will be closed when the context is
@@ -160,19 +161,18 @@ func (r *eventReplayer) ReplayEvents(
 			attribute.Int64("offset", offset),
 		))
 		defer topicSpan.End()
-		topicLogger := logger.NewLoggerContext(evtLogger.With("topic", topic, "partition", partition, "offset", offset))
 
 		partitionConsumer, err := r.consumer.ConsumePartition(topic, partition, offset)
 		if err != nil {
 			r.metrics.IncReplayErrors(topicCtx)
-			topicLogger.Error(topicCtx, "Failed to create partition consumer", "error", err)
+			evtLogger.Error(topicCtx, "Failed to create partition consumer", "error", err)
 			topicSpan.RecordError(err)
 			topicSpan.SetStatus(codes.Error, "failed to create partition consumer")
 			return
 		}
 		topicSpan.AddEvent("partition_consumer_created")
 
-		r.processPartitionMessages(topicCtx, partitionConsumer, topicLogger, eventCh, topic)
+		r.processPartitionMessages(topicCtx, partitionConsumer, topic, eventCh, evtLogger)
 	}()
 
 	return eventCh, nil
@@ -184,9 +184,9 @@ func (r *eventReplayer) ReplayEvents(
 func (r *eventReplayer) processPartitionMessages(
 	ctx context.Context,
 	partitionConsumer sarama.PartitionConsumer,
-	logger *logger.LoggerContext,
-	eventCh chan<- events.EventEnvelope,
 	topic string,
+	eventCh chan<- events.EventEnvelope,
+	logger *logger.LoggerContext,
 ) {
 	span := trace.SpanFromContext(ctx)
 	defer partitionConsumer.Close()
@@ -252,6 +252,7 @@ func (r *eventReplayer) processPartitionMessages(
 			return
 
 		case err := <-partitionConsumer.Errors():
+			// TODO: Consider adding retry logic?
 			r.metrics.IncMessageReplayError(ctx, topic)
 			logger.Error(ctx, "Error consuming message", "error", err)
 			span.RecordError(err)
