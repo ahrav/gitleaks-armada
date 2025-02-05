@@ -16,17 +16,23 @@ func TestPosition_Validate(t *testing.T) {
 		expectErr error
 	}{
 		{
-			name:     "valid position",
-			position: Position{Partition: 0, Offset: 0},
+			name:      "valid position",
+			position:  Position{EntityType: scanning.JobMetricsStreamType, Partition: 0, Offset: 0},
+			expectErr: nil,
+		},
+		{
+			name:      "invalid entity type",
+			position:  Position{EntityType: "", Partition: 0, Offset: 0},
+			expectErr: ErrInvalidEntityType{EntityType: ""},
 		},
 		{
 			name:      "invalid partition",
-			position:  Position{Partition: -1, Offset: 0},
+			position:  Position{EntityType: scanning.JobMetricsStreamType, Partition: -1, Offset: 0},
 			expectErr: ErrInvalidPartition{Partition: "-1"},
 		},
 		{
 			name:      "invalid offset",
-			position:  Position{Partition: 0, Offset: -1},
+			position:  Position{EntityType: scanning.JobMetricsStreamType, Partition: 0, Offset: -1},
 			expectErr: ErrInvalidOffset{Offset: "-1"},
 		},
 	}
@@ -48,10 +54,11 @@ func TestJobMetricsTranslationRule_Translate(t *testing.T) {
 		expectedErr error
 	}{
 		{
-			name:      "valid entity ID",
-			entityID:  "1:100",
-			expected:  Position{Partition: 1, Offset: 100},
-			expectErr: false,
+			name:        "valid entity ID",
+			entityID:    "1:100",
+			expected:    Position{EntityType: scanning.JobMetricsStreamType, Partition: 1, Offset: 100},
+			expectErr:   false,
+			expectedErr: nil,
 		},
 		{
 			name:        "invalid format",
@@ -100,10 +107,10 @@ func TestKafkaPositionTranslator_ToStreamPosition(t *testing.T) {
 		{
 			name: "valid job metrics entity",
 			metadata: events.PositionMetadata{
-				EntityType: scanning.JobMetricsEntityType,
+				EntityType: scanning.JobMetricsStreamType,
 				EntityID:   "1:100",
 			},
-			expected:  Position{Partition: 1, Offset: 100},
+			expected:  Position{EntityType: scanning.JobMetricsStreamType, Partition: 1, Offset: 100},
 			expectErr: false,
 		},
 		{

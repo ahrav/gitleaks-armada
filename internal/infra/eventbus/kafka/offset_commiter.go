@@ -16,16 +16,24 @@ import (
 
 var _ events.OffsetCommitter = (*KafkaOffsetCommitter)(nil)
 
+// OffsetCommitterConfig contains the configuration required to commit offsets to Kafka.
+type OffsetCommitterConfig struct {
+	GroupID     string
+	ClientID    string
+	Brokers     []string
+	TopicMapper TopicMapper
+}
+
 // KafkaOffsetCommitter manages and persists consumer group offsets for Kafka topics.
 // It provides thread-safe offset management across multiple partitions and ensures
 // exactly-once message processing semantics by tracking consumption progress.
 type KafkaOffsetCommitter struct {
+	topicMapper TopicMapper
+
 	offsetMgr sarama.OffsetManager
 
-	topic string
-
 	mu    sync.Mutex
-	pomap map[int32]sarama.PartitionOffsetManager
+	pomap map[string]map[int32]sarama.PartitionOffsetManager
 
 	logger *logger.Logger
 	tracer trace.Tracer
@@ -35,19 +43,34 @@ type KafkaOffsetCommitter struct {
 // NewKafkaOffsetCommitter creates a new KafkaOffsetCommitter with the specified offset manager,
 // topic, logger, and tracer. It initializes internal state for partition management.
 func NewKafkaOffsetCommitter(
-	offsetMgr sarama.OffsetManager,
-	topic string,
+	cfg *OffsetCommitterConfig,
 	logger *logger.Logger,
 	tracer trace.Tracer,
-) *KafkaOffsetCommitter {
+) (*KafkaOffsetCommitter, error) {
+	config := sarama.NewConfig()
+	config.Consumer.Return.Errors = true
+	config.Version = sarama.V2_8_0_0
+	config.ClientID = cfg.ClientID
+
 	logger = logger.With("component", "kafka_offset_committer")
-	return &KafkaOffsetCommitter{
-		offsetMgr: offsetMgr,
-		topic:     topic,
-		pomap:     make(map[int32]sarama.PartitionOffsetManager),
-		logger:    logger,
-		tracer:    tracer,
+
+	client, err := sarama.NewClient(cfg.Brokers, config)
+	if err != nil {
+		return nil, fmt.Errorf("creating kafka client for offset committer: %w", err)
 	}
+
+	mgr, err := sarama.NewOffsetManagerFromClient(cfg.GroupID, client)
+	if err != nil {
+		return nil, fmt.Errorf("creating kafka offset manager for offset committer: %w", err)
+	}
+
+	return &KafkaOffsetCommitter{
+		offsetMgr:   mgr,
+		topicMapper: cfg.TopicMapper,
+		pomap:       make(map[string]map[int32]sarama.PartitionOffsetManager),
+		logger:      logger,
+		tracer:      tracer,
+	}, nil
 }
 
 // CommitPosition persists the given stream position to Kafka's offset management system.
@@ -78,25 +101,40 @@ func (k *KafkaOffsetCommitter) CommitPosition(ctx context.Context, streamPos eve
 		span.SetStatus(codes.Error, "invalid position identifier format")
 		return fmt.Errorf("invalid position identifier format: %w", err)
 	}
-	logr.Add("partition", partition, "offset", offset)
+	topic, err := k.topicMapper.GetTopicForStreamType(events.StreamType(identifier))
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "invalid entity type")
+		return fmt.Errorf("invalid entity type: %w", err)
+	}
+
+	logr.Add("partition", partition, "offset", offset, "topic", topic)
 	span.SetAttributes(
 		attribute.Int64("partition", int64(partition)),
 		attribute.Int64("offset", offset),
+		attribute.String("topic", topic),
 	)
 
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	pom, exists := k.pomap[partition]
+
+	topicMap, exists := k.pomap[topic]
+	if !exists {
+		topicMap = make(map[int32]sarama.PartitionOffsetManager)
+		k.pomap[topic] = topicMap
+	}
+
+	pom, exists := topicMap[partition]
 	if !exists {
 		logr.Debug(ctx, "Managing partition")
 		var err error
-		pom, err = k.offsetMgr.ManagePartition(k.topic, partition)
+		pom, err = k.offsetMgr.ManagePartition(topic, partition)
 		if err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "failed to manage partition")
 			return fmt.Errorf("failed to manage partition %d: %w", partition, err)
 		}
-		k.pomap[partition] = pom
+		topicMap[partition] = pom
 		span.AddEvent("partition_managed")
 	}
 
@@ -123,9 +161,11 @@ func (k *KafkaOffsetCommitter) Close() error {
 	defer k.mu.Unlock()
 
 	var firstErr error
-	for _, pom := range k.pomap {
-		if err := pom.Close(); err != nil && firstErr == nil {
-			firstErr = err
+	for _, topicMap := range k.pomap {
+		for _, pom := range topicMap {
+			if err := pom.Close(); err != nil && firstErr == nil {
+				firstErr = err
+			}
 		}
 	}
 	if err := k.offsetMgr.Close(); err != nil && firstErr == nil {

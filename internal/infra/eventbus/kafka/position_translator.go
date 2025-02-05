@@ -15,6 +15,8 @@ import (
 type RuleTranslator interface {
 	// Translate converts a domain entity ID to a Kafka position.
 	Translate(entityID string) (Position, error)
+	// EntityType returns the type of entity this rule handles
+	EntityType() events.StreamType
 }
 
 // ErrInvalidPartition is an error type for invalid partition values.
@@ -31,23 +33,36 @@ func (e ErrInvalidOffset) Error() string {
 	return fmt.Sprintf("invalid offset: %s", e.Offset)
 }
 
+// ErrInvalidEntityType is an error type for invalid entity types.
+type ErrInvalidEntityType struct{ EntityType events.StreamType }
+
+func (e ErrInvalidEntityType) Error() string {
+	return fmt.Sprintf("invalid entity type: %s", e.EntityType)
+}
+
 var _ events.StreamPosition = (*Position)(nil)
 
 // Position represents a specific location in a Kafka partition,
-// identified by a partition number and an offset.
+// identified by an entity type, partition number and an offset.
 // It is used to specify where to start replaying events in a Kafka topic.
 type Position struct {
-	Partition int32
-	Offset    int64
+	EntityType events.StreamType
+	Partition  int32
+	Offset     int64
 }
 
-// Identifier returns a string representation of the Position in the format "partition:offset".
-func (p Position) Identifier() string { return fmt.Sprintf("%d:%d", p.Partition, p.Offset) }
+// Identifier returns a string representation of the Position in the format "entityType:partition:offset".
+func (p Position) Identifier() string {
+	return fmt.Sprintf("%s:%d:%d", p.EntityType, p.Partition, p.Offset)
+}
 
 // Validate checks if the Position is valid.
 // A valid Position has a non-negative partition and offset.
 // Returns an error if the Position is invalid.
 func (p Position) Validate() error {
+	if p.EntityType == "" {
+		return ErrInvalidEntityType{EntityType: p.EntityType}
+	}
 	if p.Partition < 0 {
 		return ErrInvalidPartition{Partition: fmt.Sprintf("%d", p.Partition)}
 	}
@@ -70,8 +85,13 @@ var _ RuleTranslator = (*JobMetricsTranslationRule)(nil)
 // It expects entity IDs in the format "partition:offset" and parses them into Kafka positions.
 type JobMetricsTranslationRule struct{}
 
+// EntityType returns the type of entity this rule handles.
+func (r JobMetricsTranslationRule) EntityType() events.StreamType {
+	return scanning.JobMetricsStreamType
+}
+
 // Translate translates a job metrics entity ID into a Kafka position.
-// It expects entity IDs in the format "partition:offset" and parses them into Kafka positions.
+// Now expects entityID in format "partition:offset"
 func (r JobMetricsTranslationRule) Translate(entityID string) (Position, error) {
 	parts := strings.Split(entityID, ":")
 	if len(parts) != 2 {
@@ -89,8 +109,9 @@ func (r JobMetricsTranslationRule) Translate(entityID string) (Position, error) 
 	}
 
 	return Position{
-		Partition: int32(partition),
-		Offset:    offset,
+		EntityType: r.EntityType(), // Use the rule's entity type
+		Partition:  int32(partition),
+		Offset:     offset,
 	}, nil
 }
 
@@ -113,9 +134,10 @@ type KafkaPositionTranslator struct {
 // NewKafkaPositionTranslator initializes a new KafkaPositionTranslator with default rules.
 // Currently, it includes a rule for translating job metrics entity IDs.
 func NewKafkaPositionTranslator() *KafkaPositionTranslator {
+	jobMetricsRule := JobMetricsTranslationRule{}
 	return &KafkaPositionTranslator{
 		rules: map[events.StreamType]RuleTranslator{
-			scanning.JobMetricsEntityType: JobMetricsTranslationRule{},
+			jobMetricsRule.EntityType(): jobMetricsRule,
 		},
 	}
 }
@@ -128,5 +150,33 @@ func (t *KafkaPositionTranslator) ToStreamPosition(metadata events.PositionMetad
 		return nil, ErrNoTranslationRule{EntityType: metadata.EntityType}
 	}
 
+	if rule.EntityType() != metadata.EntityType {
+		return nil, fmt.Errorf("rule entity type mismatch: expected %s, got %s",
+			metadata.EntityType, rule.EntityType())
+	}
+
 	return rule.Translate(metadata.EntityID)
+}
+
+// TopicMapper provides mapping between domain StreamTypes and Kafka topics.
+type TopicMapper interface {
+	// GetTopicForStreamType returns the Kafka topic name for a given stream type.
+	GetTopicForStreamType(streamType events.StreamType) (string, error)
+}
+
+// StaticTopicMapper implements TopicMapper with a static mapping.
+type StaticTopicMapper struct {
+	mappings map[events.StreamType]string
+}
+
+func NewStaticTopicMapper(mappings map[events.StreamType]string) *StaticTopicMapper {
+	return &StaticTopicMapper{mappings: mappings}
+}
+
+func (m *StaticTopicMapper) GetTopicForStreamType(streamType events.StreamType) (string, error) {
+	topic, exists := m.mappings[streamType]
+	if !exists {
+		return "", fmt.Errorf("no topic mapping for stream type: %s", streamType)
+	}
+	return topic, nil
 }

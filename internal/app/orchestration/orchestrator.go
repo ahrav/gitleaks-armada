@@ -94,6 +94,7 @@ func NewOrchestrator(
 	coord cluster.Coordinator,
 	queue events.EventBus,
 	eventPublisher events.DomainEventPublisher,
+	offsetCommitter events.DomainOffsetCommitter,
 	eventReplayer events.DomainEventReplayer,
 	enumerationService enumCoordinator.Coordinator,
 	rulesService rulessvc.Service,
@@ -147,7 +148,7 @@ func NewOrchestrator(
 	)
 
 	metricsRepo := scan.NewMetricsRepositoryAdapter(jobRepo, taskRepo)
-	o.metricsTracker = scan.NewJobMetricsTracker(metricsRepo, eventReplayer, componentLogger, tracer)
+	o.metricsTracker = scan.NewJobMetricsTracker(metricsRepo, offsetCommitter, eventReplayer, componentLogger, tracer)
 	go o.metricsTracker.LaunchMetricsFlusher(30 * time.Second)
 
 	eventsFacilitator := NewEventsFacilitator(

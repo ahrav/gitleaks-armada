@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/stdlib"
 	"go.uber.org/automaxprocs/maxprocs"
 
+	"github.com/ahrav/gitleaks-armada/internal/app/config"
 	"github.com/ahrav/gitleaks-armada/internal/app/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/app/orchestration"
 	"github.com/ahrav/gitleaks-armada/internal/app/rules"
@@ -213,7 +214,7 @@ func main() {
 		RulesRequestTopic:     os.Getenv("KAFKA_RULES_REQUEST_TOPIC"),
 		RulesResponseTopic:    os.Getenv("KAFKA_RULES_RESPONSE_TOPIC"),
 		GroupID:               os.Getenv("KAFKA_GROUP_ID"),
-		ClientID:              fmt.Sprintf("controller-%s", hostname),
+		ClientID:              svcName,
 		ServiceType:           serviceType,
 	}
 	broker, err := kafka.ConnectWithRetry(kafkaCfg, log, metricCollector, tracer)
@@ -223,14 +224,28 @@ func main() {
 	}
 	log.Info(ctx, "Controller connected to Kafka")
 
+	topicMapper := config.NewTopicMapper(kafkaCfg)
+
+	offsetCommitter, err := kafka.NewKafkaOffsetCommitter(
+		&kafka.OffsetCommitterConfig{
+			GroupID:     kafkaCfg.GroupID,
+			ClientID:    kafkaCfg.ClientID,
+			Brokers:     strings.Split(os.Getenv("KAFKA_BROKERS"), ","),
+			TopicMapper: topicMapper,
+		},
+		log,
+		tracer,
+	)
+	if err != nil {
+		log.Error(ctx, "failed to create offset committer", "error", err)
+		os.Exit(1)
+	}
+
 	eventReplayer, err := kafka.NewEventReplayer(
-		fmt.Sprintf("controller-%s", hostname),
 		&kafka.ReplayConfig{
-			Brokers: strings.Split(os.Getenv("KAFKA_BROKERS"), ","),
-			// TODO: Add all the other topics which we need to replay events from.
-			Topics: []string{
-				os.Getenv("KAFKA_JOB_METRICS_TOPIC"),
-			},
+			ClientID:    kafkaCfg.ClientID,
+			Brokers:     strings.Split(os.Getenv("KAFKA_BROKERS"), ","),
+			TopicMapper: topicMapper,
 		},
 		log,
 		metricCollector,
@@ -244,6 +259,7 @@ func main() {
 	kafkaPosTranslator := kafka.NewKafkaPositionTranslator()
 	domainEventTranslator := events.NewDomainEventTranslator(kafkaPosTranslator)
 	domainEventReplayer := kafka.NewDomainEventReplayer(eventReplayer, domainEventTranslator)
+	domainOffsetCommitter := kafka.NewDomainOffsetCommitter(kafkaPosTranslator, offsetCommitter)
 
 	scanTargetRepo := enumStore.NewScanTargetStore(pool, tracer)
 	githubTargetRepo := enumStore.NewGithubRepositoryStore(pool, tracer)
@@ -279,6 +295,7 @@ func main() {
 		coord,
 		broker,
 		eventPublisher,
+		domainOffsetCommitter,
 		domainEventReplayer,
 		enumCoord,
 		rulesService,

@@ -48,6 +48,9 @@ type jobMetricsTracker struct {
 	taskStatus map[uuid.UUID]taskStatusEntry    // Task ID -> Status
 	repository domain.MetricsRepository         // Adapter to underlying job and task repositories
 
+	offsets         map[int32]int64 // Partition ID -> last offset processed
+	offsetCommitter events.DomainOffsetCommitter
+
 	checkpoints map[uuid.UUID]map[int32]int64 // Job ID -> Partition ID -> Offset
 	replayer    events.DomainEventReplayer    // Replayer for consuming events to recover state
 
@@ -81,6 +84,7 @@ type jobMetricsTracker struct {
 // and configuration. It starts background cleanup of completed task statuses.
 func NewJobMetricsTracker(
 	repository domain.MetricsRepository,
+	offsetCommitter events.DomainOffsetCommitter,
 	replayer events.DomainEventReplayer,
 	logger *logger.Logger,
 	tracer trace.Tracer,
@@ -96,6 +100,8 @@ func NewJobMetricsTracker(
 	t := &jobMetricsTracker{
 		metrics:         make(map[uuid.UUID]*domain.JobMetrics),
 		taskStatus:      make(map[uuid.UUID]taskStatusEntry),
+		offsets:         make(map[int32]int64),
+		offsetCommitter: offsetCommitter,
 		repository:      repository,
 		checkpoints:     make(map[uuid.UUID]map[int32]int64),
 		replayer:        replayer,
@@ -252,6 +258,10 @@ func (t *jobMetricsTracker) HandleJobMetrics(ctx context.Context, evt events.Eve
 		"task_id", metricEvt.TaskID.String(),
 		"status", metricEvt.Status,
 	)
+
+	if evt.Metadata.Offset > t.offsets[evt.Metadata.Partition] {
+		t.offsets[evt.Metadata.Partition] = evt.Metadata.Offset
+	}
 
 	// If we already have a pending metric for this task, append to the list.
 	// This enforces task status changes are processed in order.
@@ -614,6 +624,15 @@ func (t *jobMetricsTracker) FlushMetrics(ctx context.Context) {
 				attribute.Int("partition", int(partition)),
 				attribute.Int64("offset", offset),
 			))
+			if err := t.offsetCommitter.CommitPosition(ctx, scanning.NewJobMetricsPosition(jobID, partition, offset)); err != nil {
+				span.RecordError(err)
+				logger.Error(ctx, "failed to commit offset",
+					"error", err,
+					"job_id", jobID.String(),
+					"partition", partition,
+					"offset", offset,
+				)
+			}
 		}
 	}
 	span.AddEvent("metrics_flushed")

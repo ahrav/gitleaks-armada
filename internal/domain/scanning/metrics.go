@@ -10,8 +10,9 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 )
 
+// TODO: Figure out how to make sure this maps to the correct topic.
 const (
-	JobMetricsEntityType events.StreamType = "job_metrics"
+	JobMetricsStreamType events.StreamType = "job-metrics"
 )
 
 // Metrics tracking provides real-time visibility into scanning operations across

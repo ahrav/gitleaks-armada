@@ -16,13 +16,6 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
 
-// ReplayConfig contains the configuration required to replay events from Kafka.
-// It includes the list of Kafka brokers and the topics to replay events from.
-type ReplayConfig struct {
-	Brokers []string
-	Topics  []string
-}
-
 // EventReplayerMetrics defines metrics operations needed to monitor event replay operations.
 type EventReplayerMetrics interface {
 	// Replay metrics.
@@ -41,12 +34,20 @@ type EventReplayerMetrics interface {
 
 var _ events.EventReplayer = (*eventReplayer)(nil)
 
+// ReplayConfig contains the configuration required to replay events from Kafka.
+// It includes the list of Kafka brokers and the topics to replay events from.
+type ReplayConfig struct {
+	ClientID    string
+	Brokers     []string
+	TopicMapper TopicMapper
+}
+
 // eventReplayer is responsible for replaying events from Kafka topics
 // starting from a specified position.
 type eventReplayer struct {
-	config *ReplayConfig
+	topicMapper TopicMapper
 
-	client     sarama.Client
+	consumer   sarama.Consumer
 	shutdownWg sync.WaitGroup
 
 	logger  *logger.Logger
@@ -58,7 +59,6 @@ type eventReplayer struct {
 // logger, metrics, and tracer. It initializes a Kafka client and returns an error if
 // the client cannot be created.
 func NewEventReplayer(
-	controllerID string,
 	cfg *ReplayConfig,
 	logger *logger.Logger,
 	metrics EventReplayerMetrics,
@@ -67,20 +67,26 @@ func NewEventReplayer(
 	config := sarama.NewConfig()
 	config.Consumer.Return.Errors = true
 	config.Version = sarama.V2_8_0_0
+	config.ClientID = cfg.ClientID
 
-	logger = logger.With("component", "event_replayer", "controller_id", controllerID)
+	logger = logger.With("component", "event_replayer")
 
 	client, err := sarama.NewClient(cfg.Brokers, config)
 	if err != nil {
-		return nil, fmt.Errorf("creating kafka client: %w", err)
+		return nil, fmt.Errorf("creating kafka client for event replayer: %w", err)
+	}
+
+	consumer, err := sarama.NewConsumerFromClient(client)
+	if err != nil {
+		return nil, fmt.Errorf("creating kafka consumer for event replayer: %w", err)
 	}
 
 	return &eventReplayer{
-		client:  client,
-		config:  cfg,
-		logger:  logger,
-		metrics: metrics,
-		tracer:  tracer,
+		topicMapper: cfg.TopicMapper,
+		consumer:    consumer,
+		logger:      logger,
+		metrics:     metrics,
+		tracer:      tracer,
 	}, nil
 }
 
@@ -109,29 +115,29 @@ func (r *eventReplayer) ReplayEvents(
 
 	identifier := from.Identifier()
 	var (
-		partition int32
-		offset    int64
+		entityType string
+		partition  int32
+		offset     int64
 	)
-	if _, err := fmt.Sscanf(identifier, "%d:%d", &partition, &offset); err != nil {
+	if _, err := fmt.Sscanf(identifier, "%s:%d:%d", &entityType, &partition, &offset); err != nil {
 		r.metrics.IncReplayErrors(ctx)
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "invalid position identifier format")
 		return nil, fmt.Errorf("invalid position identifier format: %w", err)
 	}
-	span.SetAttributes(
-		attribute.Int64("partition", int64(partition)),
-		attribute.Int64("offset", offset),
-	)
-
-	consumer, err := sarama.NewConsumerFromClient(r.client)
+	topic, err := r.topicMapper.GetTopicForStreamType(events.StreamType(entityType))
 	if err != nil {
 		r.metrics.IncReplayErrors(ctx)
 		span.RecordError(err)
-		span.SetStatus(codes.Error, "creating consumer")
-		return nil, fmt.Errorf("creating consumer: %w", err)
+		span.SetStatus(codes.Error, "invalid entity type")
+		return nil, fmt.Errorf("invalid entity type: %w", err)
 	}
-	span.AddEvent("event_replayer_consumer_created")
-	evtLogger.Info(ctx, "Consumer created")
+	span.SetAttributes(
+		attribute.String("entity_type", entityType),
+		attribute.Int64("partition", int64(partition)),
+		attribute.Int64("offset", offset),
+		attribute.String("topic", topic),
+	)
 
 	// Create a channel for sending events.
 	// This channel will be closed when the context is
@@ -147,36 +153,27 @@ func (r *eventReplayer) ReplayEvents(
 			r.metrics.IncReplayCompleted(ctx)
 			r.shutdownWg.Done()
 			close(eventCh)
-			if err := consumer.Close(); err != nil {
-				evtLogger.Error(ctx, "Error closing consumer", "error", err)
-			}
 		}()
 
-		// Process each topic separately. For each topic, we start a new child span
-		// so that no single span runs for the entire duration of the replay.
-		for _, topic := range r.config.Topics {
-			topicCtx, topicSpan := r.tracer.Start(ctx, "kafka_replayer.replay_topic", trace.WithAttributes(
-				attribute.String("topic", topic),
-				attribute.Int64("partition", int64(partition)),
-				attribute.Int64("offset", offset),
-			))
-			topicLogger := logger.NewLoggerContext(evtLogger.With("topic", topic, "partition", partition, "offset", offset))
+		topicCtx, topicSpan := r.tracer.Start(ctx, "kafka_replayer.replay_topic", trace.WithAttributes(
+			attribute.String("topic", topic),
+			attribute.Int64("partition", int64(partition)),
+			attribute.Int64("offset", offset),
+		))
+		defer topicSpan.End()
+		topicLogger := logger.NewLoggerContext(evtLogger.With("topic", topic, "partition", partition, "offset", offset))
 
-			partitionConsumer, err := consumer.ConsumePartition(topic, partition, offset)
-			if err != nil {
-				r.metrics.IncReplayErrors(topicCtx)
-				topicLogger.Error(topicCtx, "Failed to create partition consumer", "error", err)
-				topicSpan.RecordError(err)
-				topicSpan.SetStatus(codes.Error, "failed to create partition consumer")
-				topicSpan.End()
-				// Proceed to the next topic instead of halting the entire replay.
-				continue
-			}
-			topicSpan.AddEvent("partition_consumer_created")
-
-			r.processPartitionMessages(topicCtx, partitionConsumer, topicLogger, eventCh, topic)
-			topicSpan.End()
+		partitionConsumer, err := r.consumer.ConsumePartition(topic, partition, offset)
+		if err != nil {
+			r.metrics.IncReplayErrors(topicCtx)
+			topicLogger.Error(topicCtx, "Failed to create partition consumer", "error", err)
+			topicSpan.RecordError(err)
+			topicSpan.SetStatus(codes.Error, "failed to create partition consumer")
+			return
 		}
+		topicSpan.AddEvent("partition_consumer_created")
+
+		r.processPartitionMessages(topicCtx, partitionConsumer, topicLogger, eventCh, topic)
 	}()
 
 	return eventCh, nil
@@ -268,5 +265,5 @@ func (r *eventReplayer) processPartitionMessages(
 // Note: Close should only be called once. Calling it multiple times will result in an panic.
 func (r *eventReplayer) Close() error {
 	r.shutdownWg.Wait()
-	return r.client.Close()
+	return r.consumer.Close()
 }
