@@ -226,7 +226,7 @@ func main() {
 
 	topicMapper := config.NewTopicMapper(kafkaCfg)
 
-	offsetCommitter, err := kafka.NewKafkaOffsetCommitter(
+	offsetCommitter, err := kafka.NewOffsetCommitter(
 		&kafka.OffsetCommitterConfig{
 			GroupID:     kafkaCfg.GroupID,
 			ClientID:    kafkaCfg.ClientID,

@@ -56,8 +56,7 @@ type eventReplayer struct {
 }
 
 // NewEventReplayer creates a new EventReplayer instance with the provided configuration,
-// logger, metrics, and tracer. It initializes a Kafka client and returns an error if
-// the client cannot be created.
+// logger, metrics, and tracer.
 func NewEventReplayer(
 	cfg *ReplayConfig,
 	logger *logger.Logger,

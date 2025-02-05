@@ -56,9 +56,8 @@ type offsetCommiter struct {
 	metrics OffsetCommitterMetrics
 }
 
-// NewKafkaOffsetCommitter creates a new KafkaOffsetCommitter with the specified offset manager,
-// topic, logger, and tracer. It initializes internal state for partition management.
-func NewKafkaOffsetCommitter(
+// NewOffsetCommitter creates a new OffsetCommitter with the specified configuration.
+func NewOffsetCommitter(
 	cfg *OffsetCommitterConfig,
 	logger *logger.Logger,
 	metrics OffsetCommitterMetrics,
