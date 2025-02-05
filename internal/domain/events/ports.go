@@ -50,6 +50,9 @@ type OffsetCommitter interface {
 	// CommitPosition signals that we've successfully processed
 	// everything up to 'pos' in the domain stream.
 	CommitPosition(ctx context.Context, pos DomainPosition) error
+
+	// Close closes the offset committer and releases associated resources.
+	Close() error
 }
 
 // DomainEventReplayer enables replaying domain events from a specific position in the event stream.
