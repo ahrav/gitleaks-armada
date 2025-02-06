@@ -109,7 +109,7 @@ func NewEventBusFromConfig(
 	producerConfig := sarama.NewConfig()
 	producerConfig.Producer.RequiredAcks = sarama.WaitForAll
 	producerConfig.Producer.Return.Successes = true
-	producerConfig.Producer.Partitioner = sarama.NewRoundRobinPartitioner
+	producerConfig.Producer.Partitioner = sarama.NewHashPartitioner
 	producerConfig.ClientID = cfg.ClientID
 
 	producer, err := sarama.NewSyncProducer(cfg.Brokers, producerConfig)
