@@ -229,7 +229,7 @@ func (b *EventBus) publishToTopic(ctx context.Context, topic, key string, msgByt
 		b.metrics.IncMessagePublished(ctx, topic)
 	}
 
-	b.logger.Info(ctx, "Published message to Kafka",
+	b.logger.Debug(ctx, "Published message to Kafka",
 		"topic", topic,
 		"partition", partition,
 		"offset", offset,
@@ -334,63 +334,75 @@ func (h *domainEventHandler) ConsumeClaim(
 	claim sarama.ConsumerGroupClaim,
 ) error {
 	h.logPartitionStart(sess.Context(), claim.Partition(), sess.MemberID())
+	consumeLogger := h.logger.With("operation", "consume_claim", "partition", claim.Partition())
 
 	for msg := range claim.Messages() {
-		msgCtx := tracing.ExtractTraceContext(sess.Context(), msg)
-		msgCtx, span := tracing.StartConsumerSpan(msgCtx, msg, h.tracer)
+		func() {
+			msgCtx := tracing.ExtractTraceContext(sess.Context(), msg)
+			msgCtx, span := tracing.StartConsumerSpan(msgCtx, msg, h.tracer)
+			defer span.End()
 
-		evtType, domainBytes, err := serialization.UnmarshalUniversalEnvelope(msg.Value)
-		if err != nil {
-			sess.MarkMessage(msg, "")
-			span.RecordError(err)
-			continue
-		}
-
-		payloadObj, err := serialization.DeserializePayload(evtType, domainBytes)
-		if err != nil {
-			sess.MarkMessage(msg, "")
-			span.RecordError(err)
-			continue
-		}
-
-		dEvent := events.EventEnvelope{
-			Type:      evtType,
-			Key:       string(msg.Key),
-			Timestamp: time.Now(),
-			Payload:   payloadObj,
-			Metadata: events.EventMetadata{
-				Partition: claim.Partition(),
-				Offset:    msg.Offset,
-			},
-		}
-
-		h.logger.Info(msgCtx, "Received Kafka message",
-			"topic", msg.Topic,
-			"partition", claim.Partition(),
-			"offset", msg.Offset,
-			"event_type", evtType,
-			"key", dEvent.Key,
-		)
-
-		ack := func(err error) {
+			evtType, domainBytes, err := serialization.UnmarshalUniversalEnvelope(msg.Value)
 			if err != nil {
-				h.metrics.IncConsumeError(msgCtx, msg.Topic)
-				h.logger.Error(msgCtx, "Failed to acknowledge message", "error", err)
+				sess.MarkMessage(msg, "")
 				span.RecordError(err)
-				span.SetStatus(codes.Error, "failed to acknowledge message")
 				return
 			}
-			h.metrics.IncMessageConsumed(msgCtx, msg.Topic)
-			sess.MarkMessage(msg, "")
-		}
 
-		if err := h.userHandler(msgCtx, dEvent, ack); err != nil {
-			h.logger.Error(msgCtx, "Failed to handle message", "error", err)
-			span.RecordError(err)
-		} else {
-			h.logger.Info(msgCtx, "Successfully processed message", "topic", msg.Topic)
-		}
-		span.End()
+			payloadObj, err := serialization.DeserializePayload(evtType, domainBytes)
+			if err != nil {
+				sess.MarkMessage(msg, "")
+				span.RecordError(err)
+				return
+			}
+
+			dEvent := events.EventEnvelope{
+				Type:      evtType,
+				Key:       string(msg.Key),
+				Timestamp: time.Now(),
+				Payload:   payloadObj,
+				Metadata: events.EventMetadata{
+					Partition: claim.Partition(),
+					Offset:    msg.Offset,
+				},
+			}
+
+			consumeLogger.Debug(msgCtx, "Received Kafka message",
+				"topic", msg.Topic,
+				"partition", claim.Partition(),
+				"offset", msg.Offset,
+				"event_type", evtType,
+				"key", dEvent.Key,
+			)
+
+			ack := func(err error) {
+				// Create a new span for acknowledgment.
+				// This is necessary because the acknowledgment is done in a separate
+				// goroutine from the message processing.
+				ackCtx, ackSpan := h.tracer.Start(msgCtx, "kafka_consumer.acknowledge",
+					trace.WithLinks(trace.LinkFromContext(msgCtx)),
+				)
+				defer ackSpan.End()
+
+				if err != nil {
+					consumeLogger.Error(ackCtx, "Failed to acknowledge message", "error", err)
+					h.metrics.IncConsumeError(ackCtx, msg.Topic)
+					ackSpan.RecordError(err)
+					ackSpan.SetStatus(codes.Error, "failed to acknowledge message")
+					return
+				}
+				h.metrics.IncMessageConsumed(ackCtx, msg.Topic)
+				sess.MarkMessage(msg, "")
+			}
+
+			if err := h.userHandler(msgCtx, dEvent, ack); err != nil {
+				consumeLogger.Error(msgCtx, "Failed to handle message", "error", err)
+				span.RecordError(err)
+				return
+			}
+
+			consumeLogger.Debug(msgCtx, "Successfully processed message", "topic", msg.Topic)
+		}()
 	}
 	return nil
 }
@@ -404,8 +416,26 @@ func (h *domainEventHandler) logPartitionStart(ctx context.Context, partition in
 
 // Close gracefully shuts down the event bus by closing both producer and consumer connections.
 func (b *EventBus) Close() error {
+	logger := b.logger.With("operation", "close")
+	ctx, span := b.tracer.Start(context.Background(), "kafka_event_bus.close")
+	defer span.End()
+
 	if err := b.producer.Close(); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to close producer")
+		logger.Error(ctx, "Failed to close producer", "error", err)
 		return err
 	}
-	return b.consumerGroup.Close()
+	if err := b.consumerGroup.Close(); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to close consumer group")
+		logger.Error(ctx, "Failed to close consumer group", "error", err)
+		return err
+	}
+
+	span.AddEvent("closed_event_bus")
+	span.SetStatus(codes.Ok, "closed event bus")
+	logger.Info(ctx, "Closed event bus")
+
+	return nil
 }
