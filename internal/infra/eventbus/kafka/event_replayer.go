@@ -132,17 +132,17 @@ func (r *eventReplayer) ReplayEvents(
 
 	identifier := from.Identifier()
 	var (
-		entityType string
+		streamType string
 		partition  int32
 		offset     int64
 	)
-	if _, err := fmt.Sscanf(identifier, "%s:%d:%d", &entityType, &partition, &offset); err != nil {
+	if _, err := fmt.Sscanf(identifier, "%s:%d:%d", &streamType, &partition, &offset); err != nil {
 		r.metrics.IncReplayErrors(ctx)
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "invalid position identifier format")
 		return nil, fmt.Errorf("invalid position identifier format: %w", err)
 	}
-	topic, err := r.topicMapper.GetTopicForStreamType(events.StreamType(entityType))
+	topic, err := r.topicMapper.GetTopicForStreamType(events.StreamType(streamType))
 	if err != nil {
 		r.metrics.IncReplayErrors(ctx)
 		span.RecordError(err)
@@ -150,12 +150,12 @@ func (r *eventReplayer) ReplayEvents(
 		return nil, fmt.Errorf("invalid entity type: %w", err)
 	}
 	span.SetAttributes(
-		attribute.String("entity_type", entityType),
+		attribute.String("entity_type", streamType),
 		attribute.Int64("partition", int64(partition)),
 		attribute.Int64("offset", offset),
 		attribute.String("topic", topic),
 	)
-	evtLogger.Add("entity_type", entityType, "partition", partition, "offset", offset, "topic", topic)
+	evtLogger.Add("entity_type", streamType, "partition", partition, "offset", offset, "topic", topic)
 
 	// Create a channel for sending events.
 	// This channel will be closed when the context is

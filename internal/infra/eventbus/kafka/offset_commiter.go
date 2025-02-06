@@ -117,16 +117,17 @@ func (k *offsetCommiter) CommitPosition(ctx context.Context, streamPos events.St
 
 	identifier := streamPos.Identifier()
 	var (
-		partition int32
-		offset    int64
+		streamType string
+		partition  int32
+		offset     int64
 	)
-	if _, err := fmt.Sscanf(identifier, "%d:%d", &partition, &offset); err != nil {
+	if _, err := fmt.Sscanf(identifier, "%s:%d:%d", &streamType, &partition, &offset); err != nil {
 		k.metrics.IncCommitErrors(ctx)
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "invalid position identifier format")
 		return fmt.Errorf("invalid position identifier format: %w", err)
 	}
-	topic, err := k.topicMapper.GetTopicForStreamType(events.StreamType(identifier))
+	topic, err := k.topicMapper.GetTopicForStreamType(events.StreamType(streamType))
 	if err != nil {
 		k.metrics.IncCommitErrors(ctx)
 		span.RecordError(err)
