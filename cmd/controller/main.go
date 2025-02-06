@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -53,7 +54,7 @@ func main() {
 		Error: func(ctx context.Context, r logger.Record) {
 			errorAttrs := map[string]any{
 				"error_message": r.Message,
-				"error_time":    r.Time.Format(time.RFC3339),
+				"error_time":    r.Time.UTC().Format(time.RFC3339),
 				"trace_id":      otel.GetTraceID(ctx),
 			}
 
@@ -62,8 +63,15 @@ func main() {
 				errorAttrs[k] = v
 			}
 
-			fmt.Fprintf(os.Stderr, "Error event: %s, details: %v\n",
-				r.Message, errorAttrs)
+			errorAttrsJSON, err := json.Marshal(errorAttrs)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "failed to marshal error attributes: %v\n", err)
+				return
+			}
+
+			// Output the error event with valid JSON details.
+			fmt.Fprintf(os.Stderr, "Error event: %s, details: %s\n",
+				r.Message, errorAttrsJSON)
 		},
 	}
 
