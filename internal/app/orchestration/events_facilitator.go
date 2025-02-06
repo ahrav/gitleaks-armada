@@ -82,7 +82,7 @@ func (ef *EventsFacilitator) withSpan(
 	if err := fn(ctx, span); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
-		return err
+		return fmt.Errorf("%s: %w", operationName, err)
 	}
 
 	return nil
@@ -101,7 +101,7 @@ func (ef *EventsFacilitator) withSpanNoAck(
 	if err := fn(ctx, span); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
-		return err
+		return fmt.Errorf("%s: %w", operationName, err)
 	}
 
 	return nil
@@ -109,9 +109,12 @@ func (ef *EventsFacilitator) withSpanNoAck(
 
 // recordPayloadTypeError standardizes error creation and recording
 // for invalid event payload types.
-func recordPayloadTypeError(span trace.Span, payload interface{}) error {
+func recordPayloadTypeError(span trace.Span, payload any) error {
 	err := fmt.Errorf("invalid event payload type: %T", payload)
 	span.RecordError(err)
+	span.SetAttributes(
+		attribute.String("actual_type", fmt.Sprintf("%T", payload)),
+	)
 	span.SetStatus(codes.Error, "invalid event payload type")
 	return err
 }
@@ -140,7 +143,8 @@ func (ef *EventsFacilitator) HandleTaskStarted(
 		))
 
 		if err := ef.executionTracker.HandleTaskStart(ctx, startedEvt); err != nil {
-			return fmt.Errorf("failed to start tracking task: %w", err)
+			return fmt.Errorf("failed to start tracking task (taskID: %s, jobID: %s): %w",
+				startedEvt.TaskID, startedEvt.JobID, err)
 		}
 
 		span.AddEvent("task_started_tracking_completed")
@@ -166,7 +170,8 @@ func (ef *EventsFacilitator) HandleTaskProgressed(
 		span.AddEvent("task_progressed_event_valid")
 
 		if err := ef.executionTracker.HandleTaskProgress(ctx, progressEvt); err != nil {
-			return fmt.Errorf("failed to update progress: %w", err)
+			return fmt.Errorf("failed to update progress (taskID: %s, jobID: %s): %w",
+				progressEvt.Progress.TaskID(), progressEvt.Progress.JobID(), err)
 		}
 
 		span.AddEvent("task_progressed_event_updated")
@@ -192,7 +197,8 @@ func (ef *EventsFacilitator) HandleTaskCompleted(
 		span.AddEvent("task_completed_event_valid")
 
 		if err := ef.executionTracker.HandleTaskCompletion(ctx, completedEvt); err != nil {
-			return fmt.Errorf("failed to stop tracking task: %w", err)
+			return fmt.Errorf("failed to stop tracking task (taskID: %s, jobID: %s): %w",
+				completedEvt.TaskID, completedEvt.JobID, err)
 		}
 
 		span.AddEvent("task_completed_event_updated")
@@ -216,7 +222,8 @@ func (ef *EventsFacilitator) HandleTaskFailed(
 		}
 
 		if err := ef.executionTracker.HandleTaskFailure(ctx, failedEvt); err != nil {
-			return fmt.Errorf("failed to fail task: %w", err)
+			return fmt.Errorf("failed to fail task (taskID: %s, jobID: %s): %w",
+				failedEvt.TaskID, failedEvt.JobID, err)
 		}
 
 		span.AddEvent("task_failed_event_updated")
@@ -257,7 +264,8 @@ func (ef *EventsFacilitator) HandleTaskJobMetric(
 ) error {
 	return ef.withSpanNoAck(ctx, "events_facilitator.handle_task_job_metric", func(ctx context.Context, span trace.Span) error {
 		if err := ef.metricsTracker.HandleJobMetrics(ctx, evt); err != nil {
-			return fmt.Errorf("failed to handle job metrics: %w", err)
+			return fmt.Errorf("failed to handle job metrics (taskID: %s, jobID: %s): %w",
+				evt.Payload.(scanning.TaskJobMetricEvent).TaskID, evt.Payload.(scanning.TaskJobMetricEvent).JobID, err)
 		}
 
 		span.SetStatus(codes.Ok, "job metrics handled")
@@ -284,7 +292,8 @@ func (ef *EventsFacilitator) HandleRule(
 		}
 
 		if err := ef.rulesService.SaveRule(ctx, ruleEvt.Rule.GitleaksRule); err != nil {
-			return fmt.Errorf("failed to persist rule: %w", err)
+			return fmt.Errorf("failed to persist rule (ruleID: %s, hash: %s): %w",
+				ruleEvt.Rule.RuleID, ruleEvt.Rule.Hash, err)
 		}
 		span.AddEvent("rule_persisted")
 
