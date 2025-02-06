@@ -537,7 +537,12 @@ func (t *jobMetricsTracker) processMetric(ctx context.Context, evt scanning.Task
 		status:    evt.Status,
 		updatedAt: time.Now(),
 	}
-	span.AddEvent("task_status_cached")
+	span.AddEvent("task_status_cached",
+		trace.WithAttributes(
+			attribute.String("status", string(evt.Status)),
+			attribute.String("timestamp", time.Now().UTC().String()),
+		),
+	)
 	span.SetStatus(codes.Ok, "task metrics processed")
 
 	return nil
