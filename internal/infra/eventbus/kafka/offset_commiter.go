@@ -91,7 +91,7 @@ func NewOffsetCommitter(
 }
 
 // CommitPosition persists the given stream position to Kafka's offset management system.
-// It expects a position identifier in the format "partition:offset" and ensures
+// It expects a position identifier in the format "streamType:partition:offset" and ensures
 // thread-safe access to partition-specific offset managers.
 func (k *offsetCommiter) CommitPosition(ctx context.Context, streamPos events.StreamPosition) error {
 	start := time.Now()
@@ -108,26 +108,16 @@ func (k *offsetCommiter) CommitPosition(ctx context.Context, streamPos events.St
 	defer span.End()
 	logr.Debug(ctx, "Starting offset commit")
 
-	if err := streamPos.Validate(); err != nil {
+	// Since we've already validated the position, we can safely type assert.
+	pos, ok := streamPos.(Position)
+	if !ok {
 		k.metrics.IncCommitErrors(ctx)
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "invalid position")
-		return fmt.Errorf("invalid position: %w", err)
+		span.RecordError(fmt.Errorf("invalid position type"))
+		span.SetStatus(codes.Error, "invalid position type")
+		return fmt.Errorf("expected kafka.Position, got %T", streamPos)
 	}
 
-	identifier := streamPos.Identifier()
-	var (
-		streamType string
-		partition  int32
-		offset     int64
-	)
-	if _, err := fmt.Sscanf(identifier, "%s:%d:%d", &streamType, &partition, &offset); err != nil {
-		k.metrics.IncCommitErrors(ctx)
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "invalid position identifier format")
-		return fmt.Errorf("invalid position identifier format: %w", err)
-	}
-	topic, err := k.topicMapper.GetTopicForStreamType(events.StreamType(streamType))
+	topic, err := k.topicMapper.GetTopicForStreamType(pos.EntityType)
 	if err != nil {
 		k.metrics.IncCommitErrors(ctx)
 		span.RecordError(err)
@@ -135,10 +125,10 @@ func (k *offsetCommiter) CommitPosition(ctx context.Context, streamPos events.St
 		return fmt.Errorf("invalid entity type: %w", err)
 	}
 
-	logr.Add("partition", partition, "offset", offset, "topic", topic)
+	logr.Add("partition", pos.Partition, "offset", pos.Offset, "topic", topic)
 	span.SetAttributes(
-		attribute.Int64("partition", int64(partition)),
-		attribute.Int64("offset", offset),
+		attribute.Int64("partition", int64(pos.Partition)),
+		attribute.Int64("offset", pos.Offset),
 		attribute.String("topic", topic),
 	)
 
@@ -151,24 +141,24 @@ func (k *offsetCommiter) CommitPosition(ctx context.Context, streamPos events.St
 		k.pomap[topic] = topicMap
 	}
 
-	pom, exists := topicMap[partition]
+	pom, exists := topicMap[pos.Partition]
 	if !exists {
 		logr.Debug(ctx, "Managing partition")
 		var err error
-		pom, err = k.offsetMgr.ManagePartition(topic, partition)
+		pom, err = k.offsetMgr.ManagePartition(topic, pos.Partition)
 		if err != nil {
 			k.metrics.IncPartitionManagementError(ctx, topic)
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "failed to manage partition")
-			return fmt.Errorf("failed to manage partition %d: %w", partition, err)
+			return fmt.Errorf("failed to manage partition %d: %w", pos.Partition, err)
 		}
 		k.metrics.IncPartitionManaged(ctx, topic)
-		topicMap[partition] = pom
+		topicMap[pos.Partition] = pom
 		span.AddEvent("partition_managed")
 	}
 
 	// Mark the next offset (X+1).
-	pom.MarkOffset(offset+1, "committed by KafkaOffsetCommitter")
+	pom.MarkOffset(pos.Offset+1, "committed by KafkaOffsetCommitter")
 	logr.Debug(ctx, "Successfully marked offset")
 	span.AddEvent("offset_marked")
 

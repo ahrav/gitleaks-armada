@@ -51,7 +51,7 @@ type Position struct {
 	Offset     int64
 }
 
-// Identifier returns a string representation of the Position in the format "entityType:partition:offset".
+// Identifier returns a string representation of the Position in the format "streamType:partition:offset".
 func (p Position) Identifier() string {
 	return fmt.Sprintf("%s:%d:%d", p.EntityType, p.Partition, p.Offset)
 }
