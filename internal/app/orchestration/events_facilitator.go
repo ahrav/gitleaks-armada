@@ -67,7 +67,6 @@ func NewEventsFacilitator(
 }
 
 // withSpan is a helper that centralizes trace creation and error recording.
-// TODO: Revist if ack should live in here.
 func (ef *EventsFacilitator) withSpan(
 	ctx context.Context,
 	operationName string,
@@ -79,6 +78,25 @@ func (ef *EventsFacilitator) withSpan(
 		span.End()
 		ack(nil)
 	}()
+
+	if err := fn(ctx, span); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return err
+	}
+
+	return nil
+}
+
+// withSpanNoAck is similar to withSpan but doesn't automatically call ack.
+// This is used for handlers that manage their own offset commits, like HandleTaskJobMetric.
+func (ef *EventsFacilitator) withSpanNoAck(
+	ctx context.Context,
+	operationName string,
+	fn func(ctx context.Context, span trace.Span) error,
+) error {
+	ctx, span := ef.tracer.Start(ctx, operationName)
+	defer span.End()
 
 	if err := fn(ctx, span); err != nil {
 		span.RecordError(err)
@@ -230,19 +248,21 @@ func (ef *EventsFacilitator) HandleTaskHeartbeat(
 }
 
 // HandleTaskJobMetric processes a TaskJobMetricEvent.
+// Note: This handler does not ack messages as the JobMetricsTracker handles offset
+// management internally after ensuring persistence.
 func (ef *EventsFacilitator) HandleTaskJobMetric(
 	ctx context.Context,
 	evt events.EventEnvelope,
 	ack events.AckFunc,
 ) error {
-	return ef.withSpan(ctx, "events_facilitator.handle_task_job_metric", func(ctx context.Context, span trace.Span) error {
+	return ef.withSpanNoAck(ctx, "events_facilitator.handle_task_job_metric", func(ctx context.Context, span trace.Span) error {
 		if err := ef.metricsTracker.HandleJobMetrics(ctx, evt); err != nil {
 			return fmt.Errorf("failed to handle job metrics: %w", err)
 		}
 
 		span.SetStatus(codes.Ok, "job metrics handled")
 		return nil
-	}, ack)
+	})
 }
 
 // -------------------------------------------------------------------------------------------------
