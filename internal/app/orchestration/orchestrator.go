@@ -158,7 +158,7 @@ func NewOrchestrator(
 		rulesService,
 		tracer,
 	)
-	dispatcher := eventdispatcher.New(tracer)
+	dispatcher := eventdispatcher.New(tracer, logger)
 	ctx := context.Background()
 	dispatcher.RegisterHandler(ctx, scanning.EventTypeTaskStarted, eventsFacilitator.HandleTaskStarted)
 	dispatcher.RegisterHandler(ctx, scanning.EventTypeTaskProgressed, eventsFacilitator.HandleTaskProgressed)
