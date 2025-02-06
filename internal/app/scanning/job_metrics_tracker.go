@@ -286,8 +286,8 @@ func (t *jobMetricsTracker) HandleJobMetrics(ctx context.Context, evt events.Eve
 		if err != nil && !errors.Is(err, domain.ErrNoJobMetricsFound) {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "getting job metrics")
-			logger.Error(ctx, "failed to get job metrics", "error", err)
-			return err
+			return fmt.Errorf("failed to get job metrics (job_id: %s, task_id: %s, status: %s): %w",
+				metricEvt.JobID, metricEvt.TaskID, metricEvt.Status, err)
 		}
 		if metrics == nil {
 			span.AddEvent("no_job_metrics_found_in_db")
@@ -302,8 +302,8 @@ func (t *jobMetricsTracker) HandleJobMetrics(ctx context.Context, evt events.Eve
 			if !errors.Is(err, domain.ErrNoCheckpointsFound) {
 				span.RecordError(err)
 				span.SetStatus(codes.Error, "getting checkpoints")
-				logger.Error(ctx, "failed to get checkpoints", "error", err)
-				return err
+				return fmt.Errorf("failed to get checkpoints (job_id: %s, task_id: %s, status: %s): %w",
+					metricEvt.JobID, metricEvt.TaskID, metricEvt.Status, err)
 			}
 			logger.Debug(ctx, "no checkpoints found, creating new checkpoints")
 			span.AddEvent("no_checkpoints_found")
@@ -326,8 +326,8 @@ func (t *jobMetricsTracker) HandleJobMetrics(ctx context.Context, evt events.Eve
 				if err := t.replayEvents(ctx, metricEvt.JobID, metadata.Partition, lastOffset); err != nil {
 					span.RecordError(err)
 					span.SetStatus(codes.Error, "replaying events")
-					logger.Error(ctx, "failed to replay events", "error", err)
-					return err
+					return fmt.Errorf("failed to replay events (job_id: %s, task_id: %s, status: %s, last_offset: %d): %w",
+						metricEvt.JobID, metricEvt.TaskID, metricEvt.Status, lastOffset, err)
 				}
 				logger.Info(ctx, "events replayed successfully")
 				span.AddEvent("events_replayed_successfully")
@@ -362,8 +362,8 @@ func (t *jobMetricsTracker) HandleJobMetrics(ctx context.Context, evt events.Eve
 			attribute.String("error", err.Error()),
 		))
 		span.RecordError(err)
-		logger.Error(ctx, "failed to process metric", "error", err)
-		return err
+		return fmt.Errorf("failed to process metric (job_id: %s, task_id: %s, status: %s): %w",
+			metricEvt.JobID, metricEvt.TaskID, metricEvt.Status, err)
 	}
 	if t.checkpoints[metricEvt.JobID] == nil {
 		t.checkpoints[metricEvt.JobID] = make(map[int32]int64)
@@ -396,10 +396,7 @@ func (t *jobMetricsTracker) replayEvents(ctx context.Context, jobID uuid.UUID, p
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "replaying events")
-		return fmt.Errorf(
-			"failed to get events for jobID: %s, partition: %d, fromOffset: %d, error: %w",
-			jobID.String(), partition, fromOffset, err,
-		)
+		return fmt.Errorf("failed to get events. error: %w", err)
 	}
 	span.AddEvent("starting_event_replay_stream")
 
