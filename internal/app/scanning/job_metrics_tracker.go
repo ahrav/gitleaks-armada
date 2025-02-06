@@ -249,6 +249,8 @@ func (t *jobMetricsTracker) HandleJobMetrics(ctx context.Context, evt events.Eve
 	}
 
 	span.SetAttributes(
+		attribute.Int("partition", int(evt.Metadata.Partition)),
+		attribute.Int64("offset", evt.Metadata.Offset),
 		attribute.String("job_id", metricEvt.JobID.String()),
 		attribute.String("task_id", metricEvt.TaskID.String()),
 		attribute.String("status", string(metricEvt.Status)),
