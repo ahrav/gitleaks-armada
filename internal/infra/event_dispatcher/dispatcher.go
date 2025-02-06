@@ -72,6 +72,18 @@ func (d *Dispatcher) RegisterHandler(ctx context.Context, eventType events.Event
 	span.SetStatus(codes.Ok, "handler registered")
 }
 
+// HandlerNotFoundError is an error type that indicates a handler was not found for an event type.
+type HandlerNotFoundError struct {
+	EventType events.EventType
+	Partition int32
+	Offset    int64
+}
+
+func (e *HandlerNotFoundError) Error() string {
+	return fmt.Sprintf("no handler registered for event type: %s (partition: %d, offset: %d)",
+		e.EventType, e.Partition, e.Offset)
+}
+
 // Dispatch attempts to dispatch the provided event envelope to its registered handler.
 // It creates a new trace span and executes the handler. If the handler returns an error,
 // dispatch stops and returns that error.
@@ -85,11 +97,11 @@ func (d *Dispatcher) RegisterHandler(ctx context.Context, eventType events.Event
 //	    // handle or log error
 //	}
 func (d *Dispatcher) Dispatch(ctx context.Context, evt events.EventEnvelope, ack events.AckFunc) error {
-	logger := d.logger.With("operation", "dispatch",
+	logger := logger.NewLoggerContext(d.logger.With("operation", "dispatch",
 		"event_type", evt.Type,
 		"partition", evt.Metadata.Partition,
 		"offset", evt.Metadata.Offset,
-	)
+	))
 	ctx, span := d.tracer.Start(ctx, "event_dispatcher.handle_event",
 		trace.WithAttributes(
 			attribute.String("event_type", string(evt.Type)),
@@ -101,13 +113,17 @@ func (d *Dispatcher) Dispatch(ctx context.Context, evt events.EventEnvelope, ack
 	d.mu.RLock()
 	handler, exists := d.handlers[evt.Type]
 	d.mu.RUnlock()
-
 	if !exists {
-		err := fmt.Errorf("no handler registered for event type: %s", evt.Type)
+		err := &HandlerNotFoundError{
+			EventType: evt.Type,
+			Partition: evt.Metadata.Partition,
+			Offset:    evt.Metadata.Offset,
+		}
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
 		return err
 	}
+	logger.Add("handler_type", fmt.Sprintf("%T", handler))
 
 	if err := handler(ctx, evt, ack); err != nil {
 		span.RecordError(err)
