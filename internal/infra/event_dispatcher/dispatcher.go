@@ -10,6 +10,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
+	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
 
 // Dispatcher manages event handlers and dispatches events to their registered handler.
@@ -30,15 +31,18 @@ type Dispatcher struct {
 	mu       sync.RWMutex
 	handlers map[events.EventType]events.HandlerFunc
 	tracer   trace.Tracer
+	logger   *logger.Logger
 }
 
 // New constructs a new EventDispatcher that uses the provided tracer
 // for instrumentation. The dispatcher starts with an empty registry; handlers must
 // be registered before dispatching any events.
-func New(tracer trace.Tracer) *Dispatcher {
+func New(tracer trace.Tracer, logger *logger.Logger) *Dispatcher {
+	logger = logger.With("component", "event_dispatcher")
 	return &Dispatcher{
 		handlers: make(map[events.EventType]events.HandlerFunc),
 		tracer:   tracer,
+		logger:   logger,
 	}
 }
 
@@ -50,11 +54,22 @@ func New(tracer trace.Tracer) *Dispatcher {
 // Example usage:
 //
 //	dispatcher.RegisterHandler(events.EventTypeXYZ, handler1)
-func (d *Dispatcher) RegisterHandler(eventType events.EventType, handler events.HandlerFunc) {
+func (d *Dispatcher) RegisterHandler(ctx context.Context, eventType events.EventType, handler events.HandlerFunc) {
+	logger := d.logger.With("operation", "register_handler", "event_type", eventType)
+	_, span := d.tracer.Start(ctx, "event_dispatcher.register_handler",
+		trace.WithAttributes(
+			attribute.String("event_type", string(eventType)),
+		),
+	)
+	defer span.End()
+
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
 	d.handlers[eventType] = handler
+	logger.Debug(ctx, "handler registered")
+	span.AddEvent("handler_registered")
+	span.SetStatus(codes.Ok, "handler registered")
 }
 
 // Dispatch attempts to dispatch the provided event envelope to its registered handler.
@@ -70,9 +85,16 @@ func (d *Dispatcher) RegisterHandler(eventType events.EventType, handler events.
 //	    // handle or log error
 //	}
 func (d *Dispatcher) Dispatch(ctx context.Context, evt events.EventEnvelope, ack events.AckFunc) error {
+	logger := d.logger.With("operation", "dispatch",
+		"event_type", evt.Type,
+		"partition", evt.Metadata.Partition,
+		"offset", evt.Metadata.Offset,
+	)
 	ctx, span := d.tracer.Start(ctx, "event_dispatcher.handle_event",
 		trace.WithAttributes(
 			attribute.String("event_type", string(evt.Type)),
+			attribute.Int("partition", int(evt.Metadata.Partition)),
+			attribute.Int64("offset", evt.Metadata.Offset),
 		))
 	defer span.End()
 
@@ -90,9 +112,12 @@ func (d *Dispatcher) Dispatch(ctx context.Context, evt events.EventEnvelope, ack
 	if err := handler(ctx, evt, ack); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
-		return err
+		return fmt.Errorf("failed to dispatch event for handler %T with event type %s: %w",
+			handler, evt.Type, err,
+		)
 	}
 
 	span.SetStatus(codes.Ok, "event dispatched successfully")
+	logger.Debug(ctx, "event dispatched successfully")
 	return nil
 }
