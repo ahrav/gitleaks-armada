@@ -131,7 +131,7 @@ func NewCoordinator(
 		taskRepo:         taskRepo,
 		enumeratorHandlers: map[shared.TargetType]enumeration.ResourcePersister{
 			shared.TargetTypeGitHubRepo: github.NewRepoPersistence(githubRepo, tracer),
-			shared.TargetTypeURL:        url.NewURLPersistence(urlTargetRepo, tracer),
+			shared.TargetTypeURL:        url.NewURLPersistence(controllerID, urlTargetRepo, logger, tracer),
 		},
 		enumFactory: enumFactory,
 		logger:      logger,
