@@ -70,7 +70,7 @@ type Orchestrator struct {
 //
 // The constructor requires several dependencies to handle different aspects of the system:
 //
-//   - id: Unique identifier for this orchestrator instance in the cluster
+//   - id: Unique identifier for this controller instance
 //   - coord: Implements leader election using distributed locks
 //   - queue: Reliable message queue for distributing work items
 //   - eventPublisher: Broadcasts domain events for system observability

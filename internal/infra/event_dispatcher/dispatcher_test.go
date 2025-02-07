@@ -18,7 +18,7 @@ func TestRegisterHandler(t *testing.T) {
 	ctx := context.Background()
 	log := logger.Noop()
 	tracer := noop.NewTracerProvider().Tracer("test")
-	d := New(tracer, log)
+	d := New("test", tracer, log)
 
 	eventType := events.EventType("test.event")
 	handler := func(ctx context.Context, evt events.EventEnvelope, ack events.AckFunc) error {
@@ -39,7 +39,7 @@ func TestRegisterHandlerReplaceExisting(t *testing.T) {
 	ctx := context.Background()
 	log := logger.Noop()
 	tracer := noop.NewTracerProvider().Tracer("test")
-	d := New(tracer, log)
+	d := New("test", tracer, log)
 
 	eventType := events.EventType("test.event")
 	var handler1Called bool
@@ -78,7 +78,7 @@ func TestDispatchSuccess(t *testing.T) {
 	ctx := context.Background()
 	log := logger.Noop()
 	tracer := noop.NewTracerProvider().Tracer("test")
-	d := New(tracer, log)
+	d := New("test", tracer, log)
 
 	eventType := events.EventType("test.success")
 	handlerCalled := false
@@ -109,7 +109,7 @@ func TestDispatchHandlerNotFound(t *testing.T) {
 	ctx := context.Background()
 	log := logger.Noop()
 	tracer := noop.NewTracerProvider().Tracer("test")
-	d := New(tracer, log)
+	d := New("test", tracer, log)
 
 	evt := events.EventEnvelope{
 		Type: events.EventType("unregistered.event"),
@@ -135,7 +135,7 @@ func TestDispatchHandlerError(t *testing.T) {
 	ctx := context.Background()
 	log := logger.Noop()
 	tracer := noop.NewTracerProvider().Tracer("test")
-	d := New(tracer, log)
+	d := New("test", tracer, log)
 
 	eventType := events.EventType("test.error")
 	expectedErr := errors.New("handler error")
@@ -165,7 +165,7 @@ func TestDispatchConcurrent(t *testing.T) {
 	ctx := context.Background()
 	log := logger.Noop()
 	tracer := noop.NewTracerProvider().Tracer("test")
-	d := New(tracer, log)
+	d := New("test", tracer, log)
 
 	eventType := events.EventType("test.concurrent")
 	var callCount int
