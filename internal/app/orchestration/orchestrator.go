@@ -146,7 +146,7 @@ func NewOrchestrator(
 		componentLogger,
 	)
 
-	metricsRepo := scan.NewMetricsRepositoryAdapter(jobRepo, taskRepo)
+	metricsRepo := scan.NewMetricsRepositoryAdapter(id, jobRepo, taskRepo, tracer)
 	o.metricsTracker = scan.NewJobMetricsTracker(id, metricsRepo, offsetCommitter, eventReplayer, componentLogger, tracer)
 	go o.metricsTracker.LaunchMetricsFlusher(30 * time.Second)
 
