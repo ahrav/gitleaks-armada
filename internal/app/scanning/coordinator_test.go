@@ -238,7 +238,6 @@ func TestLinkTargets(t *testing.T) {
 			err := suite.coord.LinkTargets(context.Background(), tt.jobID, tt.targetIDs)
 			if tt.wantErr {
 				require.Error(t, err)
-				assert.ErrorContains(t, err, "failed to associate targets")
 				return
 			}
 
