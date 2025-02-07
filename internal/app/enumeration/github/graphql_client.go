@@ -11,43 +11,48 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
 	domain "github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 	"github.com/ahrav/gitleaks-armada/pkg/common"
+	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
 
 // GraphQLClient is a wrapper around the GitHub GraphQL API client with rate limiting and tracing.
 type GraphQLClient struct {
+	controllerID string
+
 	httpClient  *http.Client
 	token       string
 	rateLimiter *common.RateLimiter
 
+	logger *logger.Logger
 	tracer trace.Tracer
 }
 
 // NewGraphQLClient creates a new GraphQL client with rate limiting.
 func NewGraphQLClient(
+	controllerID string,
 	httpClient *http.Client,
 	creds *domain.TaskCredentials,
+	logger *logger.Logger,
 	tracer trace.Tracer,
 ) (*GraphQLClient, error) {
-	var token string
-	if creds.Type == domain.CredentialTypeGitHub {
-		var err error
-		token, err = extractToken(creds)
-		if err != nil {
-			return nil, fmt.Errorf("failed to extract GitHub token: %w", err)
-		}
+	token, err := extractToken(creds)
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract GitHub token: %w", err)
 	}
+
 	// GitHub's default rate limit is 5000 requests per hour.
 	// Setting initial rate to 4500/hour (1.25/second) to be conservative.
-	// TODO: Figure out a way to pool tokens?
 	return &GraphQLClient{
-		httpClient:  httpClient,
-		rateLimiter: common.NewRateLimiter(1.25, 5),
-		token:       token,
-		tracer:      tracer,
+		controllerID: controllerID,
+		httpClient:   httpClient,
+		rateLimiter:  common.NewRateLimiter(1.25, 5),
+		token:        token,
+		logger:       logger.With("component", "github_graphql_client"),
+		tracer:       tracer,
 	}, nil
 }
 
@@ -90,8 +95,9 @@ type repositoryResponse struct {
 // using the GraphQL API. It fetches repositories in batches of 100 and accepts an optional
 // cursor for continuation.
 func (c *GraphQLClient) ListRepositories(ctx context.Context, org string, cursor *string) (*repositoryResponse, error) {
-	ctx, span := c.tracer.Start(ctx, "github_enumerator.enumeration.list_repositories",
+	ctx, span := c.tracer.Start(ctx, "github_graphql_client.list_repositories",
 		trace.WithAttributes(
+			attribute.String("controller_id", c.controllerID),
 			attribute.String("org", org),
 			attribute.String("cursor", stringOrNone(cursor)),
 		))
@@ -121,7 +127,8 @@ func (c *GraphQLClient) ListRepositories(ctx context.Context, org string, cursor
 	resp, err := c.doRequest(ctx, query, variables)
 	if err != nil {
 		span.RecordError(err)
-		return nil, err
+		span.SetStatus(codes.Error, "failed to list repositories")
+		return nil, fmt.Errorf("failed to list repositories for org %s: %w", org, err)
 	}
 
 	if resp != nil && resp.Data.Organization.Repositories.PageInfo.HasNextPage {
@@ -131,22 +138,27 @@ func (c *GraphQLClient) ListRepositories(ctx context.Context, org string, cursor
 		)
 	}
 
+	span.SetStatus(codes.Ok, "repositories listed successfully")
 	return resp, nil
 }
 
-// doRequest executes a request against GitHub's API.
+// doRequest executes a GraphQL request against GitHub's API.
 func (c *GraphQLClient) doRequest(
 	ctx context.Context,
 	query string,
 	variables map[string]any,
 ) (*repositoryResponse, error) {
-	ctx, span := c.tracer.Start(ctx, "github_enumerator.do_github_graphql_request")
+	ctx, span := c.tracer.Start(ctx, "github_graphql_client.do_request",
+		trace.WithAttributes(
+			attribute.String("controller_id", c.controllerID),
+		))
 	defer span.End()
 
-	const apiUrl = "https://api.github.com/graphql"
+	const apiURL = "https://api.github.com/graphql"
 
 	if err := c.rateLimiter.Wait(ctx); err != nil {
 		span.RecordError(err)
+		span.SetStatus(codes.Error, "rate limiter wait failed")
 		return nil, fmt.Errorf("rate limiter wait failed: %w", err)
 	}
 
@@ -157,26 +169,30 @@ func (c *GraphQLClient) doRequest(
 	bodyData, err := json.Marshal(bodyMap)
 	if err != nil {
 		span.RecordError(err)
-		return nil, fmt.Errorf("failed to marshal graphql query: %w", err)
+		span.SetStatus(codes.Error, "failed to marshal request")
+		return nil, fmt.Errorf("failed to marshal GraphQL query: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiUrl, bytes.NewReader(bodyData))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewReader(bodyData))
 	if err != nil {
 		span.RecordError(err)
-		return nil, fmt.Errorf("failed to create graphql request: %w", err)
+		span.SetStatus(codes.Error, "failed to create request")
+		return nil, fmt.Errorf("failed to create GraphQL request: %w", err)
 	}
+
 	req.Header.Set("Authorization", "Bearer "+c.token)
 	req.Header.Set("Content-Type", "application/json")
 
 	span.SetAttributes(
-		attribute.String("api_url", apiUrl),
+		attribute.String("api_url", apiURL),
 		attribute.Int("request_size", len(bodyData)),
 	)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		span.RecordError(err)
-		return nil, fmt.Errorf("graphql request failed: %w", err)
+		span.SetStatus(codes.Error, "request failed")
+		return nil, fmt.Errorf("GraphQL request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -185,37 +201,34 @@ func (c *GraphQLClient) doRequest(
 		attribute.String("status", resp.Status),
 	)
 
-	// Dynamically adjust rate limits based on GitHub's response.
+	// Update rate limits based on response headers
 	c.updateRateLimits(resp.Header)
 
 	if resp.StatusCode != http.StatusOK {
 		data, _ := io.ReadAll(resp.Body)
-		span.RecordError(fmt.Errorf("non-200 response: %s", string(data)))
-		return nil, fmt.Errorf("non-200 response from GitHub GraphQL API: %d %s", resp.StatusCode, string(data))
+		span.RecordError(fmt.Errorf("non-200 response"))
+		span.SetStatus(codes.Error, "non-200 response")
+		return nil, fmt.Errorf("non-200 response from GitHub GraphQL API (status: %d): %s", resp.StatusCode, string(data))
 	}
 
 	var result repositoryResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		span.RecordError(err)
-		return nil, fmt.Errorf("failed to decode graphql response: %w", err)
+		span.SetStatus(codes.Error, "failed to decode response")
+		return nil, fmt.Errorf("failed to decode GraphQL response: %w", err)
 	}
 
 	if len(result.Errors) > 0 {
-		span.RecordError(fmt.Errorf("graphql errors: %v", result.Errors))
-		return nil, fmt.Errorf("graphql errors: %v", result.Errors)
+		span.RecordError(fmt.Errorf("GraphQL errors"))
+		span.SetStatus(codes.Error, "GraphQL errors in response")
+		return nil, fmt.Errorf("GraphQL response contained errors: %v", result.Errors)
 	}
 
+	span.SetStatus(codes.Ok, "request completed successfully")
 	return &result, nil
 }
 
-// updateRateLimits adjusts the rate limiter settings based on GitHub's rate limit headers.
-// It calculates a conservative request rate (90% of available) to prevent hitting limits
-// while maximizing throughput. The method uses X-RateLimit headers to determine:
-// - Remaining requests in the current window
-// - When the rate limit window resets
-// - Total requests allowed per window
-//
-// TODO: Review this again...
+// updateRateLimits updates the rate limiter based on GitHub's response headers
 func (c *GraphQLClient) updateRateLimits(headers http.Header) {
 	remaining := headers.Get("X-RateLimit-Remaining")
 	reset := headers.Get("X-RateLimit-Reset")
@@ -230,6 +243,7 @@ func (c *GraphQLClient) updateRateLimits(headers http.Header) {
 		duration := time.Until(resetTime)
 		if duration > 0 {
 			// Calculate safe request rate to use remaining quota until reset.
+			// Using 90% of the available rate to be conservative
 			rps := float64(remainingVal) / duration.Seconds()
 			c.rateLimiter.UpdateLimits(rps*0.9, int(remainingVal/10))
 		}

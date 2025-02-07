@@ -55,8 +55,9 @@ func NewEnumerationFactory(
 // It handles authentication and creates source-specific enumerators (e.g., GitHub, S3).
 // Returns an error if the target configuration is invalid or required credentials are missing.
 // TODO: Revist the use of this factory it's still a bit wonky with the credential store.
-func (f *enumerationFactory) CreateEnumerator(ctx context.Context, target config.TargetSpec, creds *domain.TaskCredentials) (shared.TargetEnumerator, error) {
-	ctx, span := f.tracer.Start(ctx, "factory.enumeration.create_enumerator",
+func (f *enumerationFactory) CreateEnumerator(
+	ctx context.Context, target config.TargetSpec, creds *domain.TaskCredentials) (shared.TargetEnumerator, error) {
+	ctx, span := f.tracer.Start(ctx, "enumeration_factory.create_enumerator",
 		trace.WithAttributes(
 			attribute.String("source_type", string(target.SourceType)),
 			attribute.String("auth_ref", target.AuthRef),
@@ -73,7 +74,7 @@ func (f *enumerationFactory) CreateEnumerator(ctx context.Context, target config
 			return nil, fmt.Errorf("github target configuration is missing")
 		}
 
-		ghClient, err := github.NewGraphQLClient(f.httpClient, creds, f.tracer)
+		ghClient, err := github.NewGraphQLClient(f.controllerID, f.httpClient, creds, f.logger, f.tracer)
 		if err != nil {
 			githubSpan.RecordError(err)
 			return nil, fmt.Errorf("failed to create GitHub client: %w", err)
