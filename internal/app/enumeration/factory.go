@@ -59,6 +59,7 @@ func (f *enumerationFactory) CreateEnumerator(
 	ctx context.Context, target config.TargetSpec, creds *domain.TaskCredentials) (shared.TargetEnumerator, error) {
 	ctx, span := f.tracer.Start(ctx, "enumeration_factory.create_enumerator",
 		trace.WithAttributes(
+			attribute.String("controller_id", f.controllerID),
 			attribute.String("source_type", string(target.SourceType)),
 			attribute.String("auth_ref", target.AuthRef),
 		))
