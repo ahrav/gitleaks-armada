@@ -44,6 +44,8 @@ var _ domain.JobMetricsTracker = (*jobMetricsTracker)(nil)
 // TODO: We need a way to record the overall status of the job. We will want to use
 // the metrics to determine this.
 type jobMetricsTracker struct {
+	controllerID string
+
 	metrics    map[uuid.UUID]*domain.JobMetrics // Job ID -> Metrics
 	taskStatus map[uuid.UUID]taskStatusEntry    // Task ID -> Status
 	repository domain.MetricsRepository         // Adapter to underlying job and task repositories
@@ -83,6 +85,7 @@ type jobMetricsTracker struct {
 // NewJobMetricsTracker creates a new JobMetricsTracker with the provided dependencies
 // and configuration. It starts background cleanup of completed task statuses.
 func NewJobMetricsTracker(
+	controllerID string,
 	repository domain.MetricsRepository,
 	offsetCommitter events.DomainOffsetCommitter,
 	replayer events.DomainEventReplayer,
@@ -98,6 +101,7 @@ func NewJobMetricsTracker(
 	logger = logger.With("component", "job_metrics_tracker")
 
 	t := &jobMetricsTracker{
+		controllerID:    controllerID,
 		metrics:         make(map[uuid.UUID]*domain.JobMetrics),
 		taskStatus:      make(map[uuid.UUID]taskStatusEntry),
 		offsets:         make(map[int32]int64),
@@ -135,6 +139,7 @@ func (t *jobMetricsTracker) startStatusCleanupWorker(ctx context.Context) {
 
 	ctx, span := t.tracer.Start(ctx, "job_metrics_tracker.start_status_cleanup",
 		trace.WithAttributes(
+			attribute.String("controller_id", t.controllerID),
 			attribute.String("interval", t.cleanupInterval.String()),
 		))
 
@@ -181,7 +186,11 @@ func (t *jobMetricsTracker) runBackgroundLoop(ctx context.Context) {
 
 	logger := t.logger.With("operation", "run_background_loop")
 
-	ctx, span := t.tracer.Start(ctx, "job_metrics_tracker.run_background_loop")
+	ctx, span := t.tracer.Start(ctx, "job_metrics_tracker.run_background_loop",
+		trace.WithAttributes(
+			attribute.String("controller_id", t.controllerID),
+		),
+	)
 	span.AddEvent("starting_background_loop")
 	logger.Info(ctx, "starting background loop")
 
@@ -238,7 +247,11 @@ func (t *jobMetricsTracker) HandleJobMetrics(ctx context.Context, evt events.Eve
 		"event_type", evt.Type,
 	))
 
-	ctx, span := t.tracer.Start(ctx, "job_metrics_tracker.handle_job_metrics")
+	ctx, span := t.tracer.Start(ctx, "job_metrics_tracker.handle_job_metrics",
+		trace.WithAttributes(
+			attribute.String("controller_id", t.controllerID),
+		),
+	)
 	defer span.End()
 
 	metricEvt, ok := evt.Payload.(scanning.TaskJobMetricEvent)
@@ -389,6 +402,7 @@ func (t *jobMetricsTracker) replayEvents(ctx context.Context, jobID uuid.UUID, p
 	)
 	ctx, span := t.tracer.Start(ctx, "job_metrics_tracker.replay_events",
 		trace.WithAttributes(
+			attribute.String("controller_id", t.controllerID),
 			attribute.String("job_id", jobID.String()),
 			attribute.Int("partition", int(partition)),
 			attribute.Int64("from_offset", fromOffset),
@@ -438,7 +452,11 @@ func (t *jobMetricsTracker) processPendingMetrics(ctx context.Context) {
 		"operation", "process_pending_metrics",
 		"pending_metrics_count", len(t.pendingMetrics),
 	)
-	ctx, span := t.tracer.Start(ctx, "job_metrics_tracker.process_pending_metrics")
+	ctx, span := t.tracer.Start(ctx, "job_metrics_tracker.process_pending_metrics",
+		trace.WithAttributes(
+			attribute.String("controller_id", t.controllerID),
+		),
+	)
 	defer span.End()
 
 	span.AddEvent("processing_pending_metrics", trace.WithAttributes(
@@ -495,7 +513,11 @@ func (t *jobMetricsTracker) processPendingMetrics(ctx context.Context) {
 // It returns domain.ErrTaskNotFound if the task does not yet exist (so callers
 // can decide whether to retry or add to pending).
 func (t *jobMetricsTracker) processMetric(ctx context.Context, evt scanning.TaskJobMetricEvent) error {
-	ctx, span := t.tracer.Start(ctx, "job_metrics_tracker.process_metric")
+	ctx, span := t.tracer.Start(ctx, "job_metrics_tracker.process_metric",
+		trace.WithAttributes(
+			attribute.String("controller_id", t.controllerID),
+		),
+	)
 	defer span.End()
 
 	span.SetAttributes(
@@ -563,7 +585,11 @@ func (t *jobMetricsTracker) LaunchMetricsFlusher(interval time.Duration) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	ctx, span := t.tracer.Start(ctx, "job_metrics_tracker.start_metrics_flush")
+	ctx, span := t.tracer.Start(ctx, "job_metrics_tracker.start_metrics_flush",
+		trace.WithAttributes(
+			attribute.String("controller_id", t.controllerID),
+		),
+	)
 
 	span.AddEvent("starting_metrics_flusher")
 	logger.Info(ctx, "starting metrics flusher")
@@ -603,6 +629,7 @@ func (t *jobMetricsTracker) FlushMetrics(ctx context.Context) error {
 	logger := t.logger.With("operation", "flush_metrics", "metrics_count", len(t.metrics))
 	ctx, span := t.tracer.Start(ctx, "job_metrics_tracker.flush_metrics",
 		trace.WithAttributes(
+			attribute.String("controller_id", t.controllerID),
 			attribute.Int("metrics_count", len(t.metrics)),
 		),
 	)
@@ -681,7 +708,11 @@ func (t *jobMetricsTracker) flushJobMetrics(ctx context.Context, jobID uuid.UUID
 // Stop stops the background goroutines and waits for them to finish.
 func (t *jobMetricsTracker) Stop(ctx context.Context) {
 	logger := t.logger.With("operation", "stop_metrics_tracker")
-	_, span := t.tracer.Start(ctx, "job_metrics_tracker.stop")
+	_, span := t.tracer.Start(ctx, "job_metrics_tracker.stop",
+		trace.WithAttributes(
+			attribute.String("controller_id", t.controllerID),
+		),
+	)
 	defer span.End()
 
 	span.AddEvent("stopping_metrics_tracker")

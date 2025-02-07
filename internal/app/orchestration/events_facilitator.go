@@ -28,6 +28,8 @@ import (
 // bounded contexts while keeping domain-service responsibilities properly separated
 // (e.g., progress tracking in scanning package, rule logic in rules package).
 type EventsFacilitator struct {
+	controllerID string
+
 	// executionTracker is responsible for starting, updating, and stopping tracking of
 	// scanning tasks. The EventsFacilitator delegates task-related domain operations here.
 	executionTracker scanning.ExecutionTracker
@@ -51,6 +53,7 @@ type EventsFacilitator struct {
 // rulesService, taskHealthSupervisor, metricsTracker, and tracer so it can delegate domain-specific logic
 // to the correct bounded context service and instrument event handling with traces.
 func NewEventsFacilitator(
+	controllerID string,
 	tracker scanning.ExecutionTracker,
 	taskHealthSupervisor scanning.TaskHealthMonitor,
 	metricsTracker scanning.JobMetricsTracker,
@@ -58,6 +61,7 @@ func NewEventsFacilitator(
 	tracer trace.Tracer,
 ) *EventsFacilitator {
 	return &EventsFacilitator{
+		controllerID:         controllerID,
 		executionTracker:     tracker,
 		taskHealthSupervisor: taskHealthSupervisor,
 		metricsTracker:       metricsTracker,
@@ -78,6 +82,8 @@ func (ef *EventsFacilitator) withSpan(
 		span.End()
 		ack(nil)
 	}()
+
+	span.SetAttributes(attribute.String("controller_id", ef.controllerID))
 
 	if err := fn(ctx, span); err != nil {
 		span.RecordError(err)

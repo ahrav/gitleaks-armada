@@ -55,6 +55,7 @@ func (t *executionTracker) HandleTaskStart(ctx context.Context, evt scanning.Tas
 	taskID, jobID, resourceURI := evt.TaskID, evt.JobID, evt.ResourceURI
 	ctx, span := t.tracer.Start(ctx, "progress_tracker.scanning.start_tracking",
 		trace.WithAttributes(
+			attribute.String("controller_id", t.controllerID),
 			attribute.String("task_id", taskID.String()),
 			attribute.String("job_id", jobID.String()),
 			attribute.String("resource_uri", resourceURI),
@@ -88,6 +89,7 @@ func (t *executionTracker) HandleTaskProgress(ctx context.Context, evt scanning.
 	taskID := evt.Progress.TaskID()
 	ctx, span := t.tracer.Start(ctx, "progress_tracker.scanning.update_progress",
 		trace.WithAttributes(
+			attribute.String("controller_id", t.controllerID),
 			attribute.String("task_id", taskID.String()),
 		))
 	defer span.End()
@@ -115,6 +117,7 @@ func (t *executionTracker) HandleTaskCompletion(ctx context.Context, evt scannin
 	taskID := evt.TaskID
 	ctx, span := t.tracer.Start(ctx, "progress_tracker.scanning.stop_tracking",
 		trace.WithAttributes(
+			attribute.String("controller_id", t.controllerID),
 			attribute.String("task_id", taskID.String()),
 		))
 	defer span.End()
@@ -141,6 +144,7 @@ func (t *executionTracker) HandleTaskFailure(ctx context.Context, evt scanning.T
 	taskID := evt.TaskID
 	ctx, span := t.tracer.Start(ctx, "progress_tracker.scanning.fail_task",
 		trace.WithAttributes(
+			attribute.String("controller_id", t.controllerID),
 			attribute.String("task_id", taskID.String()),
 		))
 	defer span.End()
@@ -165,6 +169,7 @@ func (t *executionTracker) HandleTaskFailure(ctx context.Context, evt scanning.T
 func (t *executionTracker) HandleTaskStale(ctx context.Context, evt scanning.TaskStaleEvent) error {
 	ctx, span := t.tracer.Start(ctx, "execution_tracker.markTaskStale",
 		trace.WithAttributes(
+			attribute.String("controller_id", t.controllerID),
 			attribute.String("task_id", evt.TaskID.String()),
 			attribute.String("job_id", evt.JobID.String()),
 			attribute.String("reason", string(evt.Reason)),

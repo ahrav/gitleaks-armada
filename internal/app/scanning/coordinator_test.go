@@ -123,10 +123,9 @@ func newCoordinatorTestSuite(t *testing.T) *coordinatorTestSuite {
 		jobRepo:  jobRepo,
 		taskRepo: taskRepo,
 		coord: &scanJobCoordinator{
-			taskCache: make(map[uuid.UUID]*domain.Task),
-			jobRepo:   jobRepo,
-			taskRepo:  taskRepo,
-			tracer:    tracer,
+			jobRepo:  jobRepo,
+			taskRepo: taskRepo,
+			tracer:   tracer,
 		},
 		tracer: tracer,
 	}
