@@ -243,9 +243,10 @@ func (t *jobMetricsTracker) HandleJobMetrics(ctx context.Context, evt events.Eve
 
 	metricEvt, ok := evt.Payload.(scanning.TaskJobMetricEvent)
 	if !ok {
-		span.SetStatus(codes.Error, "expected TaskJobMetricEvent")
-		span.RecordError(fmt.Errorf("expected TaskJobMetricEvent, got %T", evt.Payload))
-		return fmt.Errorf("expected TaskJobMetricEvent, got %T", evt.Payload)
+		err := fmt.Errorf("invalid event type for job metrics: expected TaskJobMetricEvent, got %T", evt.Payload)
+		span.SetStatus(codes.Error, err.Error())
+		span.RecordError(err)
+		return fmt.Errorf("handle job metrics failed: %w", err)
 	}
 
 	span.SetAttributes(
@@ -283,16 +284,19 @@ func (t *jobMetricsTracker) HandleJobMetrics(ctx context.Context, evt events.Eve
 	if !exists {
 		span.AddEvent("no_job_metrics_found_in_memory")
 		metrics, err := t.repository.GetJobMetrics(ctx, metricEvt.JobID)
-		if err != nil && !errors.Is(err, domain.ErrNoJobMetricsFound) {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "getting job metrics")
-			return fmt.Errorf("failed to get job metrics (job_id: %s, task_id: %s, status: %s): %w",
-				metricEvt.JobID, metricEvt.TaskID, metricEvt.Status, err)
-		}
-		if metrics == nil {
-			span.AddEvent("no_job_metrics_found_in_db")
-			logger.Debug(ctx, "no job metrics found, creating new job metrics")
-			metrics = domain.NewJobMetrics()
+		if err != nil {
+			if errors.Is(err, domain.ErrNoJobMetricsFound) {
+				span.AddEvent("no_metrics_found", trace.WithAttributes(
+					attribute.String("job_id", metricEvt.JobID.String()),
+				))
+				logger.Debug(ctx, "no job metrics found, creating new job metrics")
+				metrics = domain.NewJobMetrics()
+			} else {
+				span.RecordError(err)
+				span.SetStatus(codes.Error, "getting job metrics")
+				return fmt.Errorf("failed to retrieve job metrics for (job_id: %s, task_id: %s, status: %s): %w",
+					metricEvt.JobID, metricEvt.TaskID, metricEvt.Status, err)
+			}
 		}
 
 		t.metrics[metricEvt.JobID] = metrics
@@ -503,9 +507,12 @@ func (t *jobMetricsTracker) processMetric(ctx context.Context, evt scanning.Task
 	metrics := t.metrics[evt.JobID]
 
 	if _, err := t.repository.GetTask(ctx, evt.TaskID); err != nil {
+		if errors.Is(err, domain.ErrTaskNotFound) {
+			return domain.ErrTaskNotFound
+		}
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "task not found")
-		return fmt.Errorf("failed to get task with taskID: %s, error: %w", evt.TaskID.String(), err)
+		return fmt.Errorf("task lookup failed for task %s in job %s: %w", evt.TaskID, evt.JobID, err)
 	}
 
 	// Get the previous status from our in-memory cache.
@@ -570,10 +577,14 @@ func (t *jobMetricsTracker) LaunchMetricsFlusher(interval time.Duration) {
 		select {
 		case <-ctx.Done():
 			// Ensure final flush on shutdown.
-			t.FlushMetrics(ctx)
+			if err := t.FlushMetrics(ctx); err != nil {
+				logger.Error(ctx, "failed to flush metrics on shutdown", "error", err)
+			}
 			return
 		case <-ticker.C:
-			t.FlushMetrics(ctx)
+			if err := t.FlushMetrics(ctx); err != nil {
+				logger.Error(ctx, "failed to flush metrics on tick", "error", err)
+			}
 		}
 	}
 }
@@ -588,7 +599,7 @@ func (t *jobMetricsTracker) LaunchMetricsFlusher(interval time.Duration) {
 //
 // This method is typically called periodically by a background goroutine to ensure
 // regular persistence of metrics state.
-func (t *jobMetricsTracker) FlushMetrics(ctx context.Context) {
+func (t *jobMetricsTracker) FlushMetrics(ctx context.Context) error {
 	logger := t.logger.With("operation", "flush_metrics", "metrics_count", len(t.metrics))
 	ctx, span := t.tracer.Start(ctx, "job_metrics_tracker.flush_metrics",
 		trace.WithAttributes(
@@ -599,65 +610,91 @@ func (t *jobMetricsTracker) FlushMetrics(ctx context.Context) {
 
 	span.AddEvent("starting_metrics_flush")
 
+	var flushErrors []error
 	for jobID, metrics := range t.metrics {
-		chckpt := t.checkpoints[jobID]
-		if len(chckpt) == 0 {
-			span.AddEvent("no_partitions_to_flush", trace.WithAttributes(
-				attribute.String("job_id", jobID.String()),
-			))
-			continue
-		}
-		span.AddEvent("flushing_partitions", trace.WithAttributes(
-			attribute.String("job_id", jobID.String()),
-			attribute.Int("num_partitions", len(chckpt)),
-		))
-
-		for partition, offset := range chckpt {
-			if err := t.repository.UpdateMetricsAndCheckpoint(ctx, jobID, metrics, partition, offset); err != nil {
-				span.RecordError(err)
-				logger.Error(ctx, "failed to flush job metrics",
-					"job_id", jobID.String(),
-					"partition", partition,
-					"offset", offset,
-					"error", err,
-				)
-				continue
-			}
-			span.AddEvent("metrics_partition_flushed", trace.WithAttributes(
-				attribute.String("job_id", jobID.String()),
-				attribute.Int("partition", int(partition)),
-				attribute.Int64("offset", offset),
-			))
-			if err := t.offsetCommitter.CommitPosition(ctx, scanning.NewJobMetricsPosition(jobID, partition, offset)); err != nil {
-				span.RecordError(err)
-				logger.Error(ctx, "failed to commit offset",
-					"error", err,
-					"job_id", jobID.String(),
-					"partition", partition,
-					"offset", offset,
-				)
-			}
+		if err := t.flushJobMetrics(ctx, jobID, metrics); err != nil {
+			flushErrors = append(flushErrors, fmt.Errorf("job %s: %w", jobID, err))
+			span.RecordError(err)
+			logger.Error(ctx, "failed to flush job metrics",
+				"job_id", jobID,
+				"error", err,
+			)
 		}
 	}
+
+	if len(flushErrors) > 0 {
+		err := fmt.Errorf("failed to flush metrics for %d jobs: %w",
+			len(flushErrors), errors.Join(flushErrors...))
+		span.SetStatus(codes.Error, err.Error())
+		return err
+	}
+
 	span.AddEvent("metrics_flushed")
 	span.SetStatus(codes.Ok, "metrics flushed")
 	logger.Info(ctx, "metrics flushed")
+
+	return nil
+}
+
+// flushJobMetrics handles flushing metrics for a single job, including updating metrics
+// and committing offsets for each partition.
+func (t *jobMetricsTracker) flushJobMetrics(ctx context.Context, jobID uuid.UUID, metrics *domain.JobMetrics) error {
+	span := trace.SpanFromContext(ctx)
+	chckpt := t.checkpoints[jobID]
+	if len(chckpt) == 0 {
+		span.AddEvent("no_partitions_to_flush", trace.WithAttributes(
+			attribute.String("job_id", jobID.String()),
+		))
+		return nil
+	}
+
+	span.AddEvent("flushing_partitions", trace.WithAttributes(
+		attribute.String("job_id", jobID.String()),
+		attribute.Int("num_partitions", len(chckpt)),
+	))
+
+	var partitionErrors []error
+	for partition, offset := range chckpt {
+		if err := t.repository.UpdateMetricsAndCheckpoint(ctx, jobID, metrics, partition, offset); err != nil {
+			partitionErrors = append(partitionErrors, fmt.Errorf("partition %d: update failed: %w", partition, err))
+			continue
+		}
+
+		span.AddEvent("metrics_partition_flushed", trace.WithAttributes(
+			attribute.String("job_id", jobID.String()),
+			attribute.Int("partition", int(partition)),
+			attribute.Int64("offset", offset),
+		))
+
+		if err := t.offsetCommitter.CommitPosition(ctx, scanning.NewJobMetricsPosition(jobID, partition, offset)); err != nil {
+			partitionErrors = append(partitionErrors, fmt.Errorf("partition %d: commit failed: %w", partition, err))
+		}
+	}
+
+	if len(partitionErrors) > 0 {
+		return fmt.Errorf("failed to flush %d partitions: %w",
+			len(partitionErrors), errors.Join(partitionErrors...))
+	}
+	return nil
 }
 
 // Stop stops the background goroutines and waits for them to finish.
 func (t *jobMetricsTracker) Stop(ctx context.Context) {
+	logger := t.logger.With("operation", "stop_metrics_tracker")
 	_, span := t.tracer.Start(ctx, "job_metrics_tracker.stop")
 	defer span.End()
 
 	span.AddEvent("stopping_metrics_tracker")
-
+	logger.Info(ctx, "stopping metrics tracker")
 	close(t.stopCh)
 
 	// Lets flush any pending metrics.
-	t.processPendingMetrics(context.Background())
+	t.processPendingMetrics(ctx)
 
+	// TODO: This could hang if the flusher is stuck.
 	t.wg.Wait()
 
 	span.AddEvent("metrics_tracker_stopped")
 	span.SetStatus(codes.Ok, "metrics tracker stopped")
+	logger.Info(ctx, "metrics tracker stopped")
 }
