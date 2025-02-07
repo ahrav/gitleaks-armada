@@ -24,6 +24,7 @@ var _ scanSvc.ProgressReporter = (*DomainEventProgressReporter)(nil)
 // DomainEventProgressReporter publishes domain events for scan progress updates.
 // This enables asynchronous progress tracking and monitoring of long-running scan
 // operations across system boundaries.
+// TODO: Add logging and update tracing.
 type DomainEventProgressReporter struct {
 	domainPublisher events.DomainEventPublisher
 	tracer          trace.Tracer
