@@ -197,7 +197,7 @@ func main() {
 		WorkerName:   "worker",
 	}
 
-	coord, err := kubernetes.NewCoordinator(cfg, log)
+	coord, err := kubernetes.NewCoordinator(hostname, cfg, log, tracer)
 	if err != nil {
 		log.Error(ctx, "failed to create coordinator", "error", err)
 		os.Exit(1)
