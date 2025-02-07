@@ -41,7 +41,7 @@ type RuleProvider interface {
 // It subscribes to enumeration events and distributes scanning work to maintain optimal
 // resource utilization.
 type ScannerService struct {
-	id string
+	scannerID string
 
 	eventBus         events.EventBus
 	domainPublisher  events.DomainEventPublisher
@@ -78,24 +78,23 @@ func NewScannerService(
 	metrics metrics,
 	tracer trace.Tracer,
 ) *ScannerService {
-	workerCount := 4 // TODO: This should be configurable or set via runtime.NumCPU()
-	componentLogger := logger.With(
+	workerCount := 4 // TODO: This should be configurable or set via runtime.NumCPU
+	logger = logger.With(
 		"component", "scanner_service",
-		"scanner_service_id", id,
 		"num_workers", workerCount,
 	)
 
 	// Try to get rule provider if scanner supports it. (e.g. Gitleaks)
 	ruleProvider, _ := scanner.(RuleProvider)
 	return &ScannerService{
-		id:               id,
+		scannerID:        id,
 		eventBus:         eb,
 		domainPublisher:  dp,
 		secretScanner:    scanner,
 		progressReporter: pr,
 		ruleProvider:     ruleProvider,
 		enumACL:          acl.EnumerationACL{},
-		logger:           componentLogger,
+		logger:           logger,
 		metrics:          metrics,
 		tracer:           tracer,
 		workers:          workerCount,
@@ -114,7 +113,7 @@ func (s *ScannerService) Run(ctx context.Context) error {
 	initCtx, initSpan := s.tracer.Start(ctx, "scanner_service.scanning.init",
 		trace.WithAttributes(
 			attribute.String("component", "scanner_service"),
-			attribute.String("scanner_id", s.id),
+			attribute.String("scanner_id", s.scannerID),
 			attribute.Int("num_workers", s.workers),
 		))
 
@@ -146,13 +145,13 @@ func (s *ScannerService) Run(ctx context.Context) error {
 		initSpan.RecordError(err)
 		initSpan.SetStatus(codes.Error, "failed to subscribe to events")
 		initSpan.End()
-		return fmt.Errorf("scanner[%s]: failed to subscribe: %w", s.id, err)
+		return fmt.Errorf("scanner[%s]: failed to subscribe: %w", s.scannerID, err)
 	}
 	initSpan.AddEvent("subscribed_to_events")
 	initSpan.End()
 
 	<-initCtx.Done()
-	s.logger.Info(initCtx, "Stopping scanner service", "id", s.id)
+	s.logger.Info(initCtx, "Stopping scanner service", "id", s.scannerID)
 
 	_, shutdownSpan := s.tracer.Start(initCtx, "scanner_service.scanning.shutdown")
 	defer shutdownSpan.End()
@@ -194,7 +193,7 @@ func (s *ScannerService) handleRuleRequest(
 	ctx, span := s.tracer.Start(ctx, "scanner_service.scanning.handle_rule_request",
 		trace.WithAttributes(
 			attribute.String("component", "scanner_service"),
-			attribute.String("scanner_id", s.id),
+			attribute.String("scanner_id", s.scannerID),
 			attribute.String("event_type", string(evt.Type)),
 		))
 	defer span.End()
@@ -286,7 +285,7 @@ func (s *ScannerService) handleTaskEvent(
 		return ctx.Err()
 	case <-s.stopCh:
 		span.SetStatus(codes.Error, "service stopping")
-		return fmt.Errorf("scanner[%s]: stopping", s.id)
+		return fmt.Errorf("scanner[%s]: stopping", s.scannerID)
 	}
 }
 
