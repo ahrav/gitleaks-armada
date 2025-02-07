@@ -187,7 +187,7 @@ func NewOrchestrator(
 // any startup errors. Callers should wait for the ready signal before proceeding.
 func (o *Orchestrator) Run(ctx context.Context) error {
 	logger := o.logger.With("operation", "run")
-	o.startTime = time.Now()
+	o.startTime = time.Now().UTC()
 	runCtx, runSpan := o.tracer.Start(ctx, "orchestrator.run",
 		trace.WithAttributes(
 			attribute.String("component", "orchestrator"),
