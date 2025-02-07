@@ -21,9 +21,11 @@ var _ enumeration.ResourcePersister = (*repoPersistence)(nil)
 // while maintaining domain invariants and generating scan targets.
 type repoPersistence struct {
 	controllerID string
-	githubRepo   domain.GithubRepository
-	logger       *logger.Logger
-	tracer       trace.Tracer
+
+	githubRepo domain.GithubRepository
+
+	logger *logger.Logger
+	tracer trace.Tracer
 }
 
 // NewRepoPersistence creates a new repoPersistence instance.

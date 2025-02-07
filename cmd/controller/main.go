@@ -276,7 +276,7 @@ func main() {
 	checkpointStorage := enumStore.NewCheckpointStore(pool, tracer)
 	enumStateStorage := enumStore.NewEnumerationSessionStateStore(pool, checkpointStorage, tracer)
 	eventPublisher := kafka.NewDomainEventPublisher(broker, domainEventTranslator)
-	enumFactory := enumeration.NewEnumerationFactory(http.DefaultClient, tracer)
+	enumFactory := enumeration.NewEnumerationFactory(hostname, http.DefaultClient, log, tracer)
 	enumTaskStorage := enumStore.NewTaskStore(pool, tracer)
 	batchStorage := enumStore.NewBatchStore(pool, checkpointStorage, tracer)
 	enumCoord := enumeration.NewCoordinator(

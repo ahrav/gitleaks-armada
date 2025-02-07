@@ -13,6 +13,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/app/enumeration/url"
 	"github.com/ahrav/gitleaks-armada/internal/config"
 	domain "github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
+	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
 
 // EnumeratorFactory creates TargetEnumerators for different data sources.
@@ -26,19 +27,27 @@ type EnumeratorFactory interface {
 
 // enumerationFactory creates target enumerators with required dependencies.
 type enumerationFactory struct {
+	controllerID string
+
 	httpClient *http.Client
-	tracer     trace.Tracer
+
+	logger *logger.Logger
+	tracer trace.Tracer
 }
 
 // NewEnumerationFactory creates a new factory for instantiating target enumerators.
 // It takes the required dependencies needed by all enumerator types.
 func NewEnumerationFactory(
+	controllerID string,
 	httpClient *http.Client,
+	logger *logger.Logger,
 	tracer trace.Tracer,
 ) EnumeratorFactory {
 	return &enumerationFactory{
-		httpClient: httpClient,
-		tracer:     tracer,
+		controllerID: controllerID,
+		httpClient:   httpClient,
+		logger:       logger,
+		tracer:       tracer,
 	}
 }
 
@@ -73,8 +82,10 @@ func (f *enumerationFactory) CreateEnumerator(ctx context.Context, target config
 		githubSpan.AddEvent("github_client_created")
 
 		return github.NewEnumerator(
+			f.controllerID,
 			ghClient,
 			target.GitHub,
+			f.logger,
 			f.tracer,
 		), nil
 	case config.SourceTypeURL:
