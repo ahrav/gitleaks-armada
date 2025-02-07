@@ -97,7 +97,12 @@ func (f *enumerationFactory) CreateEnumerator(ctx context.Context, target config
 			return nil, fmt.Errorf("url target configuration is missing")
 		}
 
-		return url.NewEnumerator(target.URL, f.tracer), nil
+		return url.NewEnumerator(
+			f.controllerID,
+			target.URL,
+			f.logger,
+			f.tracer,
+		), nil
 	case config.SourceTypeS3:
 		// TODO: Implement S3 enumerator.
 		panic("not implemented")

@@ -92,6 +92,7 @@ func (e *Enumerator) validateConfig() error {
 
 // processRepoList handles enumeration for explicitly provided repository list
 func (e *Enumerator) processRepoList(ctx context.Context, batchCh chan<- enumeration.EnumerateBatch) error {
+	logger := e.logger.With("operation", "process_repo_list")
 	ctx, span := e.tracer.Start(ctx, "github_enumerator.process_repo_list",
 		trace.WithAttributes(
 			attribute.String("controller_id", e.controllerID),
@@ -100,8 +101,6 @@ func (e *Enumerator) processRepoList(ctx context.Context, batchCh chan<- enumera
 		),
 	)
 	defer span.End()
-
-	logger := e.logger.With("operation", "process_repo_list")
 
 	targets := make([]*enumeration.TargetInfo, 0, len(e.ghConfig.RepoList))
 	for _, repoURL := range e.ghConfig.RepoList {
@@ -125,6 +124,10 @@ func (e *Enumerator) processRepoList(ctx context.Context, batchCh chan<- enumera
 
 // processOrgRepos handles enumeration for GitHub organization repositories
 func (e *Enumerator) processOrgRepos(ctx context.Context, startCursor *string, batchCh chan<- enumeration.EnumerateBatch) error {
+	logger := e.logger.With(
+		"operation", "process_org_repos",
+		"org", e.ghConfig.Org,
+	)
 	ctx, span := e.tracer.Start(ctx, "github_enumerator.process_org_repos",
 		trace.WithAttributes(
 			attribute.String("controller_id", e.controllerID),
@@ -132,11 +135,6 @@ func (e *Enumerator) processOrgRepos(ctx context.Context, startCursor *string, b
 		),
 	)
 	defer span.End()
-
-	logger := e.logger.With(
-		"operation", "process_org_repos",
-		"org", e.ghConfig.Org,
-	)
 
 	var endCursor = startCursor
 	for {
