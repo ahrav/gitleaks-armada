@@ -106,10 +106,7 @@ func NewOrchestrator(
 	metrics OrchestrationMetrics,
 	tracer trace.Tracer,
 ) *Orchestrator {
-	componentLogger := logger.With(
-		"component", "orchestrator",
-		"orchestrator_id", id,
-	)
+	componentLogger := logger.With("component", "orchestrator")
 	o := &Orchestrator{
 		id:                 id,
 		clusterCoordinator: coord,

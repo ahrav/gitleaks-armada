@@ -35,6 +35,7 @@ func NewExecutionTracker(
 	logger *logger.Logger,
 	tracer trace.Tracer,
 ) *executionTracker {
+	logger = logger.With("component", "execution_tracker")
 	return &executionTracker{
 		controllerID:    controllerID,
 		jobService:      jobService,
@@ -60,16 +61,16 @@ func (t *executionTracker) HandleTaskStart(ctx context.Context, evt scanning.Tas
 		))
 	defer span.End()
 
-	// Initialize task state in job aggregate before any other operations
+	// Initialize task state in job aggregate before any other operations.
 	_, err := t.jobService.StartTask(ctx, jobID, taskID, resourceURI, t.controllerID)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to start task tracking")
-		return fmt.Errorf("failed to start task tracking: %w", err)
+		return fmt.Errorf("start task failed (controller_id: %s): %w", t.controllerID, err)
 	}
 	span.AddEvent("task_started")
 	span.SetStatus(codes.Ok, "tracking started")
-	t.logger.Info(ctx, "ExecutionTracker: Task started",
+	t.logger.Info(ctx, "Task started",
 		"task_id", taskID,
 		"job_id", jobID,
 		"resource_uri", resourceURI,
@@ -95,11 +96,12 @@ func (t *executionTracker) HandleTaskProgress(ctx context.Context, evt scanning.
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to update task progress")
-		return fmt.Errorf("failed to update task progress: %w", err)
+		return fmt.Errorf("update task progress failed (sequence_num: %d): %w",
+			evt.Progress.SequenceNum(), err)
 	}
 	span.AddEvent("task_progress_updated")
 	span.SetStatus(codes.Ok, "task progress updated")
-	t.logger.Info(ctx, "ExecutionTracker: Task progress updated", "task_id", taskID)
+	t.logger.Info(ctx, "Task progress updated", "task_id", taskID)
 
 	return nil
 }
@@ -125,7 +127,7 @@ func (t *executionTracker) HandleTaskCompletion(ctx context.Context, evt scannin
 	}
 	span.AddEvent("task_completed")
 	span.SetStatus(codes.Ok, "task tracking stopped")
-	t.logger.Info(ctx, "ExecutionTracker: Task completed", "task_id", taskID, "job_id", evt.JobID)
+	t.logger.Info(ctx, "Task completed", "task_id", taskID, "job_id", evt.JobID)
 
 	return nil
 }
@@ -151,7 +153,7 @@ func (t *executionTracker) HandleTaskFailure(ctx context.Context, evt scanning.T
 	}
 	span.AddEvent("task_failed_successfully")
 	span.SetStatus(codes.Ok, "task failed")
-	t.logger.Info(ctx, "ExecutionTracker: Task failed", "task_id", taskID, "job_id", evt.JobID)
+	t.logger.Info(ctx, "Task failed", "task_id", taskID, "job_id", evt.JobID)
 
 	return nil
 }
@@ -174,14 +176,16 @@ func (t *executionTracker) HandleTaskStale(ctx context.Context, evt scanning.Tas
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to mark task as stale")
-		return err
+		return fmt.Errorf("mark task stale failed (reason: %s, stalled_since: %s): %w",
+			evt.Reason, evt.StalledSince, err)
 	}
 
 	sourceType, err := t.jobService.GetTaskSourceType(ctx, task.TaskID())
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to get task source type")
-		return fmt.Errorf("get task source type: %w", err)
+		return fmt.Errorf("get task source type failed (task_id: %s): %w",
+			task.TaskID(), err)
 	}
 	span.AddEvent("task_source_type_retrieved", trace.WithAttributes(
 		attribute.String("source_type", string(sourceType)),
@@ -198,11 +202,12 @@ func (t *executionTracker) HandleTaskStale(ctx context.Context, evt scanning.Tas
 	if err := t.domainPublisher.PublishDomainEvent(ctx, resumeEvent); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to publish task resume event")
-		return err
+		return fmt.Errorf("publish resume event failed (source_type: %s): %w",
+			sourceType, err)
 	}
 	span.AddEvent("task_marked_stale_and_resume_task_event_published")
 	span.SetStatus(codes.Ok, "task marked stale and resume task event published")
-	t.logger.Info(ctx, "ExecutionTracker: Task marked stale and resume task event published",
+	t.logger.Info(ctx, "Task marked stale and resume task event published",
 		"task_id", evt.TaskID, "job_id", evt.JobID,
 		"reason", evt.Reason,
 		"stalled_since", evt.StalledSince,
