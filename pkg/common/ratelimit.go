@@ -11,17 +11,15 @@ import (
 // It helps prevent overwhelming downstream services by controlling request rates
 // while allowing runtime adjustments based on service conditions.
 type RateLimiter struct {
-	limiter *rate.Limiter
 	mu      sync.RWMutex // Protects concurrent access to the limiter
+	limiter *rate.Limiter
 }
 
 // NewRateLimiter creates a RateLimiter with the specified requests per second (rps)
 // and burst size. The burst parameter controls how many requests can be made at once
 // to accommodate temporary spikes in traffic.
 func NewRateLimiter(rps float64, burst int) *RateLimiter {
-	return &RateLimiter{
-		limiter: rate.NewLimiter(rate.Limit(rps), burst),
-	}
+	return &RateLimiter{limiter: rate.NewLimiter(rate.Limit(rps), burst)}
 }
 
 // Wait blocks until the rate limiter allows an event or the context is canceled.
