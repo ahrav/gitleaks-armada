@@ -28,21 +28,25 @@ import (
 //	// Dispatch events
 //	err := dispatcher.Dispatch(ctx, someEnvelope)
 type Dispatcher struct {
+	controllerID string
+
 	mu       sync.RWMutex
 	handlers map[events.EventType]events.HandlerFunc
-	tracer   trace.Tracer
-	logger   *logger.Logger
+
+	logger *logger.Logger
+	tracer trace.Tracer
 }
 
 // New constructs a new EventDispatcher that uses the provided tracer
 // for instrumentation. The dispatcher starts with an empty registry; handlers must
 // be registered before dispatching any events.
-func New(tracer trace.Tracer, logger *logger.Logger) *Dispatcher {
+func New(controllerID string, tracer trace.Tracer, logger *logger.Logger) *Dispatcher {
 	logger = logger.With("component", "event_dispatcher")
 	return &Dispatcher{
-		handlers: make(map[events.EventType]events.HandlerFunc),
-		tracer:   tracer,
-		logger:   logger,
+		controllerID: controllerID,
+		handlers:     make(map[events.EventType]events.HandlerFunc),
+		tracer:       tracer,
+		logger:       logger,
 	}
 }
 
@@ -58,6 +62,7 @@ func (d *Dispatcher) RegisterHandler(ctx context.Context, eventType events.Event
 	logger := d.logger.With("operation", "register_handler", "event_type", eventType)
 	_, span := d.tracer.Start(ctx, "event_dispatcher.register_handler",
 		trace.WithAttributes(
+			attribute.String("controller_id", d.controllerID),
 			attribute.String("event_type", string(eventType)),
 		),
 	)
@@ -104,6 +109,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, evt events.EventEnvelope, ack
 	))
 	ctx, span := d.tracer.Start(ctx, "event_dispatcher.handle_event",
 		trace.WithAttributes(
+			attribute.String("controller_id", d.controllerID),
 			attribute.String("event_type", string(evt.Type)),
 			attribute.Int("partition", int(evt.Metadata.Partition)),
 			attribute.Int64("offset", evt.Metadata.Offset),

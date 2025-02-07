@@ -125,7 +125,7 @@ func NewOrchestrator(
 		id,
 		jobRepo,
 		taskRepo,
-		componentLogger,
+		logger,
 		tracer,
 	)
 
@@ -133,7 +133,7 @@ func NewOrchestrator(
 		id,
 		o.scanningCoordinator,
 		eventPublisher,
-		componentLogger,
+		logger,
 		tracer,
 	)
 
@@ -143,11 +143,11 @@ func NewOrchestrator(
 		executionTracker,
 		eventPublisher,
 		tracer,
-		componentLogger,
+		logger,
 	)
 
 	metricsRepo := scan.NewMetricsRepositoryAdapter(id, jobRepo, taskRepo, tracer)
-	o.metricsTracker = scan.NewJobMetricsTracker(id, metricsRepo, offsetCommitter, eventReplayer, componentLogger, tracer)
+	o.metricsTracker = scan.NewJobMetricsTracker(id, metricsRepo, offsetCommitter, eventReplayer, logger, tracer)
 	go o.metricsTracker.LaunchMetricsFlusher(30 * time.Second)
 
 	eventsFacilitator := NewEventsFacilitator(
@@ -158,7 +158,7 @@ func NewOrchestrator(
 		rulesService,
 		tracer,
 	)
-	dispatcher := eventdispatcher.New(tracer, logger)
+	dispatcher := eventdispatcher.New(id, tracer, logger)
 	ctx := context.Background()
 	dispatcher.RegisterHandler(ctx, scanning.EventTypeTaskStarted, eventsFacilitator.HandleTaskStarted)
 	dispatcher.RegisterHandler(ctx, scanning.EventTypeTaskProgressed, eventsFacilitator.HandleTaskProgressed)
