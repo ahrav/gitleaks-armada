@@ -211,7 +211,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	kafkaCfg := &kafka.Config{
+	kafkaCfg := &kafka.EventBusConfig{
 		Brokers:               strings.Split(os.Getenv("KAFKA_BROKERS"), ","),
 		EnumerationTaskTopic:  os.Getenv("KAFKA_ENUMERATION_TASK_TOPIC"),
 		ScanningTaskTopic:     os.Getenv("KAFKA_SCANNING_TASK_TOPIC"),
@@ -225,22 +225,36 @@ func main() {
 		ClientID:              svcName,
 		ServiceType:           serviceType,
 	}
-	broker, err := kafka.ConnectWithRetry(kafkaCfg, log, metricCollector, tracer)
+
+	// Create the shared Kafka client
+	kafkaClient, err := kafka.NewClient(&kafka.ClientConfig{
+		Brokers:     strings.Split(os.Getenv("KAFKA_BROKERS"), ","),
+		GroupID:     os.Getenv("KAFKA_GROUP_ID"),
+		ClientID:    svcName,
+		ServiceType: serviceType,
+	})
 	if err != nil {
-		log.Error(ctx, "failed to create kafka broker", "error", err)
+		log.Error(ctx, "failed to create kafka client", "error", err)
 		os.Exit(1)
 	}
-	log.Info(ctx, "Controller connected to Kafka")
+	defer kafkaClient.Close()
+
+	// Connect event bus using shared client.
+	eventBus, err := kafka.ConnectEventBus(kafkaCfg, kafkaClient, log, metricCollector, tracer)
+	if err != nil {
+		log.Error(ctx, "failed to connect event bus", "error", err)
+		os.Exit(1)
+	}
 
 	topicMapper := config.NewTopicMapper(kafkaCfg)
 
+	// Create offset committer using shared client.
 	offsetCommitter, err := kafka.NewOffsetCommitter(
 		&kafka.OffsetCommitterConfig{
 			GroupID:     kafkaCfg.GroupID,
-			ClientID:    kafkaCfg.ClientID,
-			Brokers:     strings.Split(os.Getenv("KAFKA_BROKERS"), ","),
 			TopicMapper: topicMapper,
 		},
+		kafkaClient,
 		log,
 		metricCollector,
 		tracer,
@@ -275,7 +289,7 @@ func main() {
 	urlTargetRepo := enumStore.NewURLTargetStore(pool, tracer)
 	checkpointStorage := enumStore.NewCheckpointStore(pool, tracer)
 	enumStateStorage := enumStore.NewEnumerationSessionStateStore(pool, checkpointStorage, tracer)
-	eventPublisher := kafka.NewDomainEventPublisher(broker, domainEventTranslator)
+	eventPublisher := kafka.NewDomainEventPublisher(eventBus, domainEventTranslator)
 	enumFactory := enumeration.NewEnumerationFactory(hostname, http.DefaultClient, log, tracer)
 	enumTaskStorage := enumStore.NewTaskStore(pool, tracer)
 	batchStorage := enumStore.NewBatchStore(pool, checkpointStorage, tracer)
@@ -302,7 +316,7 @@ func main() {
 	orchestrator := orchestration.NewOrchestrator(
 		hostname,
 		coord,
-		broker,
+		eventBus,
 		eventPublisher,
 		domainOffsetCommitter,
 		domainEventReplayer,

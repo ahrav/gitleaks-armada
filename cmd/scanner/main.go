@@ -122,8 +122,20 @@ func main() {
 		os.Exit(1)
 	}
 
-	kafkaCfg := &kafka.Config{
-		Brokers:               strings.Split(os.Getenv("KAFKA_BROKERS"), ","),
+	// Create shared Kafka client.
+	kafkaClient, err := kafka.NewClient(&kafka.ClientConfig{
+		Brokers:     strings.Split(os.Getenv("KAFKA_BROKERS"), ","),
+		GroupID:     os.Getenv("KAFKA_GROUP_ID"),
+		ClientID:    fmt.Sprintf("scanner-%s", hostname),
+		ServiceType: "scanner",
+	})
+	if err != nil {
+		log.Error(ctx, "failed to create kafka client", "error", err)
+		os.Exit(1)
+	}
+	defer kafkaClient.Close()
+
+	kafkaCfg := &kafka.EventBusConfig{
 		EnumerationTaskTopic:  os.Getenv("KAFKA_ENUMERATION_TASK_TOPIC"),
 		ScanningTaskTopic:     os.Getenv("KAFKA_SCANNING_TASK_TOPIC"),
 		ResultsTopic:          os.Getenv("KAFKA_RESULTS_TOPIC"),
@@ -135,7 +147,8 @@ func main() {
 		GroupID:               os.Getenv("KAFKA_GROUP_ID"),
 		ClientID:              fmt.Sprintf("scanner-%s", hostname),
 	}
-	broker, err := kafka.ConnectWithRetry(kafkaCfg, log, metricsCollector, tracer)
+
+	eventBus, err := kafka.ConnectEventBus(kafkaCfg, kafkaClient, log, metricsCollector, tracer)
 	if err != nil {
 		log.Error(ctx, "failed to create kafka broker", "error", err)
 		os.Exit(1)
@@ -143,7 +156,7 @@ func main() {
 	log.Info(ctx, "Scanner connected to Kafka")
 
 	domainEventTranslator := events.NewDomainEventTranslator(kafka.NewKafkaPositionTranslator())
-	eventPublisher := kafka.NewDomainEventPublisher(broker, domainEventTranslator)
+	eventPublisher := kafka.NewDomainEventPublisher(eventBus, domainEventTranslator)
 	gitleaksScanner, err := scanner.NewGitLeaks(hostname, eventPublisher, log, tracer, metricsCollector)
 	if err != nil {
 		log.Error(ctx, "failed to create gitleaks scanner", "error", err)
@@ -152,7 +165,7 @@ func main() {
 
 	scannerService := scanning.NewScannerService(
 		hostname,
-		broker,
+		eventBus,
 		eventPublisher,
 		progressreporter.New(hostname, eventPublisher, tracer),
 		gitleaksScanner,

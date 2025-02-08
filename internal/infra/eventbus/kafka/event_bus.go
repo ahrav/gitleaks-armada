@@ -29,9 +29,9 @@ type EventBusMetrics interface {
 	IncConsumeError(ctx context.Context, topic string)
 }
 
-// Config contains settings for connecting to and interacting with Kafka brokers.
+// EventBusConfig contains settings for connecting to and interacting with Kafka brokers.
 // It defines the topics, consumer group, and client identifiers needed for message routing.
-type Config struct {
+type EventBusConfig struct {
 	// Brokers is a list of Kafka broker addresses to connect to.
 	Brokers []string
 
@@ -61,15 +61,6 @@ type Config struct {
 	ServiceType string
 }
 
-// TopicConfig defines the configuration for event routing to Kafka topics.
-// This is used to define the primary and secondary topics for an event type.
-type TopicConfig struct {
-	// Primary is the main topic for this event type.
-	Primary string
-	// Secondary contains additional topics this event should be published to.
-	Secondary []string
-}
-
 var _ events.EventBus = (*EventBus)(nil)
 
 // EventBus implements the EventBus interface using Kafka as the underlying message broker.
@@ -86,11 +77,13 @@ type EventBus struct {
 	metrics EventBusMetrics
 }
 
-// NewEventBusFromConfig creates a new Kafka-based event bus from the provided configuration.
+// NewEventBus creates a new Kafka-based event bus from the provided configuration.
 // It establishes connections to Kafka brokers and configures both producer and consumer components
 // for reliable message delivery and consumption.
-func NewEventBusFromConfig(
-	cfg *Config,
+func NewEventBus(
+	producer sarama.SyncProducer,
+	consumerGroup sarama.ConsumerGroup,
+	cfg *EventBusConfig,
 	logger *logger.Logger,
 	metrics EventBusMetrics,
 	tracer trace.Tracer,
@@ -105,33 +98,6 @@ func NewEventBusFromConfig(
 		"group_id", cfg.GroupID,
 		"service_type", cfg.ServiceType,
 	)
-
-	producerConfig := sarama.NewConfig()
-	producerConfig.Producer.RequiredAcks = sarama.WaitForAll
-	producerConfig.Producer.Return.Successes = true
-	producerConfig.Producer.Partitioner = sarama.NewHashPartitioner
-	producerConfig.ClientID = cfg.ClientID
-
-	producer, err := sarama.NewSyncProducer(cfg.Brokers, producerConfig)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create kafka producer: %w", err)
-	}
-
-	// Configure consumer group for reliable message processing with
-	// automatic offset commits and rebalancing.
-	consumerConfig := sarama.NewConfig()
-	consumerConfig.ClientID = cfg.ClientID
-	consumerConfig.Consumer.Group.Rebalance.Strategy = sarama.NewBalanceStrategyRoundRobin()
-	consumerConfig.Consumer.Offsets.Initial = sarama.OffsetOldest
-	consumerConfig.Consumer.Group.Session.Timeout = 20 * time.Second
-	consumerConfig.Consumer.Group.Heartbeat.Interval = 6 * time.Second
-	consumerConfig.Consumer.Offsets.AutoCommit.Enable = false
-	consumerConfig.Version = sarama.V2_8_0_0
-
-	consumerGroup, err := sarama.NewConsumerGroup(cfg.Brokers, cfg.GroupID, consumerConfig)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create consumer group: %w", err)
-	}
 
 	// Map domain events to their corresponding Kafka topics.
 	// TODO: Maybe use a more performant data structure for this?

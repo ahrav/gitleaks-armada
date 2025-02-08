@@ -35,8 +35,6 @@ var _ events.OffsetCommitter = (*offsetCommiter)(nil)
 // OffsetCommitterConfig contains the configuration required to commit offsets to Kafka.
 type OffsetCommitterConfig struct {
 	GroupID     string
-	ClientID    string
-	Brokers     []string
 	TopicMapper TopicMapper
 }
 
@@ -59,21 +57,16 @@ type offsetCommiter struct {
 // NewOffsetCommitter creates a new OffsetCommitter with the specified configuration.
 func NewOffsetCommitter(
 	cfg *OffsetCommitterConfig,
+	client sarama.Client,
 	logger *logger.Logger,
 	metrics OffsetCommitterMetrics,
 	tracer trace.Tracer,
 ) (*offsetCommiter, error) {
-	config := sarama.NewConfig()
-	config.Consumer.Return.Errors = true
-	config.Version = sarama.V2_8_0_0
-	config.ClientID = cfg.ClientID
+	if client == nil {
+		return nil, fmt.Errorf("kafka client is required")
+	}
 
 	logger = logger.With("component", "kafka_offset_committer")
-
-	client, err := sarama.NewClient(cfg.Brokers, config)
-	if err != nil {
-		return nil, fmt.Errorf("creating kafka client for offset committer: %w", err)
-	}
 
 	mgr, err := sarama.NewOffsetManagerFromClient(cfg.GroupID, client)
 	if err != nil {
