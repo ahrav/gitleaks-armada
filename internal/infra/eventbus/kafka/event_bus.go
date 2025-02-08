@@ -336,6 +336,10 @@ func (h *domainEventHandler) ConsumeClaim(
 	h.logPartitionStart(sess.Context(), claim.Partition(), sess.MemberID())
 	consumeLogger := h.logger.With("operation", "consume_claim", "partition", claim.Partition())
 
+	// Track the latest processed offset for periodic commits
+	lastCommit := time.Now()
+	commitInterval := 1 * time.Second // Adjust this value based on your needs
+
 	for msg := range claim.Messages() {
 		func() {
 			msgCtx := tracing.ExtractTraceContext(sess.Context(), msg)
@@ -392,7 +396,21 @@ func (h *domainEventHandler) ConsumeClaim(
 					return
 				}
 				h.metrics.IncMessageConsumed(ackCtx, msg.Topic)
+
 				sess.MarkMessage(msg, "")
+
+				// Commit offsets periodically.
+				// This is blocking.
+				// TODO: consider using a non-blocking approach with a separate goroutine.
+				if time.Since(lastCommit) > commitInterval {
+					sess.Commit() // This is the correct method
+					lastCommit = time.Now()
+					consumeLogger.Debug(ackCtx, "Committed offsets",
+						"topic", msg.Topic,
+						"partition", msg.Partition,
+						"offset", msg.Offset,
+					)
+				}
 			}
 
 			if err := h.userHandler(msgCtx, dEvent, ack); err != nil {
@@ -404,6 +422,10 @@ func (h *domainEventHandler) ConsumeClaim(
 			consumeLogger.Debug(msgCtx, "Successfully processed message", "topic", msg.Topic)
 		}()
 	}
+
+	// Final commit before exiting
+	sess.Commit()
+
 	return nil
 }
 
