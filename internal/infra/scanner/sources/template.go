@@ -63,7 +63,6 @@ func (st *ScanTemplate) ScanStreaming(
 	reporter scanning.ProgressReporter,
 	scanFn func(ctx context.Context, task *dtos.ScanRequest, findingsChan chan<- scanning.Finding, reporter scanning.ProgressReporter) error,
 ) (<-chan struct{}, <-chan scanning.Finding, <-chan error) {
-
 	heartbeatChan := make(chan struct{}, 1)
 	findingsChan := make(chan scanning.Finding, 1)
 	errChan := make(chan error, 1)

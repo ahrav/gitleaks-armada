@@ -70,6 +70,7 @@ func (s *Scanner) ScanStreaming(
 	opts := srcs.TemplateOptions{
 		OperationName: "gitleaks_url_scanner.scan",
 		OperationAttributes: []attribute.KeyValue{
+			attribute.String("scanner_id", s.scannerID),
 			attribute.String("url", task.ResourceURI),
 		},
 		HeartbeatInterval: 5 * time.Second,
@@ -85,35 +86,67 @@ func (s *Scanner) runURLScan(
 	findingsChan chan<- scanning.Finding,
 	reporter scanning.ProgressReporter,
 ) error {
+	logr := logger.NewLoggerContext(s.logger.With(
+		"operation", "gitleaks_url_scanner.scan_main",
+		"scanner_id", s.scannerID,
+		"url", task.ResourceURI,
+		"source_type", string(task.SourceType),
+		"task_id", task.TaskID.String(),
+		"job_id", task.JobID.String(),
+	))
 	ctx, span := s.tracer.Start(ctx, "gitleaks_url_scanner.scan_main",
-		trace.WithAttributes(attribute.String("url", task.ResourceURI)))
+		trace.WithAttributes(
+			attribute.String("scanner_id", s.scannerID),
+			attribute.String("url", task.ResourceURI),
+			attribute.String("source_type", string(task.SourceType)),
+			attribute.String("task_id", task.TaskID.String()),
+			attribute.String("job_id", task.JobID.String()),
+		),
+	)
 	defer span.End()
 
 	startTime := time.Now()
 	defer func() {
 		s.metrics.ObserveScanDuration(ctx, shared.SourceType(task.SourceType), time.Since(startTime))
+		span.SetAttributes(attribute.Int64("scan_duration_ms", time.Since(startTime).Milliseconds()))
 	}()
 
 	var sequenceNum atomic.Int64
 	if seqStr, ok := task.Metadata[dtos.MetadataKeySequenceNum]; ok {
 		seqVal, err := strconv.ParseInt(seqStr, 10, 64)
 		if err != nil {
-			return fmt.Errorf("invalid sequence number format: %w", err)
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "invalid sequence number format")
+			return fmt.Errorf("invalid sequence number format (metadata: %s): %w", seqStr, err)
 		}
 		sequenceNum.Store(seqVal)
 	}
+	logr.Add("sequence_num", sequenceNum.Load())
 
 	var resumeFileIdx int64
 	// If you store a "resume_file_idx" in metadata,
 	// parse that too if your source uses it.
 	if idxStr, ok := task.Metadata["resume_file_index"]; ok {
-		if idxVal, err := strconv.ParseInt(idxStr, 10, 64); err == nil {
-			span.SetAttributes(attribute.Int64("resume_file_index", idxVal))
-			resumeFileIdx = idxVal
+		idxVal, err := strconv.ParseInt(idxStr, 10, 64)
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "invalid resume_file_index format")
+			return fmt.Errorf("invalid resume_file_index format (metadata: %s): %w", idxStr, err)
 		}
+		span.SetAttributes(attribute.Int64("resume_file_index", idxVal))
+		resumeFileIdx = idxVal
 	}
+	logr.Add("resume_file_index", resumeFileIdx)
 
-	scanCtx := NewScanContext(task.TaskID, task.JobID, resumeFileIdx, &sequenceNum, reporter, s.tracer)
+	scanCtx := NewScanContext(
+		s.scannerID,
+		task.TaskID,
+		task.JobID,
+		resumeFileIdx,
+		&sequenceNum,
+		reporter,
+		s.tracer,
+	)
 
 	format := "none"
 	if formatStr, ok := task.Metadata["archive_format"]; ok {
@@ -122,10 +155,11 @@ func (s *Scanner) runURLScan(
 	span.SetAttributes(attribute.String("archive_format", format))
 
 	// Prepare a specialized ArchiveReader based on format (e.g., "warc.gz")
-	reader, err := s.createArchiveReader(ctx, format, task, scanCtx)
+	reader, err := s.createArchiveReader(ctx, format, task, scanCtx, logr)
 	if err != nil {
 		s.metrics.IncScanError(ctx, shared.SourceType(task.SourceType))
-		return err
+		return fmt.Errorf("failed to create archive reader with format %s and task resource URI %s: %w",
+			format, task.ResourceURI, err)
 	}
 	defer reader.Close()
 
@@ -168,6 +202,8 @@ func (s *Scanner) runURLScan(
 // ScanContext holds shared state for a single scanning operation.
 // It can track the next sequence number, the progress reporter, and optional resume offsets.
 type ScanContext struct {
+	scannerID string
+
 	taskID        uuid.UUID
 	jobID         uuid.UUID
 	reporter      scanning.ProgressReporter
@@ -179,6 +215,7 @@ type ScanContext struct {
 
 // NewScanContext constructs a ScanContext, typically called once at the start of a scan.
 func NewScanContext(
+	scannerID string,
 	taskID uuid.UUID,
 	jobID uuid.UUID,
 	resumeFileIdx int64,
@@ -187,6 +224,7 @@ func NewScanContext(
 	tracer trace.Tracer,
 ) *ScanContext {
 	return &ScanContext{
+		scannerID:     scannerID,
 		taskID:        taskID,
 		jobID:         jobID,
 		reporter:      reporter,
@@ -201,22 +239,21 @@ func (sc *ScanContext) NextSequence() int64 { return sc.nextSequence.Add(1) }
 
 // ReportProgress emits a progress event with the current sequence number
 // and any other relevant data.
-func (sc *ScanContext) ReportProgress(ctx context.Context, itemsProcessed int64, message string) {
+func (sc *ScanContext) ReportProgress(ctx context.Context, itemsProcessed int64, message string) error {
 	ctx, span := sc.tracer.Start(ctx, "gitleaks_url_scanner.report_progress",
 		trace.WithAttributes(
-			attribute.String("scanner_id", sc.taskID.String()),
+			attribute.String("scanner_id", sc.scannerID),
+			attribute.String("task_id", sc.taskID.String()),
 			attribute.String("job_id", sc.jobID.String()),
+			attribute.Int64("items_processed", itemsProcessed),
+			attribute.String("message", message),
 		),
 	)
 	defer span.End()
 
 	seqNum := sc.NextSequence()
 
-	span.SetAttributes(
-		attribute.Int64("sequence_num", seqNum),
-		attribute.Int64("items_processed", itemsProcessed),
-		attribute.String("message", message),
-	)
+	span.SetAttributes(attribute.Int64("sequence_num", seqNum))
 
 	// Create metadata map for the checkpoint.
 	metadata := map[string]string{
@@ -242,9 +279,10 @@ func (sc *ScanContext) ReportProgress(ctx context.Context, itemsProcessed int64,
 		),
 	); err != nil {
 		span.RecordError(err)
-		return
+		return fmt.Errorf("failed to report progress: %w", err)
 	}
 	span.AddEvent("progress_reported")
+	return nil
 }
 
 // createArchiveReader performs an HTTP GET and then wraps the response Body
@@ -254,14 +292,21 @@ func (s *Scanner) createArchiveReader(
 	format string,
 	task *dtos.ScanRequest,
 	scanCtx *ScanContext,
+	logr *logger.LoggerContext,
 ) (io.ReadCloser, error) {
 	_, archiveSpan := s.tracer.Start(ctx, "gitleaks_url_scanner.create_archive_reader")
 	defer archiveSpan.End()
 
 	// TODO: Abstract all this crap away.
-	archiveReader, err := newArchiveReader(format, func(size int64) {
-		s.metrics.ObserveScanSize(ctx, shared.SourceType(task.SourceType), size)
-	}, s.tracer)
+	archiveReader, err := newArchiveReader(
+		s.scannerID,
+		format,
+		func(size int64) {
+			s.metrics.ObserveScanSize(ctx, shared.SourceType(task.SourceType), size)
+		},
+		logr,
+		s.tracer,
+	)
 	if err != nil {
 		archiveSpan.RecordError(err)
 		return nil, fmt.Errorf("failed to create archive reader: %w", err)
@@ -341,10 +386,16 @@ type ArchiveReader interface {
 
 // newArchiveReader is a factory function that creates an appropriate reader based on the format string.
 // It returns an ArchiveReader and an error.
-func newArchiveReader(format string, sizeCallback func(int64), tracer trace.Tracer) (ArchiveReader, error) {
+func newArchiveReader(
+	scannerID string,
+	format string,
+	sizeCallback func(int64),
+	logger *logger.LoggerContext,
+	tracer trace.Tracer,
+) (ArchiveReader, error) {
 	switch format {
 	case "warc.gz":
-		return newWarcGzReader(sizeCallback, tracer), nil
+		return newWarcGzReader(scannerID, sizeCallback, logger, tracer), nil
 	case "none", "":
 		return new(PassthroughReader), nil
 	default:
@@ -355,15 +406,25 @@ func newArchiveReader(format string, sizeCallback func(int64), tracer trace.Trac
 // WarcGzReader is a struct that implements the ArchiveReader interface.
 // It reads WARC.GZ files.
 type WarcGzReader struct {
+	scannerID string
+
 	sizeCallback func(int64) // Callback to report final size
+	logger       *logger.LoggerContext
 	tracer       trace.Tracer
 }
 
 func newWarcGzReader(
+	scannerID string,
 	sizeCallback func(int64),
+	logger *logger.LoggerContext,
 	tracer trace.Tracer,
 ) *WarcGzReader {
-	return &WarcGzReader{sizeCallback: sizeCallback, tracer: tracer}
+	return &WarcGzReader{
+		scannerID:    scannerID,
+		sizeCallback: sizeCallback,
+		logger:       logger,
+		tracer:       tracer,
+	}
 }
 
 // Read is a method of the WarcGzReader struct.
@@ -391,6 +452,8 @@ func (w *WarcGzReader) Read(
 	pr, pw := io.Pipe()
 	bw := bufio.NewWriter(pw)
 
+	w.logger.Debug(ctx, "WarcGzReader: starting to read WARC records")
+
 	go func() {
 		var totalSize int64
 		const batchSize = 1000 // Number of records to process before reporting progress
@@ -409,7 +472,9 @@ func (w *WarcGzReader) Read(
 
 		for {
 			if ctx.Err() != nil {
+				readSpan.RecordError(ctx.Err())
 				pw.CloseWithError(ctx.Err())
+				w.logger.Error(ctx, "failed to read WARC records", "error", ctx.Err())
 				return
 			}
 
@@ -417,13 +482,18 @@ func (w *WarcGzReader) Read(
 			if errors.Is(err, io.EOF) {
 				// Report final progress if we haven't reported for this batch
 				if recordCount > lastReportedCount {
-					scanCtx.ReportProgress(ctx, recordCount,
-						fmt.Sprintf("Processed %d WARC records", recordCount))
+					if err := scanCtx.ReportProgress(ctx, recordCount,
+						fmt.Sprintf("Processed %d WARC records", recordCount)); err != nil {
+						readSpan.RecordError(err)
+						w.logger.Error(ctx, "failed to report final progress", "error", err)
+					}
 				}
 				return
 			}
 			if err != nil {
 				pw.CloseWithError(fmt.Errorf("failed to read WARC record: %w", err))
+				readSpan.RecordError(err)
+				w.logger.Error(ctx, "failed to read WARC record", "error", err)
 				return
 			}
 
@@ -437,20 +507,27 @@ func (w *WarcGzReader) Read(
 
 			// Report progress every batchSize records or on the first record.
 			if recordCount%batchSize == 0 || recordCount == 1 {
-				scanCtx.ReportProgress(ctx, recordCount,
-					fmt.Sprintf("Processing WARC record %d", recordCount))
+				if err := scanCtx.ReportProgress(ctx, recordCount,
+					fmt.Sprintf("Processing WARC record %d", recordCount)); err != nil {
+					readSpan.RecordError(err)
+					w.logger.Error(ctx, "failed to report progress", "error", err)
+				}
 				lastReportedCount = recordCount
 			}
 
 			bodyReader, err := record.Block().RawBytes()
 			if err != nil {
 				pw.CloseWithError(fmt.Errorf("failed to get record body: %w", err))
+				readSpan.RecordError(err)
+				w.logger.Error(ctx, "failed to get record body", "error", err)
 				return
 			}
 
 			size, err := io.Copy(bw, bodyReader)
 			if err != nil {
 				pw.CloseWithError(fmt.Errorf("failed to copy record body: %w", err))
+				readSpan.RecordError(err)
+				w.logger.Error(ctx, "failed to copy record body", "error", err)
 				return
 			}
 
