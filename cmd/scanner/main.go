@@ -72,6 +72,7 @@ func main() {
 		"app":       "scanner",
 	}
 
+	// TODO: Adjust the min log level via env var.
 	log = logger.NewWithMetadata(os.Stdout, logger.LevelDebug, svcName, traceIDFn, logEvents, metadata)
 
 	ctx, cancel := context.WithCancel(context.Background())
