@@ -88,7 +88,8 @@ func main() {
 		"app":       serviceType,
 	}
 
-	log = logger.NewWithMetadata(os.Stdout, logger.LevelInfo, svcName, traceIDFn, logEvents, metadata)
+	// TODO: Adjust the min log level via env var.
+	log = logger.NewWithMetadata(os.Stdout, logger.LevelDebug, svcName, traceIDFn, logEvents, metadata)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

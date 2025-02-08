@@ -93,9 +93,12 @@ func (k *offsetCommiter) CommitPosition(ctx context.Context, streamPos events.St
 		k.metrics.ObserveCommitDuration(ctx, time.Since(start))
 	}()
 
-	logr := logger.NewLoggerContext(k.logger.With("stream_position", streamPos.Identifier()))
+	logr := logger.NewLoggerContext(k.logger.With(
+		"operation", "commit_position",
+		"stream_position", streamPos.Identifier(),
+	))
 	ctx, span := k.tracer.Start(ctx, "kafka_offset_committer.commit_position", trace.WithAttributes(
-		attribute.String("component", "kafka_offset_committer"),
+		attribute.String("operation", "commit_position"),
 		attribute.String("stream_position", streamPos.Identifier()),
 	))
 	defer span.End()
@@ -118,12 +121,18 @@ func (k *offsetCommiter) CommitPosition(ctx context.Context, streamPos events.St
 		return fmt.Errorf("invalid entity type: %w", err)
 	}
 
-	logr.Add("partition", pos.Partition, "offset", pos.Offset, "topic", topic)
+	logr.Add(
+		"partition", pos.Partition,
+		"offset", pos.Offset,
+		"next_offset", pos.Offset+1,
+		"topic", topic,
+	)
 	span.SetAttributes(
 		attribute.Int64("partition", int64(pos.Partition)),
 		attribute.Int64("offset", pos.Offset),
 		attribute.String("topic", topic),
 	)
+	logr.Debug(ctx, "Committing offset...")
 
 	k.mu.Lock()
 	defer k.mu.Unlock()
@@ -153,7 +162,7 @@ func (k *offsetCommiter) CommitPosition(ctx context.Context, streamPos events.St
 
 	// Mark the next offset (X+1)
 	pom.MarkOffset(pos.Offset+1, "committed by KafkaOffsetCommitter")
-	logr.Debug(ctx, "Successfully marked offset", "next_offset", pos.Offset+1)
+	logr.Debug(ctx, "Successfully marked offset")
 	span.AddEvent("offset_marked")
 
 	// Commit the marked offsets.
