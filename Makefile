@@ -170,8 +170,8 @@ proto-gen:
 			$$proto; \
 	done
 
-CONTROLLER_PARTITIONS := 5
-SCANNER_PARTITIONS := 3
+CONTROLLER_PARTITIONS := 3
+SCANNER_PARTITIONS := 5
 
 # Kafka targets
 kafka-setup:

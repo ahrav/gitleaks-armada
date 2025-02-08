@@ -265,7 +265,7 @@ func (s *ScannerService) handleTaskEvent(
 		"source_type", tce.Task.SourceType,
 		"session_id", tce.Task.SessionID(),
 	)
-	logger.Info(ctx, "Routing task")
+	logger.Debug(ctx, "Routing task")
 
 	span.SetAttributes(
 		attribute.String("task_id", tce.Task.ID.String()),
@@ -278,7 +278,7 @@ func (s *ScannerService) handleTaskEvent(
 	select {
 	case s.taskEvent <- s.enumACL.ToScanRequest(&tce):
 		ack(nil)
-		logger.Info(ctx, "Task routed")
+		logger.Debug(ctx, "Task routed")
 		span.AddEvent("task_routed")
 		return nil
 	case <-ctx.Done():

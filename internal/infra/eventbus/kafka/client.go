@@ -32,6 +32,7 @@ func NewClient(cfg *ClientConfig) (sarama.Client, error) {
 	config.Consumer.Offsets.Initial = sarama.OffsetOldest
 	config.Consumer.Group.Session.Timeout = 20 * time.Second
 	config.Consumer.Group.Heartbeat.Interval = 6 * time.Second
+	config.Consumer.Group.Member.UserData = []byte(cfg.ClientID)
 	config.Consumer.Offsets.AutoCommit.Enable = false
 
 	// Producer settings
