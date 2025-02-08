@@ -39,9 +39,13 @@ func NewGraphQLClient(
 	logger *logger.Logger,
 	tracer trace.Tracer,
 ) (*GraphQLClient, error) {
-	token, err := extractToken(creds)
-	if err != nil {
-		return nil, fmt.Errorf("failed to extract GitHub token: %w", err)
+	var token string
+	if creds.Type == domain.CredentialTypeGitHub {
+		var err error
+		token, err = extractToken(creds)
+		if err != nil {
+			return nil, fmt.Errorf("failed to extract GitHub token: %w", err)
+		}
 	}
 
 	// GitHub's default rate limit is 5000 requests per hour.
