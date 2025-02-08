@@ -6,12 +6,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/stretchr/testify/assert"
+	"go.opentelemetry.io/otel/trace/noop"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/tools/leaderelection"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
+
+	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
 
 func TestCoordinator_LeaderElection(t *testing.T) {
@@ -27,6 +29,7 @@ func TestCoordinator_LeaderElection(t *testing.T) {
 		client: fakeClient,
 		config: cfg,
 		logger: logger.New(io.Discard, logger.LevelDebug, "test", nil),
+		tracer: noop.NewTracerProvider().Tracer("test"),
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
