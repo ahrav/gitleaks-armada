@@ -25,6 +25,7 @@ import (
 
 // Scanner scans Git repositories, relying on ScanTemplate for concurrency,
 // channel management, and top-level tracing.
+// TODO: Update tracing and logging.
 type Scanner struct {
 	template *srcs.ScanTemplate
 	detector *detect.Detector
@@ -60,7 +61,7 @@ func (s *Scanner) ScanStreaming(
 	opts := srcs.TemplateOptions{
 		OperationName: "git_scanner.scan",
 		OperationAttributes: []attribute.KeyValue{
-			attribute.String("repository.url", scanReq.ResourceURI),
+			attribute.String("repository_url", scanReq.ResourceURI),
 		},
 		HeartbeatInterval: 5 * time.Second,
 	}
@@ -76,7 +77,7 @@ func (s *Scanner) runGitScan(
 	reporter scanning.ProgressReporter,
 ) error {
 	ctx, span := s.tracer.Start(ctx, "gitleaks_scanner.scanning.scan_repository",
-		trace.WithAttributes(attribute.String("repository.url", scanReq.ResourceURI)))
+		trace.WithAttributes(attribute.String("repository_url", scanReq.ResourceURI)))
 	defer span.End()
 
 	startTime := time.Now()
@@ -154,7 +155,7 @@ func (s *Scanner) runGitScan(
 	s.metrics.ObserveScanFindings(ctx, shared.SourceType(scanReq.SourceType), len(findings))
 	detectSpan.SetAttributes(attribute.Int("findings.count", len(findings)))
 	detectSpan.AddEvent("secret_detection_completed",
-		trace.WithAttributes(attribute.Int("findings.count", len(findings))))
+		trace.WithAttributes(attribute.Int("findings_count", len(findings))))
 	detectSpan.End()
 
 	s.logger.Info(ctx, "found findings in repository",
@@ -162,7 +163,7 @@ func (s *Scanner) runGitScan(
 		"num_findings", len(findings))
 
 	span.AddEvent("scan_completed", trace.WithAttributes(
-		attribute.Int("findings.count", len(findings)),
+		attribute.Int("findings_count", len(findings)),
 	))
 
 	return nil
@@ -178,16 +179,16 @@ func cloneRepo(ctx context.Context, repoURL, dir string) error {
 	return nil
 }
 
-func (s *Scanner) calculateRepoSize(ctx context.Context, task *dtos.ScanRequest, tempDir string) {
+func (s *Scanner) calculateRepoSize(ctx context.Context, scanReq *dtos.ScanRequest, tempDir string) {
 	const defaultTimeout = 2 * time.Minute
 	sizeCtx, cancel := context.WithTimeout(ctx, defaultTimeout)
 	defer cancel()
 
 	_, sizeSpan := s.tracer.Start(sizeCtx, "gitleaks_scanner.calculate_repo_size",
 		trace.WithAttributes(
-			attribute.String("repository.url", task.ResourceURI),
-			attribute.String("task.id", task.TaskID.String()),
-			attribute.String("clone.path", tempDir),
+			attribute.String("repository_url", scanReq.ResourceURI),
+			attribute.String("task_id", scanReq.TaskID.String()),
+			attribute.String("clone_path", tempDir),
 		))
 	defer sizeSpan.End()
 
@@ -197,12 +198,13 @@ func (s *Scanner) calculateRepoSize(ctx context.Context, task *dtos.ScanRequest,
 			sizeSpan.RecordError(err)
 			s.logger.Warn(sizeCtx, "failed to get repository size",
 				"error", err,
-				"repo", task.ResourceURI)
+				"repo_url", scanReq.ResourceURI,
+			)
 		}
 		return
 	}
 
-	s.metrics.ObserveScanSize(sizeCtx, shared.SourceType(task.SourceType), size)
+	s.metrics.ObserveScanSize(sizeCtx, shared.SourceType(scanReq.SourceType), size)
 	sizeSpan.AddEvent("size_calculation_complete",
 		trace.WithAttributes(attribute.Int64("size_bytes", size)))
 }
