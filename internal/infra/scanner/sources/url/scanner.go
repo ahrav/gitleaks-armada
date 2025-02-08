@@ -30,27 +30,32 @@ import (
 // It delegates concurrency (channels, heartbeats, etc.) to the shared ScanTemplate
 // and focuses on how to fetch and process remote data.
 type Scanner struct {
+	scannerID string
+
 	template *srcs.ScanTemplate
 	detector *detect.Detector
-	logger   *logger.Logger
-	tracer   trace.Tracer
-	metrics  scanning.SourceScanMetrics
+
+	logger  *logger.Logger
+	tracer  trace.Tracer
+	metrics scanning.SourceScanMetrics
 }
 
 // NewScanner creates a new scanner with the provided tracer, logger, metrics, and Gitleaks detector.
 // We also initialize a shared ScanTemplate to handle concurrency and top-level spans.
 func NewScanner(
+	scannerID string,
 	detector *detect.Detector,
 	logger *logger.Logger,
 	tracer trace.Tracer,
 	metrics scanning.SourceScanMetrics,
 ) *Scanner {
 	return &Scanner{
-		template: srcs.NewScanTemplate(tracer, logger, metrics),
-		detector: detector,
-		logger:   logger,
-		tracer:   tracer,
-		metrics:  metrics,
+		scannerID: scannerID,
+		template:  srcs.NewScanTemplate(tracer, logger, metrics),
+		detector:  detector,
+		logger:    logger,
+		tracer:    tracer,
+		metrics:   metrics,
 	}
 }
 
@@ -108,7 +113,7 @@ func (s *Scanner) runURLScan(
 		}
 	}
 
-	scanCtx := NewScanContext(task.TaskID, task.JobID, resumeFileIdx, &sequenceNum, reporter)
+	scanCtx := NewScanContext(task.TaskID, task.JobID, resumeFileIdx, &sequenceNum, reporter, s.tracer)
 
 	format := "none"
 	if formatStr, ok := task.Metadata["archive_format"]; ok {
@@ -168,6 +173,8 @@ type ScanContext struct {
 	reporter      scanning.ProgressReporter
 	nextSequence  *atomic.Int64
 	resumeFileIdx int64
+
+	tracer trace.Tracer
 }
 
 // NewScanContext constructs a ScanContext, typically called once at the start of a scan.
@@ -177,6 +184,7 @@ func NewScanContext(
 	resumeFileIdx int64,
 	resumeSequence *atomic.Int64,
 	reporter scanning.ProgressReporter,
+	tracer trace.Tracer,
 ) *ScanContext {
 	return &ScanContext{
 		taskID:        taskID,
@@ -184,6 +192,7 @@ func NewScanContext(
 		reporter:      reporter,
 		nextSequence:  resumeSequence,
 		resumeFileIdx: resumeFileIdx,
+		tracer:        tracer,
 	}
 }
 
@@ -193,7 +202,14 @@ func (sc *ScanContext) NextSequence() int64 { return sc.nextSequence.Add(1) }
 // ReportProgress emits a progress event with the current sequence number
 // and any other relevant data.
 func (sc *ScanContext) ReportProgress(ctx context.Context, itemsProcessed int64, message string) {
-	span := trace.SpanFromContext(ctx)
+	ctx, span := sc.tracer.Start(ctx, "gitleaks_url_scanner.report_progress",
+		trace.WithAttributes(
+			attribute.String("scanner_id", sc.taskID.String()),
+			attribute.String("job_id", sc.jobID.String()),
+		),
+	)
+	defer span.End()
+
 	seqNum := sc.NextSequence()
 
 	span.SetAttributes(

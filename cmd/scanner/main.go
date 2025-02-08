@@ -144,7 +144,7 @@ func main() {
 
 	domainEventTranslator := events.NewDomainEventTranslator(kafka.NewKafkaPositionTranslator())
 	eventPublisher := kafka.NewDomainEventPublisher(broker, domainEventTranslator)
-	gitleaksScanner, err := scanner.NewGitLeaks(ctx, eventPublisher, log, tracer, metricsCollector)
+	gitleaksScanner, err := scanner.NewGitLeaks(hostname, eventPublisher, log, tracer, metricsCollector)
 	if err != nil {
 		log.Error(ctx, "failed to create gitleaks scanner", "error", err)
 		os.Exit(1)
@@ -154,7 +154,7 @@ func main() {
 		hostname,
 		broker,
 		eventPublisher,
-		progressreporter.New(eventPublisher, tracer),
+		progressreporter.New(hostname, eventPublisher, tracer),
 		gitleaksScanner,
 		log,
 		metricsCollector,

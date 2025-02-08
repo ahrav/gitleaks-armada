@@ -9,6 +9,7 @@ package progressreporter
 
 import (
 	"context"
+	"fmt"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -26,13 +27,15 @@ var _ scanSvc.ProgressReporter = (*DomainEventProgressReporter)(nil)
 // operations across system boundaries.
 // TODO: Add logging and update tracing.
 type DomainEventProgressReporter struct {
+	scannerID string
+
 	domainPublisher events.DomainEventPublisher
 	tracer          trace.Tracer
 }
 
 // New creates a new DomainEventProgressReporter.
-func New(domainPublisher events.DomainEventPublisher, tracer trace.Tracer) *DomainEventProgressReporter {
-	return &DomainEventProgressReporter{domainPublisher: domainPublisher, tracer: tracer}
+func New(scannerID string, domainPublisher events.DomainEventPublisher, tracer trace.Tracer) *DomainEventProgressReporter {
+	return &DomainEventProgressReporter{scannerID: scannerID, domainPublisher: domainPublisher, tracer: tracer}
 }
 
 // ReportProgress publishes a TaskProgressedEvent containing the current scan progress.
@@ -43,6 +46,7 @@ func (r *DomainEventProgressReporter) ReportProgress(ctx context.Context, p scan
 		ctx,
 		"progress_reporter.report_progress",
 		trace.WithAttributes(
+			attribute.String("scanner_id", r.scannerID),
 			attribute.String("task_id", p.TaskID().String()),
 			attribute.Int("seq_num", int(p.SequenceNum())),
 		),
@@ -53,7 +57,7 @@ func (r *DomainEventProgressReporter) ReportProgress(ctx context.Context, p scan
 	if err := r.domainPublisher.PublishDomainEvent(ctx, evt, events.WithKey(p.TaskID().String())); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to publish task progressed event")
-		return err
+		return fmt.Errorf("failed to publish task progressed event: %w", err)
 	}
 	span.SetStatus(codes.Ok, "task progressed event published")
 	span.AddEvent("task_progressed_event_published")

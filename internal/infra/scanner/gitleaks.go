@@ -37,6 +37,8 @@ var (
 // It handles scanning repositories for potential secrets and sensitive information leaks
 // while providing observability through logging and tracing.
 type Gitleaks struct {
+	scannerID string
+
 	detector *detect.Detector
 
 	// scannerFactories is a map of source type to scanner factory.
@@ -48,21 +50,37 @@ type Gitleaks struct {
 	metrics scanning.ScannerMetrics
 }
 
+// scannerParams collects all the dependencies needed to construct a SourceScanner.
+type scannerParams struct {
+	detector *detect.Detector
+	logger   *logger.Logger
+	tracer   trace.Tracer
+	metrics  scanning.ScannerMetrics
+}
+
 // NewGitLeaks creates a new Gitleaks scanner instance with a configured detector.
 // It initializes the scanning engine and publishes the default ruleset on startup to ensure
 // consistent detection patterns across scanner instances. The scanner uses OpenTelemetry
 // for tracing and structured logging for observability.
 func NewGitLeaks(
-	ctx context.Context,
+	scannerID string,
 	broker events.DomainEventPublisher,
 	log *logger.Logger,
 	tracer trace.Tracer,
 	metrics scanning.ScannerMetrics,
 ) (*Gitleaks, error) {
-	logger := log.With("component", "gitleaks_scanner")
+	_, span := tracer.Start(context.Background(), "gitleaks.new",
+		trace.WithAttributes(
+			attribute.String("scanner_id", scannerID),
+		))
+	defer span.End()
+
+	logger := log.With("operation", "new_gitleaks_scanner")
 	detector, err := setupGitleaksDetector()
 	if err != nil {
-		return nil, err
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to setup detector")
+		return nil, fmt.Errorf("failed to setup gitleaks detector: %w", err)
 	}
 
 	factories := map[dtos.SourceType]SourceScannerFactory{
@@ -70,11 +88,14 @@ func NewGitLeaks(
 			return git.NewScanner(params.detector, params.logger, params.tracer, params.metrics)
 		},
 		dtos.SourceTypeURL: func(params scannerParams) StreamScanner {
-			return url.NewScanner(params.detector, params.logger, params.tracer, params.metrics)
+			return url.NewScanner(scannerID, params.detector, params.logger, params.tracer, params.metrics)
 		},
 	}
 
+	span.AddEvent("gitleaks_scanner_created")
+	span.SetStatus(codes.Ok, "gitleaks scanner created successfully")
 	return &Gitleaks{
+		scannerID:        scannerID,
 		detector:         detector,
 		scannerFactories: factories,
 		logger:           logger,
@@ -110,7 +131,8 @@ func (s *Gitleaks) GetRules(ctx context.Context) (<-chan rules.GitleaksRuleMessa
 	logger := s.logger.With("operation", "get_rules")
 	ctx, span := s.tracer.Start(ctx, "gitleaks_scanner.scanning.get_rules",
 		trace.WithAttributes(
-			attribute.String("component", "gitleaks_scanner"),
+			attribute.String("operation", "get_rules"),
+			attribute.String("scanner_id", s.scannerID),
 			attribute.Int("num_rules", len(s.detector.Config.Rules)),
 		),
 	)
@@ -250,14 +272,6 @@ type StreamScanner interface {
 	)
 }
 
-// scannerParams collects all the dependencies needed to construct a SourceScanner.
-type scannerParams struct {
-	detector *detect.Detector
-	logger   *logger.Logger
-	tracer   trace.Tracer
-	metrics  scanning.ScannerMetrics
-}
-
 // SourceScannerFactory is a function that constructs a SourceScanner.
 type SourceScannerFactory func(params scannerParams) StreamScanner
 
@@ -266,16 +280,17 @@ type SourceScannerFactory func(params scannerParams) StreamScanner
 func (s *Gitleaks) Scan(ctx context.Context, task *dtos.ScanRequest, reporter scanning.ProgressReporter) scanning.StreamResult {
 	logger := s.logger.With(
 		"operation", "scan",
-		"task.id", task.TaskID.String(),
-		"source.type", task.SourceType,
-		"source.uri", task.ResourceURI,
+		"task_id", task.TaskID.String(),
+		"source_type", task.SourceType,
+		"source_uri", task.ResourceURI,
 	)
-	ctx, span := s.tracer.Start(ctx, "gitleaks_scanner.scanning.scan",
+	ctx, span := s.tracer.Start(ctx, "gitleaks.scan",
 		trace.WithAttributes(
-			attribute.String("component", "gitleaks_scanner"),
-			attribute.String("task.id", task.TaskID.String()),
-			attribute.String("source.type", string(task.SourceType)),
-			attribute.String("source.uri", task.ResourceURI),
+			attribute.String("operation", "scan"),
+			attribute.String("scanner_id", s.scannerID),
+			attribute.String("task_id", task.TaskID.String()),
+			attribute.String("source_type", string(task.SourceType)),
+			attribute.String("source_uri", task.ResourceURI),
 		),
 	)
 	defer span.End()
@@ -299,15 +314,14 @@ func (s *Gitleaks) Scan(ctx context.Context, task *dtos.ScanRequest, reporter sc
 
 	hbChan, findingsChan, errChan := scanner.ScanStreaming(ctx, task, reporter)
 
-	// Return the channels in our StreamResult.
-	sr := scanning.StreamResult{
-		HeartbeatChan: hbChan,
-		FindingsChan:  findingsChan,
-		ErrChan:       errChan,
-	}
 	span.SetStatus(codes.Ok, "scan started streaming")
 	span.AddEvent("scan_started_streaming")
 	logger.Info(ctx, "Scan started streaming")
 
-	return sr
+	// Return the channels in our StreamResult.
+	return scanning.StreamResult{
+		HeartbeatChan: hbChan,
+		FindingsChan:  findingsChan,
+		ErrChan:       errChan,
+	}
 }

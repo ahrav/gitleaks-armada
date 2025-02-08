@@ -87,7 +87,7 @@ func TestDomainEventProgressReporter_ReportProgress(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			publisher := new(mockDomainPublisher)
-			reporter := New(publisher, noop.NewTracerProvider().Tracer("test"))
+			reporter := New("test", publisher, noop.NewTracerProvider().Tracer("test"))
 
 			progress := tt.setup()
 			tt.verify(t, publisher, progress)
