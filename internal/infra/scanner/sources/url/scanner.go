@@ -64,55 +64,55 @@ func NewScanner(
 // TODO: Implement progress reporting.
 func (s *Scanner) ScanStreaming(
 	ctx context.Context,
-	task *dtos.ScanRequest,
+	scanReq *dtos.ScanRequest,
 	reporter scanning.ProgressReporter,
 ) (<-chan struct{}, <-chan scanning.Finding, <-chan error) {
 	opts := srcs.TemplateOptions{
 		OperationName: "gitleaks_url_scanner.scan",
 		OperationAttributes: []attribute.KeyValue{
 			attribute.String("scanner_id", s.scannerID),
-			attribute.String("url", task.ResourceURI),
+			attribute.String("url", scanReq.ResourceURI),
 		},
 		HeartbeatInterval: 5 * time.Second,
 	}
-	return s.template.ScanStreaming(ctx, task, opts, reporter, s.runURLScan)
+	return s.template.ScanStreaming(ctx, scanReq, opts, reporter, s.runURLScan)
 }
 
 // runURLScan encapsulates the main scanning logic, including fetching data
 // via HTTP and optionally extracting archives before scanning them with Gitleaks.
 func (s *Scanner) runURLScan(
 	ctx context.Context,
-	task *dtos.ScanRequest,
+	scanReq *dtos.ScanRequest,
 	findingsChan chan<- scanning.Finding,
 	reporter scanning.ProgressReporter,
 ) error {
 	logr := logger.NewLoggerContext(s.logger.With(
 		"operation", "gitleaks_url_scanner.scan_main",
 		"scanner_id", s.scannerID,
-		"url", task.ResourceURI,
-		"source_type", string(task.SourceType),
-		"task_id", task.TaskID.String(),
-		"job_id", task.JobID.String(),
+		"url", scanReq.ResourceURI,
+		"source_type", string(scanReq.SourceType),
+		"task_id", scanReq.TaskID.String(),
+		"job_id", scanReq.JobID.String(),
 	))
 	ctx, span := s.tracer.Start(ctx, "gitleaks_url_scanner.scan_main",
 		trace.WithAttributes(
 			attribute.String("scanner_id", s.scannerID),
-			attribute.String("url", task.ResourceURI),
-			attribute.String("source_type", string(task.SourceType)),
-			attribute.String("task_id", task.TaskID.String()),
-			attribute.String("job_id", task.JobID.String()),
+			attribute.String("url", scanReq.ResourceURI),
+			attribute.String("source_type", string(scanReq.SourceType)),
+			attribute.String("task_id", scanReq.TaskID.String()),
+			attribute.String("job_id", scanReq.JobID.String()),
 		),
 	)
 	defer span.End()
 
 	startTime := time.Now()
 	defer func() {
-		s.metrics.ObserveScanDuration(ctx, shared.SourceType(task.SourceType), time.Since(startTime))
+		s.metrics.ObserveScanDuration(ctx, shared.SourceType(scanReq.SourceType), time.Since(startTime))
 		span.SetAttributes(attribute.Int64("scan_duration_ms", time.Since(startTime).Milliseconds()))
 	}()
 
 	var sequenceNum atomic.Int64
-	if seqStr, ok := task.Metadata[dtos.MetadataKeySequenceNum]; ok {
+	if seqStr, ok := scanReq.Metadata[dtos.MetadataKeySequenceNum]; ok {
 		seqVal, err := strconv.ParseInt(seqStr, 10, 64)
 		if err != nil {
 			span.RecordError(err)
@@ -126,7 +126,7 @@ func (s *Scanner) runURLScan(
 	var resumeFileIdx int64
 	// If you store a "resume_file_idx" in metadata,
 	// parse that too if your source uses it.
-	if idxStr, ok := task.Metadata["resume_file_index"]; ok {
+	if idxStr, ok := scanReq.Metadata["resume_file_index"]; ok {
 		idxVal, err := strconv.ParseInt(idxStr, 10, 64)
 		if err != nil {
 			span.RecordError(err)
@@ -140,8 +140,8 @@ func (s *Scanner) runURLScan(
 
 	scanCtx := NewScanContext(
 		s.scannerID,
-		task.TaskID,
-		task.JobID,
+		scanReq.TaskID,
+		scanReq.JobID,
 		resumeFileIdx,
 		&sequenceNum,
 		reporter,
@@ -149,17 +149,17 @@ func (s *Scanner) runURLScan(
 	)
 
 	format := "none"
-	if formatStr, ok := task.Metadata["archive_format"]; ok {
+	if formatStr, ok := scanReq.Metadata["archive_format"]; ok {
 		format = formatStr
 	}
 	span.SetAttributes(attribute.String("archive_format", format))
 
 	// Prepare a specialized ArchiveReader based on format (e.g., "warc.gz")
-	reader, err := s.createArchiveReader(ctx, format, task, scanCtx, logr)
+	reader, err := s.createArchiveReader(ctx, format, scanReq, scanCtx, logr)
 	if err != nil {
-		s.metrics.IncScanError(ctx, shared.SourceType(task.SourceType))
+		s.metrics.IncScanError(ctx, shared.SourceType(scanReq.SourceType))
 		return fmt.Errorf("failed to create archive reader with format %s and task resource URI %s: %w",
-			format, task.ResourceURI, err)
+			format, scanReq.ResourceURI, err)
 	}
 	defer reader.Close()
 
@@ -171,7 +171,7 @@ func (s *Scanner) runURLScan(
 	if err != nil {
 		detectSpan.RecordError(err)
 		detectSpan.End()
-		s.metrics.IncScanError(ctx, shared.SourceType(task.SourceType))
+		s.metrics.IncScanError(ctx, shared.SourceType(scanReq.SourceType))
 		return fmt.Errorf("failed to scan URL: %w", err)
 	}
 
@@ -185,13 +185,13 @@ func (s *Scanner) runURLScan(
 		}
 	}
 
-	s.metrics.ObserveScanFindings(ctx, shared.SourceType(task.SourceType), len(findings))
+	s.metrics.ObserveScanFindings(ctx, shared.SourceType(scanReq.SourceType), len(findings))
 	detectSpan.AddEvent("findings_processed",
 		trace.WithAttributes(attribute.Int("findings.count", len(findings))))
 	detectSpan.End()
 
 	s.logger.Info(ctx, "URLScanner: found findings in URL-based data",
-		"url", task.ResourceURI,
+		"url", scanReq.ResourceURI,
 		"num_findings", len(findings),
 	)
 

@@ -54,34 +54,34 @@ func NewScanner(
 // TODO: Implement progress reporting.
 func (s *Scanner) ScanStreaming(
 	ctx context.Context,
-	task *dtos.ScanRequest,
+	scanReq *dtos.ScanRequest,
 	reporter scanning.ProgressReporter,
 ) (<-chan struct{}, <-chan scanning.Finding, <-chan error) {
 	opts := srcs.TemplateOptions{
 		OperationName: "git_scanner.scan",
 		OperationAttributes: []attribute.KeyValue{
-			attribute.String("repository.url", task.ResourceURI),
+			attribute.String("repository.url", scanReq.ResourceURI),
 		},
 		HeartbeatInterval: 5 * time.Second,
 	}
-	return s.template.ScanStreaming(ctx, task, opts, reporter, s.runGitScan)
+	return s.template.ScanStreaming(ctx, scanReq, opts, reporter, s.runGitScan)
 }
 
 // runGitScan performs the repository clone, invokes Gitleaks, and streams findings.
 // Additional tracing spans record each step for observability.
 func (s *Scanner) runGitScan(
 	ctx context.Context,
-	task *dtos.ScanRequest,
+	scanReq *dtos.ScanRequest,
 	findingsChan chan<- scanning.Finding,
 	reporter scanning.ProgressReporter,
 ) error {
 	ctx, span := s.tracer.Start(ctx, "gitleaks_scanner.scanning.scan_repository",
-		trace.WithAttributes(attribute.String("repository.url", task.ResourceURI)))
+		trace.WithAttributes(attribute.String("repository.url", scanReq.ResourceURI)))
 	defer span.End()
 
 	startTime := time.Now()
 	defer func() {
-		s.metrics.ObserveScanDuration(ctx, shared.SourceType(task.SourceType), time.Since(startTime))
+		s.metrics.ObserveScanDuration(ctx, shared.SourceType(scanReq.SourceType), time.Since(startTime))
 	}()
 
 	tempDir, err := os.MkdirTemp("", "gitleaks-scan-")
@@ -108,18 +108,18 @@ func (s *Scanner) runGitScan(
 	_, cloneSpan := s.tracer.Start(ctx, "gitleaks_scanner.scanning.clone_repository")
 	cloneSpan.AddEvent("starting_clone_repository")
 	cloneStart := time.Now()
-	if err := cloneRepo(ctx, task.ResourceURI, tempDir); err != nil {
+	if err := cloneRepo(ctx, scanReq.ResourceURI, tempDir); err != nil {
 		cloneSpan.RecordError(err)
 		cloneSpan.AddEvent("clone_failed")
-		s.metrics.IncScanError(ctx, shared.SourceType(task.SourceType))
+		s.metrics.IncScanError(ctx, shared.SourceType(scanReq.SourceType))
 		cloneSpan.End()
 		return fmt.Errorf("failed to clone repository: %w", err)
 	}
-	s.metrics.ObserveScanDuration(ctx, shared.SourceType(task.SourceType), time.Since(cloneStart))
+	s.metrics.ObserveScanDuration(ctx, shared.SourceType(scanReq.SourceType), time.Since(cloneStart))
 	cloneSpan.AddEvent("clone_successful")
 	cloneSpan.End()
 
-	go s.calculateRepoSize(ctx, task, tempDir)
+	go s.calculateRepoSize(ctx, scanReq, tempDir)
 
 	cmdSpan := trace.SpanFromContext(ctx)
 	cmdSpan.AddEvent("starting_git_log_setup")
@@ -151,14 +151,14 @@ func (s *Scanner) runGitScan(
 		}
 	}
 
-	s.metrics.ObserveScanFindings(ctx, shared.SourceType(task.SourceType), len(findings))
+	s.metrics.ObserveScanFindings(ctx, shared.SourceType(scanReq.SourceType), len(findings))
 	detectSpan.SetAttributes(attribute.Int("findings.count", len(findings)))
 	detectSpan.AddEvent("secret_detection_completed",
 		trace.WithAttributes(attribute.Int("findings.count", len(findings))))
 	detectSpan.End()
 
 	s.logger.Info(ctx, "found findings in repository",
-		"repo_url", task.ResourceURI,
+		"repo_url", scanReq.ResourceURI,
 		"num_findings", len(findings))
 
 	span.AddEvent("scan_completed", trace.WithAttributes(
