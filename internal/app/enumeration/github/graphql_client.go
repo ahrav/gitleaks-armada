@@ -39,6 +39,7 @@ func NewGraphQLClient(
 	logger *logger.Logger,
 	tracer trace.Tracer,
 ) (*GraphQLClient, error) {
+	// TODO: This is a tamp solution. I need to clean this up.
 	var token string
 	if creds.Type == domain.CredentialTypeGitHub {
 		var err error
