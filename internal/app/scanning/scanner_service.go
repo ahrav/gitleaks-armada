@@ -201,6 +201,7 @@ func (s *ScannerService) handleRuleRequest(
 	// Get rule channel from the scanner if it supports them.
 	ruleChan, err := s.ruleProvider.GetRules(ctx)
 	if err != nil {
+		ack(err)
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to get rules from scanner")
 		return fmt.Errorf("failed to get rules: %w", err)
@@ -281,9 +282,11 @@ func (s *ScannerService) handleTaskEvent(
 		span.AddEvent("task_routed")
 		return nil
 	case <-ctx.Done():
+		ack(ctx.Err())
 		span.SetStatus(codes.Error, "context cancelled")
 		return ctx.Err()
 	case <-s.stopCh:
+		ack(fmt.Errorf("scanner[%s]: stopping", s.scannerID))
 		span.SetStatus(codes.Error, "service stopping")
 		return fmt.Errorf("scanner[%s]: stopping", s.scannerID)
 	}
