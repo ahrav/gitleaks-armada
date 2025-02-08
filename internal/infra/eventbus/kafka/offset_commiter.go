@@ -135,13 +135,9 @@ func (k *offsetCommiter) CommitPosition(ctx context.Context, streamPos events.St
 	k.mu.Lock()
 	defer k.mu.Unlock()
 
-	topicMap, exists := k.pomap[topic]
-	if !exists {
-		topicMap = make(map[int32]sarama.PartitionOffsetManager)
-		k.pomap[topic] = topicMap
-	}
-
-	pom, exists := topicMap[pos.Partition]
+	// Lazily initialize partition offset managers to avoid unnecessary resource allocation.
+	// Each partition needs its own manager to track offsets independently.
+	pom, exists := k.pomap[topic][pos.Partition]
 	if !exists {
 		logr.Debug(ctx, "Managing partition")
 		var err error
@@ -152,14 +148,19 @@ func (k *offsetCommiter) CommitPosition(ctx context.Context, streamPos events.St
 			span.SetStatus(codes.Error, "failed to manage partition")
 			return fmt.Errorf("failed to manage partition %d: %w", pos.Partition, err)
 		}
+
+		if k.pomap[topic] == nil {
+			k.pomap[topic] = make(map[int32]sarama.PartitionOffsetManager)
+		}
+
+		k.pomap[topic][pos.Partition] = pom
 		k.metrics.IncPartitionManaged(ctx, topic)
-		topicMap[pos.Partition] = pom
 		span.AddEvent("partition_managed")
 	}
 
 	// Mark the next offset (X+1)
 	pom.MarkOffset(pos.Offset+1, "committed by KafkaOffsetCommitter")
-	logr.Debug(ctx, "Successfully marked offset")
+	logr.Debug(ctx, "Successfully marked offset", "next_offset", pos.Offset+1)
 	span.AddEvent("offset_marked")
 
 	// Commit the marked offsets.

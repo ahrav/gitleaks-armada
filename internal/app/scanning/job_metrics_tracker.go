@@ -666,15 +666,18 @@ func (t *jobMetricsTracker) FlushMetrics(ctx context.Context) error {
 // flushJobMetrics handles flushing metrics for a single job, including updating metrics
 // and committing offsets for each partition.
 func (t *jobMetricsTracker) flushJobMetrics(ctx context.Context, jobID uuid.UUID, metrics *domain.JobMetrics) error {
+	logger := t.logger.With("operation", "flush_job_metrics", "job_id", jobID.String())
 	span := trace.SpanFromContext(ctx)
 	chckpt := t.checkpoints[jobID]
 	if len(chckpt) == 0 {
+		logger.Debug(ctx, "no partitions to flush")
 		span.AddEvent("no_partitions_to_flush", trace.WithAttributes(
 			attribute.String("job_id", jobID.String()),
 		))
 		return nil
 	}
 
+	logger.Debug(ctx, "flushing partitions", "num_partitions", len(chckpt))
 	span.AddEvent("flushing_partitions", trace.WithAttributes(
 		attribute.String("job_id", jobID.String()),
 		attribute.Int("num_partitions", len(chckpt)),
@@ -682,6 +685,7 @@ func (t *jobMetricsTracker) flushJobMetrics(ctx context.Context, jobID uuid.UUID
 
 	var partitionErrors []error
 	for partition, offset := range chckpt {
+		logger.Debug(ctx, "flushing partition", "partition", partition, "offset", offset)
 		if err := t.repository.UpdateMetricsAndCheckpoint(ctx, jobID, metrics, partition, offset); err != nil {
 			partitionErrors = append(partitionErrors, fmt.Errorf("partition %d: update failed: %w", partition, err))
 			continue
