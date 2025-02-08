@@ -160,15 +160,20 @@ func (k *offsetCommiter) CommitPosition(ctx context.Context, streamPos events.St
 		span.AddEvent("partition_managed")
 	}
 
-	// Mark the next offset (X+1)
+	beforeOffset, beforeMetadata := pom.NextOffset()
+	logr.Debug(ctx, "Current offset before commit",
+		"before_offset", beforeOffset,
+		"before_metadata", beforeMetadata)
+
+	// Mark the next offset (X+1).
 	pom.MarkOffset(pos.Offset+1, "committed by KafkaOffsetCommitter")
 	logr.Debug(ctx, "Successfully marked offset")
 	span.AddEvent("offset_marked")
 
-	// Commit the marked offsets.
-	// This is blocking.
-	// TODO: consider using a non-blocking approach with a separate goroutine.
-	k.offsetMgr.Commit()
+	afterOffset, afterMetadata := pom.NextOffset()
+	logr.Debug(ctx, "Current offset after commit",
+		"after_offset", afterOffset,
+		"after_metadata", afterMetadata)
 
 	span.AddEvent("offsets_committed")
 	logr.Debug(ctx, "Successfully committed offsets")

@@ -302,97 +302,93 @@ func (h *domainEventHandler) ConsumeClaim(
 	h.logPartitionStart(sess.Context(), claim.Partition(), sess.MemberID())
 	consumeLogger := h.logger.With("operation", "consume_claim", "partition", claim.Partition())
 
-	// Track the latest processed offset for periodic commits
-	lastCommit := time.Now()
-	commitInterval := 1 * time.Second // Adjust this value based on your needs
+	commitTicker := time.NewTicker(1 * time.Second)
+	defer commitTicker.Stop()
 
-	for msg := range claim.Messages() {
-		func() {
-			msgCtx := tracing.ExtractTraceContext(sess.Context(), msg)
-			msgCtx, span := tracing.StartConsumerSpan(msgCtx, msg, h.tracer)
-			defer span.End()
-
-			evtType, domainBytes, err := serialization.UnmarshalUniversalEnvelope(msg.Value)
-			if err != nil {
-				sess.MarkMessage(msg, "")
-				span.RecordError(err)
-				return
+	commitChan := make(chan struct{}, 1)
+	go func() {
+		for range commitTicker.C {
+			select {
+			case commitChan <- struct{}{}:
+			default:
 			}
+		}
+	}()
 
-			payloadObj, err := serialization.DeserializePayload(evtType, domainBytes)
-			if err != nil {
-				sess.MarkMessage(msg, "")
-				span.RecordError(err)
-				return
-			}
+	for {
+		select {
+		case <-commitChan:
+			sess.Commit() // Final commit before exiting
+		case msg := <-claim.Messages():
+			func() {
+				msgCtx := tracing.ExtractTraceContext(sess.Context(), msg)
+				msgCtx, span := tracing.StartConsumerSpan(msgCtx, msg, h.tracer)
+				defer span.End()
 
-			dEvent := events.EventEnvelope{
-				Type:      evtType,
-				Key:       string(msg.Key),
-				Timestamp: time.Now(),
-				Payload:   payloadObj,
-				Metadata: events.EventMetadata{
-					Partition: claim.Partition(),
-					Offset:    msg.Offset,
-				},
-			}
-
-			consumeLogger.Debug(msgCtx, "Received Kafka message",
-				"topic", msg.Topic,
-				"partition", claim.Partition(),
-				"offset", msg.Offset,
-				"event_type", evtType,
-				"key", dEvent.Key,
-			)
-
-			ack := func(err error) {
-				// Create a new span for acknowledgment.
-				// This is necessary because the acknowledgment is done in a separate
-				// goroutine from the message processing.
-				ackCtx, ackSpan := h.tracer.Start(msgCtx, "kafka_consumer.acknowledge",
-					trace.WithLinks(trace.LinkFromContext(msgCtx)),
-				)
-				defer ackSpan.End()
-
+				evtType, domainBytes, err := serialization.UnmarshalUniversalEnvelope(msg.Value)
 				if err != nil {
-					consumeLogger.Error(ackCtx, "Failed to acknowledge message", "error", err)
-					h.metrics.IncConsumeError(ackCtx, msg.Topic)
-					ackSpan.RecordError(err)
-					ackSpan.SetStatus(codes.Error, "failed to acknowledge message")
+					sess.MarkMessage(msg, "")
+					span.RecordError(err)
 					return
 				}
-				h.metrics.IncMessageConsumed(ackCtx, msg.Topic)
 
-				sess.MarkMessage(msg, "")
-
-				// Commit offsets periodically.
-				// This is blocking.
-				// TODO: consider using a non-blocking approach with a separate goroutine.
-				if time.Since(lastCommit) > commitInterval {
-					sess.Commit() // This is the correct method
-					lastCommit = time.Now()
-					consumeLogger.Debug(ackCtx, "Committed offsets",
-						"topic", msg.Topic,
-						"partition", msg.Partition,
-						"offset", msg.Offset,
-					)
+				payloadObj, err := serialization.DeserializePayload(evtType, domainBytes)
+				if err != nil {
+					sess.MarkMessage(msg, "")
+					span.RecordError(err)
+					return
 				}
-			}
 
-			if err := h.userHandler(msgCtx, dEvent, ack); err != nil {
-				consumeLogger.Error(msgCtx, "Failed to handle message", "error", err)
-				span.RecordError(err)
-				return
-			}
+				dEvent := events.EventEnvelope{
+					Type:      evtType,
+					Key:       string(msg.Key),
+					Timestamp: time.Now(),
+					Payload:   payloadObj,
+					Metadata: events.EventMetadata{
+						Partition: claim.Partition(),
+						Offset:    msg.Offset,
+					},
+				}
 
-			consumeLogger.Debug(msgCtx, "Successfully processed message", "topic", msg.Topic)
-		}()
+				consumeLogger.Debug(msgCtx, "Received Kafka message",
+					"topic", msg.Topic,
+					"partition", claim.Partition(),
+					"offset", msg.Offset,
+					"event_type", evtType,
+					"key", dEvent.Key,
+				)
+
+				ack := func(err error) {
+					// Create a new span for acknowledgment.
+					// This is necessary because the acknowledgment is done in a separate
+					// goroutine from the message processing.
+					ackCtx, ackSpan := h.tracer.Start(msgCtx, "kafka_consumer.acknowledge",
+						trace.WithLinks(trace.LinkFromContext(msgCtx)),
+					)
+					defer ackSpan.End()
+
+					if err != nil {
+						consumeLogger.Error(ackCtx, "Failed to acknowledge message", "error", err)
+						h.metrics.IncConsumeError(ackCtx, msg.Topic)
+						ackSpan.RecordError(err)
+						ackSpan.SetStatus(codes.Error, "failed to acknowledge message")
+						return
+					}
+					h.metrics.IncMessageConsumed(ackCtx, msg.Topic)
+
+					sess.MarkMessage(msg, "")
+				}
+
+				if err := h.userHandler(msgCtx, dEvent, ack); err != nil {
+					consumeLogger.Error(msgCtx, "Failed to handle message", "error", err)
+					span.RecordError(err)
+					return
+				}
+
+				consumeLogger.Debug(msgCtx, "Successfully processed message", "topic", msg.Topic)
+			}()
+		}
 	}
-
-	// Final commit before exiting
-	sess.Commit()
-
-	return nil
 }
 
 func (h *domainEventHandler) logPartitionStart(ctx context.Context, partition int32, memberID string) {
