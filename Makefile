@@ -170,8 +170,8 @@ proto-gen:
 			$$proto; \
 	done
 
-CONTROLLER_PARTITIONS := 3
-SCANNER_PARTITIONS := 5
+CONTROLLER_PARTITIONS := 3  # Matches controller replicas
+SCANNER_PARTITIONS := 5     # Matches scanner replicas
 
 # Kafka targets
 kafka-setup:
@@ -188,12 +188,26 @@ kafka-setup:
 	kubectl wait --for=condition=ready pod -l app=zookeeper --timeout=120s -n $(NAMESPACE) || true
 	kubectl wait --for=condition=ready pod -l app=kafka --timeout=120s -n $(NAMESPACE) || true
 	@echo "Creating Kafka topics with partitions..."
+	# Controller -> Scanner topics (use SCANNER_PARTITIONS)
 	kubectl exec -it -n $(NAMESPACE) deployment/kafka -- /opt/bitnami/kafka/bin/kafka-topics.sh \
 		--create --if-not-exists \
 		--topic $(KAFKA_ENUMERATION_TASK_TOPIC) \
 		--bootstrap-server localhost:9092 \
-		--partitions $(CONTROLLER_PARTITIONS) \
+		--partitions $(SCANNER_PARTITIONS) \
 		--replication-factor 1
+	kubectl exec -it -n $(NAMESPACE) deployment/kafka -- /opt/bitnami/kafka/bin/kafka-topics.sh \
+		--create --if-not-exists \
+		--topic $(KAFKA_RULES_REQUEST_TOPIC) \
+		--bootstrap-server localhost:9092 \
+		--partitions $(SCANNER_PARTITIONS) \
+		--replication-factor 1
+	kubectl exec -it -n $(NAMESPACE) deployment/kafka -- /opt/bitnami/kafka/bin/kafka-topics.sh \
+		--create --if-not-exists \
+		--topic $(KAFKA_HIGH_PRIORITY_TASK_TOPIC) \
+		--bootstrap-server localhost:9092 \
+		--partitions $(SCANNER_PARTITIONS) \
+		--replication-factor 1
+	# Scanner -> Controller topics (use CONTROLLER_PARTITIONS)
 	kubectl exec -it -n $(NAMESPACE) deployment/kafka -- /opt/bitnami/kafka/bin/kafka-topics.sh \
 		--create --if-not-exists \
 		--topic $(KAFKA_SCANNING_TASK_TOPIC) \
@@ -204,29 +218,17 @@ kafka-setup:
 		--create --if-not-exists \
 		--topic $(KAFKA_RESULTS_TOPIC) \
 		--bootstrap-server localhost:9092 \
-		--partitions $(SCANNER_PARTITIONS) \
+		--partitions $(CONTROLLER_PARTITIONS) \
 		--replication-factor 1
 	kubectl exec -it -n $(NAMESPACE) deployment/kafka -- /opt/bitnami/kafka/bin/kafka-topics.sh \
 		--create --if-not-exists \
 		--topic $(KAFKA_PROGRESS_TOPIC) \
-		--bootstrap-server localhost:9092 \
-		--partitions $(SCANNER_PARTITIONS) \
-		--replication-factor 1
-	kubectl exec -it -n $(NAMESPACE) deployment/kafka -- /opt/bitnami/kafka/bin/kafka-topics.sh \
-		--create --if-not-exists \
-		--topic $(KAFKA_RULES_REQUEST_TOPIC) \
 		--bootstrap-server localhost:9092 \
 		--partitions $(CONTROLLER_PARTITIONS) \
 		--replication-factor 1
 	kubectl exec -it -n $(NAMESPACE) deployment/kafka -- /opt/bitnami/kafka/bin/kafka-topics.sh \
 		--create --if-not-exists \
 		--topic $(KAFKA_RULES_RESPONSE_TOPIC) \
-		--bootstrap-server localhost:9092 \
-		--partitions $(SCANNER_PARTITIONS) \
-		--replication-factor 1
-	kubectl exec -it -n $(NAMESPACE) deployment/kafka -- /opt/bitnami/kafka/bin/kafka-topics.sh \
-		--create --if-not-exists \
-		--topic $(KAFKA_HIGH_PRIORITY_TASK_TOPIC) \
 		--bootstrap-server localhost:9092 \
 		--partitions $(CONTROLLER_PARTITIONS) \
 		--replication-factor 1
