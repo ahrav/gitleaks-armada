@@ -56,7 +56,7 @@ func NewScanJobCoordinator(
 // CreateJob initializes a new scanning operation and ensures it's immediately
 // available in both the cache and persistent storage.
 func (c *scanJobCoordinator) CreateJob(ctx context.Context) (*domain.Job, error) {
-	ctx, span := c.tracer.Start(ctx, "job_service.scanning.create_job",
+	ctx, span := c.tracer.Start(ctx, "scan_job_coordinator.scanning.create_job",
 		trace.WithAttributes(
 			attribute.String("controller_id", c.controllerID),
 		),
@@ -78,7 +78,7 @@ func (c *scanJobCoordinator) CreateJob(ctx context.Context) (*domain.Job, error)
 // LinkTargets establishes the scope of a scanning job by connecting it with specific targets.
 // This relationship is crucial for tracking progress and ensuring complete coverage.
 func (c *scanJobCoordinator) LinkTargets(ctx context.Context, jobID uuid.UUID, targetIDs []uuid.UUID) error {
-	ctx, span := c.tracer.Start(ctx, "job_service.scanning.link_targets",
+	ctx, span := c.tracer.Start(ctx, "scan_job_coordinator.scanning.link_targets",
 		trace.WithAttributes(
 			attribute.String("controller_id", c.controllerID),
 			attribute.String("job_id", jobID.String()),
@@ -101,7 +101,7 @@ func (c *scanJobCoordinator) LinkTargets(ctx context.Context, jobID uuid.UUID, t
 // loadTask retrieves a task using a cache-first strategy to minimize database access
 // during high-frequency progress updates.
 func (c *scanJobCoordinator) loadTask(ctx context.Context, taskID uuid.UUID) (*domain.Task, error) {
-	ctx, span := c.tracer.Start(ctx, "job_service.scanning.load_task",
+	ctx, span := c.tracer.Start(ctx, "scan_job_coordinator.scanning.load_task",
 		trace.WithAttributes(
 			attribute.String("controller_id", c.controllerID),
 			attribute.String("task_id", taskID.String()),
@@ -125,7 +125,7 @@ func (c *scanJobCoordinator) loadTask(ctx context.Context, taskID uuid.UUID) (*d
 // StartTask initializes a new scanning task and updates the parent job's metrics.
 // The task is cached immediately to optimize subsequent progress updates.
 func (c *scanJobCoordinator) StartTask(ctx context.Context, jobID, taskID uuid.UUID, resourceURI string, controllerID string) (*domain.Task, error) {
-	ctx, span := c.tracer.Start(ctx, "job_service.scanning.start_task",
+	ctx, span := c.tracer.Start(ctx, "scan_job_coordinator.scanning.start_task",
 		trace.WithAttributes(
 			attribute.String("job_id", jobID.String()),
 			attribute.String("task_id", taskID.String()),
@@ -150,7 +150,7 @@ func (c *scanJobCoordinator) StartTask(ctx context.Context, jobID, taskID uuid.U
 // Updates are cached and only persisted based on configured intervals to prevent database bottlenecks
 // during high-frequency progress reporting.
 func (c *scanJobCoordinator) UpdateTaskProgress(ctx context.Context, progress domain.Progress) (*domain.Task, error) {
-	ctx, span := c.tracer.Start(ctx, "job_service.scanning.update_task_progress",
+	ctx, span := c.tracer.Start(ctx, "scan_job_coordinator.scanning.update_task_progress",
 		trace.WithAttributes(
 			attribute.String("controller_id", c.controllerID),
 			attribute.String("task_id", progress.TaskID().String()),
@@ -195,7 +195,7 @@ func (c *scanJobCoordinator) UpdateTaskProgress(ctx context.Context, progress do
 // CompleteTask finalizes a successful task execution and updates the parent job's state.
 // This may trigger job completion if all tasks are finished.
 func (c *scanJobCoordinator) CompleteTask(ctx context.Context, jobID, taskID uuid.UUID) (*domain.Task, error) {
-	ctx, span := c.tracer.Start(ctx, "job_service.scanning.complete_task",
+	ctx, span := c.tracer.Start(ctx, "scan_job_coordinator.scanning.complete_task",
 		trace.WithAttributes(
 			attribute.String("controller_id", c.controllerID),
 			attribute.String("job_id", jobID.String()),
@@ -231,7 +231,7 @@ func (c *scanJobCoordinator) CompleteTask(ctx context.Context, jobID, taskID uui
 // FailTask handles task failure scenarios and updates the parent job accordingly.
 // This information is crucial for error reporting and potential retry mechanisms.
 func (c *scanJobCoordinator) FailTask(ctx context.Context, jobID, taskID uuid.UUID) (*domain.Task, error) {
-	ctx, span := c.tracer.Start(ctx, "job_service.scanning.fail_task",
+	ctx, span := c.tracer.Start(ctx, "scan_job_coordinator.scanning.fail_task",
 		trace.WithAttributes(
 			attribute.String("controller_id", c.controllerID),
 			attribute.String("job_id", jobID.String()),
@@ -267,7 +267,7 @@ func (c *scanJobCoordinator) FailTask(ctx context.Context, jobID, taskID uuid.UU
 // MarkTaskStale flags a task that has become unresponsive or stopped reporting progress.
 // This enables automated detection and recovery of failed tasks that require intervention.
 func (s *scanJobCoordinator) MarkTaskStale(ctx context.Context, jobID, taskID uuid.UUID, reason domain.StallReason) (*domain.Task, error) {
-	ctx, span := s.tracer.Start(ctx, "job_service.scanning.mark_task_stale",
+	ctx, span := s.tracer.Start(ctx, "scan_job_coordinator.scanning.mark_task_stale",
 		trace.WithAttributes(
 			attribute.String("controller_id", s.controllerID),
 			attribute.String("job_id", jobID.String()),
@@ -303,7 +303,7 @@ func (s *scanJobCoordinator) MarkTaskStale(ctx context.Context, jobID, taskID uu
 
 // GetTask retrieves a task using cache-first strategy to minimize database access.
 func (s *scanJobCoordinator) GetTask(ctx context.Context, taskID uuid.UUID) (*domain.Task, error) {
-	ctx, span := s.tracer.Start(ctx, "job_service.scanning.get_task",
+	ctx, span := s.tracer.Start(ctx, "scan_job_coordinator.scanning.get_task",
 		trace.WithAttributes(
 			attribute.String("controller_id", s.controllerID),
 			attribute.String("task_id", taskID.String()),
@@ -324,7 +324,7 @@ func (s *scanJobCoordinator) GetTask(ctx context.Context, taskID uuid.UUID) (*do
 
 // GetTaskSourceType retrieves the source type of a task using cache-first strategy.
 func (c *scanJobCoordinator) GetTaskSourceType(ctx context.Context, taskID uuid.UUID) (shared.SourceType, error) {
-	ctx, span := c.tracer.Start(ctx, "job_service.scanning.get_task_source_type",
+	ctx, span := c.tracer.Start(ctx, "scan_job_coordinator.scanning.get_task_source_type",
 		trace.WithAttributes(
 			attribute.String("controller_id", c.controllerID),
 			attribute.String("task_id", taskID.String()),
@@ -345,7 +345,7 @@ func (c *scanJobCoordinator) GetTaskSourceType(ctx context.Context, taskID uuid.
 
 // UpdateHeartbeats updates the last_heartbeat_at timestamp for a list of tasks.
 func (c *scanJobCoordinator) UpdateHeartbeats(ctx context.Context, heartbeats map[uuid.UUID]time.Time) (int64, error) {
-	ctx, span := c.tracer.Start(ctx, "job_service.scanning.update_heartbeats",
+	ctx, span := c.tracer.Start(ctx, "scan_job_coordinator.scanning.update_heartbeats",
 		trace.WithAttributes(
 			attribute.String("controller_id", c.controllerID),
 			attribute.Int("num_heartbeats", len(heartbeats)),
@@ -369,7 +369,7 @@ func (c *scanJobCoordinator) UpdateHeartbeats(ctx context.Context, heartbeats ma
 
 // FindStaleTasks finds tasks that have not sent a heartbeat within the staleness threshold.
 func (c *scanJobCoordinator) FindStaleTasks(ctx context.Context, controllerID string, cutoff time.Time) ([]domain.StaleTaskInfo, error) {
-	ctx, span := c.tracer.Start(ctx, "job_service.scanning.find_stale_tasks",
+	ctx, span := c.tracer.Start(ctx, "scan_job_coordinator.scanning.find_stale_tasks",
 		trace.WithAttributes(
 			attribute.String("controller_id", controllerID),
 			attribute.String("cutoff", cutoff.Format(time.RFC3339)),

@@ -102,7 +102,7 @@ func NewTaskHealthSupervisor(
 // The goroutines run until the provided context is canceled, at which point a final
 // heartbeat flush is performed before shutdown.
 func (h *taskHealthSupervisor) Start(ctx context.Context) {
-	ctx, span := h.tracer.Start(ctx, "heartbeat_monitor.scanning.start_staleness_loop",
+	ctx, span := h.tracer.Start(ctx, "task_health_supervisor.scanning.start_staleness_loop",
 		trace.WithAttributes(
 			attribute.String("controller_id", h.controllerID),
 			attribute.String("interval", h.stalenessCheckIntv.String()),
@@ -144,7 +144,7 @@ func (h *taskHealthSupervisor) Start(ctx context.Context) {
 // to minimize contention.
 func (h *taskHealthSupervisor) flushHeartbeats(ctx context.Context) {
 	logger := h.logger.With("operation", "flush_heartbeats", "flush_interval", h.flushInterval)
-	ctx, span := h.tracer.Start(ctx, "heartbeat_monitor.scanning.flush_heartbeats",
+	ctx, span := h.tracer.Start(ctx, "task_health_supervisor.scanning.flush_heartbeats",
 		trace.WithAttributes(
 			attribute.String("controller_id", h.controllerID),
 		),
@@ -188,7 +188,7 @@ func (h *taskHealthSupervisor) flushHeartbeats(ctx context.Context) {
 // failed or unresponsive tasks.
 func (h *taskHealthSupervisor) checkForStaleTasks(ctx context.Context) {
 	logr := h.logger.With("operation", "check_for_stale_tasks", "staleness_threshold", h.stalenessThreshold)
-	ctx, span := h.tracer.Start(ctx, "heartbeat_monitor.scanning.check_for_stale_tasks",
+	ctx, span := h.tracer.Start(ctx, "task_health_supervisor.scanning.check_for_stale_tasks",
 		trace.WithAttributes(
 			attribute.String("controller_id", h.controllerID),
 		),
@@ -238,7 +238,9 @@ func (h *taskHealthSupervisor) checkForStaleTasks(ctx context.Context) {
 
 		ctxLogr.Info(ctx, "Task marked stale")
 		span.AddEvent("task_marked_stale")
-		if err := h.eventPublisher.PublishDomainEvent(ctx, staleEvt, events.WithKey(t.JobID().String())); err != nil {
+
+		taskJobMetricEvt := scanning.NewTaskJobMetricEvent(t.JobID(), t.TaskID(), scanning.TaskStatusStale)
+		if err := h.eventPublisher.PublishDomainEvent(ctx, taskJobMetricEvt, events.WithKey(t.JobID().String())); err != nil {
 			ctxLogr.Error(ctx, "Stale task event publication failed", "err", err)
 			span.SetStatus(codes.Error, "event publication failed")
 			span.RecordError(err)
@@ -259,7 +261,7 @@ func (h *taskHealthSupervisor) checkForStaleTasks(ctx context.Context) {
 // timestamp for the task. The cached heartbeats are periodically flushed to storage
 // by the background goroutine.
 func (h *taskHealthSupervisor) HandleHeartbeat(ctx context.Context, evt scanning.TaskHeartbeatEvent) {
-	_, span := h.tracer.Start(ctx, "heartbeat_monitor.scanning.handle_heartbeat",
+	_, span := h.tracer.Start(ctx, "task_health_supervisor.scanning.handle_heartbeat",
 		trace.WithAttributes(
 			attribute.String("controller_id", h.controllerID),
 			attribute.String("task_id", evt.TaskID.String()),
@@ -285,13 +287,13 @@ func (h *taskHealthSupervisor) HandleHeartbeat(ctx context.Context, evt scanning
 // final heartbeat flush is performed.
 func (h *taskHealthSupervisor) Stop() {
 	logger := h.logger.With("operation", "stop")
-	ctx, span := h.tracer.Start(context.Background(), "heartbeat_monitor.scanning.stop")
+	ctx, span := h.tracer.Start(context.Background(), "task_health_supervisor.scanning.stop")
 	defer span.End()
 
 	if h.cancel != nil {
-		h.cancel(errors.New("heartbeat monitor stopped"))
+		h.cancel(errors.New("task health supervisor stopped"))
 	}
 
-	span.AddEvent("heartbeat_monitor_stopped")
-	logger.Info(ctx, "Heartbeat monitor stopped")
+	span.AddEvent("task_health_supervisor_stopped")
+	logger.Info(ctx, "Task health supervisor stopped")
 }

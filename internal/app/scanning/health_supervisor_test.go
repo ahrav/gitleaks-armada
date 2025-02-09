@@ -17,20 +17,20 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
 
-// mockHeartbeatService implements scanning.TaskHealthService for testing.
-type mockHeartbeatService struct {
+// mockTaskHealthService implements scanning.TaskHealthService for testing.
+type mockTaskHealthService struct {
 	updateHeartbeatsFunc func(context.Context, map[uuid.UUID]time.Time) (int64, error)
 	findStaleTasksFunc   func(context.Context, string, time.Time) ([]scanning.StaleTaskInfo, error)
 }
 
-func (m *mockHeartbeatService) UpdateHeartbeats(ctx context.Context, beats map[uuid.UUID]time.Time) (int64, error) {
+func (m *mockTaskHealthService) UpdateHeartbeats(ctx context.Context, beats map[uuid.UUID]time.Time) (int64, error) {
 	if m.updateHeartbeatsFunc != nil {
 		return m.updateHeartbeatsFunc(ctx, beats)
 	}
 	return int64(len(beats)), nil
 }
 
-func (m *mockHeartbeatService) FindStaleTasks(ctx context.Context, controllerID string, cutoff time.Time) ([]scanning.StaleTaskInfo, error) {
+func (m *mockTaskHealthService) FindStaleTasks(ctx context.Context, controllerID string, cutoff time.Time) ([]scanning.StaleTaskInfo, error) {
 	if m.findStaleTasksFunc != nil {
 		return m.findStaleTasksFunc(ctx, controllerID, cutoff)
 	}
@@ -79,7 +79,7 @@ func TestHeartbeatMonitor_HandleHeartbeat(t *testing.T) {
 
 	var mu sync.RWMutex
 	capturedBeats := make(map[uuid.UUID]time.Time)
-	heartbeatSvc := &mockHeartbeatService{
+	heartbeatSvc := &mockTaskHealthService{
 		updateHeartbeatsFunc: func(ctx context.Context, beats map[uuid.UUID]time.Time) (int64, error) {
 			mu.Lock()
 			defer mu.Unlock()
@@ -167,7 +167,7 @@ func TestHeartbeatMonitor_CheckForStaleTasks(t *testing.T) {
 
 			eventPublisher := new(mockEventPublisher)
 			stateHandler := new(mockStateHandler)
-			heartbeatSvc := &mockHeartbeatService{
+			heartbeatSvc := &mockTaskHealthService{
 				findStaleTasksFunc: func(ctx context.Context, controllerID string, cutoff time.Time) ([]scanning.StaleTaskInfo, error) {
 					return tt.setupStaleTasks(), nil
 				},
@@ -186,9 +186,9 @@ func TestHeartbeatMonitor_CheckForStaleTasks(t *testing.T) {
 
 			if tt.expectStale {
 				require.Len(t, eventPublisher.publishedEvents, 1, "Expected one event to be published")
-				evt, ok := eventPublisher.publishedEvents[0].(scanning.TaskStaleEvent)
-				require.True(t, ok, "Expected event to be TaskStaleEvent")
-				assert.Equal(t, scanning.StallReasonNoProgress, evt.Reason)
+				evt, ok := eventPublisher.publishedEvents[0].(scanning.TaskJobMetricEvent)
+				require.True(t, ok, "Expected event to be TaskJobMetricEvent")
+				assert.Equal(t, scanning.TaskStatusStale, evt.Status)
 
 				// Verify publish options.
 				require.Len(t, eventPublisher.publishOptions, 1, "Expected one set of publish options")
@@ -226,7 +226,7 @@ func TestHeartbeatMonitor_Start(t *testing.T) {
 	}
 
 	stateHandler := new(mockStateHandler)
-	heartbeatSvc := &mockHeartbeatService{
+	heartbeatSvc := &mockTaskHealthService{
 		findStaleTasksFunc: func(ctx context.Context, controllerID string, cutoff time.Time) ([]scanning.StaleTaskInfo, error) {
 			return []scanning.StaleTaskInfo{
 				scanning.NewStaleTaskInfo(taskID, jobID, controllerID),
@@ -273,9 +273,9 @@ func TestHeartbeatMonitor_Start(t *testing.T) {
 
 	assert.NotEmpty(t, eventPublisher.publishedEvents, "Expected events to be published for stale tasks")
 	if len(eventPublisher.publishedEvents) > 0 {
-		evt, ok := eventPublisher.publishedEvents[0].(scanning.TaskStaleEvent)
-		require.True(t, ok, "Expected event to be TaskStaleEvent")
-		assert.Equal(t, scanning.StallReasonNoProgress, evt.Reason)
+		evt, ok := eventPublisher.publishedEvents[0].(scanning.TaskJobMetricEvent)
+		require.True(t, ok, "Expected event to be TaskJobMetricEvent")
+		assert.Equal(t, scanning.TaskStatusStale, evt.Status)
 	}
 	assert.NotEmpty(t, eventPublisher.publishOptions, "Expected publish options to be set")
 }
@@ -287,7 +287,7 @@ func TestHeartbeatMonitor_ConcurrentAccess(t *testing.T) {
 	var heartbeatsReceived int32
 	var staleChecksPerformed int32
 
-	heartbeatSvc := &mockHeartbeatService{
+	heartbeatSvc := &mockTaskHealthService{
 		updateHeartbeatsFunc: func(ctx context.Context, beats map[uuid.UUID]time.Time) (int64, error) {
 			atomic.AddInt32(&heartbeatsReceived, int32(len(beats)))
 			return int64(len(beats)), nil
