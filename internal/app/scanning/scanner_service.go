@@ -181,6 +181,7 @@ func (s *ScannerService) handleEvent(ctx context.Context, evt events.EventEnvelo
 }
 
 // handleRuleRequest processes rule request events and publishes current rules
+// TODO: Handle the situation where the scanner crashes before all rules are published.
 func (s *ScannerService) handleRuleRequest(
 	ctx context.Context,
 	evt events.EventEnvelope,
