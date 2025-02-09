@@ -19,18 +19,18 @@ import (
 // across the distributed system.
 type executionTracker struct {
 	controllerID    string
-	jobService      scanning.ScanJobCoordinator // Manages job and task state transitions
+	coordinator     scanning.ScanJobCoordinator // Manages job and task state transitions
 	domainPublisher events.DomainEventPublisher
 	logger          *logger.Logger // Structured logging for operational visibility
 	tracer          trace.Tracer   // OpenTelemetry tracing for request flows
 }
 
 // NewExecutionTracker constructs a new ExecutionTracker with required dependencies.
-// The jobService handles state persistence and transitions, while logger and tracer
+// The coordinator handles state persistence and transitions, while logger and tracer
 // provide operational visibility into the progress tracking subsystem.
 func NewExecutionTracker(
 	controllerID string,
-	jobService scanning.ScanJobCoordinator,
+	coordinator scanning.ScanJobCoordinator,
 	domainPublisher events.DomainEventPublisher,
 	logger *logger.Logger,
 	tracer trace.Tracer,
@@ -38,7 +38,7 @@ func NewExecutionTracker(
 	logger = logger.With("component", "execution_tracker")
 	return &executionTracker{
 		controllerID:    controllerID,
-		jobService:      jobService,
+		coordinator:     coordinator,
 		domainPublisher: domainPublisher,
 		logger:          logger,
 		tracer:          tracer,
@@ -46,7 +46,7 @@ func NewExecutionTracker(
 }
 
 // HandleTaskStart initializes progress tracking for a new scan task. It coordinates with
-// the job service to:
+// the coordinator to:
 // 1. Register the task in the job's task collection
 // 2. Transition the job to RUNNING state if this is the first task
 // 3. Initialize progress metrics for the task
@@ -63,7 +63,7 @@ func (t *executionTracker) HandleTaskStart(ctx context.Context, evt scanning.Tas
 	defer span.End()
 
 	// Initialize task state in job aggregate before any other operations.
-	_, err := t.jobService.StartTask(ctx, jobID, taskID, resourceURI, t.controllerID)
+	_, err := t.coordinator.StartTask(ctx, jobID, taskID, resourceURI, t.controllerID)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to start task tracking")
@@ -91,10 +91,12 @@ func (t *executionTracker) HandleTaskProgress(ctx context.Context, evt scanning.
 		trace.WithAttributes(
 			attribute.String("controller_id", t.controllerID),
 			attribute.String("task_id", taskID.String()),
+			attribute.Int64("sequence_num", evt.Progress.SequenceNum()),
+			attribute.Int64("items_processed", evt.Progress.ItemsProcessed()),
 		))
 	defer span.End()
 
-	_, err := t.jobService.UpdateTaskProgress(ctx, evt.Progress)
+	_, err := t.coordinator.UpdateTaskProgress(ctx, evt.Progress)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to update task progress")
@@ -122,7 +124,7 @@ func (t *executionTracker) HandleTaskCompletion(ctx context.Context, evt scannin
 		))
 	defer span.End()
 
-	_, err := t.jobService.CompleteTask(ctx, evt.JobID, evt.TaskID)
+	_, err := t.coordinator.CompleteTask(ctx, evt.JobID, evt.TaskID)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to complete task")
@@ -149,7 +151,7 @@ func (t *executionTracker) HandleTaskFailure(ctx context.Context, evt scanning.T
 		))
 	defer span.End()
 
-	_, err := t.jobService.FailTask(ctx, evt.JobID, evt.TaskID)
+	_, err := t.coordinator.FailTask(ctx, evt.JobID, evt.TaskID)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to fail task")
@@ -177,7 +179,7 @@ func (t *executionTracker) HandleTaskStale(ctx context.Context, evt scanning.Tas
 		))
 	defer span.End()
 
-	task, err := t.jobService.MarkTaskStale(ctx, evt.JobID, evt.TaskID, evt.Reason)
+	task, err := t.coordinator.MarkTaskStale(ctx, evt.JobID, evt.TaskID, evt.Reason)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to mark task as stale")
@@ -185,7 +187,7 @@ func (t *executionTracker) HandleTaskStale(ctx context.Context, evt scanning.Tas
 			evt.Reason, evt.StalledSince, err)
 	}
 
-	sourceType, err := t.jobService.GetTaskSourceType(ctx, task.TaskID())
+	sourceType, err := t.coordinator.GetTaskSourceType(ctx, task.TaskID())
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to get task source type")
