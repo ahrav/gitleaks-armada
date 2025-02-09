@@ -395,7 +395,7 @@ func TestExecutionTracker_MarkTaskStale(t *testing.T) {
 				p.On("PublishDomainEvent",
 					mock.Anything,
 					mock.MatchedBy(func(event events.DomainEvent) bool {
-						_, ok := event.(scanning.TaskResumeEvent)
+						_, ok := event.(*scanning.TaskResumeEvent)
 						return ok
 					}),
 					mock.Anything,
@@ -431,7 +431,7 @@ func TestExecutionTracker_MarkTaskStale(t *testing.T) {
 				p.On("PublishDomainEvent",
 					mock.Anything,
 					mock.MatchedBy(func(event events.DomainEvent) bool {
-						_, ok := event.(scanning.TaskResumeEvent)
+						_, ok := event.(*scanning.TaskResumeEvent)
 						return ok
 					}),
 					mock.Anything,

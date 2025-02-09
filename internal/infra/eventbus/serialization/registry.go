@@ -291,7 +291,10 @@ func serializeTaskResume(payload any) ([]byte, error) {
 		return nil, fmt.Errorf("serializeTaskResume: payload is not TaskResumeEvent, got %T", payload)
 	}
 
-	pbEvent := serdeScanning.TaskResumeEventToProto(event)
+	pbEvent, err := serdeScanning.TaskResumeEventToProto(&event)
+	if err != nil {
+		return nil, fmt.Errorf("convert domain to proto: %w", err)
+	}
 	return proto.Marshal(pbEvent)
 }
 

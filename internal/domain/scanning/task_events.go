@@ -96,8 +96,8 @@ func NewTaskResumeEvent(
 	resourceURI string,
 	sequenceNum int,
 	checkpoint *Checkpoint,
-) TaskResumeEvent {
-	return TaskResumeEvent{
+) *TaskResumeEvent {
+	return &TaskResumeEvent{
 		occurredAt:  time.Now(),
 		JobID:       jobID,
 		TaskID:      taskID,

@@ -195,7 +195,11 @@ var taskSourceTypeToProto = map[shared.SourceType]pb.SourceType{
 }
 
 // TaskResumeEventToProto converts a domain TaskResumeEvent to its protobuf representation.
-func TaskResumeEventToProto(event scanning.TaskResumeEvent) *pb.TaskResumeEvent {
+func TaskResumeEventToProto(event *scanning.TaskResumeEvent) (*pb.TaskResumeEvent, error) {
+	if event == nil {
+		return nil, serializationerrors.ErrNilEvent{EventType: "TaskResume"}
+	}
+
 	var checkpoint *pb.Checkpoint
 	if event.Checkpoint != nil {
 		checkpoint = &pb.Checkpoint{
@@ -214,7 +218,7 @@ func TaskResumeEventToProto(event scanning.TaskResumeEvent) *pb.TaskResumeEvent 
 		SequenceNum: int64(event.SequenceNum),
 		Timestamp:   time.Now().UnixNano(),
 		Checkpoint:  checkpoint,
-	}
+	}, nil
 }
 
 var protoSourceTypeToTaskSourceType = map[pb.SourceType]shared.SourceType{
@@ -267,7 +271,7 @@ func ProtoToTaskResumeEvent(event *pb.TaskResumeEvent) (*scanning.TaskResumeEven
 		int(event.SequenceNum),
 		checkpoint,
 	)
-	return &result, nil
+	return result, nil
 }
 
 // TaskJobMetricEventToProto converts a domain TaskJobMetricEvent to protobuf.

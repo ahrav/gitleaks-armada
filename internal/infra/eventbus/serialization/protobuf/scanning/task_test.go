@@ -213,7 +213,8 @@ func TestTaskResumeEventConversion(t *testing.T) {
 		)
 
 		// Test domain to proto conversion.
-		protoEvent := TaskResumeEventToProto(domainEvent)
+		protoEvent, err := TaskResumeEventToProto(domainEvent)
+		require.NoError(t, err)
 		assert.Equal(t, jobID.String(), protoEvent.JobId)
 		assert.Equal(t, taskID.String(), protoEvent.TaskId)
 		assert.Equal(t, pb.SourceType_SOURCE_TYPE_GITHUB, protoEvent.SourceType)

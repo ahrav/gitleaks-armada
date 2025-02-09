@@ -311,14 +311,17 @@ func (s *ScannerService) handleTaskResumeEvent(
 
 	span.AddEvent("starting_resume_task")
 
-	rEvt, ok := evt.Payload.(scanning.TaskResumeEvent)
+	rEvt, ok := evt.Payload.(*scanning.TaskResumeEvent)
 	if !ok {
-		return fmt.Errorf("invalid resume event payload: %T", evt.Payload)
+		err := fmt.Errorf("invalid resume event payload: %T", evt.Payload)
+		span.SetStatus(codes.Error, err.Error())
+		span.RecordError(err)
+		return err
 	}
 	logger.Add("task_id", rEvt.TaskID, "job_id", rEvt.JobID, "resource_uri", rEvt.ResourceURI)
 	logger.Info(ctx, "Resuming task")
 
-	req, err := dtos.NewScanRequestFromResumeEvent(&rEvt)
+	req, err := dtos.NewScanRequestFromResumeEvent(rEvt)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to create scan request")
