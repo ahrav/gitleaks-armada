@@ -53,7 +53,7 @@ func NewExecutionTracker(
 // The operation is traced to maintain visibility into task startup sequences.
 func (t *executionTracker) HandleTaskStart(ctx context.Context, evt scanning.TaskStartedEvent) error {
 	taskID, jobID, resourceURI := evt.TaskID, evt.JobID, evt.ResourceURI
-	ctx, span := t.tracer.Start(ctx, "progress_tracker.scanning.start_tracking",
+	ctx, span := t.tracer.Start(ctx, "execution_tracker.scanning.start_tracking",
 		trace.WithAttributes(
 			attribute.String("controller_id", t.controllerID),
 			attribute.String("task_id", taskID.String()),
@@ -87,7 +87,7 @@ func (t *executionTracker) HandleTaskStart(ctx context.Context, evt scanning.Tas
 // This maintains accurate, real-time visibility into scan execution across the system.
 func (t *executionTracker) HandleTaskProgress(ctx context.Context, evt scanning.TaskProgressedEvent) error {
 	taskID := evt.Progress.TaskID()
-	ctx, span := t.tracer.Start(ctx, "progress_tracker.scanning.update_progress",
+	ctx, span := t.tracer.Start(ctx, "execution_tracker.scanning.update_progress",
 		trace.WithAttributes(
 			attribute.String("controller_id", t.controllerID),
 			attribute.String("task_id", taskID.String()),
@@ -115,7 +115,7 @@ func (t *executionTracker) HandleTaskProgress(ctx context.Context, evt scanning.
 // This ensures proper cleanup and maintains accurate job state.
 func (t *executionTracker) HandleTaskCompletion(ctx context.Context, evt scanning.TaskCompletedEvent) error {
 	taskID := evt.TaskID
-	ctx, span := t.tracer.Start(ctx, "progress_tracker.scanning.stop_tracking",
+	ctx, span := t.tracer.Start(ctx, "execution_tracker.scanning.stop_tracking",
 		trace.WithAttributes(
 			attribute.String("controller_id", t.controllerID),
 			attribute.String("task_id", taskID.String()),
@@ -142,7 +142,7 @@ func (t *executionTracker) HandleTaskCompletion(ctx context.Context, evt scannin
 // This ensures proper error handling and maintains system consistency during failures.
 func (t *executionTracker) HandleTaskFailure(ctx context.Context, evt scanning.TaskFailedEvent) error {
 	taskID := evt.TaskID
-	ctx, span := t.tracer.Start(ctx, "progress_tracker.scanning.fail_task",
+	ctx, span := t.tracer.Start(ctx, "execution_tracker.scanning.fail_task",
 		trace.WithAttributes(
 			attribute.String("controller_id", t.controllerID),
 			attribute.String("task_id", taskID.String()),
