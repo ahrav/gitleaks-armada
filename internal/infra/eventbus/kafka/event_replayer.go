@@ -41,7 +41,8 @@ var _ events.EventReplayer = (*eventReplayer)(nil)
 // ReplayConfig contains the configuration required to replay events from Kafka.
 // It includes the list of Kafka brokers and the topics to replay events from.
 type ReplayConfig struct {
-	ClientID    string
+	ClientID string
+
 	Brokers     []string
 	TopicMapper TopicMapper
 
@@ -75,7 +76,7 @@ func NewEventReplayer(
 ) (*eventReplayer, error) {
 	config := sarama.NewConfig()
 	config.Consumer.Return.Errors = true
-	config.Version = sarama.V2_8_0_0
+	config.Version = sarama.V3_6_0_0
 	config.ClientID = cfg.ClientID
 
 	logger = logger.With("component", "event_replayer")
