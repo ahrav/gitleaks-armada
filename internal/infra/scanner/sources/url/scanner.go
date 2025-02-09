@@ -458,6 +458,8 @@ func (w *WarcGzReader) Read(
 		var totalSize int64
 		const batchSize = 1000 // Number of records to process before reporting progress
 		var lastReportedCount int64
+		// This helps us report progress on scans that are resumed from a checkpoint.
+		firstProcessedRecord := false
 
 		defer func() {
 			if w.sizeCallback != nil {
@@ -470,6 +472,15 @@ func (w *WarcGzReader) Read(
 
 		var recordCount int64
 
+		// Helper function to report progress.
+		reportProgress := func(message string) {
+			if err := scanCtx.ReportProgress(ctx, recordCount, message); err != nil {
+				readSpan.RecordError(err)
+				w.logger.Error(ctx, "failed to report progress", "error", err)
+			}
+			lastReportedCount = recordCount
+		}
+
 		for {
 			if ctx.Err() != nil {
 				readSpan.RecordError(ctx.Err())
@@ -480,13 +491,9 @@ func (w *WarcGzReader) Read(
 
 			record, _, _, err := warcReader.Next()
 			if errors.Is(err, io.EOF) {
-				// Report final progress if we haven't reported for this batch
+				// Report final progress if we haven't reported for this batch.
 				if recordCount > lastReportedCount {
-					if err := scanCtx.ReportProgress(ctx, recordCount,
-						fmt.Sprintf("Processed %d WARC records", recordCount)); err != nil {
-						readSpan.RecordError(err)
-						w.logger.Error(ctx, "failed to report final progress", "error", err)
-					}
+					reportProgress(fmt.Sprintf("Processed %d WARC records", recordCount))
 				}
 				return
 			}
@@ -505,14 +512,12 @@ func (w *WarcGzReader) Read(
 				continue
 			}
 
-			// Report progress every batchSize records or on the first record.
-			if recordCount%batchSize == 0 || recordCount == 1 {
-				if err := scanCtx.ReportProgress(ctx, recordCount,
-					fmt.Sprintf("Processing WARC record %d", recordCount)); err != nil {
-					readSpan.RecordError(err)
-					w.logger.Error(ctx, "failed to report progress", "error", err)
-				}
-				lastReportedCount = recordCount
+			// Report progress on:
+			// 1. First processed record (after resume point).
+			// 2. Every batchSize records thereafter.
+			if !firstProcessedRecord || recordCount%batchSize == 0 {
+				reportProgress(fmt.Sprintf("Processing WARC record %d", recordCount))
+				firstProcessedRecord = true
 			}
 
 			bodyReader, err := record.Block().RawBytes()
