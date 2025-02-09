@@ -286,12 +286,12 @@ func deserializeTaskFailed(data []byte) (any, error) {
 
 // serializeTaskResume converts a TaskResumeEvent to protobuf bytes.
 func serializeTaskResume(payload any) ([]byte, error) {
-	event, ok := payload.(scanning.TaskResumeEvent)
+	event, ok := payload.(*scanning.TaskResumeEvent)
 	if !ok {
 		return nil, fmt.Errorf("serializeTaskResume: payload is not TaskResumeEvent, got %T", payload)
 	}
 
-	pbEvent, err := serdeScanning.TaskResumeEventToProto(&event)
+	pbEvent, err := serdeScanning.TaskResumeEventToProto(event)
 	if err != nil {
 		return nil, fmt.Errorf("convert domain to proto: %w", err)
 	}
