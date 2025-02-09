@@ -249,22 +249,6 @@ func main() {
 
 	topicMapper := config.NewTopicMapper(kafkaCfg)
 
-	// Create offset committer using shared client.
-	offsetCommitter, err := kafka.NewOffsetCommitter(
-		&kafka.OffsetCommitterConfig{
-			GroupID:     kafkaCfg.GroupID,
-			TopicMapper: topicMapper,
-		},
-		kafkaClient,
-		log,
-		metricCollector,
-		tracer,
-	)
-	if err != nil {
-		log.Error(ctx, "failed to create offset committer", "error", err)
-		os.Exit(1)
-	}
-
 	eventReplayer, err := kafka.NewEventReplayer(
 		&kafka.ReplayConfig{
 			ClientID:    kafkaCfg.ClientID,
@@ -283,7 +267,6 @@ func main() {
 	kafkaPosTranslator := kafka.NewKafkaPositionTranslator()
 	domainEventTranslator := events.NewDomainEventTranslator(kafkaPosTranslator)
 	domainEventReplayer := kafka.NewDomainEventReplayer(eventReplayer, domainEventTranslator)
-	domainOffsetCommitter := kafka.NewDomainOffsetCommitter(kafkaPosTranslator, offsetCommitter)
 
 	scanTargetRepo := enumStore.NewScanTargetStore(pool, tracer)
 	githubTargetRepo := enumStore.NewGithubRepositoryStore(pool, tracer)
@@ -319,7 +302,6 @@ func main() {
 		coord,
 		eventBus,
 		eventPublisher,
-		domainOffsetCommitter,
 		domainEventReplayer,
 		enumCoord,
 		rulesService,

@@ -34,7 +34,10 @@ type JobMetricsTracker interface {
 
 	// HandleJobMetrics processes task-related events to update job metrics.
 	// It maintains both task status and aggregated job metrics in memory.
-	HandleJobMetrics(ctx context.Context, evt events.EventEnvelope) error
+	// The ack function is used to acknowledge the latest offset for the job's partition.
+	// This is handled manually to ensure we only commit the latest offset once the metrics
+	// have been successfully persisted.
+	HandleJobMetrics(ctx context.Context, evt events.EventEnvelope, ack events.AckFunc) error
 
 	// FlushMetrics persists the current state of job metrics to the backing store.
 	// This is typically called periodically to ensure durability of metrics.

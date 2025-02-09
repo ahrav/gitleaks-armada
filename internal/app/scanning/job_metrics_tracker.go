@@ -50,8 +50,7 @@ type jobMetricsTracker struct {
 	taskStatus map[uuid.UUID]taskStatusEntry    // Task ID -> Status
 	repository domain.MetricsRepository         // Adapter to underlying job and task repositories
 
-	offsets         map[int32]int64 // Partition ID -> last offset processed
-	offsetCommitter events.DomainOffsetCommitter
+	pendingAcks map[uuid.UUID]map[int32]events.AckFunc // jobID -> partition -> latest ack func
 
 	checkpoints map[uuid.UUID]map[int32]int64 // Job ID -> Partition ID -> Offset
 	replayer    events.DomainEventReplayer    // Replayer for consuming events to recover state
@@ -87,7 +86,6 @@ type jobMetricsTracker struct {
 func NewJobMetricsTracker(
 	controllerID string,
 	repository domain.MetricsRepository,
-	offsetCommitter events.DomainOffsetCommitter,
 	replayer events.DomainEventReplayer,
 	logger *logger.Logger,
 	tracer trace.Tracer,
@@ -104,8 +102,7 @@ func NewJobMetricsTracker(
 		controllerID:    controllerID,
 		metrics:         make(map[uuid.UUID]*domain.JobMetrics),
 		taskStatus:      make(map[uuid.UUID]taskStatusEntry),
-		offsets:         make(map[int32]int64),
-		offsetCommitter: offsetCommitter,
+		pendingAcks:     make(map[uuid.UUID]map[int32]events.AckFunc),
 		repository:      repository,
 		checkpoints:     make(map[uuid.UUID]map[int32]int64),
 		replayer:        replayer,
@@ -241,7 +238,7 @@ func (t *jobMetricsTracker) runBackgroundLoop(ctx context.Context) {
 // problematic. There could be an instance where the task status update fails and the DB
 // never has the task. This is okay for now since we retry using our pending metrics
 // mechanism.
-func (t *jobMetricsTracker) HandleJobMetrics(ctx context.Context, evt events.EventEnvelope) error {
+func (t *jobMetricsTracker) HandleJobMetrics(ctx context.Context, evt events.EventEnvelope, ack events.AckFunc) error {
 	logger := logger.NewLoggerContext(t.logger.With(
 		"operation", "handle_job_metrics",
 		"event_type", evt.Type,
@@ -275,9 +272,12 @@ func (t *jobMetricsTracker) HandleJobMetrics(ctx context.Context, evt events.Eve
 		"status", metricEvt.Status,
 	)
 
-	if evt.Metadata.Offset > t.offsets[evt.Metadata.Partition] {
-		t.offsets[evt.Metadata.Partition] = evt.Metadata.Offset
+	// Store the latest ack function for this job's partition.
+	if t.pendingAcks[metricEvt.JobID] == nil {
+		t.pendingAcks[metricEvt.JobID] = make(map[int32]events.AckFunc)
 	}
+	// Only keep the latest ack function for each partition.
+	t.pendingAcks[metricEvt.JobID][evt.Metadata.Partition] = ack
 
 	// If we already have a pending metric for this task, append to the list.
 	// This enforces task status changes are processed in order.
@@ -697,8 +697,10 @@ func (t *jobMetricsTracker) flushJobMetrics(ctx context.Context, jobID uuid.UUID
 			attribute.Int64("offset", offset),
 		))
 
-		if err := t.offsetCommitter.CommitPosition(ctx, scanning.NewJobMetricsPosition(jobID, partition, offset)); err != nil {
-			partitionErrors = append(partitionErrors, fmt.Errorf("partition %d: commit failed: %w", partition, err))
+		// After successful DB update, ack the latest message for this partition.
+		if ack := t.pendingAcks[jobID][partition]; ack != nil {
+			ack(nil) // This will mark and commit the latest offset
+			delete(t.pendingAcks[jobID], partition)
 		}
 	}
 

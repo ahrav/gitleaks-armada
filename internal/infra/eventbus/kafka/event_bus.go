@@ -293,6 +293,32 @@ func (h *domainEventHandler) Cleanup(sess sarama.ConsumerGroupSession) error {
 	return nil
 }
 
+// OffsetStrategy defines the interface for managing Kafka message offset commitments.
+// Different implementations allow for flexible control over when and how messages
+// are marked as processed within a consumer group.
+type OffsetStrategy interface {
+	MarkOffset(sess sarama.ConsumerGroupSession, msg *sarama.ConsumerMessage)
+}
+
+// DefaultOffsetStrategy provides immediate message acknowledgment behavior.
+// This strategy is suitable for scenarios where messages can be processed
+// independently and immediate commits are acceptable.
+type DefaultOffsetStrategy struct{}
+
+func (DefaultOffsetStrategy) MarkOffset(sess sarama.ConsumerGroupSession, msg *sarama.ConsumerMessage) {
+	sess.MarkMessage(msg, "")
+}
+
+// BatchOffsetStrategy provides manual offset control for batch processing scenarios.
+// This strategy is useful when you need to ensure all messages in a batch are
+// processed successfully before committing their offsets.
+type BatchOffsetStrategy struct{}
+
+func (BatchOffsetStrategy) MarkOffset(sess sarama.ConsumerGroupSession, msg *sarama.ConsumerMessage) {
+	// Increment offset by 1 to mark the next message to be consumed
+	sess.MarkOffset(msg.Topic, msg.Partition, msg.Offset+1, "")
+}
+
 // ConsumeClaim processes messages from an assigned partition, deserializing them into
 // domain events and invoking the user-provided handler.
 func (h *domainEventHandler) ConsumeClaim(
@@ -358,6 +384,15 @@ func (h *domainEventHandler) ConsumeClaim(
 					"key", dEvent.Key,
 				)
 
+				// TODO: consider a map if the number of events or strategies grows.
+				var offsetStrategy OffsetStrategy
+				switch evtType {
+				case scanning.EventTypeTaskJobMetric:
+					offsetStrategy = BatchOffsetStrategy{}
+				default:
+					offsetStrategy = DefaultOffsetStrategy{}
+				}
+
 				ack := func(err error) {
 					// Create a new span for acknowledgment.
 					// This is necessary because the acknowledgment is done in a separate
@@ -376,7 +411,7 @@ func (h *domainEventHandler) ConsumeClaim(
 					}
 					h.metrics.IncMessageConsumed(ackCtx, msg.Topic)
 
-					sess.MarkMessage(msg, "")
+					offsetStrategy.MarkOffset(sess, msg)
 				}
 
 				if err := h.userHandler(msgCtx, dEvent, ack); err != nil {

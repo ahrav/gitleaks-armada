@@ -41,29 +41,6 @@ type PositionTranslator interface {
 	ToStreamPosition(metadata PositionMetadata) (StreamPosition, error)
 }
 
-// DomainOffsetCommitter is used to commit the position of the last event processed.
-// This is used to track the position of the last event processed so that we
-// can replay events from the same position.
-// This is useful for recovering from a system failure or for resuming from a
-// specific point in the event stream.
-type DomainOffsetCommitter interface {
-	// CommitPosition commits the position of the last event processed.
-	CommitPosition(ctx context.Context, position DomainPosition) error
-}
-
-// OffsetCommitter is used to commit the position of the last event processed.
-// This is used to track the position of the last event processed so that we
-// can replay events from the same position.
-// This is useful for recovering from a system failure or for resuming from a
-type OffsetCommitter interface {
-	// CommitPosition signals that we've successfully processed
-	// everything up to 'pos' in the domain stream.
-	CommitPosition(ctx context.Context, pos StreamPosition) error
-
-	// Close closes the offset committer and releases associated resources.
-	Close() error
-}
-
 // DomainEventReplayer enables replaying domain events from a specific position in the event stream.
 type DomainEventReplayer interface {
 	// ReplayFromPosition replays domain events from a specific position in the event stream.
