@@ -204,7 +204,9 @@ func (t *executionTracker) HandleTaskStale(ctx context.Context, evt scanning.Tas
 		int(task.LastSequenceNum()),
 		task.LastCheckpoint(),
 	)
-	if err := t.domainPublisher.PublishDomainEvent(ctx, resumeEvent); err != nil {
+	if err := t.domainPublisher.PublishDomainEvent(
+		ctx, resumeEvent, events.WithKey(evt.TaskID.String()),
+	); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to publish task resume event")
 		return fmt.Errorf("publish resume event failed (source_type: %s): %w",
