@@ -18,11 +18,13 @@ import (
 // It ensures consistent state transitions and maintains accurate progress metrics
 // across the distributed system.
 type executionTracker struct {
-	controllerID    string
-	coordinator     scanning.ScanJobCoordinator // Manages job and task state transitions
-	domainPublisher events.DomainEventPublisher
-	logger          *logger.Logger // Structured logging for operational visibility
-	tracer          trace.Tracer   // OpenTelemetry tracing for request flows
+	controllerID string
+
+	coordinator scanning.ScanJobCoordinator // Manages job and task state transitions
+	publisher   events.DomainEventPublisher
+
+	logger *logger.Logger // Structured logging for operational visibility
+	tracer trace.Tracer   // OpenTelemetry tracing for request flows
 }
 
 // NewExecutionTracker constructs a new ExecutionTracker with required dependencies.
@@ -31,17 +33,17 @@ type executionTracker struct {
 func NewExecutionTracker(
 	controllerID string,
 	coordinator scanning.ScanJobCoordinator,
-	domainPublisher events.DomainEventPublisher,
+	publisher events.DomainEventPublisher,
 	logger *logger.Logger,
 	tracer trace.Tracer,
 ) *executionTracker {
 	logger = logger.With("component", "execution_tracker")
 	return &executionTracker{
-		controllerID:    controllerID,
-		coordinator:     coordinator,
-		domainPublisher: domainPublisher,
-		logger:          logger,
-		tracer:          tracer,
+		controllerID: controllerID,
+		coordinator:  coordinator,
+		publisher:    publisher,
+		logger:       logger,
+		tracer:       tracer,
 	}
 }
 
@@ -206,7 +208,7 @@ func (t *executionTracker) HandleTaskStale(ctx context.Context, evt scanning.Tas
 		int(task.LastSequenceNum()),
 		task.LastCheckpoint(),
 	)
-	if err := t.domainPublisher.PublishDomainEvent(
+	if err := t.publisher.PublishDomainEvent(
 		ctx, resumeEvent, events.WithKey(evt.TaskID.String()),
 	); err != nil {
 		span.RecordError(err)

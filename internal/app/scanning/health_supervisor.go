@@ -58,7 +58,6 @@ type taskHealthSupervisor struct {
 
 	// cancel allows graceful shutdown of background goroutines.
 	cancel context.CancelCauseFunc
-
 	// timeProvider is used to get the current time.
 	timeProvider timeProvider
 
