@@ -4,6 +4,7 @@ package kafka
 import (
 	"context"
 	"fmt"
+	"runtime/debug"
 	"time"
 
 	"github.com/IBM/sarama"
@@ -324,7 +325,25 @@ func (BatchOffsetStrategy) MarkOffset(sess sarama.ConsumerGroupSession, msg *sar
 func (h *domainEventHandler) ConsumeClaim(
 	sess sarama.ConsumerGroupSession,
 	claim sarama.ConsumerGroupClaim,
-) error {
+) (err error) {
+	// Add panic recovery
+	defer func() {
+		if r := recover(); r != nil {
+			// Convert panic to error and log.
+			err = fmt.Errorf("panic in ConsumeClaim: %v", r)
+			h.logger.Error(sess.Context(), "Recovered from panic in ConsumeClaim",
+				"error", err,
+				"stack", string(debug.Stack()),
+				"partition", claim.Partition(),
+				"member_id", sess.MemberID(),
+			)
+
+			if h.metrics != nil {
+				h.metrics.IncConsumeError(sess.Context(), claim.Topic())
+			}
+		}
+	}()
+
 	h.logPartitionStart(sess.Context(), claim.Partition(), sess.MemberID())
 	consumeLogger := h.logger.With("operation", "consume_claim", "partition", claim.Partition())
 
@@ -347,6 +366,24 @@ func (h *domainEventHandler) ConsumeClaim(
 			sess.Commit() // Final commit before exiting
 		case msg := <-claim.Messages():
 			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						h.logger.Error(sess.Context(), "Recovered from panic in message processing",
+							"error", fmt.Sprintf("panic: %v", r),
+							"stack", string(debug.Stack()),
+							"topic", msg.Topic,
+							"partition", claim.Partition(),
+							"offset", msg.Offset,
+						)
+
+						sess.MarkMessage(msg, "")
+
+						if h.metrics != nil {
+							h.metrics.IncConsumeError(sess.Context(), msg.Topic)
+						}
+					}
+				}()
+
 				msgCtx := tracing.ExtractTraceContext(sess.Context(), msg)
 				msgCtx, span := tracing.StartConsumerSpan(msgCtx, msg, h.tracer)
 				defer span.End()
