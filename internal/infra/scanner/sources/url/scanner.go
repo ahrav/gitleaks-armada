@@ -124,6 +124,10 @@ func (s *Scanner) runURLScan(
 	logr.Add("sequence_num", sequenceNum.Load())
 
 	var resumeFileIdx int64
+	format := "none"
+
+	// Handle checkpoint data once if it exists.
+	// TODO: This is absolutely horrendous, we need to fix this...
 	if ckptStr, ok := scanReq.Metadata[dtos.MetadataKeyCheckpoint]; ok {
 		var checkpoint domain.Checkpoint
 		if err := checkpoint.UnmarshalJSON([]byte(ckptStr)); err != nil {
@@ -132,6 +136,7 @@ func (s *Scanner) runURLScan(
 			return fmt.Errorf("invalid checkpoint format: %w", err)
 		}
 
+		// Extract file index from checkpoint
 		if fileIdx, ok := checkpoint.Metadata()["file_index"]; ok {
 			idxVal, err := strconv.ParseInt(fileIdx, 10, 64)
 			if err != nil {
@@ -144,7 +149,16 @@ func (s *Scanner) runURLScan(
 			logr.Add("resume_file_index", resumeFileIdx)
 			logr.Debug(ctx, "resuming scan from file index")
 		}
+
+		// Extract archive format from checkpoint.
+		if formatStr, ok := checkpoint.Metadata()["archive_format"]; ok {
+			format = formatStr
+		}
+	} else if formatStr, ok := scanReq.Metadata["archive_format"]; ok {
+		// If no checkpoint, check direct metadata (enumeration case).
+		format = formatStr
 	}
+	span.SetAttributes(attribute.String("archive_format", format))
 
 	scanCtx := NewScanContext(
 		s.scannerID,
@@ -152,15 +166,10 @@ func (s *Scanner) runURLScan(
 		scanReq.JobID,
 		resumeFileIdx,
 		&sequenceNum,
+		format,
 		reporter,
 		s.tracer,
 	)
-
-	format := "none"
-	if formatStr, ok := scanReq.Metadata["archive_format"]; ok {
-		format = formatStr
-	}
-	span.SetAttributes(attribute.String("archive_format", format))
 
 	// Prepare a specialized ArchiveReader based on format (e.g., "warc.gz")
 	reader, err := s.createArchiveReader(ctx, format, scanReq, scanCtx, logr)
@@ -219,6 +228,7 @@ type ScanContext struct {
 	reporter      scanning.ProgressReporter
 	nextSequence  *atomic.Int64
 	resumeFileIdx int64
+	archiveFormat string
 
 	tracer trace.Tracer
 }
@@ -230,6 +240,7 @@ func NewScanContext(
 	jobID uuid.UUID,
 	resumeFileIdx int64,
 	resumeSequence *atomic.Int64,
+	archiveFormat string,
 	reporter scanning.ProgressReporter,
 	tracer trace.Tracer,
 ) *ScanContext {
@@ -240,6 +251,7 @@ func NewScanContext(
 		reporter:      reporter,
 		nextSequence:  resumeSequence,
 		resumeFileIdx: resumeFileIdx,
+		archiveFormat: archiveFormat,
 		tracer:        tracer,
 	}
 }
@@ -267,7 +279,8 @@ func (sc *ScanContext) ReportProgress(ctx context.Context, itemsProcessed int64,
 
 	// Create metadata map for the checkpoint.
 	metadata := map[string]string{
-		"file_index": strconv.FormatInt(itemsProcessed, 10),
+		"file_index":     strconv.FormatInt(itemsProcessed, 10),
+		"archive_format": sc.archiveFormat,
 	}
 
 	if err := sc.reporter.ReportProgress(
@@ -308,7 +321,8 @@ func (s *Scanner) createArchiveReader(
 	_, archiveSpan := s.tracer.Start(ctx, "gitleaks_url_scanner.create_archive_reader")
 	defer archiveSpan.End()
 
-	// TODO: Abstract all this crap away.
+	logr.Info(ctx, "Creating archive reader", "format", format)
+
 	archiveReader, err := newArchiveReader(
 		s.scannerID,
 		format,
@@ -450,12 +464,16 @@ func (w *WarcGzReader) Read(
 	ctx, readSpan := w.tracer.Start(ctx, "warc_reader.read")
 	defer readSpan.End()
 
+	w.logger.Debug(ctx, "Starting WarcGzReader.Read",
+		"resume_file_idx", scanCtx.resumeFileIdx)
+
 	warcReader, err := gowarc.NewWarcFileReaderFromStream(input, 0)
 	if err != nil {
 		readSpan.RecordError(err)
+		w.logger.Error(ctx, "Failed to create WARC reader", "error", err)
 		return nil, fmt.Errorf("failed to create WARC reader: %w", err)
 	}
-	readSpan.AddEvent("warc_reader_created")
+	w.logger.Debug(ctx, "Successfully created WARC reader")
 
 	// Uses a pipe to concurrently process WARC records while streaming their contents.
 	// This allows memory-efficient processing of large WARC files by reading and consuming
@@ -471,6 +489,10 @@ func (w *WarcGzReader) Read(
 		var lastReportedCount int64
 		// This helps us report progress on scans that are resumed from a checkpoint.
 		firstProcessedRecord := false
+
+		w.logger.Debug(ctx, "Starting WARC processing",
+			"resume_file_idx", scanCtx.resumeFileIdx,
+			"first_processed_record", firstProcessedRecord)
 
 		defer func() {
 			if w.sizeCallback != nil {

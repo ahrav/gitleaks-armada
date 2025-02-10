@@ -448,6 +448,8 @@ func (t *Task) isSeqNumValid(progress Progress) bool {
 func (t *Task) updateProgress(progress Progress) {
 	// If task was previously stale, record recovery and reset stale-related fields.
 	// TODO: Consider setting a threshold for recovery attempts.
+	// TODO: Do we want a way to record the fact this task was previously stale
+	// other than just using the number of recovery attempts? History?
 	if t.status == TaskStatusStale {
 		t.recoveryAttempts++
 		t.status = TaskStatusInProgress
