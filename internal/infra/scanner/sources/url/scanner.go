@@ -135,8 +135,9 @@ func (s *Scanner) runURLScan(
 		}
 		span.SetAttributes(attribute.Int64("resume_file_index", idxVal))
 		resumeFileIdx = idxVal
+		logr.Add("resume_file_index", resumeFileIdx)
+		logr.Debug(ctx, "resuming scan from file index")
 	}
-	logr.Add("resume_file_index", resumeFileIdx)
 
 	scanCtx := NewScanContext(
 		s.scannerID,
@@ -162,10 +163,12 @@ func (s *Scanner) runURLScan(
 			format, scanReq.ResourceURI, err)
 	}
 	defer reader.Close()
+	logr.Debug(ctx, "archive reader created")
 
 	_, detectSpan := s.tracer.Start(ctx, "gitleaks_url_scanner.detect_secrets")
 	detectSpan.AddEvent("gitleaks_detection_started")
 
+	logr.Info(ctx, "starting gitleaks detection for URL")
 	// Gitleaks can read from an io.Reader. (the decompressed or raw data)
 	findings, err := s.detector.DetectReader(reader, 32)
 	if err != nil {
@@ -190,12 +193,12 @@ func (s *Scanner) runURLScan(
 		trace.WithAttributes(attribute.Int("findings.count", len(findings))))
 	detectSpan.End()
 
-	s.logger.Info(ctx, "URLScanner: found findings in URL-based data",
+	logr.Info(ctx, "URLScanner: found findings in URL-based data",
 		"url", scanReq.ResourceURI,
 		"num_findings", len(findings),
 	)
-
 	span.SetStatus(codes.Ok, "scan_completed")
+
 	return nil
 }
 
@@ -282,6 +285,7 @@ func (sc *ScanContext) ReportProgress(ctx context.Context, itemsProcessed int64,
 		return fmt.Errorf("failed to report progress: %w", err)
 	}
 	span.AddEvent("progress_reported")
+
 	return nil
 }
 
