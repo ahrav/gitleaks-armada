@@ -330,6 +330,8 @@ func (h *domainEventHandler) ConsumeClaim(
 	defer func() {
 		if r := recover(); r != nil {
 			// Convert panic to error and log.
+			// If a scanner is killed unexpectedly the underlying sarama consumer will panic.
+			// This is a workaround to catch those panics and log them.
 			err = fmt.Errorf("panic in ConsumeClaim: %v", r)
 			h.logger.Error(sess.Context(), "Recovered from panic in ConsumeClaim",
 				"error", err,
