@@ -212,12 +212,7 @@ func (s *ScannerService) handleRuleRequest(
 
 	ruleCount := 0
 	for rule := range ruleChan {
-		err := s.domainPublisher.PublishDomainEvent(
-			ctx,
-			rules.NewRuleUpdatedEvent(rule),
-			events.WithKey(rule.Hash),
-		)
-		if err != nil {
+		if err := s.domainPublisher.PublishDomainEvent(ctx, rules.NewRuleUpdatedEvent(rule)); err != nil {
 			span.RecordError(err)
 			return fmt.Errorf("failed to publish rule: %w", err)
 		}
