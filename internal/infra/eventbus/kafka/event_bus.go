@@ -219,6 +219,26 @@ func (b *EventBus) Subscribe(
 		))
 	defer span.End()
 
+	go func() {
+		<-ctx.Done()
+		b.logger.Info(ctx, "Context cancelled, initiating graceful shutdown of consumer group")
+
+		shutdownCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+
+		// Try to leave the consumer group gracefully.
+		if err := b.consumerGroup.Close(); err != nil {
+			b.logger.Error(ctx, "Failed to close consumer group gracefully", "error", err)
+		}
+
+		select {
+		case <-shutdownCtx.Done():
+			b.logger.Warn(ctx, "Shutdown timeout exceeded")
+		default:
+			b.logger.Info(ctx, "Consumer group shutdown completed")
+		}
+	}()
+
 	// Collect unique topics for the requested event types.
 	var topics []string
 	topicSet := make(map[string]struct{})
