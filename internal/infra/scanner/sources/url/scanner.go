@@ -124,17 +124,26 @@ func (s *Scanner) runURLScan(
 	logr.Add("sequence_num", sequenceNum.Load())
 
 	var resumeFileIdx int64
-	if idxStr, ok := scanReq.Metadata["file_index"]; ok {
-		idxVal, err := strconv.ParseInt(idxStr, 10, 64)
-		if err != nil {
+	if ckptStr, ok := scanReq.Metadata[dtos.MetadataKeyCheckpoint]; ok {
+		var checkpoint domain.Checkpoint
+		if err := checkpoint.UnmarshalJSON([]byte(ckptStr)); err != nil {
 			span.RecordError(err)
-			span.SetStatus(codes.Error, "invalid resume_file_index format")
-			return fmt.Errorf("invalid resume_file_index format (metadata: %s): %w", idxStr, err)
+			span.SetStatus(codes.Error, "invalid checkpoint format")
+			return fmt.Errorf("invalid checkpoint format: %w", err)
 		}
-		span.SetAttributes(attribute.Int64("resume_file_index", idxVal))
-		resumeFileIdx = idxVal
-		logr.Add("resume_file_index", resumeFileIdx)
-		logr.Debug(ctx, "resuming scan from file index")
+
+		if fileIdx, ok := checkpoint.Metadata()["file_index"]; ok {
+			idxVal, err := strconv.ParseInt(fileIdx, 10, 64)
+			if err != nil {
+				span.RecordError(err)
+				span.SetStatus(codes.Error, "invalid file_index format")
+				return fmt.Errorf("invalid file_index format: %w", err)
+			}
+			span.SetAttributes(attribute.Int64("resume_file_index", idxVal))
+			resumeFileIdx = idxVal
+			logr.Add("resume_file_index", resumeFileIdx)
+			logr.Debug(ctx, "resuming scan from file index")
+		}
 	}
 
 	scanCtx := NewScanContext(

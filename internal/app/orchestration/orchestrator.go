@@ -6,10 +6,7 @@ package orchestration
 import (
 	"context"
 	"fmt"
-	"os"
-	"os/signal"
 	"sync"
-	"syscall"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -193,50 +190,42 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 			attribute.String("component", "orchestrator"),
 			attribute.String("start_time", o.startTime.Format(time.RFC3339)),
 		))
-	defer runSpan.End()
+	logger.Info(runCtx, "Orchestrator started")
 
-	orchestratorCtx, orchestratorCancel := context.WithCancel(runCtx)
-	o.registerCancelFunc(orchestratorCancel)
-
-	o.taskHealthSupervisor.Start(orchestratorCtx)
+	o.taskHealthSupervisor.Start(runCtx)
 	runSpan.AddEvent("heartbeat_monitor_started")
 
-	defer func() {
-		o.taskHealthSupervisor.Stop()
-		o.metricsTracker.Stop(orchestratorCtx)
-	}()
+	if err := o.subscribeToEvents(runCtx); err != nil {
+		runSpan.RecordError(err)
+		runSpan.SetStatus(codes.Error, "failed to subscribe to events")
+		runSpan.End()
+		return err
+	}
 
 	readyCh, leaderCh := o.makeOrchestrationChannels()
+	defer close(readyCh)
+	defer close(leaderCh)
 
-	if err := o.subscribeToEvents(orchestratorCtx); err != nil {
+	leaderCtx, leaderCancel := context.WithCancel(runCtx)
+	o.registerCancelFunc(leaderCancel)
+
+	o.setupLeadershipCallback(leaderCtx, leaderCh)
+
+	go o.startLeadershipLoop(leaderCtx, leaderCh, readyCh)
+
+	if err := o.startCoordinator(leaderCtx); err != nil {
+		runSpan.RecordError(err)
+		runSpan.SetStatus(codes.Error, "failed to start coordinator")
+		runSpan.End()
 		return err
 	}
 
-	o.setupLeadershipCallback(orchestratorCtx, leaderCh)
+	runSpan.AddEvent("orchestrator_ready")
+	runSpan.End() // Avoid a long running span.
 
-	go o.startLeadershipLoop(orchestratorCtx, ctx, leaderCh, readyCh)
-
-	if err := o.startCoordinator(orchestratorCtx); err != nil {
-		return err
-	}
-
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
-	defer signal.Stop(sigCh)
-
-	// Wait for shutdown trigger or context cancellation.
-	select {
-	case <-ctx.Done():
-		logger.Info(orchestratorCtx, "Context cancelled, shutting down",
-			"controller_id", o.controllerID)
-		return ctx.Err()
-
-	case sig := <-sigCh:
-		logger.Info(orchestratorCtx, "Received shutdown signal",
-			"signal", sig,
-			"controller_id", o.controllerID)
-		return nil
-	}
+	// Wait for context cancellation.
+	<-ctx.Done()
+	return nil
 }
 
 // registerCancelFunc safely stores the cancellation function under lock.
@@ -328,7 +317,6 @@ func (o *Orchestrator) setupLeadershipCallback(ctx context.Context, leaderCh cha
 // and enumeration processes based on leadership status.
 func (o *Orchestrator) startLeadershipLoop(
 	orchestratorCtx context.Context,
-	requestCtx context.Context,
 	leaderCh <-chan bool,
 	readyCh chan<- struct{},
 ) {
@@ -336,14 +324,8 @@ func (o *Orchestrator) startLeadershipLoop(
 	logger := o.logger.With("operation", "start_leadership_loop")
 	logger.Info(orchestratorCtx, "Waiting for leadership signal...", "controller_id", o.controllerID)
 
-	for {
-		select {
-		case isLeader := <-leaderCh:
-			o.handleLeadership(orchestratorCtx, isLeader, &readyClosed, readyCh)
-		case <-requestCtx.Done():
-			o.handleShutdown(orchestratorCtx, &readyClosed, readyCh)
-			return
-		}
+	for isLeader := range leaderCh {
+		o.handleLeadership(orchestratorCtx, isLeader, &readyClosed, readyCh)
 	}
 }
 
@@ -390,21 +372,6 @@ func (o *Orchestrator) handleLeadership(ctx context.Context, isLeader bool, read
 		readySpan := trace.SpanFromContext(ctx)
 		readySpan.AddEvent("ready_channel_closed")
 		logger.Info(ctx, "Orchestrator is ready.")
-	}
-}
-
-// handleShutdown performs cleanup when the orchestrator is shutting down.
-func (o *Orchestrator) handleShutdown(ctx context.Context, readyClosed *bool, readyCh chan<- struct{}) {
-	logger := o.logger.With("operation", "handle_shutdown")
-	shutdownCtx, shutdownSpan := o.tracer.Start(ctx, "orchestrator.shutdown")
-	defer shutdownSpan.End()
-
-	logger.Info(shutdownCtx, "Context cancelled, shutting down")
-
-	if !*readyClosed {
-		close(readyCh)
-		*readyClosed = true
-		shutdownSpan.AddEvent("ready_channel_closed")
 	}
 }
 
@@ -689,14 +656,6 @@ func (o *Orchestrator) Stop(ctx context.Context) error {
 	)
 	defer span.End()
 
-	span.AddEvent("stopping_orchestrator", trace.WithAttributes(
-		attribute.Bool("is_running", o.running),
-		attribute.String("start_time", o.startTime.Format(time.RFC3339)),
-	))
-
-	o.taskHealthSupervisor.Stop()
-	span.AddEvent("heartbeat_monitor_stopped")
-
 	o.mu.Lock()
 	if !o.running {
 		span.AddEvent("orchestrator_not_running")
@@ -712,12 +671,33 @@ func (o *Orchestrator) Stop(ctx context.Context) error {
 	}
 	o.mu.Unlock()
 
+	// Call internal shutdown to handle cleanup.
+	if err := o.shutdown(ctx); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "shutdown failed")
+		return err
+	}
+
 	runDuration := time.Since(o.startTime)
 	span.AddEvent("orchestrator_stopped", trace.WithAttributes(
 		attribute.String("run_duration", runDuration.String()),
 	))
 	span.SetStatus(codes.Ok, "orchestrator stopped")
 	logger.Info(ctx, "Orchestrator stopped.", "run_duration", runDuration.String())
+
+	return nil
+}
+
+// shutdown is the internal method for cleanup.
+func (o *Orchestrator) shutdown(ctx context.Context) error {
+	logger := o.logger.With("operation", "shutdown")
+	shutdownCtx, shutdownSpan := o.tracer.Start(ctx, "orchestrator.shutdown")
+	defer shutdownSpan.End()
+
+	o.taskHealthSupervisor.Stop()
+	o.metricsTracker.Stop(shutdownCtx)
+	shutdownSpan.AddEvent("component_shutdown_complete")
+	logger.Info(shutdownCtx, "Orchestrator shutdown complete")
 
 	return nil
 }

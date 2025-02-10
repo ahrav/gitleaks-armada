@@ -7,9 +7,11 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/exaring/otelpgx"
@@ -90,6 +92,11 @@ func main() {
 
 	// TODO: Adjust the min log level via env var.
 	log = logger.NewWithMetadata(os.Stdout, logger.LevelDebug, svcName, traceIDFn, logEvents, metadata)
+
+	// Setup signal handling
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM, os.Interrupt)
+	defer signal.Stop(sigCh)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -318,8 +325,32 @@ func main() {
 	log.Info(ctx, "Orchestrator initialized")
 	ready.Store(true)
 
-	if err := orchestrator.Run(ctx); err != nil {
-		log.Error(ctx, "failed to run orchestrator", "error", err)
+	errCh := make(chan error, 1)
+	go func() {
+		if err := orchestrator.Run(ctx); err != nil {
+			errCh <- err
+		}
+	}()
+
+	// Wait for either a signal or orchestrator error.
+	select {
+	case sig := <-sigCh:
+		log.Info(ctx, "Received shutdown signal", "signal", sig)
+		cancel() // Signal orchestrator to stop
+
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer shutdownCancel()
+
+		// Close components in order.
+		if err := eventBus.Close(); err != nil {
+			log.Error(shutdownCtx, "Failed to close event bus", "error", err)
+		}
+		if err := orchestrator.Stop(shutdownCtx); err != nil {
+			log.Error(shutdownCtx, "Failed to stop orchestrator", "error", err)
+		}
+
+	case err := <-errCh:
+		log.Error(ctx, "Orchestrator error", "error", err)
 		os.Exit(1)
 	}
 }
