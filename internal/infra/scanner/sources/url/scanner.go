@@ -124,9 +124,7 @@ func (s *Scanner) runURLScan(
 	logr.Add("sequence_num", sequenceNum.Load())
 
 	var resumeFileIdx int64
-	// If you store a "resume_file_idx" in metadata,
-	// parse that too if your source uses it.
-	if idxStr, ok := scanReq.Metadata["resume_file_index"]; ok {
+	if idxStr, ok := scanReq.Metadata["file_index"]; ok {
 		idxVal, err := strconv.ParseInt(idxStr, 10, 64)
 		if err != nil {
 			span.RecordError(err)
@@ -482,6 +480,7 @@ func (w *WarcGzReader) Read(
 				readSpan.RecordError(err)
 				w.logger.Error(ctx, "failed to report progress", "error", err)
 			}
+			w.logger.Debug(ctx, "progress reported", "message", message, "record_count", recordCount)
 			lastReportedCount = recordCount
 		}
 
