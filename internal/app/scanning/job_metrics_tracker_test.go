@@ -2,7 +2,6 @@ package scanning
 
 import (
 	"context"
-	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -17,8 +16,6 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
-
-var errMock = errors.New("mock error")
 
 // mockMetricsRepository is a minimal stub/mocking approach.
 type mockMetricsRepository struct {
@@ -137,10 +134,7 @@ func TestHandleJobMetrics_NewJob(t *testing.T) {
 			TaskID: taskID,
 			Status: domain.TaskStatusInProgress,
 		},
-		Metadata: events.EventMetadata{
-			Partition: 1,
-			Offset:    42,
-		},
+		Metadata: events.EventMetadata{Partition: 1, Offset: 42},
 	}
 
 	err := tracker.HandleJobMetrics(ctx, evt, ackFunc)
@@ -321,10 +315,7 @@ func TestFlushMetrics_CallsUpdateAndAck(t *testing.T) {
 			TaskID: taskID,
 			Status: domain.TaskStatusInProgress,
 		},
-		Metadata: events.EventMetadata{
-			Partition: 1,
-			Offset:    55,
-		},
+		Metadata: events.EventMetadata{Partition: 1, Offset: 55},
 	}
 	err := tracker.HandleJobMetrics(ctx, evt, ackFunc)
 	require.NoError(t, err)
