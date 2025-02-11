@@ -278,3 +278,62 @@ func TestProcessPendingMetrics_SucceedsOnSecondTry(t *testing.T) {
 	require.NoError(t, err, "flush metrics should succeed")
 	require.True(t, updateMetricsAndCheckpointCalled, "update metrics and checkpoint should have been called")
 }
+
+func TestFlushMetrics_CallsUpdateAndAck(t *testing.T) {
+	ctx := context.Background()
+	jobID := uuid.New()
+	taskID := uuid.New()
+
+	calledPartitions := make(map[int32]int64)
+	repo := &mockMetricsRepository{
+		getJobMetricsFn: func(ctx context.Context, id uuid.UUID) (*domain.JobMetrics, error) {
+			return domain.NewJobMetrics(), nil
+		},
+		getTaskFn: func(ctx context.Context, id uuid.UUID) (*domain.Task, error) {
+			return &domain.Task{CoreTask: shared.CoreTask{ID: taskID}}, nil
+		},
+		updateMetricsAndCheckpointFn: func(
+			ctx context.Context,
+			j uuid.UUID,
+			m *domain.JobMetrics,
+			partition int32,
+			offset int64,
+		) error {
+			calledPartitions[partition] = offset
+			return nil
+		},
+	}
+
+	tracker := NewJobMetricsTracker("controller-id", repo, nil, logger.Noop(), noop.NewTracerProvider().Tracer(""))
+
+	var ackCalledOffset int64
+	ackFunc := func(err error) {
+		require.NoError(t, err)
+		ackCalledOffset = 55
+	}
+
+	evt := events.EventEnvelope{
+		Type: scanning.EventTypeTaskJobMetric,
+		Key:  jobID.String(),
+		Payload: scanning.TaskJobMetricEvent{
+			JobID:  jobID,
+			TaskID: taskID,
+			Status: domain.TaskStatusInProgress,
+		},
+		Metadata: events.EventMetadata{
+			Partition: 1,
+			Offset:    55,
+		},
+	}
+	err := tracker.HandleJobMetrics(ctx, evt, ackFunc)
+	require.NoError(t, err)
+
+	// Confirm flush triggers UpdateMetricsAndCheckpoint & ack.
+	err = tracker.FlushMetrics(ctx)
+	require.NoError(t, err, "flush should succeed")
+
+	require.Len(t, calledPartitions, 1)
+	require.Equal(t, int64(55), calledPartitions[1], "offset must match event offset")
+
+	require.Equal(t, int64(55), ackCalledOffset, "AckFunc offset indicates ack was triggered")
+}
