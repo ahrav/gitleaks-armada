@@ -27,9 +27,9 @@ type taskStatusEntry struct {
 // in that state for longer than the retention period, indicating it can be
 // cleaned up.
 // TODO: Add OnTaskStatusChanged to the metrics.
-func (t *taskStatusEntry) shouldBeCleanedUp(now time.Time, retentionPeriod time.Duration) bool {
+func (t *taskStatusEntry) shouldBeCleanedUp(tp timeProvider, retentionPeriod time.Duration) bool {
 	return (t.status == domain.TaskStatusCompleted || t.status == domain.TaskStatusFailed) &&
-		now.Sub(t.updatedAt) > retentionPeriod
+		tp.Now().Sub(t.updatedAt) > retentionPeriod
 }
 
 type pendingMetric struct {
@@ -62,10 +62,6 @@ type jobMetricsTracker struct {
 	stopCh         chan struct{}  // channel used to signal shutdown
 	wg             sync.WaitGroup // used to wait for background goroutine(s)
 
-	// TODO: Enhance logging.
-	logger *logger.Logger
-	tracer trace.Tracer
-
 	// Configuration.
 
 	// cleanupInterval is how often we look for completed/failed tasks to clean up.
@@ -79,6 +75,12 @@ type jobMetricsTracker struct {
 	maxRetries int
 	// TODO: Consider if we should have a max number of pending metrics we will
 	// store.
+
+	timeProvider timeProvider // reuse existing timeProvider interface
+
+	// TODO: Enhance logging.
+	logger *logger.Logger
+	tracer trace.Tracer
 }
 
 // NewJobMetricsTracker creates a new JobMetricsTracker with the provided dependencies
@@ -115,6 +117,7 @@ func NewJobMetricsTracker(
 		retentionPeriod: defaultRetentionPeriod,
 		retryInterval:   defaultRetryInterval,
 		maxRetries:      defaultMaxRetries,
+		timeProvider:    realTimeProvider{},
 	}
 
 	// Start background cleanup.
@@ -160,7 +163,7 @@ func (t *jobMetricsTracker) startStatusCleanupWorker(ctx context.Context) {
 
 // cleanupTaskStatus removes completed/failed task status entries.
 func (t *jobMetricsTracker) cleanupTaskStatus(ctx context.Context) {
-	now := time.Now()
+	now := t.timeProvider.Now()
 	logger := t.logger.With(
 		"operation", "cleanup_task_status",
 		"now", now,
@@ -168,7 +171,7 @@ func (t *jobMetricsTracker) cleanupTaskStatus(ctx context.Context) {
 	)
 	logger.Info(ctx, "cleaning up task statuses")
 	for taskID, entry := range t.taskStatus {
-		if entry.shouldBeCleanedUp(now, t.retentionPeriod) {
+		if entry.shouldBeCleanedUp(t.timeProvider, t.retentionPeriod) {
 			delete(t.taskStatus, taskID)
 			logger.Info(ctx, "task status cleaned up", "task_id", taskID)
 		}

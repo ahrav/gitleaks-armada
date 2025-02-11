@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -336,4 +337,32 @@ func TestFlushMetrics_CallsUpdateAndAck(t *testing.T) {
 	require.Equal(t, int64(55), calledPartitions[1], "offset must match event offset")
 
 	require.Equal(t, int64(55), ackCalledOffset, "AckFunc offset indicates ack was triggered")
+}
+
+func TestCleanupTaskStatus_RemovesOldTerminalStatus(t *testing.T) {
+	ctx := context.Background()
+
+	repo := new(mockMetricsRepository)
+	replayer := new(mockDomainEventReplayer)
+
+	tracker := NewJobMetricsTracker("controller-id", repo, replayer, logger.Noop(), noop.NewTracerProvider().Tracer(""))
+
+	baseTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	mockTime := &mockTimeProvider{now: baseTime}
+	tracker.timeProvider = mockTime
+
+	// Override config for cleanup threshold.
+	tracker.retentionPeriod = 1 * time.Hour
+
+	completedTask := uuid.New()
+	tracker.taskStatus[completedTask] = taskStatusEntry{
+		status:    domain.TaskStatusCompleted,
+		updatedAt: baseTime.Add(-2 * time.Hour), // Clearly older than retention period
+	}
+
+	tracker.cleanupTaskStatus(ctx)
+
+	// The completedTask should be removed.
+	_, exists := tracker.taskStatus[completedTask]
+	require.False(t, exists, "Completed task older than retention period should be removed")
 }
