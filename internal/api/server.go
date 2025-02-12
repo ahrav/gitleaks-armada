@@ -7,8 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
+	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/ahrav/gitleaks-armada/internal/app/commands"
@@ -22,7 +21,7 @@ import (
 type Server struct {
 	cfg        *config.Config
 	logger     *logger.Logger
-	router     *chi.Mux
+	router     *http.ServeMux
 	cmdHandler commands.Handler
 	tracer     trace.Tracer
 	eventBus   events.DomainEventPublisher
@@ -31,58 +30,114 @@ type Server struct {
 func NewServer(cfg *config.Config, log *logger.Logger, tracer trace.Tracer, eventBus events.DomainEventPublisher) (*Server, error) {
 	cmdHandler := scanning.NewCommandHandler(log, tracer, eventBus)
 
-	r := chi.NewRouter()
-
-	r.Use(middleware.RequestID)
-	r.Use(middleware.RealIP)
-	r.Use(otel.Middleware(tracer))
-	r.Use(loggerMiddleware(log))
-	r.Use(middleware.Recoverer)
+	mux := http.NewServeMux()
 
 	s := &Server{
 		cfg:        cfg,
 		logger:     log,
-		router:     r,
+		router:     mux,
 		cmdHandler: cmdHandler,
 		tracer:     tracer,
 		eventBus:   eventBus,
 	}
 
+	wrappedMux := applyMiddleware(mux,
+		withRequestID,
+		withRealIP,
+		withTracing(tracer),
+		withLogging(log),
+		withRecoverer,
+	)
+
+	s.router = wrappedMux
 	s.routes()
 	return s, nil
 }
 
-func loggerMiddleware(log *logger.Logger) func(next http.Handler) http.Handler {
+type middleware func(http.Handler) http.Handler
+
+func applyMiddleware(h http.Handler, middlewares ...middleware) *http.ServeMux {
+	wrappedMux := http.NewServeMux()
+
+	for _, m := range middlewares {
+		h = m(h)
+	}
+
+	return wrappedMux
+}
+
+func withRequestID(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestID := uuid.New().String()
+		ctx := context.WithValue(r.Context(), "request_id", requestID)
+		w.Header().Set("X-Request-ID", requestID)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func withRealIP(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if realIP := r.Header.Get("X-Real-IP"); realIP != "" {
+			r.RemoteAddr = realIP
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func withTracing(tracer trace.Tracer) middleware {
+	return func(next http.Handler) http.Handler {
+		return otel.Middleware(tracer)(next)
+	}
+}
+
+func withLogging(log *logger.Logger) middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
-			ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
 
-			defer func() {
-				ctx := r.Context()
-				log.Info(ctx, "Request completed",
-					"method", r.Method,
-					"path", r.URL.Path,
-					"status", ww.Status(),
-					"duration", time.Since(start),
-					"trace_id", otel.GetTraceID(ctx),
-				)
-			}()
+			rw := &responseWriter{ResponseWriter: w, status: http.StatusOK}
 
-			next.ServeHTTP(ww, r)
+			next.ServeHTTP(rw, r)
+
+			log.Info(r.Context(), "http request completed",
+				"method", r.Method,
+				"path", r.URL.Path,
+				"status", rw.status,
+				"duration", time.Since(start),
+				"remote_addr", r.RemoteAddr,
+			)
 		})
 	}
 }
 
-func (s *Server) routes() {
-	s.router.Route("/v1", func(r chi.Router) {
-		r.Get("/health", s.handleHealth)
-		r.Get("/readiness", s.handleReadiness)
-
-		// Scan endpoints
-		r.Post("/scans", s.handleStartScan)
-		// Other endpoints as needed
+func withRecoverer(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if err := recover(); err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				fmt.Printf("panic recovered: %v\n", err)
+			}
+		}()
+		next.ServeHTTP(w, r)
 	})
+}
+
+// responseWriter is a custom ResponseWriter that captures the status code
+type responseWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+// WriteHeader captures the status code before writing it
+func (rw *responseWriter) WriteHeader(code int) {
+	rw.status = code
+	rw.ResponseWriter.WriteHeader(code)
+}
+
+func (s *Server) routes() {
+	s.router.HandleFunc("/v1/health", s.handleHealth)
+	s.router.HandleFunc("/v1/readiness", s.handleReadiness)
+	s.router.HandleFunc("/v1/scans", s.handleStartScan)
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
