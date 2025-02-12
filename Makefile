@@ -10,6 +10,9 @@ CONTROLLER_IMAGE := $(CONTROLLER_APP):latest
 SCANNER_APP := scanner
 SCANNER_IMAGE := $(SCANNER_APP):latest
 
+API_GATEWAY_APP := api-gateway
+API_GATEWAY_IMAGE := $(API_GATEWAY_APP):latest
+
 PROMETHEUS_IMAGE := prom/prometheus:v3.1.0
 GRAFANA_IMAGE := grafana/grafana:11.4.0
 TEMPO_IMAGE := grafana/tempo:2.6.1
@@ -19,6 +22,7 @@ OTEL_COLLECTOR_IMAGE := otel/opentelemetry-collector-contrib:0.116.1
 POSTGRES_IMAGE := postgres:17.2
 KAFKA_IMAGE := bitnami/kafka:latest
 ZOOKEEPER_IMAGE := bitnami/zookeeper:latest
+NGINX_INGRESS_VERSION := v1.9.5
 
 K8S_MANIFESTS := k8s
 
@@ -47,12 +51,12 @@ POSTGRES_URL = postgres://postgres:postgres@localhost:5432/secretscanner?sslmode
 # -------------------------------------------------------------------------------
 # Targets
 # -------------------------------------------------------------------------------
-.PHONY: all build-controller build-scanner docker-controller docker-scanner kind-up kind-down kind-load dev-apply dev-status clean proto proto-gen kafka-setup kafka-logs kafka-topics kafka-restart kafka-delete kafka-consumer-groups kafka-delete-topics kafka-reset create-config-secret monitoring-setup monitoring-port-forward monitoring-cleanup postgres-setup postgres-logs postgres-restart postgres-delete sqlc-proto-gen rollout-restart-controller rollout-restart-scanner rollout-restart test test-coverage
+.PHONY: all build-all docker-all kind-up kind-down kind-load dev-apply dev-status clean proto proto-gen kafka-setup kafka-logs kafka-topics kafka-restart kafka-delete kafka-consumer-groups kafka-delete-topics kafka-reset create-config-secret monitoring-setup monitoring-port-forward monitoring-cleanup postgres-setup postgres-logs postgres-restart postgres-delete sqlc-proto-gen rollout-restart-controller rollout-restart-scanner rollout-restart-api-gateway rollout-restart test test-coverage setup-local-ingress
 
 all: build-all docker-all kind-load postgres-setup kafka-setup create-config-secret monitoring-setup dev-apply
 
 # Build targets
-build-all: proto-gen sqlc-proto-gen build-controller build-scanner
+build-all: proto-gen sqlc-proto-gen build-controller build-scanner build-api-gateway
 
 build-controller:
 	CGO_ENABLED=0 GOOS=linux go build -o $(CONTROLLER_APP) ./cmd/controller
@@ -60,8 +64,11 @@ build-controller:
 build-scanner:
 	CGO_ENABLED=0 GOOS=linux go build -o $(SCANNER_APP) ./cmd/scanner
 
+build-api-gateway:
+	CGO_ENABLED=0 GOOS=linux go build -o $(API_GATEWAY_APP) ./cmd/api
+
 # Docker targets
-docker-all: docker-controller docker-scanner
+docker-all: docker-controller docker-scanner docker-api-gateway
 
 docker-controller:
 	docker build -t $(CONTROLLER_IMAGE) -f Dockerfile.controller .
@@ -69,15 +76,20 @@ docker-controller:
 docker-scanner:
 	docker build -t $(SCANNER_IMAGE) -f Dockerfile.scanner .
 
+docker-api-gateway:
+	docker build -t $(API_GATEWAY_IMAGE) -f Dockerfile.api-gateway .
+
 # Kind cluster management
 kind-up:
-	kind create cluster --name $(KIND_CLUSTER)
+	kind create cluster --name $(KIND_CLUSTER) --config k8s/kind-config.yaml
 	kubectl create namespace $(NAMESPACE)
 	kubectl config set-context --current --namespace=$(NAMESPACE)
-	kubectl cluster-info --context kind-$(KIND_CLUSTER)
+	$(MAKE) setup-local-ingress
 
 kind-down:
 	kind delete cluster --name $(KIND_CLUSTER)
+
+kind-load: kind-load-controller kind-load-scanner kind-load-api-gateway
 
 kind-load-controller:
 	kind load docker-image $(CONTROLLER_IMAGE) --name $(KIND_CLUSTER)
@@ -85,8 +97,20 @@ kind-load-controller:
 kind-load-scanner:
 	kind load docker-image $(SCANNER_IMAGE) --name $(KIND_CLUSTER)
 
-# Load images into kind
-kind-load: kind-load-controller kind-load-scanner
+kind-load-api-gateway:
+	kind load docker-image $(API_GATEWAY_IMAGE) --name $(KIND_CLUSTER)
+
+# Ingress setup
+setup-local-ingress:
+	@echo "Installing NGINX Ingress Controller for local development..."
+	kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/$(NGINX_INGRESS_VERSION)/deploy/static/provider/kind/deploy.yaml
+	@echo "Waiting for NGINX Ingress Controller..."
+	kubectl wait --namespace ingress-nginx \
+	  --for=condition=ready pod \
+	  --selector=app.kubernetes.io/component=controller \
+	  --timeout=90s
+	@echo "Adding local DNS entry to /etc/hosts..."
+	@echo "127.0.0.1 api.local.gitleaks" | sudo tee -a /etc/hosts
 
 # Apply Kubernetes manifests
 dev-apply:
@@ -94,6 +118,8 @@ dev-apply:
 	kubectl apply -f $(K8S_MANIFESTS)/config.yaml -n $(NAMESPACE)
 	kubectl apply -f $(K8S_MANIFESTS)/rbac.yaml -n $(NAMESPACE)
 	kubectl apply -f $(K8S_MANIFESTS)/kafka.yaml -n $(NAMESPACE)
+	kubectl apply -f $(K8S_MANIFESTS)/api-gateway.yaml -n $(NAMESPACE)
+	kubectl apply -f $(K8S_MANIFESTS)/api-ingress.yaml -n $(NAMESPACE)
 	kubectl apply -f $(K8S_MANIFESTS)/controller.yaml -n $(NAMESPACE)
 	kubectl apply -f $(K8S_MANIFESTS)/scanner.yaml -n $(NAMESPACE)
 	kubectl apply -f $(K8S_MANIFESTS)/otel.yaml -n $(NAMESPACE)
@@ -115,6 +141,7 @@ dev-status:
 clean:
 	rm -f $(CONTROLLER_APP)
 	rm -f $(SCANNER_APP)
+	rm -f $(API_GATEWAY_APP)
 	kubectl delete deployment kafka zookeeper -n $(NAMESPACE) || true
 	kubectl delete -f $(K8S_MANIFESTS)/prometheus.yaml -n $(NAMESPACE) || true
 	kubectl delete -f $(K8S_MANIFESTS)/grafana.yaml -n $(NAMESPACE) || true
@@ -126,7 +153,7 @@ dev: kind-up all
 # Rebuild and redeploy without recreating cluster
 redeploy: build-all docker-all kind-load dev-apply rollout-restart
 
-rollout-restart: rollout-restart-controller rollout-restart-scanner
+rollout-restart: rollout-restart-controller rollout-restart-scanner rollout-restart-api-gateway
 
 redeploy-%:
 	$(MAKE) build-$* docker-$* kind-load-$*
@@ -137,6 +164,9 @@ rollout-restart-controller:
 
 rollout-restart-scanner:
 	kubectl rollout restart deployment/scanner -n $(NAMESPACE)
+
+rollout-restart-api-gateway:
+	kubectl rollout restart deployment/api-gateway -n $(NAMESPACE)
 
 # View logs
 logs-controller:
@@ -522,3 +552,8 @@ loki-logs:
 
 promtail-logs:
 	kubectl logs -l app=promtail -n $(NAMESPACE) --tail=100 -f
+
+# Port forwarding for development
+api-gateway-port-forward:
+	@echo "Port forwarding API Gateway to localhost:8080..."
+	kubectl port-forward -n ingress-nginx svc/ingress-nginx-controller 8080:80
