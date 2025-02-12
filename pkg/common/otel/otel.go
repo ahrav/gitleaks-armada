@@ -4,6 +4,7 @@ package otel
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -129,4 +130,31 @@ func attributesFromMap(m map[string]string) []attribute.KeyValue {
 		attrs = append(attrs, attribute.String(k, v))
 	}
 	return attrs
+}
+
+func Middleware(tracer trace.Tracer) func(next http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ctx := r.Context()
+
+			spanName := r.URL.Path
+			opts := []trace.SpanStartOption{
+				trace.WithAttributes(
+					semconv.HTTPMethodKey.String(r.Method),
+					semconv.HTTPRouteKey.String(r.URL.Path),
+				),
+				trace.WithSpanKind(trace.SpanKindServer),
+			}
+
+			ctx, span := tracer.Start(ctx, spanName, opts...)
+			defer span.End()
+
+			// Inject the span context into the response headers.
+			propagator := propagation.TraceContext{}
+			propagator.Inject(ctx, propagation.HeaderCarrier(w.Header()))
+
+			// Call the next handler with the traced context.
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
 }
