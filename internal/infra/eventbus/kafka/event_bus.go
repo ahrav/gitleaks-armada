@@ -114,6 +114,7 @@ func NewEventBus(
 		scanning.EventTypeTaskHeartbeat:  cfg.ScanningTaskTopic,     // scanner -> controller
 		scanning.EventTypeTaskResume:     cfg.HighPriorityTaskTopic, // controller -> scanner
 		scanning.EventTypeTaskJobMetric:  cfg.JobMetricsTopic,       // scanner -> controller
+		scanning.EventTypeScanRequested:  cfg.ScanningTaskTopic,     // api -> controller
 	}
 
 	bus := &EventBus{

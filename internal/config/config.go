@@ -22,6 +22,7 @@ type AuthConfig struct {
 type Config struct {
 	Auth    map[string]AuthConfig `yaml:"auth"`
 	Targets []TargetSpec          `yaml:"targets"`
+	API     APIConfig             `yaml:"api"`
 }
 
 // TargetSpec is a generic wrapper for different source types.
@@ -95,4 +96,10 @@ type RetryConfig struct {
 
 	// MaxWait is the upper bound for the backoff (e.g., 30s).
 	MaxWait time.Duration `yaml:"max_wait,omitempty"`
+}
+
+// APIConfig holds configuration for the API server
+type APIConfig struct {
+	Host string `yaml:"host" env:"API_HOST" envDefault:"0.0.0.0"`
+	Port string `yaml:"port" env:"API_PORT" envDefault:"8080"`
 }
