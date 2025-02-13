@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -25,15 +27,43 @@ import (
 
 var build = "develop"
 
+const (
+	serviceType = "api-gateway"
+)
+
 func main() {
 	// Set the correct number of threads for the service
 	_, _ = maxprocs.Set()
 
+	hostname, err := os.Hostname()
+	if err != nil {
+		log.Fatalf("failed to get hostname: %v", err)
+	}
+
 	var log *logger.Logger
 
-	events := logger.Events{
+	logEvents := logger.Events{
 		Error: func(ctx context.Context, r logger.Record) {
-			log.Info(ctx, "******* SEND ALERT *******")
+			errorAttrs := map[string]any{
+				"error_message": r.Message,
+				"error_time":    r.Time.UTC().Format(time.RFC3339),
+				"trace_id":      otel.GetTraceID(ctx),
+			}
+
+			// Add any error-specific attributes.
+			for k, v := range r.Attributes {
+				errorAttrs[k] = v
+			}
+
+			errorAttrsJSON, err := json.Marshal(errorAttrs)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "failed to marshal error attributes: %v\n", err)
+				return
+			}
+
+			// Output the error event with valid JSON details.
+			fmt.Fprintf(os.Stderr, "Error event: %s, details: %s\n",
+				r.Message, errorAttrsJSON)
 		},
 	}
 
@@ -41,7 +71,16 @@ func main() {
 		return otel.GetTraceID(ctx)
 	}
 
-	log = logger.NewWithEvents(os.Stdout, logger.LevelInfo, "API-GATEWAY", traceIDFn, events)
+	svcName := fmt.Sprintf("API-GATEWAY-%s", hostname)
+	metadata := map[string]string{
+		"service":   svcName,
+		"hostname":  hostname,
+		"pod":       os.Getenv("POD_NAME"),
+		"namespace": os.Getenv("POD_NAMESPACE"),
+		"app":       serviceType,
+	}
+
+	log = logger.NewWithMetadata(os.Stdout, logger.LevelInfo, svcName, traceIDFn, logEvents, metadata)
 
 	ctx := context.Background()
 
