@@ -17,8 +17,8 @@ type Config struct {
 
 // Routes binds all the health check endpoints.
 func Routes(app *web.App, cfg Config) {
-	app.HandlerFunc(http.MethodGet, "", "/health", check(cfg))
-	app.HandlerFunc(http.MethodGet, "", "/readiness", readiness(cfg))
+	app.HandlerFunc(http.MethodGet, "", "/v1/health", check(cfg))
+	app.HandlerFunc(http.MethodGet, "", "/v1/readiness", readiness(cfg))
 }
 
 // healthResponse represents the response for health check.
