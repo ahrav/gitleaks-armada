@@ -22,7 +22,7 @@ OTEL_COLLECTOR_IMAGE := otel/opentelemetry-collector-contrib:0.116.1
 POSTGRES_IMAGE := postgres:17.2
 KAFKA_IMAGE := bitnami/kafka:latest
 ZOOKEEPER_IMAGE := bitnami/zookeeper:latest
-NGINX_INGRESS_VERSION := v1.12.0
+NGINX_INGRESS_VERSION := release-1.12
 
 K8S_MANIFESTS := k8s
 
@@ -102,40 +102,30 @@ kind-load-api-gateway:
 
 # Ingress setup
 setup-local-ingress:
-	@echo "Installing NGINX Ingress Controller for local development..."
-	kubectl apply -f "https://raw.githubusercontent.com/kubernetes/ingress-nginx/${INGRESS_VERSION}/deploy/static/provider/kind/deploy.yaml"
+	echo "Installing NGINX Ingress Controller for local development..."
+	kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/$(NGINX_INGRESS_VERSION)/deploy/static/provider/kind/deploy.yaml
 
-	@echo "Waiting for ingress-nginx namespace to be created..."
-	@kubectl wait --namespace ingress-nginx --for=condition=established crd/ingressclasses.networking.k8s.io --timeout=60s
+	echo "Waiting for ingress-nginx namespace..."
+	sleep 10  # Give k8s time to create the namespace
 
-	@echo "Waiting for NGINX Ingress Controller deployment to be available..."
-	@kubectl wait --namespace ingress-nginx \
-		--for=condition=available deployment/ingress-nginx-controller \
+	echo "Waiting for NGINX Ingress Controller deployment to be available..."
+	kubectl wait --namespace ingress-nginx \
+		--for=condition=available deployment ingress-nginx-controller \
+		--timeout=300s
+
+	kubectl wait --namespace ingress-nginx \
+		--for=condition=ready pod \
+		--selector=app.kubernetes.io/component=controller \
 		--timeout=120s
 
-	@echo "Checking if DNS entry already exists in /etc/hosts..."
-	@if ! grep -q "127.0.0.1 api.local.gitleaks.armada" /etc/hosts; then \
+	echo "Checking if DNS entry already exists in /etc/hosts..."
+	if ! grep -q "127.0.0.1 api.local.gitleaks.armada" /etc/hosts; then \
 		echo "Adding local DNS entry to /etc/hosts..."; \
 		echo "127.0.0.1 api.local.gitleaks.armada" | sudo tee -a /etc/hosts; \
 		echo "DNS entry added.  Remember to remove it when done: sudo sed -i '' '/api.local.gitleaks.armada/d' /etc/hosts"; \
 	else \
 		echo "DNS entry already exists in /etc/hosts."; \
 	fi
-
-# setup-local-ingress:
-# 	@echo "Installing NGINX Ingress Controller for local development..."
-# 	kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
-# 	@echo "Waiting for resources to be created..."
-# 	sleep 10  # Give k8s time to create the namespace
-# 	@echo "Verifying ingress-nginx namespace..."
-# 	kubectl get namespace ingress-nginx
-# 	@echo "Waiting for NGINX Ingress Controller..."
-# 	kubectl wait --namespace ingress-nginx \
-# 	  --for=condition=ready pod \
-# 	  --selector=app.kubernetes.io/component=controller \
-# 	  --timeout=120s
-# 	@echo "Adding local DNS entry to /etc/hosts..."
-# 	@echo "127.0.0.1 api.local.gitleaks.armada" | sudo tee -a /etc/hosts
 
 # Apply Kubernetes manifests
 dev-apply:

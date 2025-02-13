@@ -33,7 +33,7 @@ type startRequest struct {
 	SourceType  config.SourceType `json:"source_type" validate:"required"`
 	Target      config.TargetSpec `json:"target" validate:"required"`
 	Auth        config.AuthConfig `json:"auth"`
-	RequestedBy string            `json:"requested_by" validate:"required"`
+	RequestedBy string            `json:"requested_by"`
 }
 
 // startResponse represents the response for starting a scan.

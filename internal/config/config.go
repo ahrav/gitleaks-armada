@@ -20,34 +20,34 @@ type AuthConfig struct {
 
 // Config represents the top-level configuration.
 type Config struct {
-	Auth    map[string]AuthConfig `yaml:"auth"`
-	Targets []TargetSpec          `yaml:"targets"`
-	API     APIConfig             `yaml:"api"`
+	Auth    map[string]AuthConfig `yaml:"auth" json:"auth"`
+	Targets []TargetSpec          `yaml:"targets" json:"targets"`
+	API     APIConfig             `yaml:"api" json:"api"`
 }
 
 // TargetSpec is a generic wrapper for different source types.
 type TargetSpec struct {
-	Name       string        `yaml:"name"`
-	SourceType SourceType    `yaml:"source_type"`
-	AuthRef    string        `yaml:"auth_ref"`
-	GitHub     *GitHubTarget `yaml:"github,omitempty"`
-	S3         *S3Target     `yaml:"s3,omitempty"`
-	URL        *URLTarget    `yaml:"url,omitempty"`
+	Name       string        `yaml:"name" json:"name"`
+	SourceType SourceType    `yaml:"source_type" json:"source_type"`
+	AuthRef    string        `yaml:"auth_ref" json:"auth_ref"`
+	GitHub     *GitHubTarget `yaml:"github,omitempty" json:"github,omitempty"`
+	S3         *S3Target     `yaml:"s3,omitempty" json:"s3,omitempty"`
+	URL        *URLTarget    `yaml:"url,omitempty" json:"url,omitempty"`
 }
 
 // GitHubTarget defines parameters for scanning GitHub repositories.
 type GitHubTarget struct {
-	Org      string            `yaml:"org,omitempty"`
-	RepoList []string          `yaml:"repo_list,omitempty"`
-	Metadata map[string]string `yaml:"metadata,omitempty"`
+	Org      string            `yaml:"org,omitempty" json:"org,omitempty"`
+	RepoList []string          `yaml:"repo_list,omitempty" json:"repo_list,omitempty"`
+	Metadata map[string]string `yaml:"metadata,omitempty" json:"metadata,omitempty"`
 }
 
 // S3Target defines parameters for scanning S3 buckets.
 type S3Target struct {
-	Bucket   string            `yaml:"bucket"`
-	Prefix   string            `yaml:"prefix,omitempty"`
-	Region   string            `yaml:"region,omitempty"`
-	Metadata map[string]string `yaml:"metadata,omitempty"`
+	Bucket   string            `yaml:"bucket" json:"bucket"`
+	Prefix   string            `yaml:"prefix,omitempty" json:"prefix,omitempty"`
+	Region   string            `yaml:"region,omitempty" json:"region,omitempty"`
+	Metadata map[string]string `yaml:"metadata,omitempty" json:"metadata,omitempty"`
 }
 
 // ArchiveFormat enumerates supported archive/compression formats.
@@ -65,41 +65,41 @@ const (
 // URLTarget defines parameters for scanning data from one or more URLs.
 type URLTarget struct {
 	// URLs can be a single URL or a list of URLs to scan.
-	URLs []string `yaml:"urls"`
+	URLs []string `yaml:"urls" json:"urls"`
 
 	// ArchiveFormat specifies how the data is compressed/archived.
 	// This can be "none", "gzip", "tar.gz", "zip", "warc.gz", or "auto".
-	ArchiveFormat ArchiveFormat `yaml:"archive_format,omitempty"`
+	ArchiveFormat ArchiveFormat `yaml:"archive_format,omitempty" json:"archive_format,omitempty"`
 
 	// Headers allows setting custom HTTP headers for the request(s).
-	Headers map[string]string `yaml:"headers,omitempty"`
+	Headers map[string]string `yaml:"headers,omitempty" json:"headers,omitempty"`
 
 	// RateLimit is the maximum number of requests per second for these URLs.
 	// Zero (or omitted) means no rate limiting.
-	RateLimit float64 `yaml:"rate_limit,omitempty"`
+	RateLimit float64 `yaml:"rate_limit,omitempty" json:"rate_limit,omitempty"`
 
 	// RetryConfig defines how the client should attempt retries on failures.
-	RetryConfig *RetryConfig `yaml:"retry,omitempty"`
+	RetryConfig *RetryConfig `yaml:"retry,omitempty" json:"retry,omitempty"`
 
 	// Metadata can be used to store arbitrary key/value data for labeling or
 	// grouping scan results.
-	Metadata map[string]string `yaml:"metadata,omitempty"`
+	Metadata map[string]string `yaml:"metadata,omitempty" json:"metadata,omitempty"`
 }
 
 // RetryConfig defines basic retry behavior for URL requests.
 type RetryConfig struct {
 	// MaxAttempts is how many times to retry before giving up.
-	MaxAttempts int `yaml:"max_attempts,omitempty"`
+	MaxAttempts int `yaml:"max_attempts,omitempty" json:"max_attempts,omitempty"`
 
 	// InitialWait is the initial backoff duration (e.g., 1s).
-	InitialWait time.Duration `yaml:"initial_wait,omitempty"`
+	InitialWait time.Duration `yaml:"initial_wait,omitempty" json:"initial_wait,omitempty"`
 
 	// MaxWait is the upper bound for the backoff (e.g., 30s).
-	MaxWait time.Duration `yaml:"max_wait,omitempty"`
+	MaxWait time.Duration `yaml:"max_wait,omitempty" json:"max_wait,omitempty"`
 }
 
 // APIConfig holds configuration for the API server
 type APIConfig struct {
-	Host string `yaml:"host" env:"API_HOST" envDefault:"0.0.0.0"`
-	Port string `yaml:"port" env:"API_PORT" envDefault:"8080"`
+	Host string `yaml:"host" json:"host" env:"API_HOST" envDefault:"0.0.0.0"`
+	Port string `yaml:"port" json:"port" env:"API_PORT" envDefault:"8080"`
 }
