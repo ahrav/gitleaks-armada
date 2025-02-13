@@ -12,12 +12,16 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
 
+// CommandHandler processes scanning-related commands and publishes corresponding domain events.
+// It implements the command handling pattern for the scanning domain.
 type CommandHandler struct {
 	logger   *logger.Logger
 	tracer   trace.Tracer
 	eventBus events.DomainEventPublisher
 }
 
+// NewCommandHandler creates a new instance of CommandHandler with the required dependencies
+// for logging, tracing, and event publishing.
 func NewCommandHandler(logger *logger.Logger, tracer trace.Tracer, eventBus events.DomainEventPublisher) *CommandHandler {
 	return &CommandHandler{
 		logger:   logger,
@@ -26,6 +30,8 @@ func NewCommandHandler(logger *logger.Logger, tracer trace.Tracer, eventBus even
 	}
 }
 
+// Handle processes incoming scanning commands and routes them to appropriate handlers.
+// It returns an error if the command type is unknown or if processing fails.
 func (h *CommandHandler) Handle(ctx context.Context, cmd commands.Command) error {
 	ctx, span := h.tracer.Start(ctx, "scanning.CommandHandler.Handle")
 	defer span.End()
@@ -42,6 +48,8 @@ func (h *CommandHandler) Handle(ctx context.Context, cmd commands.Command) error
 	}
 }
 
+// handleStartScan processes a StartScanCommand by validating it and publishing
+// a scan requested event to the event bus.
 func (h *CommandHandler) handleStartScan(ctx context.Context, cmd StartScanCommand) error {
 	if err := cmd.ValidateCommand(); err != nil {
 		h.logger.Error(ctx, "invalid scan command",
@@ -51,6 +59,7 @@ func (h *CommandHandler) handleStartScan(ctx context.Context, cmd StartScanComma
 		return err
 	}
 
+	// Create and publish event for the validated scan request.
 	evt := scanning.NewScanRequestedEvent(
 		cmd.Name,
 		string(cmd.SourceType),
@@ -58,7 +67,6 @@ func (h *CommandHandler) handleStartScan(ctx context.Context, cmd StartScanComma
 		cmd.RequestedBy,
 	)
 
-	// Publish to event bus.
 	if err := h.eventBus.PublishDomainEvent(ctx, evt); err != nil {
 		h.logger.Error(ctx, "failed to publish scan requested event",
 			"error", err,

@@ -1,3 +1,4 @@
+// Package scanning provides commands for managing security scan operations.
 package scanning
 
 import (
@@ -10,18 +11,24 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 )
 
+// CommandTypeStartScan represents the event type for initiating a new scan operation.
 const CommandTypeStartScan events.EventType = "Command.Scan.Start"
 
+// StartScanCommand encapsulates the parameters and metadata required to initiate
+// a scan operation. It maintains scan configuration, authentication details,
+// and tracking information for audit purposes.
 type StartScanCommand struct {
 	id          string
 	occurredAt  time.Time
-	Name        string
-	SourceType  config.SourceType
-	Auth        config.AuthConfig
-	Target      config.TargetSpec
-	RequestedBy string
+	Name        string            // Unique identifier for the scan operation
+	SourceType  config.SourceType // Type of repository source (e.g., GitHub, GitLab)
+	Auth        config.AuthConfig // Authentication configuration for source access
+	Target      config.TargetSpec // Specification of the scan target
+	RequestedBy string            // Identity of the user/system initiating the scan
 }
 
+// NewStartScan creates a new scan command with a unique identifier and timestamp.
+// It initializes all required fields for starting a scan operation.
 func NewStartScan(name string, sourceType config.SourceType, auth config.AuthConfig, target config.TargetSpec, requestedBy string) StartScanCommand {
 	return StartScanCommand{
 		id:          uuid.New().String(),
@@ -34,9 +41,17 @@ func NewStartScan(name string, sourceType config.SourceType, auth config.AuthCon
 	}
 }
 
+// EventType returns the type identifier for this command.
 func (c StartScanCommand) EventType() events.EventType { return CommandTypeStartScan }
-func (c StartScanCommand) OccurredAt() time.Time       { return c.occurredAt }
-func (c StartScanCommand) CommandID() string           { return c.id }
+
+// OccurredAt returns the timestamp when this command was created.
+func (c StartScanCommand) OccurredAt() time.Time { return c.occurredAt }
+
+// CommandID returns the unique identifier for this command instance.
+func (c StartScanCommand) CommandID() string { return c.id }
+
+// ValidateCommand ensures all required fields are properly set before
+// the scan command can be executed.
 func (c StartScanCommand) ValidateCommand() error {
 	if c.Name == "" {
 		return errors.New("name is required")

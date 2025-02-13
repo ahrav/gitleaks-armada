@@ -6,14 +6,14 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 )
 
-// Handler defines the interface for processing commands
+// Handler defines the interface for processing commands.
 type Handler interface {
 	Handle(ctx context.Context, cmd Command) error
 }
 
-// Command represents a base command interface
+// Command represents a base command interface.
 type Command interface {
-	events.DomainEvent // Reuse event interface for type/occurred at
+	events.DomainEvent
 	CommandID() string
 	ValidateCommand() error
 }
