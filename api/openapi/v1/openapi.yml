@@ -1,0 +1,152 @@
+openapi: '3.0.3'
+info:
+  title: API Specification for Gitleaks Armada
+  version: '1.0'
+servers:
+  - url: https://api.server.test/v1 # TODO: change to the actual URL
+paths:
+  /v1/scan:
+    post:
+      summary: Start a new scan operation
+      operationId: startScan
+      tags:
+        - Scanning
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScanRequest'
+      responses:
+        '200':
+          description: Scan started successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanResponse'
+        '400':
+          description: Invalid request parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+components:
+  schemas:
+    ScanRequest:
+      type: object
+      required:
+        - name
+        - source_type
+      properties:
+        name:
+          type: string
+          description: Unique identifier for the scan operation
+        source_type:
+          type: string
+          enum: [github, s3, url]
+          description: Type of source to scan
+        auth_type:
+          type: string
+          description: Type of authentication to use
+        auth_config:
+          type: object
+          additionalProperties: true
+          description: Authentication configuration
+        urls:
+          type: array
+          items:
+            type: string
+          description: List of URLs to scan (when source_type is 'url')
+        archive_format:
+          type: string
+          enum: [none, gzip, tar.gz, zip, warc.gz, auto]
+          description: Format of the archive to process
+        rate_limit:
+          type: number
+          format: float
+          description: Maximum requests per second
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+          description: Custom HTTP headers
+        organization:
+          type: string
+          description: GitHub organization name (when source_type is 'github')
+        repositories:
+          type: array
+          items:
+            type: string
+          description: List of GitHub repositories (when source_type is 'github')
+        bucket:
+          type: string
+          description: S3 bucket name (when source_type is 's3')
+        prefix:
+          type: string
+          description: S3 bucket prefix (when source_type is 's3')
+        region:
+          type: string
+          description: S3 bucket region (when source_type is 's3')
+        retry:
+          $ref: '#/components/schemas/RetryConfig'
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+          description: Additional metadata for the scan
+
+    RetryConfig:
+      type: object
+      properties:
+        max_attempts:
+          type: integer
+          description: Maximum number of retry attempts
+        initial_wait:
+          type: string
+          format: duration
+          description: Initial wait time between retries
+        max_wait:
+          type: string
+          format: duration
+          description: Maximum wait time between retries
+
+    ScanResponse:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+          description: Status message about the scan operation
+          example: "scan started"
+
+    ErrorResponse:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          enum:
+            - invalid_argument
+            - internal
+          description: Error code identifying the type of error
+        message:
+          type: string
+          description: Human-readable error message
+      examples:
+        validation_error:
+          value:
+            code: invalid_argument
+            message: "name is a required field"
+        internal_error:
+          value:
+            code: internal
+            message: "failed to process scan request"
