@@ -2,62 +2,38 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"log"
+	"net/http"
 	"os"
 	"os/signal"
-	"strconv"
-	"strings"
-	"sync/atomic"
+	"runtime"
 	"syscall"
 	"time"
 
 	"go.uber.org/automaxprocs/maxprocs"
 
 	"github.com/ahrav/gitleaks-armada/internal/api"
-	"github.com/ahrav/gitleaks-armada/internal/config"
+	"github.com/ahrav/gitleaks-armada/internal/api/debug"
+	"github.com/ahrav/gitleaks-armada/internal/api/mux"
+	"github.com/ahrav/gitleaks-armada/internal/api/routes"
+	"github.com/ahrav/gitleaks-armada/internal/app/commands/scanning"
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/infra/eventbus/kafka"
-	"github.com/ahrav/gitleaks-armada/pkg/common"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/common/otel"
 )
 
-const (
-	serviceType = "api-gateway"
-)
+var build = "develop"
 
 func main() {
+	// Set the correct number of threads for the service
 	_, _ = maxprocs.Set()
-
-	hostname, err := os.Hostname()
-	if err != nil {
-		log.Fatalf("failed to get hostname: %v", err)
-	}
 
 	var log *logger.Logger
 
-	logEvents := logger.Events{
+	events := logger.Events{
 		Error: func(ctx context.Context, r logger.Record) {
-			errorAttrs := map[string]any{
-				"error_message": r.Message,
-				"error_time":    r.Time.UTC().Format(time.RFC3339),
-				"trace_id":      otel.GetTraceID(ctx),
-			}
-
-			for k, v := range r.Attributes {
-				errorAttrs[k] = v
-			}
-
-			errorAttrsJSON, err := json.Marshal(errorAttrs)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "failed to marshal error attributes: %v\n", err)
-				return
-			}
-
-			fmt.Fprintf(os.Stderr, "Error event: %s, details: %s\n",
-				r.Message, errorAttrsJSON)
+			log.Info(ctx, "******* SEND ALERT *******")
 		},
 	}
 
@@ -65,143 +41,215 @@ func main() {
 		return otel.GetTraceID(ctx)
 	}
 
-	svcName := fmt.Sprintf("API-GATEWAY-%s", hostname)
-	metadata := map[string]string{
-		"service":   svcName,
-		"hostname":  hostname,
-		"pod":       os.Getenv("POD_NAME"),
-		"namespace": os.Getenv("POD_NAMESPACE"),
-		"app":       serviceType,
-	}
+	log = logger.NewWithEvents(os.Stdout, logger.LevelInfo, "API-GATEWAY", traceIDFn, events)
 
-	log = logger.NewWithMetadata(os.Stdout, logger.LevelDebug, svcName, traceIDFn, logEvents, metadata)
+	ctx := context.Background()
 
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
-	defer signal.Stop(sigCh)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	prob, err := strconv.ParseFloat(os.Getenv("OTEL_SAMPLING_RATIO"), 64)
-	if err != nil {
-		log.Error(ctx, "failed to parse OTEL_SAMPLING_RATIO", "error", err)
+	if err := run(ctx, log); err != nil {
+		log.Error(ctx, "startup", "err", err)
 		os.Exit(1)
 	}
+}
 
-	tp, telemetryTeardown, err := otel.InitTelemetry(log, otel.Config{
-		ServiceName:      os.Getenv("OTEL_SERVICE_NAME"),
-		ExporterEndpoint: os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
+func run(ctx context.Context, log *logger.Logger) error {
+	// -------------------------------------------------------------------------
+	// GOMAXPROCS
+
+	log.Info(ctx, "startup", "GOMAXPROCS", runtime.GOMAXPROCS(0))
+
+	// -------------------------------------------------------------------------
+	// Configuration
+
+	cfg := struct {
+		// conf.Version
+		Web struct {
+			ReadTimeout        time.Duration `conf:"default:5s"`
+			WriteTimeout       time.Duration `conf:"default:10s"`
+			IdleTimeout        time.Duration `conf:"default:120s"`
+			ShutdownTimeout    time.Duration `conf:"default:20s"`
+			APIHost            string        `conf:"default:0.0.0.0"`
+			APIPort            string        `conf:"default:6000"`
+			DebugHost          string        `conf:"default:0.0.0.0:6010"`
+			CORSAllowedOrigins []string      `conf:"default:*"`
+		}
+		Kafka struct {
+			Brokers              []string `conf:"required"`
+			GroupID              string   `conf:"required"`
+			EnumerationTaskTopic string   `conf:"required"`
+			ScanningTaskTopic    string   `conf:"required"`
+			ResultsTopic         string   `conf:"required"`
+			ProgressTopic        string   `conf:"required"`
+			JobMetricsTopic      string   `conf:"required"`
+		}
+		Tempo struct {
+			Host        string  `conf:"default:tempo:4317"`
+			ServiceName string  `conf:"default:api-gateway"`
+			Probability float64 `conf:"default:0.05"`
+		}
+	}{
+		// Version: conf.Version{
+		// 	Build: build,
+		// 	Desc:  "GitLeaks Armada API Gateway",
+		// },
+	}
+
+	// const prefix = "ARMADA"
+	// help, err := conf.Parse(prefix, &cfg)
+	// if err != nil {
+	// 	if errors.Is(err, conf.ErrHelpWanted) {
+	// 		fmt.Println(help)
+	// 		return nil
+	// 	}
+	// 	return fmt.Errorf("parsing config: %w", err)
+	// }
+
+	// -------------------------------------------------------------------------
+	// App Starting
+
+	log.Info(ctx, "starting service", "version", build)
+	defer log.Info(ctx, "shutdown complete")
+
+	// out, err := conf.String(&cfg)
+	// if err != nil {
+	// 	return fmt.Errorf("generating config for output: %w", err)
+	// }
+	// log.Info(ctx, "startup", "config", out)
+
+	// expvar.NewString("build").Set(cfg.Build)
+
+	// -------------------------------------------------------------------------
+	// Initialize Event Bus
+
+	log.Info(ctx, "startup", "status", "initializing event bus")
+
+	kafkaClient, err := kafka.NewClient(&kafka.ClientConfig{
+		Brokers:     cfg.Kafka.Brokers,
+		GroupID:     cfg.Kafka.GroupID,
+		ClientID:    cfg.Tempo.ServiceName,
+		ServiceType: "api-gateway",
+	})
+	if err != nil {
+		return fmt.Errorf("creating kafka client: %w", err)
+	}
+	defer kafkaClient.Close()
+
+	// -------------------------------------------------------------------------
+	// Start Tracing Support
+
+	log.Info(ctx, "startup", "status", "initializing tracing support")
+
+	traceProvider, teardown, err := otel.InitTelemetry(log, otel.Config{
+		ServiceName:      cfg.Tempo.ServiceName,
+		ExporterEndpoint: cfg.Tempo.Host,
 		ExcludedRoutes: map[string]struct{}{
 			"/v1/health":    {},
 			"/v1/readiness": {},
 		},
-		Probability: prob,
-		ResourceAttributes: map[string]string{
-			"library.language": "go",
-			"k8s.pod.name":     os.Getenv("POD_NAME"),
-			"k8s.namespace":    os.Getenv("POD_NAMESPACE"),
-			"k8s.container.id": hostname,
-		},
-		InsecureExporter: true, // TODO: Come back to setup TLS
+		Probability: cfg.Tempo.Probability,
 	})
 	if err != nil {
-		log.Error(ctx, "failed to initialize telemetry", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("starting tracing: %w", err)
 	}
-	defer telemetryTeardown(ctx)
+	defer teardown(ctx)
 
-	tracer := tp.Tracer(os.Getenv("OTEL_SERVICE_NAME"))
+	tracer := traceProvider.Tracer(cfg.Tempo.ServiceName)
 
-	ready := &atomic.Bool{}
-	healthServer := common.NewHealthServer(ready)
-	defer func() {
-		if err := healthServer.Server().Shutdown(ctx); err != nil {
-			log.Error(ctx, "Error shutting down health server", "error", err)
+	// -------------------------------------------------------------------------
+	// Start Debug Service
+
+	go func() {
+		log.Info(ctx, "startup", "status", "debug router started", "host", cfg.Web.DebugHost)
+
+		if err := http.ListenAndServe(cfg.Web.DebugHost, debug.Mux()); err != nil {
+			log.Error(ctx, "shutdown", "status", "debug router closed", "host", cfg.Web.DebugHost, "msg", err)
 		}
 	}()
 
-	cfg := &config.Config{
-		API: config.APIConfig{
-			Host: os.Getenv("API_HOST"),
-			Port: os.Getenv("API_PORT"),
-		},
-	}
+	// -------------------------------------------------------------------------
+	// Start API Service
 
-	kafkaCfg := &kafka.EventBusConfig{
-		Brokers:               strings.Split(os.Getenv("KAFKA_BROKERS"), ","),
-		EnumerationTaskTopic:  os.Getenv("KAFKA_ENUMERATION_TASK_TOPIC"),
-		ScanningTaskTopic:     os.Getenv("KAFKA_SCANNING_TASK_TOPIC"),
-		ResultsTopic:          os.Getenv("KAFKA_RESULTS_TOPIC"),
-		ProgressTopic:         os.Getenv("KAFKA_PROGRESS_TOPIC"),
-		JobMetricsTopic:       os.Getenv("KAFKA_JOB_METRICS_TOPIC"),
-		HighPriorityTaskTopic: os.Getenv("KAFKA_HIGH_PRIORITY_TASK_TOPIC"),
-		RulesRequestTopic:     os.Getenv("KAFKA_RULES_REQUEST_TOPIC"),
-		RulesResponseTopic:    os.Getenv("KAFKA_RULES_RESPONSE_TOPIC"),
-		GroupID:               os.Getenv("KAFKA_GROUP_ID"),
-		ClientID:              svcName,
-		ServiceType:           serviceType,
-	}
+	log.Info(ctx, "startup", "status", "initializing API support")
 
-	// Create the shared Kafka client.
-	kafkaClient, err := kafka.NewClient(&kafka.ClientConfig{
-		Brokers:     strings.Split(os.Getenv("KAFKA_BROKERS"), ","),
-		GroupID:     os.Getenv("KAFKA_GROUP_ID"),
-		ClientID:    svcName,
-		ServiceType: serviceType,
-	})
-	if err != nil {
-		log.Error(ctx, "failed to create kafka client", "error", err)
-		os.Exit(1)
-	}
-	defer kafkaClient.Close()
+	shutdown := make(chan os.Signal, 1)
+	signal.Notify(shutdown, syscall.SIGINT, syscall.SIGTERM)
 
-	// Initialize metrics collector for API.
 	mp := otel.GetMeterProvider()
 	metricCollector, err := api.NewAPIMetrics(mp)
 	if err != nil {
-		log.Error(ctx, "failed to create metrics collector", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("creating metrics collector: %w", err)
 	}
 
-	eventBus, err := kafka.ConnectEventBus(kafkaCfg, kafkaClient, log, metricCollector, tracer)
+	bus, err := kafka.ConnectEventBus(&kafka.EventBusConfig{
+		Brokers:              cfg.Kafka.Brokers,
+		EnumerationTaskTopic: cfg.Kafka.EnumerationTaskTopic,
+		ScanningTaskTopic:    cfg.Kafka.ScanningTaskTopic,
+		ResultsTopic:         cfg.Kafka.ResultsTopic,
+		ProgressTopic:        cfg.Kafka.ProgressTopic,
+		JobMetricsTopic:      cfg.Kafka.JobMetricsTopic,
+		GroupID:              cfg.Kafka.GroupID,
+		ClientID:             cfg.Tempo.ServiceName,
+		ServiceType:          "api-gateway",
+	}, kafkaClient, log, metricCollector, tracer)
 	if err != nil {
-		log.Error(ctx, "failed to connect event bus", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("connecting event bus: %w", err)
 	}
-	defer eventBus.Close()
+	defer bus.Close()
 
 	kafkaPosTranslator := kafka.NewKafkaPositionTranslator()
 	domainEventTranslator := events.NewDomainEventTranslator(kafkaPosTranslator)
-	eventPublisher := kafka.NewDomainEventPublisher(eventBus, domainEventTranslator)
+	eventBus := kafka.NewDomainEventPublisher(bus, domainEventTranslator)
 
-	server, err := api.NewServer(cfg, log, tracer, eventPublisher)
-	if err != nil {
-		log.Error(ctx, "failed to create server", "error", err)
-		os.Exit(1)
+	cmdHandler := scanning.NewCommandHandler(log, tracer, eventBus)
+
+	// Initialize mux configuration
+	muxConfig := mux.Config{
+		Build:      build,
+		Log:        log,
+		EventBus:   eventBus,
+		CmdHandler: cmdHandler,
+		Tracer:     tracer,
 	}
 
-	log.Info(ctx, "API Gateway initialized")
-	ready.Store(true)
+	// Construct web API
+	webAPI := mux.WebAPI(muxConfig,
+		routes.Routes(),
+		mux.WithCORS(cfg.Web.CORSAllowedOrigins),
+	)
 
-	errCh := make(chan error, 1)
+	api := http.Server{
+		Addr:         fmt.Sprintf("%s:%s", cfg.Web.APIHost, cfg.Web.APIPort),
+		Handler:      webAPI,
+		ReadTimeout:  cfg.Web.ReadTimeout,
+		WriteTimeout: cfg.Web.WriteTimeout,
+		IdleTimeout:  cfg.Web.IdleTimeout,
+		ErrorLog:     logger.NewStdLogger(log, logger.LevelError),
+	}
+
+	serverErrors := make(chan error, 1)
+
 	go func() {
-		if err := server.Start(ctx); err != nil {
-			errCh <- err
-		}
+		log.Info(ctx, "startup", "status", "api router started", "host", api.Addr)
+		serverErrors <- api.ListenAndServe()
 	}()
 
-	// Wait for shutdown signal or error.
+	// -------------------------------------------------------------------------
+	// Shutdown
+
 	select {
-	case sig := <-sigCh:
-		log.Info(ctx, "Received shutdown signal", "signal", sig)
-		cancel() // Signal server to stop
+	case err := <-serverErrors:
+		return fmt.Errorf("server error: %w", err)
 
-		_, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer shutdownCancel()
+	case sig := <-shutdown:
+		log.Info(ctx, "shutdown", "status", "shutdown started", "signal", sig)
+		defer log.Info(ctx, "shutdown", "status", "shutdown complete", "signal", sig)
 
-	case err := <-errCh:
-		log.Error(ctx, "Server error", "error", err)
-		os.Exit(1)
+		ctx, cancel := context.WithTimeout(ctx, cfg.Web.ShutdownTimeout)
+		defer cancel()
+
+		if err := api.Shutdown(ctx); err != nil {
+			return fmt.Errorf("could not stop server gracefully: %w", err)
+		}
 	}
+
+	return nil
 }

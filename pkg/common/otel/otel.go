@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/google/uuid"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
@@ -114,22 +115,17 @@ func InitTelemetry(log *logger.Logger, cfg Config) (trace.TracerProvider, func(c
 	return tp, cleanup, nil
 }
 
-// AddSpan creates a new span with the given name and attributes
-func AddSpan(ctx context.Context, tracer trace.Tracer, spanName string, keyValues ...attribute.KeyValue) (context.Context, trace.Span) {
-	ctx, span := tracer.Start(ctx, spanName)
-	for _, kv := range keyValues {
-		span.SetAttributes(kv)
+// AddSpan adds an otel span to the existing trace.
+func AddSpan(ctx context.Context, spanName string, keyValues ...attribute.KeyValue) (context.Context, trace.Span) {
+	v, ok := ctx.Value(tracerKey).(trace.Tracer)
+	if !ok || v == nil {
+		return ctx, trace.SpanFromContext(ctx)
 	}
-	return ctx, span
-}
 
-// Helper function to convert map to attribute.KeyValue slice
-func attributesFromMap(m map[string]string) []attribute.KeyValue {
-	attrs := make([]attribute.KeyValue, 0, len(m))
-	for k, v := range m {
-		attrs = append(attrs, attribute.String(k, v))
-	}
-	return attrs
+	ctx, span := v.Start(ctx, spanName)
+	span.SetAttributes(keyValues...)
+
+	return ctx, span
 }
 
 func Middleware(tracer trace.Tracer) func(next http.Handler) http.Handler {
@@ -157,4 +153,26 @@ func Middleware(tracer trace.Tracer) func(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+// InjectTracing initializes the request for tracing by writing otel related
+// information into the response and saving the tracer and trace id in the
+// context for later use.
+func InjectTracing(ctx context.Context, tracer trace.Tracer) context.Context {
+	ctx = setTracer(ctx, tracer)
+
+	traceID := trace.SpanFromContext(ctx).SpanContext().TraceID().String()
+	if traceID == "00000000000000000000000000000000" {
+		traceID = uuid.NewString()
+	}
+	ctx = setTraceID(ctx, traceID)
+
+	return ctx
+}
+
+// AddTraceToRequest adds the current trace id to the request so it
+// can be delivered to the service being called.
+func AddTraceToRequest(ctx context.Context, r *http.Request) {
+	hc := propagation.HeaderCarrier(r.Header)
+	otel.GetTextMapPropagator().Inject(ctx, hc)
 }
