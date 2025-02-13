@@ -29,7 +29,13 @@ type StartScanCommand struct {
 
 // NewStartScan creates a new scan command with a unique identifier and timestamp.
 // It initializes all required fields for starting a scan operation.
-func NewStartScan(name string, sourceType config.SourceType, auth config.AuthConfig, target config.TargetSpec, requestedBy string) StartScanCommand {
+func NewStartScan(
+	name string,
+	sourceType config.SourceType,
+	auth config.AuthConfig,
+	target config.TargetSpec,
+	requestedBy string,
+) StartScanCommand {
 	return StartScanCommand{
 		id:          uuid.New().String(),
 		occurredAt:  time.Now(),

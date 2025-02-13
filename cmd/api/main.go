@@ -9,9 +9,13 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
+	"github.com/exaring/otelpgx"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/automaxprocs/maxprocs"
 
 	"github.com/ahrav/gitleaks-armada/internal/api"
@@ -84,23 +88,20 @@ func main() {
 
 	ctx := context.Background()
 
-	if err := run(ctx, log); err != nil {
+	if err := run(ctx, log, hostname); err != nil {
 		log.Error(ctx, "startup", "err", err)
 		os.Exit(1)
 	}
 }
 
-func run(ctx context.Context, log *logger.Logger) error {
+func run(ctx context.Context, log *logger.Logger, hostname string) error {
 	// -------------------------------------------------------------------------
 	// GOMAXPROCS
-
 	log.Info(ctx, "startup", "GOMAXPROCS", runtime.GOMAXPROCS(0))
 
 	// -------------------------------------------------------------------------
 	// Configuration
-
 	cfg := struct {
-		// conf.Version
 		Web struct {
 			ReadTimeout        time.Duration `conf:"default:5s"`
 			WriteTimeout       time.Duration `conf:"default:10s"`
@@ -125,47 +126,57 @@ func run(ctx context.Context, log *logger.Logger) error {
 			ServiceName string  `conf:"default:api-gateway"`
 			Probability float64 `conf:"default:0.05"`
 		}
-	}{
-		// Version: conf.Version{
-		// 	Build: build,
-		// 	Desc:  "GitLeaks Armada API Gateway",
-		// },
-	}
-
-	// const prefix = "ARMADA"
-	// help, err := conf.Parse(prefix, &cfg)
-	// if err != nil {
-	// 	if errors.Is(err, conf.ErrHelpWanted) {
-	// 		fmt.Println(help)
-	// 		return nil
-	// 	}
-	// 	return fmt.Errorf("parsing config: %w", err)
-	// }
+	}{}
 
 	// -------------------------------------------------------------------------
-	// App Starting
+	// Database Configuration
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		user := os.Getenv("POSTGRES_USER")
+		password := os.Getenv("POSTGRES_PASSWORD")
+		host := os.Getenv("POSTGRES_HOST")
+		dbname := os.Getenv("POSTGRES_DB")
 
-	log.Info(ctx, "starting service", "version", build)
-	defer log.Info(ctx, "shutdown complete")
+		if user == "" {
+			user = "postgres"
+		}
+		if password == "" {
+			password = "postgres"
+		}
+		if host == "" {
+			host = "postgres"
+		}
+		if dbname == "" {
+			dbname = "secretscanner"
+		}
 
-	// out, err := conf.String(&cfg)
-	// if err != nil {
-	// 	return fmt.Errorf("generating config for output: %w", err)
-	// }
-	// log.Info(ctx, "startup", "config", out)
+		dsn = fmt.Sprintf("postgres://%s:%s@%s:5432/%s?sslmode=disable",
+			user, password, host, dbname)
+	}
 
-	// expvar.NewString("build").Set(cfg.Build)
+	poolCfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		return fmt.Errorf("parsing db config: %w", err)
+	}
+
+	poolCfg.ConnConfig.Tracer = otelpgx.NewTracer()
+
+	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
+	if err != nil {
+		return fmt.Errorf("creating db pool: %w", err)
+	}
+	defer pool.Close()
 
 	// -------------------------------------------------------------------------
 	// Initialize Event Bus
-
 	log.Info(ctx, "startup", "status", "initializing event bus")
 
+	// Create Kafka client using environment variables
 	kafkaClient, err := kafka.NewClient(&kafka.ClientConfig{
-		Brokers:     cfg.Kafka.Brokers,
-		GroupID:     cfg.Kafka.GroupID,
-		ClientID:    cfg.Tempo.ServiceName,
-		ServiceType: "api-gateway",
+		Brokers:     strings.Split(os.Getenv("KAFKA_BROKERS"), ","),
+		GroupID:     os.Getenv("KAFKA_GROUP_ID"),
+		ClientID:    os.Getenv("OTEL_SERVICE_NAME"),
+		ServiceType: serviceType,
 	})
 	if err != nil {
 		return fmt.Errorf("creating kafka client: %w", err)
@@ -174,24 +185,35 @@ func run(ctx context.Context, log *logger.Logger) error {
 
 	// -------------------------------------------------------------------------
 	// Start Tracing Support
-
 	log.Info(ctx, "startup", "status", "initializing tracing support")
 
+	prob, err := strconv.ParseFloat(os.Getenv("OTEL_SAMPLING_RATIO"), 64)
+	if err != nil {
+		return fmt.Errorf("parsing sampling ratio: %w", err)
+	}
+
 	traceProvider, teardown, err := otel.InitTelemetry(log, otel.Config{
-		ServiceName:      cfg.Tempo.ServiceName,
-		ExporterEndpoint: cfg.Tempo.Host,
+		ServiceName:      os.Getenv("OTEL_SERVICE_NAME"),
+		ExporterEndpoint: os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
 		ExcludedRoutes: map[string]struct{}{
 			"/v1/health":    {},
 			"/v1/readiness": {},
 		},
-		Probability: cfg.Tempo.Probability,
+		Probability: prob,
+		ResourceAttributes: map[string]string{
+			"library.language": "go",
+			"k8s.pod.name":     os.Getenv("POD_NAME"),
+			"k8s.namespace":    os.Getenv("POD_NAMESPACE"),
+			"k8s.container.id": hostname,
+		},
+		InsecureExporter: true, // TODO: Come back to setup TLS
 	})
 	if err != nil {
 		return fmt.Errorf("starting tracing: %w", err)
 	}
 	defer teardown(ctx)
 
-	tracer := traceProvider.Tracer(cfg.Tempo.ServiceName)
+	tracer := traceProvider.Tracer(os.Getenv("OTEL_SERVICE_NAME"))
 
 	// -------------------------------------------------------------------------
 	// Start Debug Service
@@ -219,15 +241,15 @@ func run(ctx context.Context, log *logger.Logger) error {
 	}
 
 	bus, err := kafka.ConnectEventBus(&kafka.EventBusConfig{
-		Brokers:              cfg.Kafka.Brokers,
-		EnumerationTaskTopic: cfg.Kafka.EnumerationTaskTopic,
-		ScanningTaskTopic:    cfg.Kafka.ScanningTaskTopic,
-		ResultsTopic:         cfg.Kafka.ResultsTopic,
-		ProgressTopic:        cfg.Kafka.ProgressTopic,
-		JobMetricsTopic:      cfg.Kafka.JobMetricsTopic,
-		GroupID:              cfg.Kafka.GroupID,
-		ClientID:             cfg.Tempo.ServiceName,
-		ServiceType:          "api-gateway",
+		Brokers:              strings.Split(os.Getenv("KAFKA_BROKERS"), ","),
+		EnumerationTaskTopic: os.Getenv("KAFKA_ENUMERATION_TASK_TOPIC"),
+		ScanningTaskTopic:    os.Getenv("KAFKA_SCANNING_TASK_TOPIC"),
+		ResultsTopic:         os.Getenv("KAFKA_RESULTS_TOPIC"),
+		ProgressTopic:        os.Getenv("KAFKA_PROGRESS_TOPIC"),
+		JobMetricsTopic:      os.Getenv("KAFKA_JOB_METRICS_TOPIC"),
+		GroupID:              os.Getenv("KAFKA_GROUP_ID"),
+		ClientID:             os.Getenv("OTEL_SERVICE_NAME"),
+		ServiceType:          serviceType,
 	}, kafkaClient, log, metricCollector, tracer)
 	if err != nil {
 		return fmt.Errorf("connecting event bus: %w", err)
@@ -256,7 +278,7 @@ func run(ctx context.Context, log *logger.Logger) error {
 	)
 
 	api := http.Server{
-		Addr:         fmt.Sprintf("%s:%s", cfg.Web.APIHost, cfg.Web.APIPort),
+		Addr:         fmt.Sprintf("%s:%s", os.Getenv("API_HOST"), os.Getenv("API_PORT")),
 		Handler:      webAPI,
 		ReadTimeout:  cfg.Web.ReadTimeout,
 		WriteTimeout: cfg.Web.WriteTimeout,
