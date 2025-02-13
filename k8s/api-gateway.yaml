@@ -97,6 +97,11 @@ spec:
           value: "0.0.0.0"
         - name: API_PORT
           value: "8080"
+        # Debug configuration
+        - name: DEBUG_HOST
+          value: "0.0.0.0"
+        - name: DEBUG_PORT
+          value: "6060"
         resources:
           requests:
             memory: "256Mi"

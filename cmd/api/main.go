@@ -219,10 +219,14 @@ func run(ctx context.Context, log *logger.Logger, hostname string) error {
 	// Start Debug Service
 
 	go func() {
-		log.Info(ctx, "startup", "status", "debug router started", "host", cfg.Web.DebugHost)
+		debugHost := fmt.Sprintf("%s:%s",
+			os.Getenv("DEBUG_HOST"),
+			os.Getenv("DEBUG_PORT"),
+		)
+		log.Info(ctx, "startup", "status", "debug router started", "host", debugHost)
 
-		if err := http.ListenAndServe(cfg.Web.DebugHost, debug.Mux()); err != nil {
-			log.Error(ctx, "shutdown", "status", "debug router closed", "host", cfg.Web.DebugHost, "msg", err)
+		if err := http.ListenAndServe(debugHost, debug.Mux()); err != nil {
+			log.Error(ctx, "shutdown", "status", "debug router closed", "host", debugHost, "msg", err)
 		}
 	}()
 
