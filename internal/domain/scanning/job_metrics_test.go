@@ -384,3 +384,68 @@ func TestJobMetrics_OnTaskStatusChanged(t *testing.T) {
 		})
 	}
 }
+
+func TestJobMetrics_IsCompleted(t *testing.T) {
+	tests := []struct {
+		name     string
+		metrics  *JobMetrics
+		expected bool
+	}{
+		{
+			name: "all tasks completed",
+			metrics: &JobMetrics{
+				totalTasks:      10,
+				completedTasks:  8,
+				failedTasks:     2,
+				pendingTasks:    0,
+				inProgressTasks: 0,
+				staleTasks:      0,
+			},
+			expected: true,
+		},
+		{
+			name: "has pending tasks",
+			metrics: &JobMetrics{
+				totalTasks:      10,
+				completedTasks:  5,
+				failedTasks:     2,
+				pendingTasks:    3,
+				inProgressTasks: 0,
+				staleTasks:      0,
+			},
+			expected: false,
+		},
+		{
+			name: "has in-progress tasks",
+			metrics: &JobMetrics{
+				totalTasks:      10,
+				completedTasks:  7,
+				failedTasks:     1,
+				pendingTasks:    0,
+				inProgressTasks: 2,
+				staleTasks:      0,
+			},
+			expected: false,
+		},
+		{
+			name: "has stale tasks",
+			metrics: &JobMetrics{
+				totalTasks:      10,
+				completedTasks:  8,
+				failedTasks:     1,
+				pendingTasks:    0,
+				inProgressTasks: 0,
+				staleTasks:      1,
+			},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.metrics.IsCompleted(); got != tt.expected {
+				t.Errorf("JobMetrics.IsCompleted() = %v, want %v", got, tt.expected)
+			}
+		})
+	}
+}
