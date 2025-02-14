@@ -1,15 +1,9 @@
 package config
 
-import "time"
+import (
+	"time"
 
-// SourceType enumerates the supported source types.
-type SourceType string
-
-const (
-	SourceTypeGitHub SourceType = "github"
-	SourceTypeS3     SourceType = "s3"
-	SourceTypeURL    SourceType = "url"
-	// Add more as needed....
+	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 )
 
 // AuthConfig represents an authentication configuration.
@@ -27,12 +21,12 @@ type Config struct {
 
 // TargetSpec is a generic wrapper for different source types.
 type TargetSpec struct {
-	Name       string        `yaml:"name" json:"name"`
-	SourceType SourceType    `yaml:"source_type" json:"source_type"`
-	AuthRef    string        `yaml:"auth_ref" json:"auth_ref"`
-	GitHub     *GitHubTarget `yaml:"github,omitempty" json:"github,omitempty"`
-	S3         *S3Target     `yaml:"s3,omitempty" json:"s3,omitempty"`
-	URL        *URLTarget    `yaml:"url,omitempty" json:"url,omitempty"`
+	Name       string            `yaml:"name" json:"name"`
+	SourceType shared.SourceType `yaml:"source_type" json:"source_type"`
+	AuthRef    string            `yaml:"auth_ref" json:"auth_ref"`
+	GitHub     *GitHubTarget     `yaml:"github,omitempty" json:"github,omitempty"`
+	S3         *S3Target         `yaml:"s3,omitempty" json:"s3,omitempty"`
+	URL        *URLTarget        `yaml:"url,omitempty" json:"url,omitempty"`
 }
 
 // GitHubTarget defines parameters for scanning GitHub repositories.
