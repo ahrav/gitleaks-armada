@@ -39,6 +39,11 @@ func (m *JobMetrics) Clone() *JobMetrics {
 	}
 }
 
+// IsCompleted returns true if the job is completed.
+func (m *JobMetrics) IsCompleted() bool {
+	return m.pendingTasks == 0 && m.inProgressTasks == 0 && m.staleTasks == 0
+}
+
 // TotalTasks returns the total number of tasks.
 func (m *JobMetrics) TotalTasks() int { return m.totalTasks }
 
