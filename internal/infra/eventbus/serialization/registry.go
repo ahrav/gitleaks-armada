@@ -20,10 +20,12 @@ import (
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/ahrav/gitleaks-armada/internal/config"
 	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/rules"
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
+	serdeConfig "github.com/ahrav/gitleaks-armada/internal/infra/eventbus/serialization/protobuf/config"
 	serdeEnum "github.com/ahrav/gitleaks-armada/internal/infra/eventbus/serialization/protobuf/enumeration"
 	serdeRules "github.com/ahrav/gitleaks-armada/internal/infra/eventbus/serialization/protobuf/rules"
 	serdeScanning "github.com/ahrav/gitleaks-armada/internal/infra/eventbus/serialization/protobuf/scanning"
@@ -120,6 +122,9 @@ func RegisterEventSerializers() {
 	RegisterSerializeFunc(enumeration.EventTypeTaskCreated, serializeEnumerationTaskCreated)
 	RegisterDeserializeFunc(enumeration.EventTypeTaskCreated, deserializeEnumerationTaskCreated)
 
+	RegisterSerializeFunc(enumeration.EventTypeEnumerationRequested, serializeEnumerationRequested)
+	RegisterDeserializeFunc(enumeration.EventTypeEnumerationRequested, deserializeEnumerationRequested)
+
 	// Scanning.
 	RegisterSerializeFunc(scanning.EventTypeTaskStarted, serializeTaskStarted)
 	RegisterDeserializeFunc(scanning.EventTypeTaskStarted, deserializeTaskStarted)
@@ -178,6 +183,49 @@ func deserializeEnumerationTaskCreated(data []byte) (any, error) {
 		return nil, fmt.Errorf("convert proto to domain: %w", err)
 	}
 	return enumeration.NewTaskCreatedEvent(uuid.MustParse(pbTask.JobId), t), nil
+}
+
+// serializeEnumerationRequested converts an EnumerationRequestedEvent to protobuf bytes.
+func serializeEnumerationRequested(payload any) ([]byte, error) {
+	event, ok := payload.(enumeration.EnumerationRequestedEvent)
+	if !ok {
+		return nil, fmt.Errorf("serializeEnumerationRequested: payload is not EnumerationRequestedEvent, got %T", payload)
+	}
+
+	pbEvent := &pb.EnumerationRequestedEvent{
+		EventId:     event.EventID(),
+		OccurredAt:  event.OccurredAt().UnixNano(),
+		RequestedBy: event.RequestedBy,
+	}
+
+	if event.Config != nil {
+		config, err := serdeConfig.ConfigToProto(event.Config)
+		if err != nil {
+			return nil, fmt.Errorf("serialize config: %w", err)
+		}
+		pbEvent.Config = config
+	}
+
+	return proto.Marshal(pbEvent)
+}
+
+// deserializeEnumerationRequested converts protobuf bytes back into an EnumerationRequestedEvent.
+func deserializeEnumerationRequested(data []byte) (any, error) {
+	var pbEvent pb.EnumerationRequestedEvent
+	if err := proto.Unmarshal(data, &pbEvent); err != nil {
+		return nil, fmt.Errorf("unmarshal EnumerationRequestedEvent: %w", err)
+	}
+
+	var cfg *config.Config
+	var err error
+	if pbEvent.Config != nil {
+		cfg, err = serdeConfig.ProtoToConfig(pbEvent.Config)
+		if err != nil {
+			return nil, fmt.Errorf("deserialize config: %w", err)
+		}
+	}
+
+	return enumeration.NewEnumerationRequestedEvent(cfg, pbEvent.RequestedBy), nil
 }
 
 // serializeTaskStarted converts a TaskStartedEvent to protobuf bytes.

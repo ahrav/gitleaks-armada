@@ -103,18 +103,18 @@ func NewEventBus(
 	// Map domain events to their corresponding Kafka topics.
 	// TODO: Maybe use a more performant data structure for this?
 	topicMap := map[events.EventType]string{
-		enumeration.EventTypeTaskCreated: cfg.EnumerationTaskTopic,  // controller -> scanner
-		rules.EventTypeRulesRequested:    cfg.RulesRequestTopic,     // controller -> scanner
-		rules.EventTypeRulesUpdated:      cfg.RulesResponseTopic,    // scanner -> controller
-		rules.EventTypeRulesPublished:    cfg.RulesResponseTopic,    // scanner -> controller
-		scanning.EventTypeTaskStarted:    cfg.ScanningTaskTopic,     // scanner -> controller
-		scanning.EventTypeTaskProgressed: cfg.ScanningTaskTopic,     // scanner -> controller
-		scanning.EventTypeTaskCompleted:  cfg.ScanningTaskTopic,     // scanner -> controller
-		scanning.EventTypeTaskFailed:     cfg.ScanningTaskTopic,     // scanner -> controller
-		scanning.EventTypeTaskHeartbeat:  cfg.ScanningTaskTopic,     // scanner -> controller
-		scanning.EventTypeTaskResume:     cfg.HighPriorityTaskTopic, // controller -> scanner
-		scanning.EventTypeTaskJobMetric:  cfg.JobMetricsTopic,       // scanner -> controller
-		scanning.EventTypeScanRequested:  cfg.ScanningTaskTopic,     // api -> controller
+		enumeration.EventTypeTaskCreated:          cfg.EnumerationTaskTopic,  // controller -> scanner
+		rules.EventTypeRulesRequested:             cfg.RulesRequestTopic,     // controller -> scanner
+		rules.EventTypeRulesUpdated:               cfg.RulesResponseTopic,    // scanner -> controller
+		rules.EventTypeRulesPublished:             cfg.RulesResponseTopic,    // scanner -> controller
+		scanning.EventTypeTaskStarted:             cfg.ScanningTaskTopic,     // scanner -> controller
+		scanning.EventTypeTaskProgressed:          cfg.ScanningTaskTopic,     // scanner -> controller
+		scanning.EventTypeTaskCompleted:           cfg.ScanningTaskTopic,     // scanner -> controller
+		scanning.EventTypeTaskFailed:              cfg.ScanningTaskTopic,     // scanner -> controller
+		scanning.EventTypeTaskHeartbeat:           cfg.ScanningTaskTopic,     // scanner -> controller
+		scanning.EventTypeTaskResume:              cfg.HighPriorityTaskTopic, // controller -> scanner
+		scanning.EventTypeTaskJobMetric:           cfg.JobMetricsTopic,       // scanner -> controller
+		enumeration.EventTypeEnumerationRequested: cfg.ScanningTaskTopic,     // api -> controller
 	}
 
 	bus := &EventBus{

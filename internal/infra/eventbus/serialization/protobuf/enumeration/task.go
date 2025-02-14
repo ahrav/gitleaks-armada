@@ -6,16 +6,10 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
-	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	serializationerrors "github.com/ahrav/gitleaks-armada/internal/infra/eventbus/serialization/errors"
+	"github.com/ahrav/gitleaks-armada/internal/infra/eventbus/serialization/protobuf/shared"
 	pb "github.com/ahrav/gitleaks-armada/proto"
 )
-
-var taskSourceTypeToProto = map[shared.SourceType]pb.SourceType{
-	shared.SourceTypeGitHub: pb.SourceType_SOURCE_TYPE_GITHUB,
-	shared.SourceTypeS3:     pb.SourceType_SOURCE_TYPE_S3,
-	shared.SourceTypeURL:    pb.SourceType_SOURCE_TYPE_URL,
-}
 
 // TaskToProto converts an enumeration.Task to its protobuf representation (pb.EnumerationTask).
 func TaskToProto(t *enumeration.Task, jobID uuid.UUID) (*pb.EnumerationTask, error) {
@@ -23,8 +17,8 @@ func TaskToProto(t *enumeration.Task, jobID uuid.UUID) (*pb.EnumerationTask, err
 		return nil, serializationerrors.ErrNilEvent{EventType: "EnumerationTask"}
 	}
 
-	sourceType, exists := taskSourceTypeToProto[t.SourceType]
-	if !exists {
+	sourceType, err := shared.SourceTypeToProto(t.SourceType)
+	if err != nil {
 		return nil, serializationerrors.ErrInvalidSourceType{Value: t.SourceType}
 	}
 
@@ -48,12 +42,6 @@ func TaskToProto(t *enumeration.Task, jobID uuid.UUID) (*pb.EnumerationTask, err
 	return tsk, nil
 }
 
-var protoSourceTypeToTaskSourceType = map[pb.SourceType]shared.SourceType{
-	pb.SourceType_SOURCE_TYPE_GITHUB: shared.SourceTypeGitHub,
-	pb.SourceType_SOURCE_TYPE_S3:     shared.SourceTypeS3,
-	pb.SourceType_SOURCE_TYPE_URL:    shared.SourceTypeURL,
-}
-
 // ProtoToTask converts a protobuf EnumerationTask to a domain Task.
 func ProtoToTask(pt *pb.EnumerationTask) (*enumeration.Task, error) {
 	if pt == nil {
@@ -70,8 +58,8 @@ func ProtoToTask(pt *pb.EnumerationTask) (*enumeration.Task, error) {
 		return nil, serializationerrors.ErrInvalidUUID{Field: "session ID", Err: err}
 	}
 
-	sourceType, exists := protoSourceTypeToTaskSourceType[pt.SourceType]
-	if !exists {
+	sourceType, err := shared.ProtoToSourceType(pt.SourceType)
+	if err != nil {
 		return nil, serializationerrors.ErrInvalidSourceType{Value: pt.SourceType}
 	}
 
