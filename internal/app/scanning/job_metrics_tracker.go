@@ -33,7 +33,7 @@ func (t *taskStatusEntry) shouldBeCleanedUp(tp timeProvider, retentionPeriod tim
 }
 
 type pendingMetric struct {
-	event     scanning.TaskJobMetricEvent
+	envelope  events.EventEnvelope
 	timestamp time.Time
 	attempts  int
 }
@@ -46,6 +46,7 @@ var _ domain.JobMetricsTracker = (*jobMetricsTracker)(nil)
 type jobMetricsTracker struct {
 	controllerID string
 
+	mu         sync.RWMutex
 	metrics    map[uuid.UUID]*domain.JobMetrics // Job ID -> Metrics
 	taskStatus map[uuid.UUID]taskStatusEntry    // Task ID -> Status
 	repository domain.MetricsRepository         // Adapter to underlying job and task repositories
@@ -131,22 +132,27 @@ func NewJobMetricsTracker(
 
 // startStatusCleanupWorker runs periodic cleanup of completed/failed task statuses.
 func (t *jobMetricsTracker) startStatusCleanupWorker(ctx context.Context) {
+	t.mu.RLock()
+	retentionPeriod := t.retentionPeriod
+	cleanupInterval := t.cleanupInterval
+	t.mu.RUnlock()
+
 	logger := t.logger.With(
 		"operation", "start_status_cleanup_worker",
-		"interval", t.cleanupInterval,
-		"retention_period", t.retentionPeriod,
+		"interval", cleanupInterval,
+		"retention_period", retentionPeriod,
 	)
 
 	ctx, span := t.tracer.Start(ctx, "job_metrics_tracker.start_status_cleanup",
 		trace.WithAttributes(
 			attribute.String("controller_id", t.controllerID),
-			attribute.String("interval", t.cleanupInterval.String()),
+			attribute.String("interval", cleanupInterval.String()),
 		))
 
 	span.AddEvent("starting_status_cleanup_worker")
 	logger.Info(ctx, "starting status cleanup worker")
 
-	ticker := time.NewTicker(t.cleanupInterval)
+	ticker := time.NewTicker(cleanupInterval)
 	defer ticker.Stop()
 
 	span.End()
@@ -163,6 +169,9 @@ func (t *jobMetricsTracker) startStatusCleanupWorker(ctx context.Context) {
 
 // cleanupTaskStatus removes completed/failed task status entries.
 func (t *jobMetricsTracker) cleanupTaskStatus(ctx context.Context) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
 	now := t.timeProvider.Now()
 	logger := t.logger.With(
 		"operation", "cleanup_task_status",
@@ -176,6 +185,15 @@ func (t *jobMetricsTracker) cleanupTaskStatus(ctx context.Context) {
 			logger.Info(ctx, "task status cleaned up", "task_id", taskID)
 		}
 	}
+
+	// Cleanup pendingAcks for completed jobs.
+	for jobID := range t.pendingAcks {
+		// If job is completed/failed and retention period passed
+		if metrics, exists := t.metrics[jobID]; exists && metrics.IsCompleted() {
+			delete(t.pendingAcks, jobID)
+		}
+	}
+
 	logger.Info(ctx, "finished cleaning up task statuses")
 }
 
@@ -200,8 +218,12 @@ func (t *jobMetricsTracker) runBackgroundLoop(ctx context.Context) {
 	defer ticker.Stop()
 
 	for {
+		t.mu.RLock()
+		hasPending := len(t.pendingMetrics) > 0
+		t.mu.RUnlock()
+
 		// If there's nothing pending, block until we get a notify or a stop.
-		if len(t.pendingMetrics) == 0 {
+		if !hasPending {
 			select {
 			case <-t.notifyCh:
 				t.processPendingMetrics(ctx)
@@ -275,6 +297,7 @@ func (t *jobMetricsTracker) HandleJobMetrics(ctx context.Context, evt events.Eve
 		"status", metricEvt.Status,
 	)
 
+	t.mu.Lock()
 	// Store the latest ack function for this job's partition.
 	if t.pendingAcks[metricEvt.JobID] == nil {
 		t.pendingAcks[metricEvt.JobID] = make(map[int32]events.AckFunc)
@@ -289,14 +312,19 @@ func (t *jobMetricsTracker) HandleJobMetrics(ctx context.Context, evt events.Eve
 		span.AddEvent("task_id_in_pending_metrics")
 		logger.Debug(ctx, "task_id in pending metrics, appending to list")
 		t.pendingMetrics[metricEvt.TaskID] = append(t.pendingMetrics[metricEvt.TaskID], pendingMetric{
-			event:     metricEvt,
+			envelope:  evt,
 			timestamp: time.Now(),
 		})
+		t.mu.Unlock()
 		return nil
 	}
+	t.mu.Unlock()
 
 	// Check if we need state recovery.
+	t.mu.RLock()
 	_, exists := t.metrics[metricEvt.JobID]
+	t.mu.RUnlock()
+
 	if !exists {
 		span.AddEvent("no_job_metrics_found_in_memory")
 		metrics, err := t.repository.GetJobMetrics(ctx, metricEvt.JobID)
@@ -314,8 +342,9 @@ func (t *jobMetricsTracker) HandleJobMetrics(ctx context.Context, evt events.Eve
 					metricEvt.JobID, metricEvt.TaskID, metricEvt.Status, err)
 			}
 		}
-
+		t.mu.Lock()
 		t.metrics[metricEvt.JobID] = metrics
+		t.mu.Unlock()
 
 		checkpoints, err := t.repository.GetCheckpoints(ctx, metricEvt.JobID)
 		if err != nil {
@@ -364,11 +393,15 @@ func (t *jobMetricsTracker) HandleJobMetrics(ctx context.Context, evt events.Eve
 			span.AddEvent("task_not_found", trace.WithAttributes(
 				attribute.String("task_id", metricEvt.TaskID.String()),
 			))
+
+			t.mu.Lock()
 			// We don't have the task status yet: add to pending for retry.
 			t.pendingMetrics[metricEvt.TaskID] = append(t.pendingMetrics[metricEvt.TaskID], pendingMetric{
-				event:     metricEvt,
+				envelope:  evt,
 				timestamp: time.Now(),
 			})
+			t.mu.Unlock()
+
 			span.AddEvent("pending_metric_added")
 			logger.Debug(ctx, "pending metric added", "task_id", metricEvt.TaskID.String())
 			// Notify the background loop that we have new pending work.
@@ -451,9 +484,14 @@ func (t *jobMetricsTracker) replayEvents(ctx context.Context, jobID uuid.UUID, p
 // TODO: come back to this and see if reusing the underlying slice is a good idea.
 // Probably not worth it right now.
 func (t *jobMetricsTracker) processPendingMetrics(ctx context.Context) {
+	t.mu.Lock()
+	pending := t.pendingMetrics
+	t.pendingMetrics = make(map[uuid.UUID][]pendingMetric)
+	t.mu.Unlock()
+
 	logger := t.logger.With(
 		"operation", "process_pending_metrics",
-		"pending_metrics_count", len(t.pendingMetrics),
+		"pending_metrics_count", len(pending),
 	)
 	ctx, span := t.tracer.Start(ctx, "job_metrics_tracker.process_pending_metrics",
 		trace.WithAttributes(
@@ -463,30 +501,34 @@ func (t *jobMetricsTracker) processPendingMetrics(ctx context.Context) {
 	defer span.End()
 
 	span.AddEvent("processing_pending_metrics", trace.WithAttributes(
-		attribute.Int("count", len(t.pendingMetrics)),
+		attribute.Int("count", len(pending)),
 	))
 
 	remaining := make(map[uuid.UUID][]pendingMetric)
-	for taskID, metrics := range t.pendingMetrics {
-		for _, pendingMetric := range metrics {
-			if pendingMetric.attempts > t.maxRetries {
+	for taskID, pMetric := range pending {
+		for _, pm := range pMetric {
+			metricEvt, ok := pm.envelope.Payload.(scanning.TaskJobMetricEvent)
+			if !ok {
+				continue
+			}
+			if pm.attempts > t.maxRetries {
 				// TODO: drop + do something.
 				span.AddEvent("metric_dropped", trace.WithAttributes(
-					attribute.String("task_id", pendingMetric.event.TaskID.String()),
+					attribute.String("task_id", metricEvt.TaskID.String()),
 				))
 				logger.Warn(ctx, "metric dropped", "task_id", taskID.String())
 				continue
 			}
 
-			err := t.processMetric(ctx, pendingMetric.event)
+			err := t.processMetric(ctx, metricEvt)
 			if err != nil {
 				if errors.Is(err, domain.ErrTaskNotFound) {
 					// Still not found—bump attempts and re-queue.
-					pendingMetric.attempts++
-					remaining[taskID] = append(remaining[taskID], pendingMetric)
+					pm.attempts++
+					remaining[taskID] = append(remaining[taskID], pm)
 					span.AddEvent("metric_re-queued", trace.WithAttributes(
 						attribute.String("task_id", taskID.String()),
-						attribute.Int("attempts", pendingMetric.attempts),
+						attribute.Int("attempts", pm.attempts),
 					))
 				} else {
 					span.AddEvent("failed_to_process_metric", trace.WithAttributes(
@@ -500,6 +542,18 @@ func (t *jobMetricsTracker) processPendingMetrics(ctx context.Context) {
 						"error", err,
 					)
 				}
+			} else {
+				// Update checkpoint from the envelope since the processing succeeded.
+				jobID := metricEvt.JobID
+				partition := pm.envelope.Metadata.Partition
+				offset := pm.envelope.Metadata.Offset
+
+				t.mu.Lock()
+				if t.checkpoints[jobID] == nil {
+					t.checkpoints[jobID] = make(map[int32]int64)
+				}
+				t.checkpoints[jobID][partition] = offset
+				t.mu.Unlock()
 			}
 		}
 	}
@@ -509,7 +563,16 @@ func (t *jobMetricsTracker) processPendingMetrics(ctx context.Context) {
 	span.SetStatus(codes.Ok, "pending metrics processed")
 	logger.Info(ctx, "pending metrics processed", "remaining", len(remaining))
 
+	t.mu.Lock()
+	// Merge any new pending metrics that arrived while we were processing.
+	for taskID, metrics := range t.pendingMetrics {
+		remaining[taskID] = append(remaining[taskID], metrics...)
+	}
 	t.pendingMetrics = remaining
+	span.AddEvent("pending_metrics_merged", trace.WithAttributes(
+		attribute.Int("pending_metrics_count", len(t.pendingMetrics)),
+	))
+	t.mu.Unlock()
 }
 
 // processMetric encapsulates the core logic to update job metrics and task statuses.
@@ -529,7 +592,10 @@ func (t *jobMetricsTracker) processMetric(ctx context.Context, evt scanning.Task
 		attribute.String("new_status", string(evt.Status)),
 	)
 
+	t.mu.RLock()
 	metrics := t.metrics[evt.JobID]
+	entry, exists := t.taskStatus[evt.TaskID]
+	t.mu.RUnlock()
 
 	if _, err := t.repository.GetTask(ctx, evt.TaskID); err != nil {
 		if errors.Is(err, domain.ErrTaskNotFound) {
@@ -542,7 +608,6 @@ func (t *jobMetricsTracker) processMetric(ctx context.Context, evt scanning.Task
 
 	// Get the previous status from our in-memory cache.
 	oldStatus := domain.TaskStatusPending
-	entry, exists := t.taskStatus[evt.TaskID]
 	if exists {
 		oldStatus = entry.status
 	}
@@ -551,6 +616,7 @@ func (t *jobMetricsTracker) processMetric(ctx context.Context, evt scanning.Task
 		attribute.String("old_status", string(oldStatus)),
 	)
 
+	t.mu.Lock()
 	if !exists {
 		// First time aggregating metrics for this task.
 		metrics.OnTaskAdded(evt.Status)
@@ -568,6 +634,7 @@ func (t *jobMetricsTracker) processMetric(ctx context.Context, evt scanning.Task
 		status:    evt.Status,
 		updatedAt: time.Now(),
 	}
+	t.mu.Unlock()
 	span.AddEvent("task_status_cached",
 		trace.WithAttributes(
 			attribute.String("status", string(evt.Status)),
@@ -629,11 +696,19 @@ func (t *jobMetricsTracker) LaunchMetricsFlusher(interval time.Duration) {
 // This method is typically called periodically by a background goroutine to ensure
 // regular persistence of metrics state.
 func (t *jobMetricsTracker) FlushMetrics(ctx context.Context) error {
-	logger := t.logger.With("operation", "flush_metrics", "metrics_count", len(t.metrics))
+	t.mu.RLock()
+	metricCount := len(t.metrics)
+	jobMetrics := make(map[uuid.UUID]*domain.JobMetrics, metricCount)
+	for id, m := range t.metrics {
+		jobMetrics[id] = m
+	}
+	t.mu.RUnlock()
+
+	logger := t.logger.With("operation", "flush_metrics", "metrics_count", metricCount)
 	ctx, span := t.tracer.Start(ctx, "job_metrics_tracker.flush_metrics",
 		trace.WithAttributes(
 			attribute.String("controller_id", t.controllerID),
-			attribute.Int("metrics_count", len(t.metrics)),
+			attribute.Int("metrics_count", metricCount),
 		),
 	)
 	defer span.End()
@@ -641,7 +716,7 @@ func (t *jobMetricsTracker) FlushMetrics(ctx context.Context) error {
 	span.AddEvent("starting_metrics_flush")
 
 	var flushErrors []error
-	for jobID, metrics := range t.metrics {
+	for jobID, metrics := range jobMetrics {
 		if err := t.flushJobMetrics(ctx, jobID, metrics); err != nil {
 			flushErrors = append(flushErrors, fmt.Errorf("job %s: %w", jobID, err))
 			span.RecordError(err)
@@ -671,7 +746,13 @@ func (t *jobMetricsTracker) FlushMetrics(ctx context.Context) error {
 func (t *jobMetricsTracker) flushJobMetrics(ctx context.Context, jobID uuid.UUID, metrics *domain.JobMetrics) error {
 	logger := t.logger.With("operation", "flush_job_metrics", "job_id", jobID.String())
 	span := trace.SpanFromContext(ctx)
-	chckpt := t.checkpoints[jobID]
+	t.mu.RLock()
+	chckpt := make(map[int32]int64)
+	for k, v := range t.checkpoints[jobID] {
+		chckpt[k] = v
+	}
+	t.mu.RUnlock()
+
 	if len(chckpt) == 0 {
 		logger.Debug(ctx, "no partitions to flush")
 		span.AddEvent("no_partitions_to_flush", trace.WithAttributes(
@@ -700,11 +781,13 @@ func (t *jobMetricsTracker) flushJobMetrics(ctx context.Context, jobID uuid.UUID
 			attribute.Int64("offset", offset),
 		))
 
+		t.mu.Lock()
 		// After successful DB update, ack the latest message for this partition.
 		if ack := t.pendingAcks[jobID][partition]; ack != nil {
 			ack(nil) // This will mark and commit the latest offset
 			delete(t.pendingAcks[jobID], partition)
 		}
+		t.mu.Unlock()
 	}
 
 	if len(partitionErrors) > 0 {

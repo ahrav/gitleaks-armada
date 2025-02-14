@@ -342,18 +342,26 @@ func TestCleanupTaskStatus_RemovesOldTerminalStatus(t *testing.T) {
 	mockTime := &mockTimeProvider{now: baseTime}
 	tracker.timeProvider = mockTime
 
-	// Override config for cleanup threshold.
+	// Override config for cleanup threshold safely.
+	tracker.mu.Lock()
 	tracker.retentionPeriod = 1 * time.Hour
+	tracker.mu.Unlock()
 
 	completedTask := uuid.New()
+
+	// Protect writes to taskStatus with the tracker mutex.
+	tracker.mu.Lock()
 	tracker.taskStatus[completedTask] = taskStatusEntry{
 		status:    domain.TaskStatusCompleted,
 		updatedAt: baseTime.Add(-2 * time.Hour), // Clearly older than retention period
 	}
+	tracker.mu.Unlock()
 
 	tracker.cleanupTaskStatus(ctx)
 
 	// The completedTask should be removed.
+	tracker.mu.RLock()
 	_, exists := tracker.taskStatus[completedTask]
+	tracker.mu.RUnlock()
 	require.False(t, exists, "Completed task older than retention period should be removed")
 }
