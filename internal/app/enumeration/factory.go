@@ -13,6 +13,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/app/enumeration/url"
 	"github.com/ahrav/gitleaks-armada/internal/config"
 	domain "github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
+	types "github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
 
@@ -66,7 +67,7 @@ func (f *enumerationFactory) CreateEnumerator(
 	defer span.End()
 
 	switch target.SourceType {
-	case config.SourceTypeGitHub:
+	case types.SourceTypeGitHub:
 		githubSpan := trace.SpanFromContext(ctx)
 		defer githubSpan.End()
 
@@ -90,7 +91,7 @@ func (f *enumerationFactory) CreateEnumerator(
 			f.logger,
 			f.tracer,
 		), nil
-	case config.SourceTypeURL:
+	case types.SourceTypeURL:
 		urlSpan := trace.SpanFromContext(ctx)
 		defer urlSpan.End()
 
@@ -105,7 +106,7 @@ func (f *enumerationFactory) CreateEnumerator(
 			f.logger,
 			f.tracer,
 		), nil
-	case config.SourceTypeS3:
+	case types.SourceTypeS3:
 		// TODO: Implement S3 enumerator.
 		panic("not implemented")
 	default:
