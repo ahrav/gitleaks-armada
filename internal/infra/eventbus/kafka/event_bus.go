@@ -38,16 +38,20 @@ type EventBusConfig struct {
 
 	// EnumerationTaskTopic is the topic name for publishing enumeration tasks.
 	EnumerationTaskTopic string
+
+	// JobCreatedTopic is the topic name for publishing job created events.
+	JobCreatedTopic string
 	// ScanningTaskTopic is the topic name for publishing scanning tasks.
 	ScanningTaskTopic string
-	// ResultsTopic is the topic name for publishing scan results.
-	ResultsTopic string
 	// ProgressTopic is the topic name for publishing scan progress updates.
 	ProgressTopic string
 	// HighPriorityTaskTopic is the topic for high-priority scanning tasks (e.g., resume).
 	HighPriorityTaskTopic string
 	// JobMetricsTopic is the topic name for publishing job metrics.
 	JobMetricsTopic string
+
+	// ResultsTopic is the topic name for publishing scan results.
+	ResultsTopic string
 
 	// Split rules topic into two for clear direction of flow.
 	RulesRequestTopic  string // controller -> scanner
@@ -108,6 +112,7 @@ func NewEventBus(
 		rules.EventTypeRulesUpdated:      cfg.RulesResponseTopic,    // scanner -> controller
 		rules.EventTypeRulesPublished:    cfg.RulesResponseTopic,    // scanner -> controller
 		scanning.EventTypeJobRequested:   cfg.ScanningTaskTopic,     // api -> controller
+		scanning.EventTypeJobCreated:     cfg.JobCreatedTopic,       // controller -> controller
 		scanning.EventTypeTaskStarted:    cfg.ScanningTaskTopic,     // scanner -> controller
 		scanning.EventTypeTaskProgressed: cfg.ScanningTaskTopic,     // scanner -> controller
 		scanning.EventTypeTaskCompleted:  cfg.ScanningTaskTopic,     // scanner -> controller

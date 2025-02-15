@@ -46,6 +46,7 @@ KAFKA_RULES_REQUEST_TOPIC := rules-requests
 KAFKA_RULES_RESPONSE_TOPIC := rules-responses
 KAFKA_HIGH_PRIORITY_TASK_TOPIC := high-priority-tasks
 KAFKA_JOB_METRICS_TOPIC := job-metrics
+KAFKA_JOB_CREATED_TOPIC := job-created
 POSTGRES_URL = postgres://postgres:postgres@localhost:5432/secretscanner?sslmode=disable
 
 # -------------------------------------------------------------------------------
@@ -280,6 +281,12 @@ kafka-setup:
 	kubectl exec -it -n $(NAMESPACE) deployment/kafka -- /opt/bitnami/kafka/bin/kafka-topics.sh \
 		--create --if-not-exists \
 		--topic $(KAFKA_JOB_METRICS_TOPIC) \
+		--bootstrap-server localhost:9092 \
+		--partitions $(CONTROLLER_PARTITIONS) \
+		--replication-factor 1
+	kubectl exec -it -n $(NAMESPACE) deployment/kafka -- /opt/bitnami/kafka/bin/kafka-topics.sh \
+		--create --if-not-exists \
+		--topic $(KAFKA_JOB_CREATED_TOPIC) \
 		--bootstrap-server localhost:9092 \
 		--partitions $(CONTROLLER_PARTITIONS) \
 		--replication-factor 1

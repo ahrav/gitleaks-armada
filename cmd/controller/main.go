@@ -232,6 +232,7 @@ func main() {
 		GroupID:               os.Getenv("KAFKA_GROUP_ID"),
 		ClientID:              svcName,
 		ServiceType:           serviceType,
+		JobCreatedTopic:       os.Getenv("KAFKA_JOB_CREATED_TOPIC"),
 	}
 
 	// Create the shared Kafka client

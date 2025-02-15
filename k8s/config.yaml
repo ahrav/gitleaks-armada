@@ -5,6 +5,7 @@ metadata:
   namespace: secret-scanner
 data:
   KAFKA_ENUMERATION_TASK_TOPIC: "enumeration-tasks"
+  KAFKA_JOB_CREATED_TOPIC: "job-created"
   KAFKA_SCANNING_TASK_TOPIC: "scanning-tasks"
   KAFKA_HIGH_PRIORITY_TASK_TOPIC: "high-priority-tasks"
   KAFKA_JOB_METRICS_TOPIC: "job-metrics"
