@@ -17,7 +17,6 @@ import (
 
 func TestTaskStartedEventConversion(t *testing.T) {
 	t.Run("successful conversions", func(t *testing.T) {
-		// Setup test data
 		jobID := uuid.New()
 		taskID := uuid.New()
 		resourceURI := "test://resource"

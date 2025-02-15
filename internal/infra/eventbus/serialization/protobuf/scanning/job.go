@@ -18,7 +18,7 @@ func JobCreatedEventToProto(event scanning.JobCreatedEvent) (*pb.JobCreatedEvent
 		return nil, err
 	}
 
-	authConfig, err := AuthConfigToProto(event.AuthConfig)
+	authConfig, err := authConfigToProto(event.AuthConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -31,8 +31,8 @@ func JobCreatedEventToProto(event scanning.JobCreatedEvent) (*pb.JobCreatedEvent
 	}, nil
 }
 
-// AuthConfigToProto converts a domain AuthConfig to its protobuf representation.
-func AuthConfigToProto(cfg config.AuthConfig) (*pb.AuthConfig, error) {
+// authConfigToProto converts a domain AuthConfig to its protobuf representation.
+func authConfigToProto(cfg config.AuthConfig) (*pb.AuthConfig, error) {
 	// Convert the generic map[string]any to map[string]string.
 	configMap := make(map[string]string)
 	for k, v := range cfg.Config {
@@ -72,7 +72,7 @@ func ProtoToJobCreatedEvent(event *pb.JobCreatedEvent) (scanning.JobCreatedEvent
 		return scanning.JobCreatedEvent{}, err
 	}
 
-	authConfig, err := ProtoToAuthConfig(event.AuthConfig)
+	authConfig, err := protoToAuthConfig(event.AuthConfig)
 	if err != nil {
 		return scanning.JobCreatedEvent{}, err
 	}
@@ -80,8 +80,8 @@ func ProtoToJobCreatedEvent(event *pb.JobCreatedEvent) (scanning.JobCreatedEvent
 	return scanning.NewJobCreatedEvent(event.JobId, targetSpec, authConfig), nil
 }
 
-// ProtoToAuthConfig converts a protobuf AuthConfig to its domain representation.
-func ProtoToAuthConfig(pbAuth *pb.AuthConfig) (config.AuthConfig, error) {
+// protoToAuthConfig converts a protobuf AuthConfig to its domain representation.
+func protoToAuthConfig(pbAuth *pb.AuthConfig) (config.AuthConfig, error) {
 	if pbAuth == nil {
 		return config.AuthConfig{}, serializationerrors.ErrNilEvent{EventType: "AuthConfig"}
 	}
