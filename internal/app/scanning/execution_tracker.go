@@ -8,6 +8,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/ahrav/gitleaks-armada/internal/config"
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
@@ -45,6 +46,46 @@ func NewExecutionTracker(
 		logger:       logger,
 		tracer:       tracer,
 	}
+}
+
+// CreateJobForTarget creates a new scan job for the given target and publishes a JobCreatedEvent.
+func (t *executionTracker) CreateJobForTarget(ctx context.Context, target config.TargetSpec, auth config.AuthConfig) error {
+	ctx, span := t.tracer.Start(ctx, "execution_tracker.scanning.create_job",
+		trace.WithAttributes(
+			attribute.String("controller_id", t.controllerID),
+			attribute.String("target_name", target.Name),
+			attribute.String("target_type", string(target.SourceType)),
+		))
+	defer span.End()
+
+	job, err := t.coordinator.CreateJob(ctx)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to create job")
+		return fmt.Errorf("failed to create job for target %s: %w", target.Name, err)
+	}
+
+	// Publish JobCreatedEvent with target information.
+	// The target information is required by downstream consumers of the JobCreatedEvent
+	// to link scan targets to a single scan job.
+	evt := scanning.NewJobCreatedEvent(job.JobID().String(), target, auth)
+	if err := t.publisher.PublishDomainEvent(
+		ctx, evt, events.WithKey(job.JobID().String()),
+	); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to publish job created event")
+		return fmt.Errorf("failed to publish job created event: %w", err)
+	}
+
+	span.AddEvent("job_created_and_event_published")
+	span.SetStatus(codes.Ok, "job created and event published")
+	t.logger.Info(ctx, "Job created",
+		"job_id", job.JobID(),
+		"target_name", target.Name,
+		"target_type", target.SourceType,
+	)
+
+	return nil
 }
 
 // HandleTaskStart initializes progress tracking for a new scan task. It coordinates with

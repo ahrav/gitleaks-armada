@@ -135,29 +135,38 @@ func recordPayloadTypeError(span trace.Span, payload any) error {
 // -------------------------------------------------------------------------------------------------
 // Enumeration
 
-// HandleScanJobRequested processes a ScanJobRequestedEvent.
+// HandleScanJobRequested processes a JobRequestedEvent by creating jobs for each target
+// in the configuration.
 func (ef *EventsFacilitator) HandleScanJobRequested(
 	ctx context.Context,
 	evt events.EventEnvelope,
 	ack events.AckFunc,
 ) error {
 	return ef.withSpan(ctx, "events_facilitator.handle_scan_job_requested", func(ctx context.Context, span trace.Span) error {
-		enumEvt, ok := evt.Payload.(scanning.JobRequestedEvent)
+		jobEvt, ok := evt.Payload.(scanning.JobRequestedEvent)
 		if !ok {
 			return recordPayloadTypeError(span, evt.Payload)
 		}
 
-		span.AddEvent("processing_enumeration_requested", trace.WithAttributes(
-			attribute.String("requested_by", enumEvt.RequestedBy),
+		span.AddEvent("processing_job_requested", trace.WithAttributes(
+			attribute.String("requested_by", jobEvt.RequestedBy),
 		))
 
-		if err := ef.enumService.StartEnumeration(ctx, enumEvt.Config); err != nil {
-			// TODO: consider returning additional information without exposing the creds.
-			return fmt.Errorf("failed to start enumeration (requested_by: %s): %w", enumEvt.RequestedBy, err)
+		// Create a job for each target in the configuration
+		for _, target := range jobEvt.Config.Targets {
+			// Get the auth config for this target
+			auth, exists := jobEvt.Config.Auth[target.AuthRef]
+			if !exists {
+				return fmt.Errorf("auth config not found for reference: %s", target.AuthRef)
+			}
+
+			if err := ef.executionTracker.CreateJobForTarget(ctx, target, auth); err != nil {
+				return fmt.Errorf("failed to create job for target %s: %w", target.Name, err)
+			}
 		}
 
-		span.AddEvent("enumeration_started_successfully")
-		span.SetStatus(codes.Ok, "enumeration started successfully")
+		span.AddEvent("jobs_created_successfully")
+		span.SetStatus(codes.Ok, "jobs created successfully")
 		return nil
 	}, ack)
 }
