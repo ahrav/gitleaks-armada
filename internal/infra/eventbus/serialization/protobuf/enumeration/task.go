@@ -17,10 +17,15 @@ func TaskToProto(t *enumeration.Task, jobID uuid.UUID) (*pb.EnumerationTask, err
 		return nil, serializationerrors.ErrNilEvent{EventType: "EnumerationTask"}
 	}
 
+	sourceType := pb.SourceType(t.SourceType.Int32())
+	if sourceType == pb.SourceType_SOURCE_TYPE_UNSPECIFIED {
+		return nil, serializationerrors.ErrInvalidSourceType{Value: t.SourceType}
+	}
+
 	tsk := &pb.EnumerationTask{
 		TaskId:      t.ID.String(),
 		JobId:       jobID.String(),
-		SourceType:  pb.SourceType(t.SourceType.Int32()),
+		SourceType:  sourceType,
 		SessionId:   t.SessionID().String(),
 		ResourceUri: t.ResourceURI(),
 		Metadata:    t.Metadata(),
@@ -54,6 +59,9 @@ func ProtoToTask(pt *pb.EnumerationTask) (*enumeration.Task, error) {
 	}
 
 	sourceType := shared.ParseSourceType(pt.SourceType.String())
+	if sourceType == shared.SourceTypeUnspecified {
+		return nil, serializationerrors.ErrInvalidSourceType{Value: sourceType}
+	}
 
 	var creds *enumeration.TaskCredentials
 	if pt.Credentials != nil {

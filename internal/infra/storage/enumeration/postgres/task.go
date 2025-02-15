@@ -49,7 +49,7 @@ func (t *taskStore) Save(ctx context.Context, task *enumeration.Task) error {
 
 		err = t.q.CreateTask(ctx, db.CreateTaskParams{
 			TaskID:      pgtype.UUID{Bytes: task.ID, Valid: true},
-			SourceType:  string(task.SourceType),
+			SourceType:  task.SourceType.ProtoString(),
 			SessionID:   pgtype.UUID{Bytes: task.SessionID(), Valid: true},
 			ResourceUri: task.ResourceURI(),
 			Metadata:    metadata,
