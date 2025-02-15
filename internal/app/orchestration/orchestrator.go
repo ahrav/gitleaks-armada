@@ -44,7 +44,7 @@ type Orchestrator struct {
 	metricsTracker       scanning.JobMetricsTracker
 	enumCoordinator      enumCoordinator.Coordinator
 	rulesService         rulessvc.Service
-	scanningCoordinator  scanning.ScanJobCoordinator
+	scanJobCoordinator  scanning.ScanJobCoordinator
 	stateRepo            enumeration.StateRepository
 
 	dispatcher *eventdispatcher.Dispatcher
@@ -117,7 +117,7 @@ func NewOrchestrator(
 		tracer:             tracer,
 	}
 
-	o.scanningCoordinator = scan.NewScanJobCoordinator(
+	o.scanJobCoordinator = scan.NewScanJobCoordinator(
 		id,
 		jobRepo,
 		taskRepo,
@@ -127,7 +127,7 @@ func NewOrchestrator(
 
 	executionTracker := scan.NewExecutionTracker(
 		id,
-		o.scanningCoordinator,
+		o.scanJobCoordinator,
 		eventPublisher,
 		logger,
 		tracer,
@@ -135,7 +135,7 @@ func NewOrchestrator(
 
 	o.taskHealthSupervisor = scan.NewTaskHealthSupervisor(
 		id,
-		o.scanningCoordinator,
+		o.scanJobCoordinator,
 		executionTracker,
 		eventPublisher,
 		tracer,
@@ -484,7 +484,7 @@ func (o *Orchestrator) startFreshEnumerations(ctx context.Context, cfg *config.C
 			defer targetSpan.End()
 			targetSpan.AddEvent("processing_target")
 
-			job, err := o.scanningCoordinator.CreateJob(targetCtx)
+			job, err := o.scanJobCoordinator.CreateJob(targetCtx)
 			if err != nil {
 				// TODO: Revist this we can make this more resilient to allow for failures.
 				o.metrics.IncEnumerationErrors(targetCtx)
@@ -509,7 +509,7 @@ func (o *Orchestrator) startFreshEnumerations(ctx context.Context, cfg *config.C
 						scanTargetIDSpan.SetStatus(codes.Ok, "scan target ids channel closed")
 						enumChannels.ScanTargetCh = nil // channel closed
 					} else {
-						if err := o.scanningCoordinator.LinkTargets(scanTargetIDCtx, job.JobID(), scanTargetIDs); err != nil {
+						if err := o.scanJobCoordinator.LinkTargets(scanTargetIDCtx, job.JobID(), scanTargetIDs); err != nil {
 							scanTargetIDSpan.RecordError(err)
 							scanTargetIDSpan.SetStatus(codes.Error, "failed to associate targets")
 							logger.Error(scanTargetIDCtx, "Failed to associate targets", "error", err)
@@ -601,7 +601,7 @@ func (o *Orchestrator) createJob(ctx context.Context, job *scanning.Job) error {
 		))
 	defer span.End()
 
-	_, err := o.scanningCoordinator.CreateJob(ctx)
+	_, err := o.scanJobCoordinator.CreateJob(ctx)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to create job")
@@ -699,5 +699,44 @@ func (o *Orchestrator) shutdown(ctx context.Context) error {
 	shutdownSpan.AddEvent("component_shutdown_complete")
 	logger.Info(shutdownCtx, "Orchestrator shutdown complete")
 
+	return nil
+}
+
+// handleEnumerationRequestedEvent handles the EnumerationRequestedEvent and triggers enumeration.
+func (o *Orchestrator) handleEnumerationRequestedEvent(
+	ctx context.Context,
+	evt events.EventEnvelope,
+	ack events.AckFunc,
+) error {
+	ctx, span := o.tracer.Start(ctx, "orchestrator.handle_enumeration_requested")
+	defer span.End()
+
+	enumEvt, ok := evt.Payload.(enumeration.EnumerationRequestedEvent)
+	if !ok {
+		err := fmt.Errorf("expected EnumerationRequestedEvent but got %T", evt.Payload)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		ack(err)
+		return err
+	}
+
+	o.logger.Info(ctx, "Received enumeration request event",
+		"controller_id", o.controllerID,
+		"requested_by", enumEvt.RequestedBy)
+
+	// Check if enumerations are already in progress here to avoid concurrent runs.
+
+	err := o.metrics.TrackEnumeration(ctx, func() error {
+		return o.startFreshEnumerations(ctx, enumEvt.Config)
+	})
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		ack(err)
+		return fmt.Errorf("failed to start enumeration from event: %w", err)
+	}
+
+	span.AddEvent("enumeration_triggered_from_event")
+	ack(nil)
 	return nil
 }
