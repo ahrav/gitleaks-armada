@@ -54,6 +54,8 @@ var _ enumeration.Service = (*EnumService)(nil)
 // publishing events, and tracking metrics. It serves as the primary orchestrator
 // for discovering and processing scan targets.
 type EnumService struct {
+	controllerID string
+
 	jobCoordinator  scanning.ScanJobCoordinator
 	enumCoordinator Coordinator
 	eventPublisher  events.DomainEventPublisher
@@ -66,6 +68,7 @@ type EnumService struct {
 // NewEnumService creates a new enumeration service with the required dependencies
 // for coordinating scans, publishing events, and monitoring metrics.
 func NewEnumService(
+	controllerID string,
 	scanningCoordinator scanning.ScanJobCoordinator,
 	enumCoordinator Coordinator,
 	eventPublisher events.DomainEventPublisher,
@@ -73,7 +76,9 @@ func NewEnumService(
 	metrics enumMetrics,
 	tracer trace.Tracer,
 ) *EnumService {
+	logger = logger.With("component", "enum_service")
 	return &EnumService{
+		controllerID:    controllerID,
 		jobCoordinator:  scanningCoordinator,
 		enumCoordinator: enumCoordinator,
 		eventPublisher:  eventPublisher,
@@ -91,6 +96,7 @@ func (es *EnumService) StartEnumeration(ctx context.Context, cfg *config.Config)
 	logger := es.logger.With("operation", "start_enumeration", "target_count", len(cfg.Targets))
 	ctx, span := es.tracer.Start(ctx, "enum_service.start_enumeration",
 		trace.WithAttributes(
+			attribute.String("controller_id", es.controllerID),
 			attribute.String("target_count", fmt.Sprintf("%d", len(cfg.Targets))),
 		))
 	defer span.End()
