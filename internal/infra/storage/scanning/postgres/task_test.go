@@ -54,7 +54,7 @@ func createTestTask(t *testing.T, store *taskStore, jobID uuid.UUID, status scan
 	// First create the base task record
 	err := store.q.CreateBaseTask(context.Background(), db.CreateBaseTaskParams{
 		TaskID:     pgtype.UUID{Bytes: taskID, Valid: true},
-		SourceType: resourceURI,
+		SourceType: shared.SourceTypeURL.String(),
 	})
 	require.NoError(t, err)
 

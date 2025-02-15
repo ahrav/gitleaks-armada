@@ -246,7 +246,10 @@ func ProtoToTaskResumeEvent(event *pb.TaskResumeEvent) (*scanning.TaskResumeEven
 		)
 	}
 
-	sourceType := shared.SourceType(event.SourceType)
+	sourceType := shared.FromInt32(int32(event.SourceType))
+	if sourceType == shared.SourceTypeUnspecified {
+		return nil, serializationerrors.ErrInvalidSourceType{Value: event.SourceType}
+	}
 
 	result := scanning.NewTaskResumeEvent(
 		jobID,
