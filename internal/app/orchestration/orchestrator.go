@@ -266,6 +266,7 @@ func (o *Orchestrator) subscribeToEvents(ctx context.Context) error {
 	defer subSpan.End()
 
 	eventTypes := []events.EventType{
+		enumeration.EventTypeEnumerationRequested,
 		rules.EventTypeRulesUpdated,
 		rules.EventTypeRulesPublished,
 		scanning.EventTypeTaskStarted,
