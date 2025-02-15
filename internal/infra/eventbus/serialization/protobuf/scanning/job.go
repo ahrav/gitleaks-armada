@@ -43,7 +43,7 @@ func JobRequestedEventToProto(event scanning.JobRequestedEvent) (*pb.JobRequeste
 
 // ProtoToJobRequestedEvent converts a protobuf JobRequestedEvent to its domain representation
 func ProtoToJobRequestedEvent(event *pb.JobRequestedEvent) (scanning.JobRequestedEvent, error) {
-	if event == nil {
+	if event == nil || len(event.Targets) == 0 {
 		return scanning.JobRequestedEvent{}, serializationerrors.ErrNilEvent{EventType: "JobRequestedEvent"}
 	}
 
@@ -134,18 +134,18 @@ func AuthToProto(auth scanning.Auth) (*pb.AuthConfig, error) {
 
 // ProtoToJobCreatedEvent converts a protobuf JobCreatedEvent to its domain representation
 func ProtoToJobCreatedEvent(event *pb.JobCreatedEvent) (scanning.JobCreatedEvent, error) {
-	if event == nil {
+	if event == nil || event.TargetSpec == nil {
 		return scanning.JobCreatedEvent{}, serializationerrors.ErrNilEvent{EventType: "JobCreatedEvent"}
 	}
 
 	target, err := ProtoToTarget(event.TargetSpec)
 	if err != nil {
-		return scanning.JobCreatedEvent{}, fmt.Errorf("convert proto to target: %w", err)
+		return scanning.JobCreatedEvent{}, serializationerrors.ErrNilEvent{EventType: "TargetSpec"}
 	}
 
 	auth, err := ProtoToAuth(event.AuthConfig)
 	if err != nil {
-		return scanning.JobCreatedEvent{}, fmt.Errorf("convert proto to auth: %w", err)
+		return scanning.JobCreatedEvent{}, serializationerrors.ErrNilEvent{EventType: "AuthConfig"}
 	}
 
 	return scanning.NewJobCreatedEvent(event.JobId, target, auth), nil

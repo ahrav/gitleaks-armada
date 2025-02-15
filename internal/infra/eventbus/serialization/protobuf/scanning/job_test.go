@@ -38,16 +38,16 @@ func TestJobCreatedEventConversion(t *testing.T) {
 		protoEvent, err := JobCreatedEventToProto(domainEvent)
 		require.NoError(t, err)
 		assert.Equal(t, jobID, protoEvent.JobId)
-		assert.Equal(t, targetSpec.Name, protoEvent.TargetSpec.Name)
+		assert.Equal(t, targetSpec.Name(), protoEvent.TargetSpec.Name)
 		assert.Equal(t, pb.SourceType_SOURCE_TYPE_GITHUB, protoEvent.TargetSpec.SourceType)
-		assert.Equal(t, authConfig.Type, protoEvent.AuthConfig.Type)
+		assert.Equal(t, authConfig.Type(), protoEvent.AuthConfig.Type)
 
 		// Test proto to domain conversion.
 		convertedEvent, err := ProtoToJobCreatedEvent(protoEvent)
 		require.NoError(t, err)
 		assert.Equal(t, jobID, convertedEvent.JobID)
-		assert.Equal(t, targetSpec.Name, convertedEvent.Target.Name())
-		assert.Equal(t, targetSpec.SourceType, convertedEvent.Target.SourceType())
+		assert.Equal(t, targetSpec.Name(), convertedEvent.Target.Name())
+		assert.Equal(t, targetSpec.SourceType(), convertedEvent.Target.SourceType())
 	})
 
 	t.Run("error cases", func(t *testing.T) {
