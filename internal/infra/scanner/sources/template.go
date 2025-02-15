@@ -80,7 +80,7 @@ func (st *ScanTemplate) ScanStreaming(
 		startTime := time.Now()
 		defer func() {
 			span.End() // Ensure the top-level span always closes
-			st.metrics.ObserveScanDuration(ctx, shared.SourceType(task.SourceType), time.Since(startTime))
+			st.metrics.ObserveScanDuration(ctx, shared.ParseSourceType(string(task.SourceType)), time.Since(startTime))
 		}()
 
 		scanComplete := make(chan error, 1)

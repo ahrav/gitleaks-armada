@@ -24,6 +24,7 @@ type TargetSpec struct {
 	Name       string            `yaml:"name" json:"name"`
 	SourceType shared.SourceType `yaml:"source_type" json:"source_type"`
 	AuthRef    string            `yaml:"auth_ref" json:"auth_ref"`
+	Metadata   map[string]string `yaml:"metadata,omitempty" json:"metadata,omitempty"`
 	GitHub     *GitHubTarget     `yaml:"github,omitempty" json:"github,omitempty"`
 	S3         *S3Target         `yaml:"s3,omitempty" json:"s3,omitempty"`
 	URL        *URLTarget        `yaml:"url,omitempty" json:"url,omitempty"`
@@ -31,17 +32,15 @@ type TargetSpec struct {
 
 // GitHubTarget defines parameters for scanning GitHub repositories.
 type GitHubTarget struct {
-	Org      string            `yaml:"org,omitempty" json:"org,omitempty"`
-	RepoList []string          `yaml:"repo_list,omitempty" json:"repo_list,omitempty"`
-	Metadata map[string]string `yaml:"metadata,omitempty" json:"metadata,omitempty"`
+	Org      string   `yaml:"org,omitempty" json:"org,omitempty"`
+	RepoList []string `yaml:"repo_list,omitempty" json:"repo_list,omitempty"`
 }
 
 // S3Target defines parameters for scanning S3 buckets.
 type S3Target struct {
-	Bucket   string            `yaml:"bucket" json:"bucket"`
-	Prefix   string            `yaml:"prefix,omitempty" json:"prefix,omitempty"`
-	Region   string            `yaml:"region,omitempty" json:"region,omitempty"`
-	Metadata map[string]string `yaml:"metadata,omitempty" json:"metadata,omitempty"`
+	Bucket string `yaml:"bucket" json:"bucket"`
+	Prefix string `yaml:"prefix,omitempty" json:"prefix,omitempty"`
+	Region string `yaml:"region,omitempty" json:"region,omitempty"`
 }
 
 // ArchiveFormat enumerates supported archive/compression formats.
@@ -74,10 +73,6 @@ type URLTarget struct {
 
 	// RetryConfig defines how the client should attempt retries on failures.
 	RetryConfig *RetryConfig `yaml:"retry,omitempty" json:"retry,omitempty"`
-
-	// Metadata can be used to store arbitrary key/value data for labeling or
-	// grouping scan results.
-	Metadata map[string]string `yaml:"metadata,omitempty" json:"metadata,omitempty"`
 }
 
 // RetryConfig defines basic retry behavior for URL requests.

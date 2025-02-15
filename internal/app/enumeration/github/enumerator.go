@@ -107,7 +107,7 @@ func (e *Enumerator) processRepoList(ctx context.Context, batchCh chan<- enumera
 		targets = append(targets, &enumeration.TargetInfo{
 			TargetType:  shared.TargetTypeGitHubRepo,
 			ResourceURI: repoURL,
-			Metadata:    e.ghConfig.Metadata,
+			// Metadata:    e.ghConfig.Metadata,
 		})
 	}
 
@@ -210,7 +210,7 @@ func (e *Enumerator) createTargetsFromResponse(ctx context.Context, respData *re
 		targets = append(targets, &enumeration.TargetInfo{
 			TargetType:  shared.TargetTypeGitHubRepo,
 			ResourceURI: buildGithubResourceURI(e.ghConfig.Org, node.Name),
-			Metadata:    e.ghConfig.Metadata,
+			// Metadata:    e.ghConfig.Metadata,
 		})
 	}
 

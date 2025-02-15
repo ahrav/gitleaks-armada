@@ -7,6 +7,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/ahrav/gitleaks-armada/internal/app/commands"
+	"github.com/ahrav/gitleaks-armada/internal/config"
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
@@ -33,12 +34,12 @@ func NewCommandHandler(logger *logger.Logger, tracer trace.Tracer, eventBus even
 // Handle processes incoming enumeration commands and routes them to appropriate handlers.
 // It returns an error if the command type is unknown or if processing fails.
 func (h *CommandHandler) Handle(ctx context.Context, cmd commands.Command) error {
-	ctx, span := h.tracer.Start(ctx, "enumeration.CommandHandler.Handle")
+	ctx, span := h.tracer.Start(ctx, "scanning.CommandHandler.Handle")
 	defer span.End()
 
 	switch c := cmd.(type) {
 	case StartScanCommand:
-		return h.handleStartEnumeration(ctx, c)
+		return h.handleStartScan(ctx, c)
 	default:
 		h.logger.Error(ctx, "unknown command type",
 			"type", cmd.EventType(),
@@ -48,9 +49,9 @@ func (h *CommandHandler) Handle(ctx context.Context, cmd commands.Command) error
 	}
 }
 
-// handleStartEnumeration processes a StartEnumerationCommand by validating the config
+// handleStartScan processes a StartScanCommand by validating the config
 // and publishing a job requested event.
-func (h *CommandHandler) handleStartEnumeration(ctx context.Context, cmd StartScanCommand) error {
+func (h *CommandHandler) handleStartScan(ctx context.Context, cmd StartScanCommand) error {
 	if err := cmd.ValidateCommand(); err != nil {
 		h.logger.Error(ctx, "invalid enumeration command",
 			"error", err,
@@ -59,7 +60,19 @@ func (h *CommandHandler) handleStartEnumeration(ctx context.Context, cmd StartSc
 		return err
 	}
 
-	evt := scanning.NewJobRequestedEvent(cmd.Config, cmd.RequestedBy)
+	// Convert config types to domain types.
+	targets := make([]scanning.Target, 0, len(cmd.Config.Targets))
+	authMap := make(map[string]scanning.Auth, len(cmd.Config.Auth))
+
+	for id, authCfg := range cmd.Config.Auth {
+		authMap[id] = configToDomainAuth(authCfg)
+	}
+
+	for _, targetCfg := range cmd.Config.Targets {
+		targets = append(targets, configToDomainTarget(targetCfg))
+	}
+
+	evt := scanning.NewJobRequestedEvent(targets, authMap, cmd.RequestedBy)
 	if err := h.eventBus.PublishDomainEvent(ctx, evt); err != nil {
 		h.logger.Error(ctx, "failed to publish job requested event",
 			"error", err,
@@ -70,4 +83,19 @@ func (h *CommandHandler) handleStartEnumeration(ctx context.Context, cmd StartSc
 
 	h.logger.Info(ctx, "job requested", "command_id", cmd.CommandID(), "requested_by", cmd.RequestedBy)
 	return nil
+}
+
+// configToDomainTarget converts a config.TargetSpec to a domain scanning.Target
+func configToDomainTarget(cfg config.TargetSpec) scanning.Target {
+	return scanning.NewTarget(
+		cfg.Name,
+		cfg.SourceType,
+		cfg.AuthRef,
+		cfg.Metadata,
+	)
+}
+
+// configToDomainAuth converts a config.AuthConfig to a domain scanning.Auth
+func configToDomainAuth(cfg config.AuthConfig) scanning.Auth {
+	return scanning.NewAuth(cfg.Type, cfg.Config)
 }

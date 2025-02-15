@@ -7,7 +7,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ahrav/gitleaks-armada/internal/config"
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	serializationerrors "github.com/ahrav/gitleaks-armada/internal/infra/eventbus/serialization/errors"
@@ -17,23 +16,21 @@ import (
 func TestJobCreatedEventConversion(t *testing.T) {
 	t.Run("successful conversions", func(t *testing.T) {
 		jobID := uuid.New().String()
-		targetSpec := config.TargetSpec{
-			Name:       "test-target",
-			SourceType: shared.SourceTypeGitHub,
-			AuthRef:    "auth-ref",
-			GitHub: &config.GitHubTarget{
-				Org:      "test-org",
-				RepoList: []string{"repo1", "repo2"},
-				Metadata: map[string]string{"key": "value"},
+		targetSpec := scanning.NewTarget(
+			"test-target",
+			shared.SourceTypeGitHub,
+			"auth-ref",
+			map[string]string{
+				"key": "value",
 			},
-		}
-		authConfig := config.AuthConfig{
-			Type: "github",
-			Config: map[string]any{
+		)
+		authConfig := scanning.NewAuth(
+			"github",
+			map[string]any{
 				"token": "test-token",
 				"url":   "https://api.github.com",
 			},
-		}
+		)
 
 		domainEvent := scanning.NewJobCreatedEvent(jobID, targetSpec, authConfig)
 
@@ -49,8 +46,8 @@ func TestJobCreatedEventConversion(t *testing.T) {
 		convertedEvent, err := ProtoToJobCreatedEvent(protoEvent)
 		require.NoError(t, err)
 		assert.Equal(t, jobID, convertedEvent.JobID)
-		assert.Equal(t, targetSpec.Name, convertedEvent.TargetSpec.Name)
-		assert.Equal(t, targetSpec.SourceType, convertedEvent.TargetSpec.SourceType)
+		assert.Equal(t, targetSpec.Name, convertedEvent.Target.Name())
+		assert.Equal(t, targetSpec.SourceType, convertedEvent.Target.SourceType())
 	})
 
 	t.Run("error cases", func(t *testing.T) {

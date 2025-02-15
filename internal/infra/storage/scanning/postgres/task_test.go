@@ -389,7 +389,7 @@ func TestTaskStore_GetTaskSourceType(t *testing.T) {
 
 	sourceType, err := taskStore.GetTaskSourceType(ctx, task.TaskID())
 	require.NoError(t, err)
-	assert.Equal(t, shared.SourceType("test-resource-uri"), sourceType)
+	assert.Equal(t, shared.SourceTypeURL, sourceType)
 }
 
 func TestTaskStore_GetTaskSourceType_NonExistent(t *testing.T) {

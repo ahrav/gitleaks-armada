@@ -107,7 +107,7 @@ func (s *Scanner) runURLScan(
 
 	startTime := time.Now()
 	defer func() {
-		s.metrics.ObserveScanDuration(ctx, shared.SourceType(scanReq.SourceType), time.Since(startTime))
+		s.metrics.ObserveScanDuration(ctx, shared.ParseSourceType(string(scanReq.SourceType)), time.Since(startTime))
 		span.SetAttributes(attribute.Int64("scan_duration_ms", time.Since(startTime).Milliseconds()))
 	}()
 
@@ -174,7 +174,7 @@ func (s *Scanner) runURLScan(
 	// Prepare a specialized ArchiveReader based on format (e.g., "warc.gz")
 	reader, err := s.createArchiveReader(ctx, format, scanReq, scanCtx, logr)
 	if err != nil {
-		s.metrics.IncScanError(ctx, shared.SourceType(scanReq.SourceType))
+		s.metrics.IncScanError(ctx, shared.ParseSourceType(string(scanReq.SourceType)))
 		return fmt.Errorf("failed to create archive reader with format %s and task resource URI %s: %w",
 			format, scanReq.ResourceURI, err)
 	}
@@ -190,7 +190,7 @@ func (s *Scanner) runURLScan(
 	if err != nil {
 		detectSpan.RecordError(err)
 		detectSpan.End()
-		s.metrics.IncScanError(ctx, shared.SourceType(scanReq.SourceType))
+		s.metrics.IncScanError(ctx, shared.ParseSourceType(string(scanReq.SourceType)))
 		return fmt.Errorf("failed to scan URL: %w", err)
 	}
 
@@ -204,7 +204,7 @@ func (s *Scanner) runURLScan(
 		}
 	}
 
-	s.metrics.ObserveScanFindings(ctx, shared.SourceType(scanReq.SourceType), len(findings))
+	s.metrics.ObserveScanFindings(ctx, shared.ParseSourceType(string(scanReq.SourceType)), len(findings))
 	detectSpan.AddEvent("findings_processed",
 		trace.WithAttributes(attribute.Int("findings.count", len(findings))))
 	detectSpan.End()
@@ -327,7 +327,7 @@ func (s *Scanner) createArchiveReader(
 		s.scannerID,
 		format,
 		func(size int64) {
-			s.metrics.ObserveScanSize(ctx, shared.SourceType(task.SourceType), size)
+			s.metrics.ObserveScanSize(ctx, shared.ParseSourceType(string(task.SourceType)), size)
 		},
 		logr,
 		s.tracer,
@@ -371,7 +371,7 @@ func (s *Scanner) createArchiveReader(
 	reader, err := archiveReader.Read(processCtx, resp.Body, scanCtx)
 	if err != nil {
 		processSpan.RecordError(err)
-		s.metrics.IncScanError(ctx, shared.SourceType(task.SourceType))
+		s.metrics.IncScanError(ctx, shared.ParseSourceType(string(task.SourceType)))
 		return nil, fmt.Errorf("failed to process archive: %w", err)
 	}
 

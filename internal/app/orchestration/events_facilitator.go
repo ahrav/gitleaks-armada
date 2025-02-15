@@ -3,6 +3,7 @@ package orchestration
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -13,6 +14,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/rules"
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
+	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 )
 
 // EventsFacilitator orchestrates the handling of domain events that span multiple
@@ -133,7 +135,7 @@ func recordPayloadTypeError(span trace.Span, payload any) error {
 
 // -------------------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------------------
-// Enumeration
+// Scanning
 
 // HandleScanJobRequested processes a JobRequestedEvent by creating jobs for each target
 // in the configuration.
@@ -152,16 +154,11 @@ func (ef *EventsFacilitator) HandleScanJobRequested(
 			attribute.String("requested_by", jobEvt.RequestedBy),
 		))
 
-		// Create a job for each target in the configuration
-		for _, target := range jobEvt.Config.Targets {
-			// Get the auth config for this target
-			auth, exists := jobEvt.Config.Auth[target.AuthRef]
-			if !exists {
-				return fmt.Errorf("auth config not found for reference: %s", target.AuthRef)
-			}
-
+		// Create a job for each target.
+		for _, target := range jobEvt.Targets {
+			auth := jobEvt.Auth[target.AuthID()]
 			if err := ef.executionTracker.CreateJobForTarget(ctx, target, auth); err != nil {
-				return fmt.Errorf("failed to create job for target %s: %w", target.Name, err)
+				return fmt.Errorf("failed to create job for target %s: %w", target.Name(), err)
 			}
 		}
 
@@ -171,9 +168,47 @@ func (ef *EventsFacilitator) HandleScanJobRequested(
 	}, ack)
 }
 
-// -------------------------------------------------------------------------------------------------
-// -------------------------------------------------------------------------------------------------
-// Scanning
+// TODO: This goes into an ACL layer.
+// scanningToEnumTargetSpec converts scanning domain types to enumeration domain types.
+func scanningToEnumTargetSpec(scanTarget scanning.Target, scanAuth scanning.Auth) (*enumeration.TargetSpec, error) {
+	// Base target spec fields
+	spec := &enumeration.TargetSpec{
+		Name:       scanTarget.Name(),
+		SourceType: scanTarget.SourceType(),
+		AuthRef:    scanTarget.AuthID(),
+	}
+
+	// Build source-specific configuration based on target type
+	switch scanTarget.SourceType() {
+	case shared.SourceTypeGitHub:
+		spec.GitHub = &enumeration.GitHubTargetSpec{
+			Org:      scanTarget.Metadata()["org"],
+			RepoList: strings.Split(scanTarget.Metadata()["repos"], ","),
+			Metadata: scanTarget.Metadata(),
+		}
+
+	case shared.SourceTypeURL:
+		spec.URL = &enumeration.URLTargetSpec{
+			URLs: strings.Split(scanTarget.Metadata()["urls"], ","),
+			// Headers:   parseHeaders(scanTarget.Metadata()["headers"]),
+			Metadata: scanTarget.Metadata(),
+			// RateLimit: parseRateLimit(scanTarget.Metadata()["rate_limit"]),
+		}
+
+	case shared.SourceTypeS3:
+		spec.S3 = &enumeration.S3TargetSpec{
+			Bucket:   scanTarget.Metadata()["bucket"],
+			Prefix:   scanTarget.Metadata()["prefix"],
+			Region:   scanTarget.Metadata()["region"],
+			Metadata: scanTarget.Metadata(),
+		}
+
+	default:
+		return nil, fmt.Errorf("unsupported target type: %s", scanTarget.SourceType())
+	}
+
+	return spec, nil
+}
 
 // HandleTaskStarted processes a TaskStartedEvent.
 func (ef *EventsFacilitator) HandleTaskStarted(

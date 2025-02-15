@@ -335,7 +335,7 @@ func (c *scanJobCoordinator) GetTaskSourceType(ctx context.Context, taskID uuid.
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to get task source type")
-		return "", fmt.Errorf("repository task source type query failed (task_id: %s): %w", taskID, err)
+		return shared.SourceTypeUnspecified, fmt.Errorf("repository task source type query failed (task_id: %s): %w", taskID, err)
 	}
 
 	span.AddEvent("task_source_type_retrieved")

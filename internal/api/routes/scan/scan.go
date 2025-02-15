@@ -130,11 +130,12 @@ func status(cfg Config) web.HandlerFunc {
 func buildTargetConfig(req startRequest) config.TargetSpec {
 	target := config.TargetSpec{
 		Name:       req.Name,
-		SourceType: shared.SourceType(req.SourceType),
+		SourceType: shared.ParseSourceType(req.SourceType),
 		AuthRef:    req.Name, // Reference to auth config
+		Metadata:   req.Metadata,
 	}
 
-	switch shared.SourceType(req.SourceType) {
+	switch shared.ParseSourceType(req.SourceType) {
 	case shared.SourceTypeURL:
 		target.URL = &config.URLTarget{
 			URLs:          req.URLs,
@@ -142,13 +143,11 @@ func buildTargetConfig(req startRequest) config.TargetSpec {
 			RateLimit:     req.RateLimit,
 			Headers:       req.Headers,
 			RetryConfig:   req.RetryConfig,
-			Metadata:      req.Metadata,
 		}
 	case shared.SourceTypeGitHub:
 		target.GitHub = &config.GitHubTarget{
 			Org:      req.Organization,
 			RepoList: req.Repositories,
-			Metadata: req.Metadata,
 		}
 	}
 	return target

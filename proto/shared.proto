@@ -15,14 +15,12 @@ enum SourceType {
 message GitHubTarget {
   string org = 1;
   repeated string repo_list = 2;
-  map<string, string> metadata = 3;
 }
 
 message S3Target {
   string bucket = 1;
   string prefix = 2;
   string region = 3;
-  map<string, string> metadata = 4;
 }
 
 message URLTarget {
@@ -31,7 +29,6 @@ message URLTarget {
   map<string, string> headers = 3;
   double rate_limit = 4;
   RetryConfig retry = 5;
-  map<string, string> metadata = 6;
 }
 
 message RetryConfig {
@@ -44,26 +41,15 @@ message TargetSpec {
   string name = 1;
   SourceType source_type = 2;
   string auth_ref = 3;
+  map<string, string> metadata = 4;
   oneof target {
-    GitHubTarget github = 4;
-    S3Target s3 = 5;
-    URLTarget url = 6;
+    GitHubTarget github = 5;
+    S3Target s3 = 6;
+    URLTarget url = 7;
   }
 }
 
 message AuthConfig {
   string type = 1;
   map<string, string> config = 2;
-}
-
-message ScanConfig {
-  map<string, AuthConfig> auth = 1;
-  repeated TargetSpec targets = 2;
-}
-
-message JobRequestedEvent {
-  string event_id = 1;
-  int64 occurred_at = 2;
-  ScanConfig config = 3;
-  string requested_by = 4;
 }

@@ -277,11 +277,11 @@ func (s *taskStore) GetTaskSourceType(ctx context.Context, taskID uuid.UUID) (sh
 			}
 			return fmt.Errorf("get task source type query error: %w", err)
 		}
-		sourceType = shared.SourceType(result)
+		sourceType = shared.ParseSourceType(result)
 		return nil
 	})
 	if err != nil {
-		return "", err
+		return shared.SourceTypeUnspecified, err
 	}
 
 	return sourceType, nil

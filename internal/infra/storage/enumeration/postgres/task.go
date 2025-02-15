@@ -85,7 +85,7 @@ func (t *taskStore) GetByID(ctx context.Context, taskID uuid.UUID) (*enumeration
 
 		task = enumeration.ReconstructTask(
 			dbTask.TaskID.Bytes,
-			shared.SourceType(dbTask.SourceType),
+			shared.ParseSourceType(dbTask.SourceType),
 			dbTask.SessionID.Bytes,
 			dbTask.ResourceUri,
 			metadata,

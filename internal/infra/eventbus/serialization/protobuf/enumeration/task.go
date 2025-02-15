@@ -6,8 +6,8 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
+	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	serializationerrors "github.com/ahrav/gitleaks-armada/internal/infra/eventbus/serialization/errors"
-	"github.com/ahrav/gitleaks-armada/internal/infra/eventbus/serialization/protobuf/shared"
 	pb "github.com/ahrav/gitleaks-armada/proto"
 )
 
@@ -17,15 +17,10 @@ func TaskToProto(t *enumeration.Task, jobID uuid.UUID) (*pb.EnumerationTask, err
 		return nil, serializationerrors.ErrNilEvent{EventType: "EnumerationTask"}
 	}
 
-	sourceType, err := shared.SourceTypeToProto(t.SourceType)
-	if err != nil {
-		return nil, serializationerrors.ErrInvalidSourceType{Value: t.SourceType}
-	}
-
 	tsk := &pb.EnumerationTask{
 		TaskId:      t.ID.String(),
 		JobId:       jobID.String(),
-		SourceType:  sourceType,
+		SourceType:  pb.SourceType(t.SourceType.Int32()),
 		SessionId:   t.SessionID().String(),
 		ResourceUri: t.ResourceURI(),
 		Metadata:    t.Metadata(),
@@ -58,10 +53,7 @@ func ProtoToTask(pt *pb.EnumerationTask) (*enumeration.Task, error) {
 		return nil, serializationerrors.ErrInvalidUUID{Field: "session ID", Err: err}
 	}
 
-	sourceType, err := shared.ProtoToSourceType(pt.SourceType)
-	if err != nil {
-		return nil, serializationerrors.ErrInvalidSourceType{Value: pt.SourceType}
-	}
+	sourceType := shared.ParseSourceType(pt.SourceType.String())
 
 	var creds *enumeration.TaskCredentials
 	if pt.Credentials != nil {

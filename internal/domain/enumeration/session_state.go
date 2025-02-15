@@ -267,7 +267,7 @@ func (s *SessionState) CreateTask(resourceURI string, metadata map[string]string
 	return &Task{
 		CoreTask: shared.CoreTask{
 			ID:         uuid.New(),
-			SourceType: shared.SourceType(s.sourceType),
+			SourceType: shared.ParseSourceType(s.sourceType),
 		},
 		sessionID:   s.sessionID,
 		resourceURI: resourceURI,

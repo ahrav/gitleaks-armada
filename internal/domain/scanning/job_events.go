@@ -5,7 +5,6 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/ahrav/gitleaks-armada/internal/config"
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 )
 
@@ -23,16 +22,18 @@ const (
 type JobRequestedEvent struct {
 	id          string
 	occurredAt  time.Time
-	Config      *config.Config
+	Targets     []Target
+	Auth        map[string]Auth
 	RequestedBy string
 }
 
 // NewJobRequestedEvent creates a new scan job requested event.
-func NewJobRequestedEvent(cfg *config.Config, requestedBy string) JobRequestedEvent {
+func NewJobRequestedEvent(targets []Target, auth map[string]Auth, requestedBy string) JobRequestedEvent {
 	return JobRequestedEvent{
 		id:          uuid.New().String(),
 		occurredAt:  time.Now(),
-		Config:      cfg,
+		Targets:     targets,
+		Auth:        auth,
 		RequestedBy: requestedBy,
 	}
 }
@@ -45,17 +46,17 @@ func (e JobRequestedEvent) EventID() string             { return e.id }
 type JobCreatedEvent struct {
 	occurredAt time.Time
 	JobID      string
-	TargetSpec config.TargetSpec
-	AuthConfig config.AuthConfig
+	Target     Target
+	Auth       Auth
 }
 
 // NewJobCreatedEvent creates a new scan job created event.
-func NewJobCreatedEvent(jobID string, target config.TargetSpec, auth config.AuthConfig) JobCreatedEvent {
+func NewJobCreatedEvent(jobID string, target Target, auth Auth) JobCreatedEvent {
 	return JobCreatedEvent{
 		occurredAt: time.Now(),
 		JobID:      jobID,
-		TargetSpec: target,
-		AuthConfig: auth,
+		Target:     target,
+		Auth:       auth,
 	}
 }
 

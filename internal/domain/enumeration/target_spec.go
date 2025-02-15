@@ -3,7 +3,6 @@ package enumeration
 import (
 	"time"
 
-	"github.com/ahrav/gitleaks-armada/internal/config"
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 )
 
@@ -82,46 +81,46 @@ func NewTargetSpec(
 }
 
 // FromConfig creates a TargetSpec from a configuration TargetSpec
-func FromConfig(cfg *config.TargetSpec) *TargetSpec {
-	spec := &TargetSpec{
-		Name:       cfg.Name,
-		SourceType: shared.SourceType(cfg.SourceType),
-		AuthRef:    cfg.AuthRef,
-	}
+// func FromConfig(cfg *config.TargetSpec) *TargetSpec {
+// 	spec := &TargetSpec{
+// 		Name:       cfg.Name,
+// 		SourceType: shared.SourceType(cfg.SourceType),
+// 		AuthRef:    cfg.AuthRef,
+// 	}
 
-	if cfg.GitHub != nil {
-		spec.GitHub = &GitHubTargetSpec{
-			Org:      cfg.GitHub.Org,
-			RepoList: cfg.GitHub.RepoList,
-			Metadata: cfg.GitHub.Metadata,
-		}
-	}
+// 	if cfg.GitHub != nil {
+// 		spec.GitHub = &GitHubTargetSpec{
+// 			Org:      cfg.GitHub.Org,
+// 			RepoList: cfg.GitHub.RepoList,
+// 			Metadata: cfg.GitHub.Metadata,
+// 		}
+// 	}
 
-	if cfg.S3 != nil {
-		spec.S3 = &S3TargetSpec{
-			Bucket:   cfg.S3.Bucket,
-			Prefix:   cfg.S3.Prefix,
-			Region:   cfg.S3.Region,
-			Metadata: cfg.S3.Metadata,
-		}
-	}
+// 	if cfg.S3 != nil {
+// 		spec.S3 = &S3TargetSpec{
+// 			Bucket:   cfg.S3.Bucket,
+// 			Prefix:   cfg.S3.Prefix,
+// 			Region:   cfg.S3.Region,
+// 			Metadata: cfg.S3.Metadata,
+// 		}
+// 	}
 
-	if cfg.URL != nil {
-		spec.URL = &URLTargetSpec{
-			URLs:          cfg.URL.URLs,
-			ArchiveFormat: ArchiveFormat(cfg.URL.ArchiveFormat),
-			Headers:       cfg.URL.Headers,
-			RateLimit:     cfg.URL.RateLimit,
-			Metadata:      cfg.URL.Metadata,
-		}
-		if cfg.URL.RetryConfig != nil {
-			spec.URL.RetryConfig = &RetryConfig{
-				MaxAttempts: cfg.URL.RetryConfig.MaxAttempts,
-				InitialWait: cfg.URL.RetryConfig.InitialWait,
-				MaxWait:     cfg.URL.RetryConfig.MaxWait,
-			}
-		}
-	}
+// 	if cfg.URL != nil {
+// 		spec.URL = &URLTargetSpec{
+// 			URLs:          cfg.URL.URLs,
+// 			ArchiveFormat: ArchiveFormat(cfg.URL.ArchiveFormat),
+// 			Headers:       cfg.URL.Headers,
+// 			RateLimit:     cfg.URL.RateLimit,
+// 			Metadata:      cfg.URL.Metadata,
+// 		}
+// 		if cfg.URL.RetryConfig != nil {
+// 			spec.URL.RetryConfig = &RetryConfig{
+// 				MaxAttempts: cfg.URL.RetryConfig.MaxAttempts,
+// 				InitialWait: cfg.URL.RetryConfig.InitialWait,
+// 				MaxWait:     cfg.URL.RetryConfig.MaxWait,
+// 			}
+// 		}
+// 	}
 
-	return spec
-}
+// 	return spec
+// }

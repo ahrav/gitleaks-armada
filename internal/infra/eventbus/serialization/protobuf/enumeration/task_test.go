@@ -131,14 +131,14 @@ func TestTaskToProto(t *testing.T) {
 				name: "invalid source type",
 				task: enumeration.ReconstructTask(
 					uuid.New(),
-					shared.SourceType("invalid"),
+					shared.SourceTypeUnspecified,
 					uuid.New(),
 					"uri",
 					nil,
 					nil,
 				),
 				jobID:   uuid.New(),
-				wantErr: serializationerrors.ErrInvalidSourceType{Value: shared.SourceType("invalid")},
+				wantErr: serializationerrors.ErrInvalidSourceType{Value: shared.SourceTypeUnspecified},
 			},
 			{
 				name: "invalid GitHub credentials",

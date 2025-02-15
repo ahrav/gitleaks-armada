@@ -20,12 +20,10 @@ import (
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/ahrav/gitleaks-armada/internal/config"
 	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/rules"
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
-	serdeConfig "github.com/ahrav/gitleaks-armada/internal/infra/eventbus/serialization/protobuf/config"
 	serdeEnum "github.com/ahrav/gitleaks-armada/internal/infra/eventbus/serialization/protobuf/enumeration"
 	serdeRules "github.com/ahrav/gitleaks-armada/internal/infra/eventbus/serialization/protobuf/rules"
 	serdeScanning "github.com/ahrav/gitleaks-armada/internal/infra/eventbus/serialization/protobuf/scanning"
@@ -195,48 +193,33 @@ func deserializeEnumerationTaskCreated(data []byte) (any, error) {
 	return enumeration.NewTaskCreatedEvent(uuid.MustParse(pbTask.JobId), t), nil
 }
 
-// serializeJobRequested converts a JobRequestedEvent to protobuf bytes.
+// serializeJobRequested converts a JobRequestedEvent to protobuf bytes
 func serializeJobRequested(payload any) ([]byte, error) {
 	event, ok := payload.(scanning.JobRequestedEvent)
 	if !ok {
 		return nil, fmt.Errorf("serializeJobRequested: payload is not JobRequestedEvent, got %T", payload)
 	}
 
-	pbEvent := &pb.JobRequestedEvent{
-		EventId:     event.EventID(),
-		OccurredAt:  event.OccurredAt().UnixNano(),
-		RequestedBy: event.RequestedBy,
-	}
-
-	// Convert the config (which is a domain object) into its protobuf representation.
-	if event.Config != nil {
-		cfg, err := serdeConfig.ConfigToProto(event.Config)
-		if err != nil {
-			return nil, fmt.Errorf("serializeJobRequested: convert config: %w", err)
-		}
-		pbEvent.Config = cfg
+	pbEvent, err := serdeScanning.JobRequestedEventToProto(event)
+	if err != nil {
+		return nil, fmt.Errorf("convert to proto: %w", err)
 	}
 
 	return proto.Marshal(pbEvent)
 }
 
-// deserializeJobRequested converts protobuf bytes back into a JobRequestedEvent.
+// deserializeJobRequested converts protobuf bytes back into a JobRequestedEvent
 func deserializeJobRequested(data []byte) (any, error) {
 	var pbEvent pb.JobRequestedEvent
 	if err := proto.Unmarshal(data, &pbEvent); err != nil {
-		return nil, fmt.Errorf("deserializeJobRequested: unmarshal: %w", err)
+		return nil, fmt.Errorf("unmarshal JobRequestedEvent: %w", err)
 	}
 
-	var cfg *config.Config
-	var err error
-	if pbEvent.Config != nil {
-		cfg, err = serdeConfig.ProtoToConfig(pbEvent.Config)
-		if err != nil {
-			return nil, fmt.Errorf("deserializeJobRequested: config conversion: %w", err)
-		}
+	event, err := serdeScanning.ProtoToJobRequestedEvent(&pbEvent)
+	if err != nil {
+		return nil, fmt.Errorf("convert proto to domain event: %w", err)
 	}
 
-	event := scanning.NewJobRequestedEvent(cfg, pbEvent.RequestedBy)
 	return event, nil
 }
 

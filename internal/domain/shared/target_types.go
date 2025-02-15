@@ -56,5 +56,5 @@ func (t TargetType) ToSourceType() SourceType {
 	case TargetTypeURL:
 		return SourceTypeURL
 	}
-	return SourceType("")
+	return SourceTypeUnspecified
 }

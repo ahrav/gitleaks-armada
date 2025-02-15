@@ -730,19 +730,19 @@ func TestGetTaskSourceType(t *testing.T) {
 			name: "successful source type retrieval",
 			setup: func(s *coordinatorTestSuite) {
 				s.taskRepo.On("GetTaskSourceType", mock.Anything, taskID).
-					Return(shared.SourceType("test-resource-uri"), nil)
+					Return(shared.SourceTypeGitHub, nil)
 			},
 			wantErr:        false,
-			wantSourceType: "test-resource-uri",
+			wantSourceType: shared.SourceTypeGitHub,
 		},
 		{
 			name: "task not found",
 			setup: func(s *coordinatorTestSuite) {
 				s.taskRepo.On("GetTaskSourceType", mock.Anything, taskID).
-					Return(shared.SourceType(""), assert.AnError)
+					Return(shared.SourceTypeUnspecified, assert.AnError)
 			},
 			wantErr:        true,
-			wantSourceType: "",
+			wantSourceType: shared.SourceTypeUnspecified,
 		},
 	}
 

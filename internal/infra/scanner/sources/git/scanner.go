@@ -82,7 +82,7 @@ func (s *Scanner) runGitScan(
 
 	startTime := time.Now()
 	defer func() {
-		s.metrics.ObserveScanDuration(ctx, shared.SourceType(scanReq.SourceType), time.Since(startTime))
+		s.metrics.ObserveScanDuration(ctx, shared.ParseSourceType(string(scanReq.SourceType)), time.Since(startTime))
 	}()
 
 	tempDir, err := os.MkdirTemp("", "gitleaks-scan-")
@@ -112,11 +112,11 @@ func (s *Scanner) runGitScan(
 	if err := cloneRepo(ctx, scanReq.ResourceURI, tempDir); err != nil {
 		cloneSpan.RecordError(err)
 		cloneSpan.AddEvent("clone_failed")
-		s.metrics.IncScanError(ctx, shared.SourceType(scanReq.SourceType))
+		s.metrics.IncScanError(ctx, shared.ParseSourceType(string(scanReq.SourceType)))
 		cloneSpan.End()
 		return fmt.Errorf("failed to clone repository: %w", err)
 	}
-	s.metrics.ObserveScanDuration(ctx, shared.SourceType(scanReq.SourceType), time.Since(cloneStart))
+	s.metrics.ObserveScanDuration(ctx, shared.ParseSourceType(string(scanReq.SourceType)), time.Since(cloneStart))
 	cloneSpan.AddEvent("clone_successful")
 	cloneSpan.End()
 
@@ -152,7 +152,7 @@ func (s *Scanner) runGitScan(
 		}
 	}
 
-	s.metrics.ObserveScanFindings(ctx, shared.SourceType(scanReq.SourceType), len(findings))
+	s.metrics.ObserveScanFindings(ctx, shared.ParseSourceType(string(scanReq.SourceType)), len(findings))
 	detectSpan.SetAttributes(attribute.Int("findings.count", len(findings)))
 	detectSpan.AddEvent("secret_detection_completed",
 		trace.WithAttributes(attribute.Int("findings_count", len(findings))))
@@ -204,7 +204,7 @@ func (s *Scanner) calculateRepoSize(ctx context.Context, scanReq *dtos.ScanReque
 		return
 	}
 
-	s.metrics.ObserveScanSize(sizeCtx, shared.SourceType(scanReq.SourceType), size)
+	s.metrics.ObserveScanSize(sizeCtx, shared.ParseSourceType(string(scanReq.SourceType)), size)
 	sizeSpan.AddEvent("size_calculation_complete",
 		trace.WithAttributes(attribute.Int64("size_bytes", size)))
 }

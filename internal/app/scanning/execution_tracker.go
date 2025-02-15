@@ -8,7 +8,6 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/ahrav/gitleaks-armada/internal/config"
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
@@ -49,12 +48,12 @@ func NewExecutionTracker(
 }
 
 // CreateJobForTarget creates a new scan job for the given target and publishes a JobCreatedEvent.
-func (t *executionTracker) CreateJobForTarget(ctx context.Context, target config.TargetSpec, auth config.AuthConfig) error {
+func (t *executionTracker) CreateJobForTarget(ctx context.Context, target scanning.Target, auth scanning.Auth) error {
 	ctx, span := t.tracer.Start(ctx, "execution_tracker.scanning.create_job",
 		trace.WithAttributes(
 			attribute.String("controller_id", t.controllerID),
-			attribute.String("target_name", target.Name),
-			attribute.String("target_type", string(target.SourceType)),
+			attribute.String("target_name", target.Name()),
+			attribute.String("target_type", string(target.SourceType())),
 		))
 	defer span.End()
 
@@ -62,7 +61,7 @@ func (t *executionTracker) CreateJobForTarget(ctx context.Context, target config
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to create job")
-		return fmt.Errorf("failed to create job for target %s: %w", target.Name, err)
+		return fmt.Errorf("failed to create job for target %s: %w", target.Name(), err)
 	}
 
 	// Publish JobCreatedEvent with target information.

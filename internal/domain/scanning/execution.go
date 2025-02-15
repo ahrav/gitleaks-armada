@@ -3,8 +3,6 @@ package scanning
 
 import (
 	"context"
-
-	"github.com/ahrav/gitleaks-armada/internal/config"
 )
 
 // Execution tracking manages the lifecycle and progress of scanning tasks as they
@@ -19,7 +17,7 @@ import (
 type ExecutionTracker interface {
 	// CreateJobForTarget creates a new job for the given target and publishes a JobCreatedEvent.
 	// This serves as the entry point for a new scan job and all tasks associated with the target.
-	CreateJobForTarget(ctx context.Context, target config.TargetSpec, auth config.AuthConfig) error
+	CreateJobForTarget(ctx context.Context, target Target, auth Auth) error
 
 	// HandleTaskStart initializes tracking for a new task by registering it with the job service
 	// and setting up initial progress metrics. If this is the first task in a job, it will

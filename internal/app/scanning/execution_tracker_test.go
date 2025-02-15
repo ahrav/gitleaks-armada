@@ -391,7 +391,7 @@ func TestExecutionTracker_MarkTaskStale(t *testing.T) {
 				m.On("MarkTaskStale", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(new(scanning.Task), nil)
 				m.On("GetTaskSourceType", mock.Anything, mock.Anything).
-					Return(shared.SourceType("test"), nil)
+					Return(shared.SourceTypeGitHub, nil)
 				p.On("PublishDomainEvent",
 					mock.Anything,
 					mock.MatchedBy(func(event events.DomainEvent) bool {
@@ -427,7 +427,7 @@ func TestExecutionTracker_MarkTaskStale(t *testing.T) {
 				m.On("MarkTaskStale", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(new(scanning.Task), nil)
 				m.On("GetTaskSourceType", mock.Anything, mock.Anything).
-					Return(shared.SourceType("test"), nil)
+					Return(shared.SourceTypeGitHub, nil)
 				p.On("PublishDomainEvent",
 					mock.Anything,
 					mock.MatchedBy(func(event events.DomainEvent) bool {
