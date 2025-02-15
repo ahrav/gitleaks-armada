@@ -8,10 +8,7 @@ type Auth struct {
 
 // NewAuth creates a new Auth instance.
 func NewAuth(authType string, config map[string]any) Auth {
-	return Auth{
-		authType: authType,
-		config:   config,
-	}
+	return Auth{authType: authType, config: config}
 }
 
 // Type returns the authentication type.

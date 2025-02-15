@@ -6,25 +6,27 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 )
 
+// TODO: Revist all of this.
 // TargetSpec is a value object that encapsulates the configuration for a scan target.
 // It contains all necessary information to authenticate and enumerate resources.
 type TargetSpec struct {
-	Name       string
-	SourceType shared.SourceType
-	AuthRef    string
-	GitHub     *GitHubTargetSpec
-	S3         *S3TargetSpec
-	URL        *URLTargetSpec
+	name       string
+	sourceType shared.SourceType
+	authRef    string
+	auth       *AuthSpec
+	github     *GitHubTargetSpec
+	s3         *S3TargetSpec
+	url        *URLTargetSpec
 }
 
-// GitHubTargetSpec defines parameters for scanning GitHub repositories
+// GitHubTargetSpec defines parameters for scanning GitHub repositories.
 type GitHubTargetSpec struct {
 	Org      string
 	RepoList []string
 	Metadata map[string]string
 }
 
-// S3TargetSpec defines parameters for scanning S3 buckets
+// S3TargetSpec defines parameters for scanning S3 buckets.
 type S3TargetSpec struct {
 	Bucket   string
 	Prefix   string
@@ -32,7 +34,7 @@ type S3TargetSpec struct {
 	Metadata map[string]string
 }
 
-// URLTargetSpec defines parameters for scanning URLs
+// URLTargetSpec defines parameters for scanning URLs.
 type URLTargetSpec struct {
 	URLs          []string
 	ArchiveFormat ArchiveFormat
@@ -42,14 +44,14 @@ type URLTargetSpec struct {
 	Metadata      map[string]string
 }
 
-// RetryConfig defines retry behavior for URL requests
+// RetryConfig defines retry behavior for URL requests.
 type RetryConfig struct {
 	MaxAttempts int
 	InitialWait time.Duration
 	MaxWait     time.Duration
 }
 
-// ArchiveFormat represents supported archive/compression formats
+// ArchiveFormat represents supported archive/compression formats.
 type ArchiveFormat string
 
 const (
@@ -66,61 +68,40 @@ func NewTargetSpec(
 	name string,
 	sourceType shared.SourceType,
 	authRef string,
-	github *GitHubTargetSpec,
-	s3 *S3TargetSpec,
-	url *URLTargetSpec,
+	auth *AuthSpec,
+	// github *GitHubTargetSpec,
+	// s3 *S3TargetSpec,
+	// url *URLTargetSpec,
 ) *TargetSpec {
 	return &TargetSpec{
-		Name:       name,
-		SourceType: sourceType,
-		AuthRef:    authRef,
-		GitHub:     github,
-		S3:         s3,
-		URL:        url,
+		name:       name,
+		sourceType: sourceType,
+		authRef:    authRef,
+		auth:       auth,
+		// github:     github,
+		// s3:         s3,
+		// url:        url,
 	}
 }
 
-// FromConfig creates a TargetSpec from a configuration TargetSpec
-// func FromConfig(cfg *config.TargetSpec) *TargetSpec {
-// 	spec := &TargetSpec{
-// 		Name:       cfg.Name,
-// 		SourceType: shared.SourceType(cfg.SourceType),
-// 		AuthRef:    cfg.AuthRef,
-// 	}
+func (t *TargetSpec) Name() string { return t.name }
 
-// 	if cfg.GitHub != nil {
-// 		spec.GitHub = &GitHubTargetSpec{
-// 			Org:      cfg.GitHub.Org,
-// 			RepoList: cfg.GitHub.RepoList,
-// 			Metadata: cfg.GitHub.Metadata,
-// 		}
-// 	}
+func (t *TargetSpec) SourceType() shared.SourceType { return t.sourceType }
 
-// 	if cfg.S3 != nil {
-// 		spec.S3 = &S3TargetSpec{
-// 			Bucket:   cfg.S3.Bucket,
-// 			Prefix:   cfg.S3.Prefix,
-// 			Region:   cfg.S3.Region,
-// 			Metadata: cfg.S3.Metadata,
-// 		}
-// 	}
+func (t *TargetSpec) AuthRef() string { return t.authRef }
 
-// 	if cfg.URL != nil {
-// 		spec.URL = &URLTargetSpec{
-// 			URLs:          cfg.URL.URLs,
-// 			ArchiveFormat: ArchiveFormat(cfg.URL.ArchiveFormat),
-// 			Headers:       cfg.URL.Headers,
-// 			RateLimit:     cfg.URL.RateLimit,
-// 			Metadata:      cfg.URL.Metadata,
-// 		}
-// 		if cfg.URL.RetryConfig != nil {
-// 			spec.URL.RetryConfig = &RetryConfig{
-// 				MaxAttempts: cfg.URL.RetryConfig.MaxAttempts,
-// 				InitialWait: cfg.URL.RetryConfig.InitialWait,
-// 				MaxWait:     cfg.URL.RetryConfig.MaxWait,
-// 			}
-// 		}
-// 	}
+func (t *TargetSpec) Auth() *AuthSpec { return t.auth }
 
-// 	return spec
-// }
+func (t *TargetSpec) GitHub() *GitHubTargetSpec { return t.github }
+
+func (t *TargetSpec) S3() *S3TargetSpec { return t.s3 }
+
+func (t *TargetSpec) URL() *URLTargetSpec { return t.url }
+
+func (t *TargetSpec) ArchiveFormat() ArchiveFormat { return t.url.ArchiveFormat }
+
+func (t *TargetSpec) SetGitHub(github *GitHubTargetSpec) { t.github = github }
+
+func (t *TargetSpec) SetS3(s3 *S3TargetSpec) { t.s3 = s3 }
+
+func (t *TargetSpec) SetURL(url *URLTargetSpec) { t.url = url }
