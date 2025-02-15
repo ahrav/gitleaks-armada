@@ -168,40 +168,77 @@ func (ef *EventsFacilitator) HandleScanJobRequested(
 	}, ack)
 }
 
-// TODO: This goes into an ACL layer.
+// HandleScanJobCreated processes a JobCreatedEvent by starting enumeration for the target.
+func (ef *EventsFacilitator) HandleScanJobCreated(
+	ctx context.Context,
+	evt events.EventEnvelope,
+	ack events.AckFunc,
+) error {
+	return ef.withSpan(ctx, "events_facilitator.handle_scan_job_created", func(ctx context.Context, span trace.Span) error {
+		jobEvt, ok := evt.Payload.(scanning.JobCreatedEvent)
+		if !ok {
+			return recordPayloadTypeError(span, evt.Payload)
+		}
+
+		span.AddEvent("processing_job_created", trace.WithAttributes(
+			attribute.String("job_id", jobEvt.JobID),
+		))
+
+		// Convert scanning domain types to enumeration domain types.
+		// targetSpec, err := scanningToEnumTargetSpec(jobEvt.Target, jobEvt.Auth)
+		// if err != nil {
+		// 	span.RecordError(err)
+		// 	return fmt.Errorf("failed to convert scanning target to enumeration spec: %w", err)
+		// }
+
+		// if err := ef.enumService.StartEnumeration(ctx, targetSpec); err != nil {
+		// 	return fmt.Errorf("failed to start enumeration: %w", err)
+		// }
+
+		span.AddEvent("enumeration_started_successfully")
+		span.SetStatus(codes.Ok, "enumeration started successfully")
+		return nil
+	}, ack)
+}
+
 // scanningToEnumTargetSpec converts scanning domain types to enumeration domain types.
 func scanningToEnumTargetSpec(scanTarget scanning.Target, scanAuth scanning.Auth) (*enumeration.TargetSpec, error) {
+	// Convert auth configuration
+	auth := enumeration.NewAuthSpec(
+		scanAuth.Type(),
+		scanAuth.Config(),
+	)
+
 	// Base target spec fields
-	spec := &enumeration.TargetSpec{
-		Name:       scanTarget.Name(),
-		SourceType: scanTarget.SourceType(),
-		AuthRef:    scanTarget.AuthID(),
-	}
+	spec := enumeration.NewTargetSpec(
+		scanTarget.Name(),
+		scanTarget.SourceType(),
+		scanTarget.AuthID(),
+		auth,
+	)
 
 	// Build source-specific configuration based on target type
 	switch scanTarget.SourceType() {
 	case shared.SourceTypeGitHub:
-		spec.GitHub = &enumeration.GitHubTargetSpec{
+		spec.SetGitHub(&enumeration.GitHubTargetSpec{
 			Org:      scanTarget.Metadata()["org"],
 			RepoList: strings.Split(scanTarget.Metadata()["repos"], ","),
 			Metadata: scanTarget.Metadata(),
-		}
+		})
 
 	case shared.SourceTypeURL:
-		spec.URL = &enumeration.URLTargetSpec{
-			URLs: strings.Split(scanTarget.Metadata()["urls"], ","),
-			// Headers:   parseHeaders(scanTarget.Metadata()["headers"]),
+		spec.SetURL(&enumeration.URLTargetSpec{
+			URLs:     strings.Split(scanTarget.Metadata()["urls"], ","),
 			Metadata: scanTarget.Metadata(),
-			// RateLimit: parseRateLimit(scanTarget.Metadata()["rate_limit"]),
-		}
+		})
 
 	case shared.SourceTypeS3:
-		spec.S3 = &enumeration.S3TargetSpec{
+		spec.SetS3(&enumeration.S3TargetSpec{
 			Bucket:   scanTarget.Metadata()["bucket"],
 			Prefix:   scanTarget.Metadata()["prefix"],
 			Region:   scanTarget.Metadata()["region"],
 			Metadata: scanTarget.Metadata(),
-		}
+		})
 
 	default:
 		return nil, fmt.Errorf("unsupported target type: %s", scanTarget.SourceType())

@@ -90,7 +90,7 @@ func NewOrchestrator(
 	queue events.EventBus,
 	eventPublisher events.DomainEventPublisher,
 	eventReplayer events.DomainEventReplayer,
-	enumerationService enumCoordinator.Coordinator,
+	enumerationService enumeration.Coordinator,
 	rulesService rulessvc.Service,
 	taskRepo scanning.TaskRepository,
 	jobRepo scanning.JobRepository,
