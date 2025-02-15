@@ -9,7 +9,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	enumeration "github.com/ahrav/gitleaks-armada/internal/app/enumeration/shared"
-	"github.com/ahrav/gitleaks-armada/internal/config"
+	domain "github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
@@ -29,7 +29,7 @@ var _ enumeration.TargetEnumerator = new(Enumerator)
 type Enumerator struct {
 	controllerID string
 
-	ghConfig *config.GitHubTarget
+	ghConfig *domain.GitHubTargetSpec
 	ghClient API
 
 	logger *logger.Logger
@@ -41,7 +41,7 @@ type Enumerator struct {
 func NewEnumerator(
 	controllerID string,
 	client API,
-	ghConfig *config.GitHubTarget,
+	ghConfig *domain.GitHubTargetSpec,
 	logger *logger.Logger,
 	tracer trace.Tracer,
 ) *Enumerator {

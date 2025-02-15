@@ -9,7 +9,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	enumeration "github.com/ahrav/gitleaks-armada/internal/app/enumeration/shared"
-	"github.com/ahrav/gitleaks-armada/internal/config"
+	domain "github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
@@ -22,7 +22,7 @@ var _ enumeration.TargetEnumerator = new(Enumerator)
 type Enumerator struct {
 	controllerID string
 
-	urlConfig *config.URLTarget
+	urlConfig *domain.URLTargetSpec
 
 	logger *logger.Logger
 	tracer trace.Tracer
@@ -32,7 +32,7 @@ type Enumerator struct {
 // configured logging and tracing.
 func NewEnumerator(
 	controllerID string,
-	urlConfig *config.URLTarget,
+	urlConfig *domain.URLTargetSpec,
 	logger *logger.Logger,
 	tracer trace.Tracer,
 ) *Enumerator {
@@ -141,7 +141,7 @@ func (e *Enumerator) createTargets(ctx context.Context) ([]*enumeration.TargetIn
 
 // buildTargetMetadata creates metadata for a URL target including archive format,
 // rate limits, and other configuration parameters.
-func buildTargetMetadata(cfg *config.URLTarget) map[string]string {
+func buildTargetMetadata(cfg *domain.URLTargetSpec) map[string]string {
 	meta := make(map[string]string)
 
 	if cfg.ArchiveFormat != "" {
