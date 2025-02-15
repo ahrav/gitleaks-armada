@@ -44,7 +44,7 @@ type Orchestrator struct {
 	metricsTracker       scanning.JobMetricsTracker
 	enumCoordinator      enumCoordinator.Coordinator
 	rulesService         rulessvc.Service
-	scanJobCoordinator  scanning.ScanJobCoordinator
+	scanJobCoordinator   scanning.ScanJobCoordinator
 	stateRepo            enumeration.StateRepository
 
 	dispatcher *eventdispatcher.Dispatcher
@@ -146,16 +146,32 @@ func NewOrchestrator(
 	o.metricsTracker = scan.NewJobMetricsTracker(id, metricsRepo, eventReplayer, logger, tracer)
 	go o.metricsTracker.LaunchMetricsFlusher(30 * time.Second)
 
+	enumService := enumCoordinator.NewEnumService(
+		o.scanJobCoordinator,
+		enumerationService,
+		eventPublisher,
+		logger,
+		metrics,
+		tracer,
+	)
+
 	eventsFacilitator := NewEventsFacilitator(
 		id,
 		executionTracker,
 		o.taskHealthSupervisor,
 		o.metricsTracker,
+		enumService,
 		rulesService,
 		tracer,
 	)
 	dispatcher := eventdispatcher.New(id, tracer, logger)
 	ctx := context.Background()
+
+	dispatcher.RegisterHandler(
+		ctx,
+		enumeration.EventTypeEnumerationRequested,
+		eventsFacilitator.HandleEnumerationRequested,
+	)
 	dispatcher.RegisterHandler(ctx, scanning.EventTypeTaskStarted, eventsFacilitator.HandleTaskStarted)
 	dispatcher.RegisterHandler(ctx, scanning.EventTypeTaskProgressed, eventsFacilitator.HandleTaskProgressed)
 	dispatcher.RegisterHandler(ctx, scanning.EventTypeTaskCompleted, eventsFacilitator.HandleTaskCompleted)
