@@ -14,7 +14,6 @@ const (
 	EventTypeJobRequested events.EventType = "JobRequested"
 
 	EventTypeJobCreated   events.EventType = "JobCreated"
-	EventTypeJobStarted   events.EventType = "JobStarted"
 	EventTypeJobCompleted events.EventType = "JobCompleted"
 	EventTypeJobFailed    events.EventType = "JobFailed"
 	// TODO: Add EventTypeJobCancelled, etc.
@@ -46,33 +45,22 @@ func (e JobRequestedEvent) EventID() string             { return e.id }
 type JobCreatedEvent struct {
 	occurredAt time.Time
 	JobID      string
+	TargetSpec config.TargetSpec
+	AuthConfig config.AuthConfig
 }
 
-func NewJobCreatedEvent(jobID string) JobCreatedEvent {
+// NewJobCreatedEvent creates a new scan job created event.
+func NewJobCreatedEvent(jobID string, target config.TargetSpec, auth config.AuthConfig) JobCreatedEvent {
 	return JobCreatedEvent{
 		occurredAt: time.Now(),
 		JobID:      jobID,
+		TargetSpec: target,
+		AuthConfig: auth,
 	}
 }
 
 func (e JobCreatedEvent) EventType() events.EventType { return EventTypeJobCreated }
 func (e JobCreatedEvent) OccurredAt() time.Time       { return e.occurredAt }
-
-// JobStartedEvent indicates the job has moved from INITIALIZED -> IN_PROGRESS.
-type JobStartedEvent struct {
-	occurredAt time.Time
-	JobID      string
-}
-
-func NewJobStartedEvent(jobID string) JobStartedEvent {
-	return JobStartedEvent{
-		occurredAt: time.Now(),
-		JobID:      jobID,
-	}
-}
-
-func (e JobStartedEvent) EventType() events.EventType { return EventTypeJobStarted }
-func (e JobStartedEvent) OccurredAt() time.Time       { return e.occurredAt }
 
 // JobCompletedEvent means the job finished scanning successfully.
 type JobCompletedEvent struct {
@@ -81,6 +69,7 @@ type JobCompletedEvent struct {
 	CompletedAt time.Time // or store how many tasks, how long, etc.
 }
 
+// NewJobCompletedEvent creates a new scan job completed event.
 func NewJobCompletedEvent(jobID string) JobCompletedEvent {
 	return JobCompletedEvent{
 		occurredAt:  time.Now(),
@@ -99,6 +88,7 @@ type JobFailedEvent struct {
 	Reason     string
 }
 
+// NewJobFailedEvent creates a new scan job failed event.
 func NewJobFailedEvent(jobID, reason string) JobFailedEvent {
 	return JobFailedEvent{
 		occurredAt: time.Now(),

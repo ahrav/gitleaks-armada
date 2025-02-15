@@ -54,6 +54,14 @@ enum TaskStatus {
   TASK_STATUS_FAILED = 4;
 }
 
+// JobCreatedEvent represents the creation of a new scan job.
+message JobCreatedEvent {
+  string job_id = 1;
+  int64 timestamp = 2;
+  shared.TargetSpec target_spec = 3;
+  shared.AuthConfig auth_config = 4;
+}
+
 message TaskStartedEvent {
   string job_id = 1;
   string task_id = 2;

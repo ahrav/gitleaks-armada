@@ -114,7 +114,7 @@ func NewEventBus(
 		scanning.EventTypeTaskFailed:     cfg.ScanningTaskTopic,     // scanner -> controller
 		scanning.EventTypeTaskHeartbeat:  cfg.ScanningTaskTopic,     // scanner -> controller
 		scanning.EventTypeTaskResume:     cfg.HighPriorityTaskTopic, // controller -> scanner
-		scanning.EventTypeTaskJobMetric:  cfg.JobMetricsTopic,       // scanner -> controller
+		scanning.EventTypeTaskJobMetric:  cfg.JobMetricsTopic,       // scanner -> controller && controller -> controller
 	}
 
 	bus := &EventBus{

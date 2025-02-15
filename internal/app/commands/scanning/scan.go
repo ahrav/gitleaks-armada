@@ -22,7 +22,7 @@ type StartScanCommand struct {
 	RequestedBy string
 }
 
-// NewStartScanCommand creates a new scan command
+// NewStartScanCommand creates a new scan command.
 func NewStartScanCommand(cfg *config.Config, requestedBy string) StartScanCommand {
 	return StartScanCommand{
 		id:          uuid.New().String(),
@@ -32,16 +32,16 @@ func NewStartScanCommand(cfg *config.Config, requestedBy string) StartScanComman
 	}
 }
 
-// EventType returns the type identifier for this command
+// EventType returns the type identifier for this command.
 func (c StartScanCommand) EventType() events.EventType { return CommandTypeStartScan }
 
-// OccurredAt returns when this command was created
+// OccurredAt returns when this command was created.
 func (c StartScanCommand) OccurredAt() time.Time { return c.occurredAt }
 
-// CommandID returns the unique identifier for this command
+// CommandID returns the unique identifier for this command.
 func (c StartScanCommand) CommandID() string { return c.id }
 
-// ValidateCommand ensures all required fields are properly set
+// ValidateCommand ensures all required fields are properly set.
 func (c StartScanCommand) ValidateCommand() error {
 	if c.Config == nil {
 		return errors.New("config is required")
