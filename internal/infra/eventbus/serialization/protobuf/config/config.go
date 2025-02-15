@@ -37,7 +37,7 @@ func ConfigToProto(cfg *config.Config) (*pb.ScanConfig, error) {
 	}
 
 	for _, t := range cfg.Targets {
-		target, err := targetSpecToProto(&t)
+		target, err := TargetSpecToProto(t)
 		if err != nil {
 			return nil, fmt.Errorf("convert target spec: %w", err)
 		}
@@ -73,7 +73,7 @@ func ProtoToConfig(pbCfg *pb.ScanConfig) (*config.Config, error) {
 	}
 
 	for _, t := range pbCfg.Targets {
-		target, err := protoToTargetSpec(t)
+		target, err := ProtoToTargetSpec(t)
 		if err != nil {
 			return nil, fmt.Errorf("convert target spec: %w", err)
 		}
@@ -83,12 +83,8 @@ func ProtoToConfig(pbCfg *pb.ScanConfig) (*config.Config, error) {
 	return cfg, nil
 }
 
-// targetSpecToProto converts a config.TargetSpec to its protobuf representation.
-func targetSpecToProto(spec *config.TargetSpec) (*pb.TargetSpec, error) {
-	if spec == nil {
-		return nil, serializationerrors.ErrNilEvent{EventType: "TargetSpec"}
-	}
-
+// TargetSpecToProto converts a config.TargetSpec to its protobuf representation.
+func TargetSpecToProto(spec config.TargetSpec) (*pb.TargetSpec, error) {
 	sourceType, err := shared.SourceTypeToProto(spec.SourceType)
 	if err != nil {
 		return nil, fmt.Errorf("convert source type: %w", err)
@@ -139,8 +135,8 @@ func targetSpecToProto(spec *config.TargetSpec) (*pb.TargetSpec, error) {
 	return pbSpec, nil
 }
 
-// protoToTargetSpec converts a protobuf TargetSpec to its domain representation.
-func protoToTargetSpec(pbSpec *pb.TargetSpec) (config.TargetSpec, error) {
+// ProtoToTargetSpec converts a protobuf TargetSpec to its domain representation.
+func ProtoToTargetSpec(pbSpec *pb.TargetSpec) (config.TargetSpec, error) {
 	if pbSpec == nil {
 		return config.TargetSpec{}, serializationerrors.ErrNilEvent{EventType: "TargetSpec"}
 	}

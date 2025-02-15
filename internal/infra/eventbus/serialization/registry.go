@@ -119,12 +119,21 @@ func init() {
 // This must be called during system startup before any event processing can occur.
 func RegisterEventSerializers() {
 	// Enumeration.
+	// ------------------------------------------------------------------------------------------------
 	RegisterSerializeFunc(enumeration.EventTypeTaskCreated, serializeEnumerationTaskCreated)
 	RegisterDeserializeFunc(enumeration.EventTypeTaskCreated, deserializeEnumerationTaskCreated)
 
 	// Scanning.
+	// ------------------------------------------------------------------------------------------------
+
+	// Job events.
 	RegisterSerializeFunc(scanning.EventTypeJobRequested, serializeJobRequested)
 	RegisterDeserializeFunc(scanning.EventTypeJobRequested, deserializeJobRequested)
+
+	RegisterSerializeFunc(scanning.EventTypeJobCreated, serializeJobCreated)
+	RegisterDeserializeFunc(scanning.EventTypeJobCreated, deserializeJobCreated)
+
+	// Task events.
 
 	RegisterSerializeFunc(scanning.EventTypeTaskStarted, serializeTaskStarted)
 	RegisterDeserializeFunc(scanning.EventTypeTaskStarted, deserializeTaskStarted)
@@ -148,6 +157,7 @@ func RegisterEventSerializers() {
 	RegisterDeserializeFunc(scanning.EventTypeTaskHeartbeat, deserializeTaskHeartbeat)
 
 	// Rules.
+	// ------------------------------------------------------------------------------------------------
 	RegisterSerializeFunc(rules.EventTypeRulesUpdated, serializeRuleUpdated)
 	RegisterDeserializeFunc(rules.EventTypeRulesUpdated, deserializeRuleUpdated)
 
@@ -227,6 +237,34 @@ func deserializeJobRequested(data []byte) (any, error) {
 	}
 
 	event := scanning.NewJobRequestedEvent(cfg, pbEvent.RequestedBy)
+	return event, nil
+}
+
+// serializeJobCreated converts a JobCreatedEvent to protobuf bytes.
+func serializeJobCreated(payload any) ([]byte, error) {
+	event, ok := payload.(scanning.JobCreatedEvent)
+	if !ok {
+		return nil, fmt.Errorf("serializeJobCreated: payload is not JobCreatedEvent, got %T", payload)
+	}
+
+	pbEvent, err := serdeScanning.JobCreatedEventToProto(event)
+	if err != nil {
+		return nil, fmt.Errorf("convert domain to proto: %w", err)
+	}
+	return proto.Marshal(pbEvent)
+}
+
+// deserializeJobCreated converts protobuf bytes back into a JobCreatedEvent.
+func deserializeJobCreated(data []byte) (any, error) {
+	var pbEvent pb.JobCreatedEvent
+	if err := proto.Unmarshal(data, &pbEvent); err != nil {
+		return nil, fmt.Errorf("unmarshal JobCreatedEvent: %w", err)
+	}
+
+	event, err := serdeScanning.ProtoToJobCreatedEvent(&pbEvent)
+	if err != nil {
+		return nil, fmt.Errorf("convert proto to domain: %w", err)
+	}
 	return event, nil
 }
 
