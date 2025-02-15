@@ -9,6 +9,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	rulessvc "github.com/ahrav/gitleaks-armada/internal/app/rules"
+	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/rules"
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
@@ -41,6 +42,9 @@ type EventsFacilitator struct {
 	// metricsTracker is responsible for handling job metrics events.
 	metricsTracker scanning.JobMetricsTracker
 
+	// enumService is responsible for handling enumeration events.
+	enumService enumeration.Service
+
 	// rulesService is responsible for persisting rules, updating rule states, etc.
 	// The EventsFacilitator calls into it when handling rule-related events.
 	rulesService rulessvc.Service
@@ -57,6 +61,7 @@ func NewEventsFacilitator(
 	tracker scanning.ExecutionTracker,
 	taskHealthSupervisor scanning.TaskHealthMonitor,
 	metricsTracker scanning.JobMetricsTracker,
+	enumSvc enumeration.Service,
 	rulesSvc rulessvc.Service,
 	tracer trace.Tracer,
 ) *EventsFacilitator {
@@ -65,6 +70,7 @@ func NewEventsFacilitator(
 		executionTracker:     tracker,
 		taskHealthSupervisor: taskHealthSupervisor,
 		metricsTracker:       metricsTracker,
+		enumService:          enumSvc,
 		rulesService:         rulesSvc,
 		tracer:               tracer,
 	}
@@ -123,6 +129,37 @@ func recordPayloadTypeError(span trace.Span, payload any) error {
 	)
 	span.SetStatus(codes.Error, "invalid event payload type")
 	return err
+}
+
+// -------------------------------------------------------------------------------------------------
+// -------------------------------------------------------------------------------------------------
+// Enumeration
+
+// HandleEnumerationRequested processes an EnumerationRequestedEvent.
+func (ef *EventsFacilitator) HandleEnumerationRequested(
+	ctx context.Context,
+	evt events.EventEnvelope,
+	ack events.AckFunc,
+) error {
+	return ef.withSpan(ctx, "events_facilitator.handle_enumeration_requested", func(ctx context.Context, span trace.Span) error {
+		enumEvt, ok := evt.Payload.(enumeration.EnumerationRequestedEvent)
+		if !ok {
+			return recordPayloadTypeError(span, evt.Payload)
+		}
+
+		span.AddEvent("processing_enumeration_requested", trace.WithAttributes(
+			attribute.String("requested_by", enumEvt.RequestedBy),
+		))
+
+		if err := ef.enumService.StartEnumeration(ctx, enumEvt.Config); err != nil {
+			// TODO: consider returning additional information without exposing the creds.
+			return fmt.Errorf("failed to start enumeration (requested_by: %s): %w", enumEvt.RequestedBy, err)
+		}
+
+		span.AddEvent("enumeration_started_successfully")
+		span.SetStatus(codes.Ok, "enumeration started successfully")
+		return nil
+	}, ack)
 }
 
 // -------------------------------------------------------------------------------------------------
