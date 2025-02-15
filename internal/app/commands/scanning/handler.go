@@ -1,4 +1,4 @@
-package enumeration
+package scanning
 
 import (
 	"context"
@@ -7,8 +7,8 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/ahrav/gitleaks-armada/internal/app/commands"
-	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
+	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
 
@@ -37,7 +37,7 @@ func (h *CommandHandler) Handle(ctx context.Context, cmd commands.Command) error
 	defer span.End()
 
 	switch c := cmd.(type) {
-	case StartEnumerationCommand:
+	case StartScanCommand:
 		return h.handleStartEnumeration(ctx, c)
 	default:
 		h.logger.Error(ctx, "unknown command type",
@@ -49,8 +49,8 @@ func (h *CommandHandler) Handle(ctx context.Context, cmd commands.Command) error
 }
 
 // handleStartEnumeration processes a StartEnumerationCommand by validating the config
-// and publishing an enumeration requested event.
-func (h *CommandHandler) handleStartEnumeration(ctx context.Context, cmd StartEnumerationCommand) error {
+// and publishing a job requested event.
+func (h *CommandHandler) handleStartEnumeration(ctx context.Context, cmd StartScanCommand) error {
 	if err := cmd.ValidateCommand(); err != nil {
 		h.logger.Error(ctx, "invalid enumeration command",
 			"error", err,
@@ -59,16 +59,15 @@ func (h *CommandHandler) handleStartEnumeration(ctx context.Context, cmd StartEn
 		return err
 	}
 
-	evt := enumeration.NewEnumerationRequestedEvent(cmd.Config, cmd.RequestedBy)
+	evt := scanning.NewJobRequestedEvent(cmd.Config, cmd.RequestedBy)
 	if err := h.eventBus.PublishDomainEvent(ctx, evt); err != nil {
-		h.logger.Error(ctx, "failed to publish enumeration requested event",
+		h.logger.Error(ctx, "failed to publish job requested event",
 			"error", err,
 			"command_id", cmd.CommandID(),
 		)
 		return err
 	}
 
-	h.logger.Info(ctx, "enumeration requested", "command_id", cmd.CommandID(), "requested_by", cmd.RequestedBy)
-
+	h.logger.Info(ctx, "job requested", "command_id", cmd.CommandID(), "requested_by", cmd.RequestedBy)
 	return nil
 }

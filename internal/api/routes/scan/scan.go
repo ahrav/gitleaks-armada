@@ -7,7 +7,7 @@ import (
 
 	"github.com/ahrav/gitleaks-armada/internal/api/errs"
 	"github.com/ahrav/gitleaks-armada/internal/app/commands"
-	"github.com/ahrav/gitleaks-armada/internal/app/commands/enumeration"
+	"github.com/ahrav/gitleaks-armada/internal/app/commands/scanning"
 	"github.com/ahrav/gitleaks-armada/internal/config"
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
@@ -96,11 +96,11 @@ func start(cfg Config) web.HandlerFunc {
 			return errs.New(errs.InvalidArgument, err)
 		}
 
-		// Convert API request to config structure
+		// Convert API request to config structure.
 		target := buildTargetConfig(req)
 		auth := buildAuthConfig(req)
 
-		// Create enumeration configuration
+		// Create scan configuration.
 		scanCfg := &config.Config{
 			Auth: map[string]config.AuthConfig{
 				req.Name: auth,
@@ -108,14 +108,13 @@ func start(cfg Config) web.HandlerFunc {
 			Targets: []config.TargetSpec{target},
 		}
 
-		// Create enumeration command.
-		cmd := enumeration.NewStartEnumerationCommand(scanCfg, "system") // TODO: JWT user
+		cmd := scanning.NewStartScanCommand(scanCfg, "system") // TODO: JWT user
 		if err := cfg.CmdHandler.Handle(ctx, cmd); err != nil {
 			return errs.New(errs.Internal, err)
 		}
 
 		return startResponse{
-			Message: "enumeration started",
+			Message: "scan started",
 		}
 	}
 }

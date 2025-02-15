@@ -122,10 +122,10 @@ func RegisterEventSerializers() {
 	RegisterSerializeFunc(enumeration.EventTypeTaskCreated, serializeEnumerationTaskCreated)
 	RegisterDeserializeFunc(enumeration.EventTypeTaskCreated, deserializeEnumerationTaskCreated)
 
-	RegisterSerializeFunc(enumeration.EventTypeEnumerationRequested, serializeEnumerationRequested)
-	RegisterDeserializeFunc(enumeration.EventTypeEnumerationRequested, deserializeEnumerationRequested)
-
 	// Scanning.
+	RegisterSerializeFunc(scanning.EventTypeJobRequested, serializeJobRequested)
+	RegisterDeserializeFunc(scanning.EventTypeJobRequested, deserializeJobRequested)
+
 	RegisterSerializeFunc(scanning.EventTypeTaskStarted, serializeTaskStarted)
 	RegisterDeserializeFunc(scanning.EventTypeTaskStarted, deserializeTaskStarted)
 
@@ -185,35 +185,36 @@ func deserializeEnumerationTaskCreated(data []byte) (any, error) {
 	return enumeration.NewTaskCreatedEvent(uuid.MustParse(pbTask.JobId), t), nil
 }
 
-// serializeEnumerationRequested converts an EnumerationRequestedEvent to protobuf bytes.
-func serializeEnumerationRequested(payload any) ([]byte, error) {
-	event, ok := payload.(enumeration.EnumerationRequestedEvent)
+// serializeJobRequested converts a JobRequestedEvent to protobuf bytes.
+func serializeJobRequested(payload any) ([]byte, error) {
+	event, ok := payload.(scanning.JobRequestedEvent)
 	if !ok {
-		return nil, fmt.Errorf("serializeEnumerationRequested: payload is not EnumerationRequestedEvent, got %T", payload)
+		return nil, fmt.Errorf("serializeJobRequested: payload is not JobRequestedEvent, got %T", payload)
 	}
 
-	pbEvent := &pb.EnumerationRequestedEvent{
+	pbEvent := &pb.JobRequestedEvent{
 		EventId:     event.EventID(),
 		OccurredAt:  event.OccurredAt().UnixNano(),
 		RequestedBy: event.RequestedBy,
 	}
 
+	// Convert the config (which is a domain object) into its protobuf representation.
 	if event.Config != nil {
-		config, err := serdeConfig.ConfigToProto(event.Config)
+		cfg, err := serdeConfig.ConfigToProto(event.Config)
 		if err != nil {
-			return nil, fmt.Errorf("serialize config: %w", err)
+			return nil, fmt.Errorf("serializeJobRequested: convert config: %w", err)
 		}
-		pbEvent.Config = config
+		pbEvent.Config = cfg
 	}
 
 	return proto.Marshal(pbEvent)
 }
 
-// deserializeEnumerationRequested converts protobuf bytes back into an EnumerationRequestedEvent.
-func deserializeEnumerationRequested(data []byte) (any, error) {
-	var pbEvent pb.EnumerationRequestedEvent
+// deserializeJobRequested converts protobuf bytes back into a JobRequestedEvent.
+func deserializeJobRequested(data []byte) (any, error) {
+	var pbEvent pb.JobRequestedEvent
 	if err := proto.Unmarshal(data, &pbEvent); err != nil {
-		return nil, fmt.Errorf("unmarshal EnumerationRequestedEvent: %w", err)
+		return nil, fmt.Errorf("deserializeJobRequested: unmarshal: %w", err)
 	}
 
 	var cfg *config.Config
@@ -221,11 +222,12 @@ func deserializeEnumerationRequested(data []byte) (any, error) {
 	if pbEvent.Config != nil {
 		cfg, err = serdeConfig.ProtoToConfig(pbEvent.Config)
 		if err != nil {
-			return nil, fmt.Errorf("deserialize config: %w", err)
+			return nil, fmt.Errorf("deserializeJobRequested: config conversion: %w", err)
 		}
 	}
 
-	return enumeration.NewEnumerationRequestedEvent(cfg, pbEvent.RequestedBy), nil
+	event := scanning.NewJobRequestedEvent(cfg, pbEvent.RequestedBy)
+	return event, nil
 }
 
 // serializeTaskStarted converts a TaskStartedEvent to protobuf bytes.

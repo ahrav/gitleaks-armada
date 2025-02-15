@@ -3,11 +3,16 @@ package scanning
 import (
 	"time"
 
+	"github.com/google/uuid"
+
+	"github.com/ahrav/gitleaks-armada/internal/config"
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 )
 
 // Event types relevant to Jobs:
 const (
+	EventTypeJobRequested events.EventType = "JobRequested"
+
 	EventTypeJobCreated   events.EventType = "JobCreated"
 	EventTypeJobStarted   events.EventType = "JobStarted"
 	EventTypeJobCompleted events.EventType = "JobCompleted"
@@ -15,9 +20,27 @@ const (
 	// TODO: Add EventTypeJobCancelled, etc.
 )
 
-// --------------------------
-// 1. JobCreatedEvent
-// --------------------------
+// JobRequestedEvent represents the event generated when a scan job is requested.
+type JobRequestedEvent struct {
+	id          string
+	occurredAt  time.Time
+	Config      *config.Config
+	RequestedBy string
+}
+
+// NewJobRequestedEvent creates a new scan job requested event.
+func NewJobRequestedEvent(cfg *config.Config, requestedBy string) JobRequestedEvent {
+	return JobRequestedEvent{
+		id:          uuid.New().String(),
+		occurredAt:  time.Now(),
+		Config:      cfg,
+		RequestedBy: requestedBy,
+	}
+}
+
+func (e JobRequestedEvent) EventType() events.EventType { return EventTypeJobRequested }
+func (e JobRequestedEvent) OccurredAt() time.Time       { return e.occurredAt }
+func (e JobRequestedEvent) EventID() string             { return e.id }
 
 // JobCreatedEvent signals that a new ScanJob was initialized.
 type JobCreatedEvent struct {
@@ -33,12 +56,7 @@ func NewJobCreatedEvent(jobID string) JobCreatedEvent {
 }
 
 func (e JobCreatedEvent) EventType() events.EventType { return EventTypeJobCreated }
-
-func (e JobCreatedEvent) OccurredAt() time.Time { return e.occurredAt }
-
-// --------------------------
-// 2. JobStartedEvent
-// --------------------------
+func (e JobCreatedEvent) OccurredAt() time.Time       { return e.occurredAt }
 
 // JobStartedEvent indicates the job has moved from INITIALIZED -> IN_PROGRESS.
 type JobStartedEvent struct {
@@ -55,10 +73,6 @@ func NewJobStartedEvent(jobID string) JobStartedEvent {
 
 func (e JobStartedEvent) EventType() events.EventType { return EventTypeJobStarted }
 func (e JobStartedEvent) OccurredAt() time.Time       { return e.occurredAt }
-
-// --------------------------
-// 3. JobCompletedEvent
-// --------------------------
 
 // JobCompletedEvent means the job finished scanning successfully.
 type JobCompletedEvent struct {
@@ -77,10 +91,6 @@ func NewJobCompletedEvent(jobID string) JobCompletedEvent {
 
 func (e JobCompletedEvent) EventType() events.EventType { return EventTypeJobCompleted }
 func (e JobCompletedEvent) OccurredAt() time.Time       { return e.occurredAt }
-
-// --------------------------
-// 4. JobFailedEvent
-// --------------------------
 
 // JobFailedEvent means the job encountered an unrecoverable error.
 type JobFailedEvent struct {

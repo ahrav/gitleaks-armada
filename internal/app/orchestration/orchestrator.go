@@ -167,8 +167,8 @@ func NewOrchestrator(
 
 	dispatcher.RegisterHandler(
 		ctx,
-		enumeration.EventTypeEnumerationRequested,
-		eventsFacilitator.HandleEnumerationRequested,
+		scanning.EventTypeJobRequested,
+		eventsFacilitator.HandleScanJobRequested,
 	)
 	dispatcher.RegisterHandler(ctx, scanning.EventTypeTaskStarted, eventsFacilitator.HandleTaskStarted)
 	dispatcher.RegisterHandler(ctx, scanning.EventTypeTaskProgressed, eventsFacilitator.HandleTaskProgressed)
@@ -266,9 +266,9 @@ func (o *Orchestrator) subscribeToEvents(ctx context.Context) error {
 	defer subSpan.End()
 
 	eventTypes := []events.EventType{
-		enumeration.EventTypeEnumerationRequested,
 		rules.EventTypeRulesUpdated,
 		rules.EventTypeRulesPublished,
+		scanning.EventTypeJobRequested,
 		scanning.EventTypeTaskStarted,
 		scanning.EventTypeTaskProgressed,
 		scanning.EventTypeTaskCompleted,

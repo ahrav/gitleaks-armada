@@ -135,14 +135,14 @@ func recordPayloadTypeError(span trace.Span, payload any) error {
 // -------------------------------------------------------------------------------------------------
 // Enumeration
 
-// HandleEnumerationRequested processes an EnumerationRequestedEvent.
-func (ef *EventsFacilitator) HandleEnumerationRequested(
+// HandleScanJobRequested processes a ScanJobRequestedEvent.
+func (ef *EventsFacilitator) HandleScanJobRequested(
 	ctx context.Context,
 	evt events.EventEnvelope,
 	ack events.AckFunc,
 ) error {
-	return ef.withSpan(ctx, "events_facilitator.handle_enumeration_requested", func(ctx context.Context, span trace.Span) error {
-		enumEvt, ok := evt.Payload.(enumeration.EnumerationRequestedEvent)
+	return ef.withSpan(ctx, "events_facilitator.handle_scan_job_requested", func(ctx context.Context, span trace.Span) error {
+		enumEvt, ok := evt.Payload.(scanning.JobRequestedEvent)
 		if !ok {
 			return recordPayloadTypeError(span, evt.Payload)
 		}

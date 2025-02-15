@@ -22,7 +22,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/api/debug"
 	"github.com/ahrav/gitleaks-armada/internal/api/mux"
 	"github.com/ahrav/gitleaks-armada/internal/api/routes"
-	"github.com/ahrav/gitleaks-armada/internal/app/commands/enumeration"
+	"github.com/ahrav/gitleaks-armada/internal/app/commands/scanning"
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/infra/eventbus/kafka"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
@@ -264,7 +264,7 @@ func run(ctx context.Context, log *logger.Logger, hostname string) error {
 	domainEventTranslator := events.NewDomainEventTranslator(kafkaPosTranslator)
 	eventBus := kafka.NewDomainEventPublisher(bus, domainEventTranslator)
 
-	cmdHandler := enumeration.NewCommandHandler(log, tracer, eventBus)
+	cmdHandler := scanning.NewCommandHandler(log, tracer, eventBus)
 
 	// Initialize mux configuration.
 	muxConfig := mux.Config{
