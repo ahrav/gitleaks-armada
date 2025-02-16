@@ -14,10 +14,12 @@ import (
 func JobRequestedEventToProto(event scanning.JobRequestedEvent) (*pb.JobRequestedEvent, error) {
 	pbTargets := make([]*pb.TargetSpec, 0, len(event.Targets))
 	for _, target := range event.Targets {
+
 		pbTarget, err := TargetToProto(target)
 		if err != nil {
 			return nil, fmt.Errorf("convert target to proto: %w", err)
 		}
+
 		pbTargets = append(pbTargets, pbTarget)
 	}
 
@@ -29,6 +31,57 @@ func JobRequestedEventToProto(event scanning.JobRequestedEvent) (*pb.JobRequeste
 	}, nil
 }
 
+// TargetToProto converts a domain Target to its protobuf representation
+func TargetToProto(target scanning.Target) (*pb.TargetSpec, error) {
+	var pbAuth *pb.Auth
+	if target.HasAuth() {
+		pbAuth = &pb.Auth{
+			Type:        string(target.Auth().Type()),
+			Credentials: toProtoAny(target.Auth().Credentials()),
+		}
+	}
+
+	pbTarget := &pb.TargetSpec{
+		Name:       target.Name(),
+		SourceType: pb.SourceType(target.SourceType()),
+		Auth:       pbAuth,
+		Metadata:   target.Metadata(),
+	}
+
+	// Add source-specific configuration
+	switch target.SourceType() {
+	case shared.SourceTypeGitHub:
+		if gh := target.GitHub(); gh != nil {
+			pbTarget.Target = &pb.TargetSpec_Github{
+				Github: &pb.GitHubTarget{
+					Org:      gh.Org(),
+					RepoList: gh.RepoList(),
+				},
+			}
+		}
+	case shared.SourceTypeS3:
+		if s3 := target.S3(); s3 != nil {
+			pbTarget.Target = &pb.TargetSpec_S3{
+				S3: &pb.S3Target{
+					Bucket: s3.Bucket(),
+					Prefix: s3.Prefix(),
+					Region: s3.Region(),
+				},
+			}
+		}
+	case shared.SourceTypeURL:
+		if url := target.URL(); url != nil {
+			pbTarget.Target = &pb.TargetSpec_Url{
+				Url: &pb.URLTarget{
+					Urls: url.URLs(),
+				},
+			}
+		}
+	}
+
+	return pbTarget, nil
+}
+
 // ProtoToJobRequestedEvent converts a protobuf JobRequestedEvent to its domain representation
 func ProtoToJobRequestedEvent(event *pb.JobRequestedEvent) (scanning.JobRequestedEvent, error) {
 	if event == nil || len(event.Targets) == 0 {
@@ -37,16 +90,69 @@ func ProtoToJobRequestedEvent(event *pb.JobRequestedEvent) (scanning.JobRequeste
 
 	targets := make([]scanning.Target, 0, len(event.Targets))
 	for _, pbTarget := range event.Targets {
+
 		target, err := ProtoToTarget(pbTarget)
 		if err != nil {
 			return scanning.JobRequestedEvent{}, fmt.Errorf("convert proto to target: %w", err)
 		}
+
 		targets = append(targets, target)
 	}
 
 	return scanning.NewJobRequestedEvent(
 		targets,
 		event.RequestedBy,
+	), nil
+}
+
+// ProtoToTarget converts a protobuf TargetSpec to its domain representation
+func ProtoToTarget(pbTarget *pb.TargetSpec) (scanning.Target, error) {
+	if pbTarget == nil {
+		return scanning.Target{}, serializationerrors.ErrNilEvent{EventType: "TargetSpec"}
+	}
+
+	var auth *scanning.Auth
+	if pbTarget.Auth != nil {
+		domainAuth := scanning.NewAuth(
+			pbTarget.Auth.Type,
+			fromProtoAny(pbTarget.Auth.Credentials),
+		)
+		auth = &domainAuth
+	}
+
+	var config scanning.TargetConfig
+
+	// Convert source-specific configuration
+	switch t := pbTarget.Target.(type) {
+	case *pb.TargetSpec_Github:
+		if t.Github != nil {
+			config.GitHub = scanning.NewGitHubTarget(
+				t.Github.Org,
+				t.Github.RepoList,
+			)
+		}
+	case *pb.TargetSpec_S3:
+		if t.S3 != nil {
+			config.S3 = scanning.NewS3Target(
+				t.S3.Bucket,
+				t.S3.Prefix,
+				t.S3.Region,
+			)
+		}
+	case *pb.TargetSpec_Url:
+		if t.Url != nil {
+			config.URL = scanning.NewURLTarget(
+				t.Url.Urls,
+			)
+		}
+	}
+
+	return scanning.NewTarget(
+		pbTarget.Name,
+		shared.SourceType(pbTarget.SourceType),
+		auth,
+		pbTarget.Metadata,
+		config,
 	), nil
 }
 
@@ -61,24 +167,6 @@ func JobCreatedEventToProto(event scanning.JobCreatedEvent) (*pb.JobCreatedEvent
 		JobId:      event.JobID,
 		Timestamp:  event.OccurredAt().UnixNano(),
 		TargetSpec: targetSpec,
-	}, nil
-}
-
-// TargetToProto converts a domain Target to its protobuf representation
-func TargetToProto(target scanning.Target) (*pb.TargetSpec, error) {
-	var pbAuth *pb.Auth
-	if target.HasAuth() {
-		pbAuth = &pb.Auth{
-			Type:        string(target.Auth().Type()),
-			Credentials: toProtoAny(target.Auth().Credentials()),
-		}
-	}
-
-	return &pb.TargetSpec{
-		Name:       target.Name(),
-		SourceType: pb.SourceType(target.SourceType()),
-		Auth:       pbAuth,
-		Metadata:   target.Metadata(),
 	}, nil
 }
 
@@ -124,29 +212,6 @@ func ProtoToJobCreatedEvent(event *pb.JobCreatedEvent) (scanning.JobCreatedEvent
 	return scanning.NewJobCreatedEvent(event.JobId, target), nil
 }
 
-// ProtoToTarget converts a protobuf TargetSpec to its domain representation
-func ProtoToTarget(pbTarget *pb.TargetSpec) (scanning.Target, error) {
-	if pbTarget == nil {
-		return scanning.Target{}, serializationerrors.ErrNilEvent{EventType: "TargetSpec"}
-	}
-
-	var auth *scanning.Auth
-	if pbTarget.Auth != nil {
-		domainAuth := scanning.NewAuth(
-			pbTarget.Auth.Type,
-			fromProtoAny(pbTarget.Auth.Credentials),
-		)
-		auth = &domainAuth
-	}
-
-	return scanning.NewTarget(
-		pbTarget.Name,
-		shared.SourceType(pbTarget.SourceType),
-		auth,
-		pbTarget.Metadata,
-	), nil
-}
-
 // ProtoToAuth converts a protobuf Auth to its domain representation
 func ProtoToAuth(pbAuth *pb.Auth) (scanning.Auth, error) {
 	if pbAuth == nil {
@@ -160,65 +225,3 @@ func ProtoToAuth(pbAuth *pb.Auth) (scanning.Auth, error) {
 
 	return scanning.NewAuth(pbAuth.Type, configMap), nil
 }
-
-// Helper functions for value conversion
-// func toProtoAny(m map[string]any) map[string]*structpb.Value {
-// 	if m == nil {
-// 		return nil
-// 	}
-
-// 	result := make(map[string]*structpb.Value, len(m))
-// 	for k, v := range m {
-// 		val, err := structpb.NewValue(v)
-// 		if err != nil {
-// 			// If we can't convert directly, try JSON marshaling
-// 			b, err := json.Marshal(v)
-// 			if err != nil {
-// 				continue // Skip this value if we can't marshal it
-// 			}
-// 			val = structpb.NewStringValue(string(b))
-// 		}
-// 		result[k] = val
-// 	}
-// 	return result
-// }
-
-// func fromProtoAny(m map[string]*structpb.Value) map[string]any {
-// 	if m == nil {
-// 		return nil
-// 	}
-
-// 	result := make(map[string]any, len(m))
-// 	for k, v := range m {
-// 		if v == nil {
-// 			continue
-// 		}
-
-// 		switch v.Kind.(type) {
-// 		case *structpb.Value_StringValue,
-// 			*structpb.Value_NumberValue,
-// 			*structpb.Value_BoolValue:
-// 			result[k] = v.AsInterface()
-// 		case *structpb.Value_StructValue:
-// 			if s := v.GetStructValue(); s != nil {
-// 				result[k] = s.AsMap()
-// 			}
-// 		case *structpb.Value_ListValue:
-// 			if l := v.GetListValue(); l != nil {
-// 				var arr []any
-// 				for _, item := range l.Values {
-// 					arr = append(arr, item.AsInterface())
-// 				}
-// 				result[k] = arr
-// 			}
-// 		default:
-// 			if str := v.GetStringValue(); str != "" {
-// 				var val any
-// 				if err := json.Unmarshal([]byte(str), &val); err == nil {
-// 					result[k] = val
-// 				}
-// 			}
-// 		}
-// 	}
-// 	return result
-// }

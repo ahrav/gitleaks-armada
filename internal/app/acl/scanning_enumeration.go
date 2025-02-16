@@ -2,7 +2,6 @@ package acl
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
@@ -47,24 +46,33 @@ func enrichTargetSpec(
 ) error {
 	switch scanTarget.SourceType() {
 	case shared.SourceTypeGitHub:
+		githubTarget := scanTarget.GitHub()
+		if githubTarget == nil {
+			return fmt.Errorf("missing GitHub configuration for GitHub target")
+		}
 		spec.SetGitHub(&enumeration.GitHubTargetSpec{
-			Org:      scanTarget.Metadata()["org"],
-			RepoList: strings.Split(scanTarget.Metadata()["repos"], ","),
-			Metadata: scanTarget.Metadata(),
-		})
-
-	case shared.SourceTypeURL:
-		spec.SetURL(&enumeration.URLTargetSpec{
-			URLs:     strings.Split(scanTarget.Metadata()["urls"], ","),
-			Metadata: scanTarget.Metadata(),
+			Org:      githubTarget.Org(),
+			RepoList: githubTarget.RepoList(),
 		})
 
 	case shared.SourceTypeS3:
+		s3Target := scanTarget.S3()
+		if s3Target == nil {
+			return fmt.Errorf("missing S3 configuration for S3 target")
+		}
 		spec.SetS3(&enumeration.S3TargetSpec{
-			Bucket:   scanTarget.Metadata()["bucket"],
-			Prefix:   scanTarget.Metadata()["prefix"],
-			Region:   scanTarget.Metadata()["region"],
-			Metadata: scanTarget.Metadata(),
+			Bucket: s3Target.Bucket(),
+			Prefix: s3Target.Prefix(),
+			Region: s3Target.Region(),
+		})
+
+	case shared.SourceTypeURL:
+		urlTarget := scanTarget.URL()
+		if urlTarget == nil {
+			return fmt.Errorf("missing URL configuration for URL target")
+		}
+		spec.SetURL(&enumeration.URLTargetSpec{
+			URLs: urlTarget.URLs(),
 		})
 
 	default:

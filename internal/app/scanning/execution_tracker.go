@@ -56,7 +56,7 @@ func (t *executionTracker) CreateJobForTarget(ctx context.Context, target scanni
 		trace.WithAttributes(
 			attribute.String("controller_id", t.controllerID),
 			attribute.String("target_name", target.Name()),
-			attribute.String("target_type", string(target.SourceType())),
+			attribute.String("source_type", target.SourceType().String()),
 		))
 	defer span.End()
 
@@ -77,15 +77,16 @@ func (t *executionTracker) CreateJobForTarget(ctx context.Context, target scanni
 	); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to publish job created event")
-		return fmt.Errorf("failed to publish job created event: %w", err)
+		return fmt.Errorf("failed to publish job created event (job_id: %s, source_type: %s, source_name: %s): %w",
+			job.JobID(), target.SourceType().String(), target.Name(), err)
 	}
 
 	span.AddEvent("job_created_and_event_published")
 	span.SetStatus(codes.Ok, "job created and event published")
 	t.logger.Info(ctx, "Job created",
 		"job_id", job.JobID(),
-		"target_name", target.Name,
-		"target_type", target.SourceType,
+		"target_name", target.Name(),
+		"source_type", target.SourceType().String(),
 	)
 
 	return nil

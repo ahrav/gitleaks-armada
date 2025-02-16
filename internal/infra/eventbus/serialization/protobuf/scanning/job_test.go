@@ -24,12 +24,21 @@ func TestJobCreatedEventConversion(t *testing.T) {
 			},
 		)
 
+		metadata := map[string]string{
+			"environment": "production",
+			"team":        "security",
+		}
+
 		targetSpec := scanning.NewTarget(
 			"test-target",
 			shared.SourceTypeGitHub,
 			&auth,
-			map[string]string{
-				"key": "value",
+			metadata,
+			scanning.TargetConfig{
+				GitHub: scanning.NewGitHubTarget(
+					"test-org",
+					[]string{"repo-1", "repo-2"},
+				),
 			},
 		)
 
@@ -42,6 +51,14 @@ func TestJobCreatedEventConversion(t *testing.T) {
 		assert.Equal(t, targetSpec.Name(), protoEvent.TargetSpec.Name)
 		assert.Equal(t, pb.SourceType_SOURCE_TYPE_GITHUB, protoEvent.TargetSpec.SourceType)
 		assert.Equal(t, string(auth.Type()), protoEvent.TargetSpec.Auth.Type)
+		assert.Equal(t, metadata, protoEvent.TargetSpec.Metadata)
+
+		// Verify GitHub-specific fields.
+		githubTarget := protoEvent.TargetSpec.GetGithub()
+		require.NotNil(t, githubTarget)
+		assert.Equal(t, "test-org", githubTarget.Org)
+		assert.Equal(t, []string{"repo-1", "repo-2"}, githubTarget.RepoList)
+		// TODO: Additional specific fields.
 
 		// Test proto to domain conversion.
 		convertedEvent, err := ProtoToJobCreatedEvent(protoEvent)
@@ -49,8 +66,101 @@ func TestJobCreatedEventConversion(t *testing.T) {
 		assert.Equal(t, jobID, convertedEvent.JobID)
 		assert.Equal(t, targetSpec.Name(), convertedEvent.Target.Name())
 		assert.Equal(t, targetSpec.SourceType(), convertedEvent.Target.SourceType())
+		assert.Equal(t, metadata, convertedEvent.Target.Metadata())
 		require.True(t, convertedEvent.Target.HasAuth())
 		assert.Equal(t, auth.Type(), convertedEvent.Target.Auth().Type())
+
+		// Verify converted GitHub target.
+		convertedGitHub := convertedEvent.Target.GitHub()
+		require.NotNil(t, convertedGitHub)
+		assert.Equal(t, "test-org", convertedGitHub.Org())
+		assert.Equal(t, []string{"repo-1", "repo-2"}, convertedGitHub.RepoList())
+	})
+
+	t.Run("S3 target conversion", func(t *testing.T) {
+		jobID := uuid.New().String()
+		metadata := map[string]string{
+			"region":     "us-west-2",
+			"department": "engineering",
+		}
+
+		targetSpec := scanning.NewTarget(
+			"s3-target",
+			shared.SourceTypeS3,
+			nil, // No auth for this test
+			metadata,
+			scanning.TargetConfig{
+				S3: scanning.NewS3Target(
+					"test-bucket",
+					"path/prefix",
+					"us-west-2",
+				),
+			},
+		)
+
+		domainEvent := scanning.NewJobCreatedEvent(jobID, targetSpec)
+
+		// Test domain to proto conversion.
+		protoEvent, err := JobCreatedEventToProto(domainEvent)
+		require.NoError(t, err)
+		assert.Equal(t, metadata, protoEvent.TargetSpec.Metadata)
+
+		s3Target := protoEvent.TargetSpec.GetS3()
+		require.NotNil(t, s3Target)
+		assert.Equal(t, "test-bucket", s3Target.Bucket)
+		assert.Equal(t, "path/prefix", s3Target.Prefix)
+		assert.Equal(t, "us-west-2", s3Target.Region)
+
+		// Test proto to domain conversion.
+		convertedEvent, err := ProtoToJobCreatedEvent(protoEvent)
+		require.NoError(t, err)
+		assert.Equal(t, metadata, convertedEvent.Target.Metadata())
+
+		convertedS3 := convertedEvent.Target.S3()
+		require.NotNil(t, convertedS3)
+		assert.Equal(t, "test-bucket", convertedS3.Bucket())
+		assert.Equal(t, "path/prefix", convertedS3.Prefix())
+		assert.Equal(t, "us-west-2", convertedS3.Region())
+	})
+
+	t.Run("URL target conversion", func(t *testing.T) {
+		jobID := uuid.New().String()
+		metadata := map[string]string{
+			"scan_type": "web",
+			"priority":  "high",
+		}
+
+		targetSpec := scanning.NewTarget(
+			"url-target",
+			shared.SourceTypeURL,
+			nil,
+			metadata,
+			scanning.TargetConfig{
+				URL: scanning.NewURLTarget(
+					[]string{"https://example.com", "https://test.com"},
+				),
+			},
+		)
+
+		domainEvent := scanning.NewJobCreatedEvent(jobID, targetSpec)
+
+		// Test domain to proto conversion.
+		protoEvent, err := JobCreatedEventToProto(domainEvent)
+		require.NoError(t, err)
+		assert.Equal(t, metadata, protoEvent.TargetSpec.Metadata)
+
+		urlTarget := protoEvent.TargetSpec.GetUrl()
+		require.NotNil(t, urlTarget)
+		assert.Equal(t, []string{"https://example.com", "https://test.com"}, urlTarget.Urls)
+
+		// Test proto to domain conversion.
+		convertedEvent, err := ProtoToJobCreatedEvent(protoEvent)
+		require.NoError(t, err)
+		assert.Equal(t, metadata, convertedEvent.Target.Metadata())
+
+		convertedURL := convertedEvent.Target.URL()
+		require.NotNil(t, convertedURL)
+		assert.Equal(t, []string{"https://example.com", "https://test.com"}, convertedURL.URLs())
 	})
 
 	t.Run("error cases", func(t *testing.T) {
@@ -97,8 +207,9 @@ func TestJobRequestedEventConversion(t *testing.T) {
 			"test-target",
 			shared.SourceTypeGitHub,
 			&auth,
-			map[string]string{
-				"key": "value",
+			map[string]string{},
+			scanning.TargetConfig{
+				GitHub: scanning.NewGitHubTarget("test-org", []string{"test-repo"}),
 			},
 		)
 
@@ -107,7 +218,7 @@ func TestJobRequestedEventConversion(t *testing.T) {
 			"test-user",
 		)
 
-		// Test domain to proto conversion
+		// Test domain to proto conversion.
 		protoEvent, err := JobRequestedEventToProto(domainEvent)
 		require.NoError(t, err)
 		assert.Equal(t, domainEvent.RequestedBy, protoEvent.RequestedBy)
@@ -116,7 +227,7 @@ func TestJobRequestedEventConversion(t *testing.T) {
 		assert.Equal(t, pb.SourceType_SOURCE_TYPE_GITHUB, protoEvent.Targets[0].SourceType)
 		assert.Equal(t, string(auth.Type()), protoEvent.Targets[0].Auth.Type)
 
-		// Test proto to domain conversion
+		// Test proto to domain conversion.
 		convertedEvent, err := ProtoToJobRequestedEvent(protoEvent)
 		require.NoError(t, err)
 		assert.Equal(t, domainEvent.RequestedBy, convertedEvent.RequestedBy)

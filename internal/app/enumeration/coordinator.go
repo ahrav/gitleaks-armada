@@ -163,12 +163,12 @@ func (s *coordinator) EnumerateTarget(ctx context.Context, target domain.TargetS
 		ctx, span := s.startSpan(ctx, "coordinator.enumeration.enumerate_target",
 			attribute.String("operation", "enumerate_target"),
 			attribute.String("target_name", target.Name()),
-			attribute.String("target_type", string(target.SourceType())),
+			attribute.String("target_type", target.SourceType().String()),
 		)
 		defer span.End()
 
 		start := time.Now()
-		s.logger.Info(ctx, "Starting enumeration for target", "target", target.Name(), "target_type", target.SourceType())
+		s.logger.Info(ctx, "Starting enumeration for target", "target", target.Name(), "target_type", target.SourceType().String())
 
 		// credStore, err := memory.NewCredentialStore(target.Auth)
 		// if err != nil {
@@ -178,7 +178,7 @@ func (s *coordinator) EnumerateTarget(ctx context.Context, target domain.TargetS
 		// s.credStore = credStore
 		// span.AddEvent("credential_store_initialized")
 
-		state := domain.NewState(string(target.SourceType()), s.marshalConfig(ctx, target))
+		state := domain.NewState(target.SourceType().String(), s.marshalConfig(ctx, target))
 
 		if err := s.processTargetEnumeration(ctx, state, target, pipes.scanTargetWriter, pipes.taskWriter); err != nil {
 			s.failEnumeration(ctx, span, pipes.errorWriter, "failed to process target enumeration", err)
@@ -206,7 +206,7 @@ func (s *coordinator) marshalConfig(
 ) json.RawMessage {
 	logger := s.logger.With(
 		"operation", "marshal_config",
-		"target_type", string(target.SourceType()),
+		"target_type", target.SourceType().String(),
 	)
 	span := trace.SpanFromContext(ctx)
 	defer span.End()
@@ -297,11 +297,11 @@ func (s *coordinator) processTargetEnumeration(
 	logger := s.logger.With(
 		"operation", "process_target_enumeration",
 		"target_name", target.Name(),
-		"source_type", string(target.SourceType()),
+		"source_type", target.SourceType().String(),
 		"session_id", state.SessionID().String(),
 	)
 	ctx, span := s.startSpan(ctx, "coordinator.enumeration.process_target_enumeration",
-		attribute.String("source_type", string(target.SourceType())),
+		attribute.String("source_type", target.SourceType().String()),
 		attribute.String("session_id", state.SessionID().String()),
 	)
 	defer span.End()
