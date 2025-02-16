@@ -81,20 +81,6 @@ func (sr startResponse) HTTPStatus() int {
 	return http.StatusAccepted // 202
 }
 
-// statusResponse represents the response for scan status.
-// type statusResponse struct {
-// 	Status string `json:"status"`
-// }
-
-// Encode implements the web.Encoder interface.
-// func (sr statusResponse) Encode() ([]byte, string, error) {
-// 	data, err := json.Marshal(sr)
-// 	if err != nil {
-// 		return nil, "", err
-// 	}
-// 	return data, "application/json", nil
-// }
-
 func start(cfg Config) web.HandlerFunc {
 	return func(ctx context.Context, r *http.Request) web.Encoder {
 		var req startRequest
@@ -126,14 +112,6 @@ func start(cfg Config) web.HandlerFunc {
 		}
 	}
 }
-
-// func status(cfg Config) web.HandlerFunc {
-// 	return func(ctx context.Context, r *http.Request) web.Encoder {
-// 		return statusResponse{
-// 			Status: "in_progress", // Placeholder
-// 		}
-// 	}
-// }
 
 func buildTargetConfig(req startRequest) config.TargetSpec {
 	target := config.TargetSpec{
