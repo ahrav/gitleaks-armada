@@ -43,9 +43,10 @@ func (a Auth) Type() AuthType { return a.authType }
 // Credentials returns the authentication credentials.
 func (a Auth) Credentials() map[string]any { return a.credentials }
 
+// TODO: Actually use this...
 // ValidateCredentials ensures the credentials match the requirements for the auth type.
 func (a Auth) ValidateCredentials() error {
-	switch AuthType(a.authType) {
+	switch a.authType {
 	case AuthTypeNone:
 		return nil
 	case AuthTypeBasic:
@@ -61,7 +62,7 @@ func (a Auth) ValidateCredentials() error {
 	}
 }
 
-// Helper functions for credential validation
+// Helper functions for credential validation.
 func validateBasicAuth(creds map[string]any) error {
 	if _, ok := creds["username"]; !ok {
 		return ErrMissingUsername
