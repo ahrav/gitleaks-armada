@@ -2,6 +2,7 @@
 /scanner
 /controller
 /secret-scanner
+/api-gateway
 
 # Build and environment
 dist
