@@ -14,7 +14,7 @@ import (
 )
 
 // TaskCreatedEventToProto converts a domain TaskCreatedEvent to its protobuf representation.
-func TaskCreatedEventToProto(event scanning.TaskCreatedEvent) *pb.TaskCreatedEvent {
+func TaskCreatedEventToProto(event *scanning.TaskCreatedEvent) *pb.TaskCreatedEvent {
 	var credentials *pb.Credentials
 	if event.Credentials.Type != scanning.CredentialTypeUnknown {
 		credentials = &pb.Credentials{
@@ -58,24 +58,24 @@ func toProtoAny(m map[string]any) map[string]*structpb.Value {
 }
 
 // ProtoToTaskCreatedEvent converts a protobuf TaskCreatedEvent to its domain representation.
-func ProtoToTaskCreatedEvent(event *pb.TaskCreatedEvent) (scanning.TaskCreatedEvent, error) {
+func ProtoToTaskCreatedEvent(event *pb.TaskCreatedEvent) (*scanning.TaskCreatedEvent, error) {
 	if event == nil {
-		return scanning.TaskCreatedEvent{}, serializationerrors.ErrNilEvent{EventType: "TaskCreated"}
+		return nil, serializationerrors.ErrNilEvent{EventType: "TaskCreated"}
 	}
 
 	jobID, err := uuid.Parse(event.JobId)
 	if err != nil {
-		return scanning.TaskCreatedEvent{}, serializationerrors.ErrInvalidUUID{Field: "job ID", Err: err}
+		return nil, serializationerrors.ErrInvalidUUID{Field: "job ID", Err: err}
 	}
 
 	taskID, err := uuid.Parse(event.TaskId)
 	if err != nil {
-		return scanning.TaskCreatedEvent{}, serializationerrors.ErrInvalidUUID{Field: "task ID", Err: err}
+		return nil, serializationerrors.ErrInvalidUUID{Field: "task ID", Err: err}
 	}
 
 	sourceType := shared.FromInt32(int32(event.SourceType))
 	if sourceType == shared.SourceTypeUnspecified {
-		return scanning.TaskCreatedEvent{}, serializationerrors.ErrInvalidSourceType{Value: event.SourceType}
+		return nil, serializationerrors.ErrInvalidSourceType{Value: event.SourceType}
 	}
 
 	var credentials scanning.Credentials

@@ -221,7 +221,7 @@ func deserializeJobCreated(data []byte) (any, error) {
 
 // serializeTaskCreated converts a TaskCreatedEvent to protobuf bytes.
 func serializeTaskCreated(payload any) ([]byte, error) {
-	event, ok := payload.(scanning.TaskCreatedEvent)
+	event, ok := payload.(*scanning.TaskCreatedEvent)
 	if !ok {
 		return nil, fmt.Errorf("serializeTaskCreated: payload is not TaskCreatedEvent, got %T", payload)
 	}

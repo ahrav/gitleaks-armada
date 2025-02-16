@@ -15,7 +15,6 @@ import (
 
 	"github.com/ahrav/gitleaks-armada/internal/app/scanning/acl"
 	"github.com/ahrav/gitleaks-armada/internal/app/scanning/dtos"
-	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/rules"
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
@@ -134,7 +133,7 @@ func (s *ScannerService) Run(ctx context.Context) error {
 	err := s.eventBus.Subscribe(
 		initCtx,
 		[]events.EventType{
-			enumeration.EventTypeTaskCreated,
+			scanning.EventTypeTaskCreated,
 			scanning.EventTypeTaskResume,
 			rules.EventTypeRulesRequested,
 		},
@@ -171,7 +170,7 @@ func (s *ScannerService) handleEvent(ctx context.Context, evt events.EventEnvelo
 	switch evt.Type {
 	case scanning.EventTypeTaskResume:
 		return s.handleTaskResumeEvent(ctx, evt, ack)
-	case enumeration.EventTypeTaskCreated:
+	case scanning.EventTypeTaskCreated:
 		return s.handleTaskEvent(ctx, evt, ack)
 	case rules.EventTypeRulesRequested:
 		return s.handleRuleRequest(ctx, evt, ack)
@@ -250,29 +249,29 @@ func (s *ScannerService) handleTaskEvent(
 		))
 	defer span.End()
 
-	tce, ok := evt.Payload.(enumeration.TaskCreatedEvent)
+	tce, ok := evt.Payload.(*scanning.TaskCreatedEvent)
 	if !ok {
 		span.SetStatus(codes.Error, "invalid event payload type")
 		return fmt.Errorf("expected TaskCreatedEvent, got %T", evt.Payload)
 	}
 	logger.Add(
-		"task_id", tce.Task.ID,
-		"resource_uri", tce.Task.ResourceURI(),
-		"source_type", tce.Task.SourceType,
-		"session_id", tce.Task.SessionID(),
+		"task_id", tce.TaskID,
+		"resource_uri", tce.ResourceURI,
+		"source_type", tce.SourceType,
+		// "session_id", tce.SessionID,
 	)
 	logger.Debug(ctx, "Routing task")
 
 	span.SetAttributes(
-		attribute.String("task_id", tce.Task.ID.String()),
-		attribute.String("resource_uri", tce.Task.ResourceURI()),
-		attribute.String("source_type", string(tce.Task.SourceType)),
-		attribute.String("session_id", tce.Task.SessionID().String()),
+		attribute.String("task_id", tce.TaskID.String()),
+		attribute.String("resource_uri", tce.ResourceURI),
+		attribute.String("source_type", string(tce.SourceType)),
+		// attribute.String("session_id", tce.SessionID.String()),
 	)
 	span.AddEvent("routing_task")
 
 	select {
-	case s.taskEvent <- s.enumACL.ToScanRequest(&tce):
+	case s.taskEvent <- s.enumACL.ToScanRequest(tce):
 		ack(nil)
 		logger.Debug(ctx, "Task routed")
 		span.AddEvent("task_routed")

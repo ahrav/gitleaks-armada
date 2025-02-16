@@ -23,6 +23,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/app/scanning/dtos"
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/rules"
+	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	"github.com/ahrav/gitleaks-armada/internal/infra/scanner/sources/git"
 	"github.com/ahrav/gitleaks-armada/internal/infra/scanner/sources/url"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
@@ -43,7 +44,7 @@ type Gitleaks struct {
 
 	// scannerFactories is a map of source type to scanner factory.
 	// It is used to create scanners for different source types at runtime.
-	scannerFactories map[dtos.SourceType]SourceScannerFactory
+	scannerFactories map[shared.SourceType]SourceScannerFactory
 
 	logger  *logger.Logger
 	tracer  trace.Tracer
@@ -83,11 +84,11 @@ func NewGitLeaks(
 		return nil, fmt.Errorf("failed to setup gitleaks detector: %w", err)
 	}
 
-	factories := map[dtos.SourceType]SourceScannerFactory{
-		dtos.SourceTypeGitHub: func(params scannerParams) StreamScanner {
+	factories := map[shared.SourceType]SourceScannerFactory{
+		shared.SourceTypeGitHub: func(params scannerParams) StreamScanner {
 			return git.NewScanner(params.detector, params.logger, params.tracer, params.metrics)
 		},
-		dtos.SourceTypeURL: func(params scannerParams) StreamScanner {
+		shared.SourceTypeURL: func(params scannerParams) StreamScanner {
 			return url.NewScanner(scannerID, params.detector, params.logger, params.tracer, params.metrics)
 		},
 	}

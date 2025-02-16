@@ -3,7 +3,7 @@ package acl
 
 import (
 	"github.com/ahrav/gitleaks-armada/internal/app/scanning/dtos"
-	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
+	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 )
 
 // EnumerationACL translates enumeration domain objects into scanning domain DTOs.
@@ -11,9 +11,9 @@ import (
 // leakage of domain concepts between contexts.
 type EnumerationACL struct{}
 
-// ToScanRequest converts an enumeration.TaskCreatedEvent into a scanning domain ScanRequest.
+// ToScanRequest converts a scanning.TaskCreatedEvent into a scanning domain ScanRequest.
 // This translation allows the scanning domain to remain decoupled from enumeration
 // domain concepts while preserving all necessary scanning information.
-func (acl EnumerationACL) ToScanRequest(task *enumeration.TaskCreatedEvent) *dtos.ScanRequest {
-	return dtos.NewScanRequestFromEnumerationTask(task)
+func (acl EnumerationACL) ToScanRequest(task *scanning.TaskCreatedEvent) *dtos.ScanRequest {
+	return dtos.NewScanRequestFromScanningTask(task)
 }

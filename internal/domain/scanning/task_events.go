@@ -40,8 +40,8 @@ func NewTaskCreatedEvent(
 	resourceURI string,
 	metadata map[string]string,
 	credentials Credentials,
-) TaskCreatedEvent {
-	return TaskCreatedEvent{
+) *TaskCreatedEvent {
+	return &TaskCreatedEvent{
 		occurredAt:  time.Now(),
 		JobID:       jobID,
 		TaskID:      taskID,
