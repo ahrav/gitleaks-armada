@@ -221,7 +221,7 @@ func main() {
 
 	kafkaCfg := &kafka.EventBusConfig{
 		Brokers:               strings.Split(os.Getenv("KAFKA_BROKERS"), ","),
-		EnumerationTaskTopic:  os.Getenv("KAFKA_ENUMERATION_TASK_TOPIC"),
+		TaskCreatedTopic:      os.Getenv("KAFKA_TASK_CREATED_TOPIC"),
 		ScanningTaskTopic:     os.Getenv("KAFKA_SCANNING_TASK_TOPIC"),
 		ResultsTopic:          os.Getenv("KAFKA_RESULTS_TOPIC"),
 		ProgressTopic:         os.Getenv("KAFKA_PROGRESS_TOPIC"),

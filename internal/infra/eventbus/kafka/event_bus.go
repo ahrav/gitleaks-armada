@@ -35,8 +35,8 @@ type EventBusConfig struct {
 	// Brokers is a list of Kafka broker addresses to connect to.
 	Brokers []string
 
-	// EnumerationTaskTopic is the topic name for publishing enumeration tasks.
-	EnumerationTaskTopic string
+	// TaskCreatedTopic is the topic name for publishing task created events.
+	TaskCreatedTopic string
 
 	// JobCreatedTopic is the topic name for publishing job created events.
 	JobCreatedTopic string
@@ -111,7 +111,7 @@ func NewEventBus(
 		rules.EventTypeRulesPublished:    cfg.RulesResponseTopic,    // scanner -> controller
 		scanning.EventTypeJobRequested:   cfg.ScanningTaskTopic,     // api -> controller
 		scanning.EventTypeJobCreated:     cfg.JobCreatedTopic,       // controller -> controller
-		scanning.EventTypeTaskCreated:    cfg.EnumerationTaskTopic,  // controller -> scanner
+		scanning.EventTypeTaskCreated:    cfg.TaskCreatedTopic,      // controller -> scanner
 		scanning.EventTypeTaskStarted:    cfg.ScanningTaskTopic,     // scanner -> controller
 		scanning.EventTypeTaskProgressed: cfg.ScanningTaskTopic,     // scanner -> controller
 		scanning.EventTypeTaskCompleted:  cfg.ScanningTaskTopic,     // scanner -> controller

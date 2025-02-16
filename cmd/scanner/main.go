@@ -137,7 +137,7 @@ func main() {
 	defer kafkaClient.Close()
 
 	kafkaCfg := &kafka.EventBusConfig{
-		EnumerationTaskTopic:  os.Getenv("KAFKA_ENUMERATION_TASK_TOPIC"),
+		TaskCreatedTopic:      os.Getenv("KAFKA_TASK_CREATED_TOPIC"),
 		ScanningTaskTopic:     os.Getenv("KAFKA_SCANNING_TASK_TOPIC"),
 		ResultsTopic:          os.Getenv("KAFKA_RESULTS_TOPIC"),
 		ProgressTopic:         os.Getenv("KAFKA_PROGRESS_TOPIC"),

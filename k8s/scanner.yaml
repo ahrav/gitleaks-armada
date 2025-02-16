@@ -28,11 +28,11 @@ spec:
             configMapKeyRef:
               name: scanner-config
               key: KAFKA_BROKERS
-        - name: KAFKA_ENUMERATION_TASK_TOPIC
+        - name: KAFKA_TASK_CREATED_TOPIC
           valueFrom:
             configMapKeyRef:
               name: scanner-config
-              key: KAFKA_ENUMERATION_TASK_TOPIC
+              key: KAFKA_TASK_CREATED_TOPIC
         - name: KAFKA_SCANNING_TASK_TOPIC
           valueFrom:
             configMapKeyRef:
