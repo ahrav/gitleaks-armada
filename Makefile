@@ -536,10 +536,10 @@ prometheus-restart:
 	kubectl rollout restart deployment/prometheus -n $(NAMESPACE)
 
 loki-restart:
-	kubectl rollout restart deployment/loki -n $(NAMESPACE)
+	kubectl rollout restart statefulset/loki -n $(NAMESPACE)
 
 promtail-restart:
-	kubectl rollout restart deployment/promtail -n $(NAMESPACE)
+	kubectl rollout restart daemonset/promtail -n $(NAMESPACE)
 
 # Restart all monitoring services
 monitoring-restart: tempo-restart grafana-restart prometheus-restart otel-restart loki-restart promtail-restart
