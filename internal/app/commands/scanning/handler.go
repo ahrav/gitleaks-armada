@@ -10,6 +10,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/config"
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
+	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
 
@@ -91,10 +92,42 @@ func configToDomainTarget(cfg config.TargetSpec) scanning.Target {
 		auth = &domainAuth
 	}
 
+	var targetConfig scanning.TargetConfig
+	switch cfg.SourceType {
+	case shared.SourceTypeGitHub:
+		if cfg.GitHub == nil {
+			// TODO: Return error here instead
+			cfg.GitHub = &config.GitHubTarget{}
+		}
+		targetConfig.GitHub = scanning.NewGitHubTarget(
+			cfg.GitHub.Org,
+			cfg.GitHub.RepoList,
+		)
+
+	case shared.SourceTypeS3:
+		if cfg.S3 == nil {
+			cfg.S3 = &config.S3Target{}
+		}
+		targetConfig.S3 = scanning.NewS3Target(
+			cfg.S3.Bucket,
+			cfg.S3.Prefix,
+			cfg.S3.Region,
+		)
+
+	case shared.SourceTypeURL:
+		if cfg.URL == nil {
+			cfg.URL = &config.URLTarget{}
+		}
+		targetConfig.URL = scanning.NewURLTarget(
+			cfg.URL.URLs,
+		)
+	}
+
 	return scanning.NewTarget(
 		cfg.Name,
 		cfg.SourceType,
 		auth,
 		cfg.Metadata,
+		targetConfig,
 	)
 }

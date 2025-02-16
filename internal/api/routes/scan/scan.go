@@ -28,6 +28,8 @@ func Routes(app *web.App, cfg Config) {
 	// app.HandlerFunc(http.MethodGet, "", "/v1/scan/:id", status(cfg))
 }
 
+// TODO: Add sanitization, etc...
+
 // startRequest represents the request payload for starting a scan.
 type startRequest struct {
 	Name       string            `json:"name" validate:"required"`
