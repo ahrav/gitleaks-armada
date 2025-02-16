@@ -53,50 +53,12 @@ components:
           description: Type of source to scan
         source_auth:
           $ref: '#/components/schemas/SourceAuth'
-        auth_type:
-          type: string
-          description: Type of authentication to use
-        auth_config:
-          type: object
-          additionalProperties: true
-          description: Authentication configuration
-        urls:
-          type: array
-          items:
-            type: string
-          description: List of URLs to scan (when source_type is 'url')
-        archive_format:
-          type: string
-          enum: [none, gzip, tar.gz, zip, warc.gz, auto]
-          description: Format of the archive to process
-        rate_limit:
-          type: number
-          format: float
-          description: Maximum requests per second
-        headers:
-          type: object
-          additionalProperties:
-            type: string
-          description: Custom HTTP headers
-        organization:
-          type: string
-          description: GitHub organization name (when source_type is 'github')
-        repositories:
-          type: array
-          items:
-            type: string
-          description: List of GitHub repositories (when source_type is 'github')
-        bucket:
-          type: string
-          description: S3 bucket name (when source_type is 's3')
-        prefix:
-          type: string
-          description: S3 bucket prefix (when source_type is 's3')
-        region:
-          type: string
-          description: S3 bucket region (when source_type is 's3')
-        retry:
-          $ref: '#/components/schemas/RetryConfig'
+        github:
+          $ref: '#/components/schemas/GitHubConfig'
+        s3:
+          $ref: '#/components/schemas/S3Config'
+        url:
+          $ref: '#/components/schemas/URLConfig'
         metadata:
           type: object
           additionalProperties:
@@ -157,12 +119,71 @@ components:
     SourceAuth:
       type: object
       description: Authentication configuration for the source
+      required:
+        - type
       properties:
         type:
           type: string
-          description: Type of authentication (e.g., 'basic', 'oauth', 'token', 'aws')
-          example: "basic"
+          enum: [none, basic, token, oauth, aws]
+          description: Type of authentication
+          example: "token"
         credentials:
           type: object
           additionalProperties: true
           description: Authentication credentials specific to the auth type
+
+    GitHubConfig:
+      type: object
+      required:
+        - repository_urls
+      properties:
+        repository_urls:
+          type: array
+          items:
+            type: string
+            format: uri
+            pattern: '^https://github\.com/[^/]+/[^/]+$'
+          description: List of GitHub repository URLs (e.g., https://github.com/owner/repo)
+          example: ["https://github.com/trufflesecurity/trufflehog"]
+          minItems: 1
+
+    S3Config:
+      type: object
+      required:
+        - bucket
+        - region
+      properties:
+        bucket:
+          type: string
+          description: S3 bucket name
+        prefix:
+          type: string
+          description: S3 bucket prefix
+        region:
+          type: string
+          description: S3 bucket region
+
+    URLConfig:
+      type: object
+      required:
+        - urls
+      properties:
+        urls:
+          type: array
+          items:
+            type: string
+            format: uri
+          description: List of URLs to scan
+          minItems: 1
+        archive_format:
+          type: string
+          enum: [none, gzip, tar.gz, zip, warc.gz, auto]
+          default: none
+        rate_limit:
+          type: number
+          format: float
+          minimum: 0
+        headers:
+          type: object
+          additionalProperties:
+            type: string

@@ -43,6 +43,7 @@ func NewEnumerationFactory(
 	logger *logger.Logger,
 	tracer trace.Tracer,
 ) EnumeratorFactory {
+	logger = logger.With("component", "enumeration_factory")
 	return &enumerationFactory{
 		controllerID: controllerID,
 		httpClient:   httpClient,
@@ -84,6 +85,7 @@ func (f *enumerationFactory) CreateEnumerator(
 		}
 
 		githubSpan.AddEvent("github_client_created")
+		f.logger.Debug(ctx, "Github enumerator client created")
 
 		return github.NewEnumerator(
 			f.controllerID,

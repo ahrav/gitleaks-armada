@@ -39,7 +39,7 @@ type coordinator struct {
 	githubTargetRepo domain.GithubRepository
 	urlTargetRepo    domain.URLRepository
 	batchRepo        domain.BatchRepository
-	stateRepo        domain.StateRepository
+	sessionStateRepo domain.StateRepository
 	checkpointRepo   domain.CheckpointRepository
 	taskRepo         domain.TaskRepository
 
@@ -81,7 +81,7 @@ func NewCoordinator(
 		githubTargetRepo: githubRepo,
 		urlTargetRepo:    urlTargetRepo,
 		batchRepo:        batchRepo,
-		stateRepo:        stateRepo,
+		sessionStateRepo: stateRepo,
 		checkpointRepo:   checkpointRepo,
 		taskRepo:         taskRepo,
 		enumeratorHandlers: map[shared.TargetType]enumeration.ResourcePersister{
@@ -168,6 +168,7 @@ func (s *coordinator) EnumerateTarget(ctx context.Context, target domain.TargetS
 		defer span.End()
 
 		start := time.Now()
+		s.logger.Info(ctx, "Starting enumeration for target", "target", target.Name(), "target_type", target.SourceType())
 
 		// credStore, err := memory.NewCredentialStore(target.Auth)
 		// if err != nil {
@@ -295,6 +296,7 @@ func (s *coordinator) processTargetEnumeration(
 ) error {
 	logger := s.logger.With(
 		"operation", "process_target_enumeration",
+		"target_name", target.Name(),
 		"source_type", string(target.SourceType()),
 		"session_id", state.SessionID().String(),
 	)
@@ -304,12 +306,15 @@ func (s *coordinator) processTargetEnumeration(
 	)
 	defer span.End()
 
-	if err := s.stateRepo.Save(ctx, state); err != nil {
+	logger.Debug(ctx, "Processing target enumeration")
+
+	if err := s.sessionStateRepo.Save(ctx, state); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to save initial state")
 		return fmt.Errorf("failed to save initial state: %w", err)
 	}
 	span.AddEvent("initial_state_saved")
+	logger.Debug(ctx, "Initial enumeration session state saved")
 
 	if err := state.MarkInProgress(); err != nil {
 		span.RecordError(err)
@@ -319,13 +324,14 @@ func (s *coordinator) processTargetEnumeration(
 	}
 	span.AddEvent("state_marked_in_progress")
 
-	if err := s.stateRepo.Save(ctx, state); err != nil {
+	if err := s.sessionStateRepo.Save(ctx, state); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to save state transition")
 		logger.Error(ctx, "Failed to save state transition", "error", err)
 		return err
 	}
 	span.AddEvent("state_transition_saved")
+	logger.Debug(ctx, "Enumeration session state transition saved")
 
 	// TODO: This should be removed when we have better credential handling storage.
 	var creds *domain.TaskCredentials
@@ -341,6 +347,8 @@ func (s *coordinator) processTargetEnumeration(
 			return fmt.Errorf("failed to create credentials: %w", err)
 		}
 	}
+	span.AddEvent("credentials_created")
+	logger.Debug(ctx, "Credentials created for target during enumeration")
 
 	enumerator, err := s.enumFactory.CreateEnumerator(ctx, target, creds)
 	if err != nil {
@@ -351,7 +359,7 @@ func (s *coordinator) processTargetEnumeration(
 			span.RecordError(markErr)
 			logger.Error(ctx, "Failed to mark enumeration as failed", "error", markErr)
 		}
-		if saveErr := s.stateRepo.Save(ctx, state); saveErr != nil {
+		if saveErr := s.sessionStateRepo.Save(ctx, state); saveErr != nil {
 			span.RecordError(saveErr)
 			logger.Error(ctx, "Failed to save failed state", "error", saveErr)
 		}
@@ -360,6 +368,7 @@ func (s *coordinator) processTargetEnumeration(
 		return fmt.Errorf("failed to create enumerator: %w", err)
 	}
 	span.AddEvent("enumerator_created")
+	logger.Debug(ctx, "Enumerator created for target during enumeration")
 
 	var resumeCursor *string
 	if state.LastCheckpoint() != nil {
@@ -378,16 +387,21 @@ func (s *coordinator) processTargetEnumeration(
 		return err
 	}
 	span.AddEvent("enumeration_stream_completed")
+	logger.Debug(ctx, "Enumeration stream completed successfully")
 
 	if err := state.MarkCompleted(); err != nil {
 		span.RecordError(err)
 		logger.Error(ctx, "Failed to mark enumeration as completed", "error", err)
 	}
-	if err := s.stateRepo.Save(ctx, state); err != nil {
+	span.AddEvent("state_marked_completed")
+	logger.Debug(ctx, "Enumeration state marked as completed")
+
+	if err := s.sessionStateRepo.Save(ctx, state); err != nil {
 		span.RecordError(err)
 		logger.Error(ctx, "Failed to save enumeration state", "error", err)
 		return err
 	}
+	span.AddEvent("state_saved_successfully")
 	logger.Info(ctx, "Enumeration completed successfully")
 	span.SetStatus(codes.Ok, "enumeration completed successfully")
 
@@ -415,6 +429,7 @@ func (s *coordinator) streamEnumerate(
 		attribute.String("source_type", state.SourceType()),
 	)
 	defer span.End()
+	logger.Debug(ctx, "Starting enumeration stream")
 
 	batchCh := make(chan enumeration.EnumerateBatch, 1)
 	var wg sync.WaitGroup
@@ -433,6 +448,7 @@ func (s *coordinator) streamEnumerate(
 			if err := s.processBatch(batchCtx, batch, state, creds, scanTargetWriter, taskWriter); err != nil {
 				batchSpan.RecordError(err)
 				batchSpan.SetStatus(codes.Error, "failed to process batch")
+				logger.Warn(ctx, "Failed to process batch", "error", err)
 				batchSpan.End()
 				continue
 			}
@@ -453,10 +469,9 @@ func (s *coordinator) streamEnumerate(
 			span.RecordError(markErr)
 			logger.Error(ctx, "Failed to mark enumeration as failed", "error", markErr)
 		}
-		if saveErr := s.stateRepo.Save(ctx, state); saveErr != nil {
+		if saveErr := s.sessionStateRepo.Save(ctx, state); saveErr != nil {
 			span.RecordError(saveErr)
-			logger.Error(ctx, "Failed to save enumeration state", "error", saveErr)
-			return err
+			return fmt.Errorf("failed to save enumeration state: %w", saveErr)
 		}
 		span.AddEvent("state_saved_successfully")
 		return err
@@ -585,7 +600,7 @@ func (s *coordinator) processBatch(
 		return fmt.Errorf("failed to process completed batch: %w", err)
 	}
 
-	if err := s.stateRepo.Save(ctx, state); err != nil {
+	if err := s.sessionStateRepo.Save(ctx, state); err != nil {
 		batchSpan.RecordError(err)
 		return fmt.Errorf("failed to save state: %w", err)
 	}

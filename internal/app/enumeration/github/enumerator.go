@@ -67,6 +67,7 @@ func (e *Enumerator) Enumerate(ctx context.Context, startCursor *string, batchCh
 		),
 	)
 	defer span.End()
+	e.logger.Info(ctx, "Starting enumeration for GitHub")
 
 	if err := e.validateConfig(); err != nil {
 		span.RecordError(err)
@@ -92,7 +93,7 @@ func (e *Enumerator) validateConfig() error {
 
 // processRepoList handles enumeration for explicitly provided repository list
 func (e *Enumerator) processRepoList(ctx context.Context, batchCh chan<- enumeration.EnumerateBatch) error {
-	logger := e.logger.With("operation", "process_repo_list")
+	logger := e.logger.With("operation", "process_repo_list", "repo_count", len(e.ghConfig.RepoList))
 	ctx, span := e.tracer.Start(ctx, "github_enumerator.process_repo_list",
 		trace.WithAttributes(
 			attribute.String("controller_id", e.controllerID),
@@ -101,6 +102,7 @@ func (e *Enumerator) processRepoList(ctx context.Context, batchCh chan<- enumera
 		),
 	)
 	defer span.End()
+	logger.Debug(ctx, "Starting to enumerate Github repositories...")
 
 	targets := make([]*enumeration.TargetInfo, 0, len(e.ghConfig.RepoList))
 	for _, repoURL := range e.ghConfig.RepoList {

@@ -30,35 +30,35 @@ func Routes(app *web.App, cfg Config) {
 
 // startRequest represents the request payload for starting a scan.
 type startRequest struct {
-	Name       string `json:"name" validate:"required"`
-	SourceType string `json:"source_type" validate:"required,oneof=github s3 url"`
-
-	// Source authentication.
-	SourceAuth *sourceAuth `json:"source_auth,omitempty"`
-
-	// Source-specific configurations.
-	URLs          []string          `json:"urls,omitempty"`
-	ArchiveFormat string            `json:"archive_format,omitempty"`
-	RateLimit     float64           `json:"rate_limit,omitempty"`
-	Headers       map[string]string `json:"headers,omitempty"`
-
-	// GitHub-specific fields.
-	Organization string   `json:"organization,omitempty"`
-	Repositories []string `json:"repositories,omitempty"`
-
-	// S3-specific fields.
-	Bucket string `json:"bucket,omitempty"`
-	Prefix string `json:"prefix,omitempty"`
-	Region string `json:"region,omitempty"`
-
-	// Common options.
-	RetryConfig *config.RetryConfig `json:"retry,omitempty"`
-	Metadata    map[string]string   `json:"metadata,omitempty"`
+	Name       string            `json:"name" validate:"required"`
+	SourceType string            `json:"source_type" validate:"required,oneof=github s3 url"`
+	SourceAuth *sourceAuth       `json:"source_auth,omitempty"`
+	GitHub     *githubConfig     `json:"github,omitempty"`
+	S3         *s3Config         `json:"s3,omitempty"`
+	URL        *urlConfig        `json:"url,omitempty"`
+	Metadata   map[string]string `json:"metadata,omitempty"`
 }
 
 type sourceAuth struct {
-	Type        string         `json:"type"`
+	Type        string         `json:"type" validate:"required,oneof=none basic token oauth aws"`
 	Credentials map[string]any `json:"credentials"`
+}
+
+type githubConfig struct {
+	RepositoryURLs []string `json:"repository_urls" validate:"required,min=1,dive,url"`
+}
+
+type s3Config struct {
+	Bucket string `json:"bucket" validate:"required"`
+	Prefix string `json:"prefix,omitempty"`
+	Region string `json:"region" validate:"required"`
+}
+
+type urlConfig struct {
+	URLs          []string          `json:"urls" validate:"required,min=1,dive,url"`
+	ArchiveFormat string            `json:"archive_format,omitempty" validate:"omitempty,oneof=none gzip tar.gz zip warc.gz auto"`
+	RateLimit     float64           `json:"rate_limit,omitempty" validate:"omitempty,min=0"`
+	Headers       map[string]string `json:"headers,omitempty"`
 }
 
 // startResponse represents the response for starting a scan.
@@ -142,7 +142,6 @@ func buildTargetConfig(req startRequest) config.TargetSpec {
 		Metadata:   req.Metadata,
 	}
 
-	// Set source authentication if provided.
 	if req.SourceAuth != nil {
 		target.SourceAuth = &config.AuthConfig{
 			Type:        req.SourceAuth.Type,
@@ -151,18 +150,28 @@ func buildTargetConfig(req startRequest) config.TargetSpec {
 	}
 
 	switch shared.ParseSourceType(req.SourceType) {
-	case shared.SourceTypeURL:
-		target.URL = &config.URLTarget{
-			URLs:          req.URLs,
-			ArchiveFormat: config.ArchiveFormat(req.ArchiveFormat),
-			RateLimit:     req.RateLimit,
-			Headers:       req.Headers,
-			RetryConfig:   req.RetryConfig,
-		}
 	case shared.SourceTypeGitHub:
-		target.GitHub = &config.GitHubTarget{
-			Org:      req.Organization,
-			RepoList: req.Repositories,
+		if req.GitHub != nil {
+			target.GitHub = &config.GitHubTarget{
+				RepoList: req.GitHub.RepositoryURLs,
+			}
+		}
+	case shared.SourceTypeURL:
+		if req.URL != nil {
+			target.URL = &config.URLTarget{
+				URLs:          req.URL.URLs,
+				ArchiveFormat: config.ArchiveFormat(req.URL.ArchiveFormat),
+				RateLimit:     req.URL.RateLimit,
+				Headers:       req.URL.Headers,
+			}
+		}
+	case shared.SourceTypeS3:
+		if req.S3 != nil {
+			target.S3 = &config.S3Target{
+				Bucket: req.S3.Bucket,
+				Prefix: req.S3.Prefix,
+				Region: req.S3.Region,
+			}
 		}
 	}
 	return target
