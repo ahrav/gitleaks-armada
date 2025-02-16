@@ -98,8 +98,3 @@ func configToDomainTarget(cfg config.TargetSpec) scanning.Target {
 		cfg.Metadata,
 	)
 }
-
-// configToDomainAuth converts a config.AuthConfig to a domain scanning.Auth
-func configToDomainAuth(cfg config.AuthConfig) scanning.Auth {
-	return scanning.NewAuth(cfg.Type, cfg.Credentials)
-}
