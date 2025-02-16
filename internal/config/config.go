@@ -19,6 +19,12 @@ type Config struct {
 	API     APIConfig             `yaml:"api" json:"api"`
 }
 
+// APIConfig holds configuration for the API server.
+type APIConfig struct {
+	Host string `yaml:"host" json:"host" env:"API_HOST" envDefault:"0.0.0.0"`
+	Port string `yaml:"port" json:"port" env:"API_PORT" envDefault:"8080"`
+}
+
 // TargetSpec is a generic wrapper for different source types.
 type TargetSpec struct {
 	Name       string            `yaml:"name" json:"name"`
@@ -85,10 +91,4 @@ type RetryConfig struct {
 
 	// MaxWait is the upper bound for the backoff (e.g., 30s).
 	MaxWait time.Duration `yaml:"max_wait,omitempty" json:"max_wait,omitempty"`
-}
-
-// APIConfig holds configuration for the API server
-type APIConfig struct {
-	Host string `yaml:"host" json:"host" env:"API_HOST" envDefault:"0.0.0.0"`
-	Port string `yaml:"port" json:"port" env:"API_PORT" envDefault:"8080"`
 }

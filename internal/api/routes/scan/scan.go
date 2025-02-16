@@ -25,7 +25,7 @@ type Config struct {
 // Routes binds all the scan endpoints.
 func Routes(app *web.App, cfg Config) {
 	app.HandlerFunc(http.MethodPost, "", "/v1/scan", start(cfg))
-	app.HandlerFunc(http.MethodGet, "", "/v1/scan/:id", status(cfg))
+	// app.HandlerFunc(http.MethodGet, "", "/v1/scan/:id", status(cfg))
 }
 
 // startRequest represents the request payload for starting a scan.
@@ -63,7 +63,8 @@ type sourceAuth struct {
 
 // startResponse represents the response for starting a scan.
 type startResponse struct {
-	Message string `json:"message"`
+	ID     string `json:"id"`     // The job ID
+	Status string `json:"status"` // Current status (e.g., "queued")
 }
 
 // Encode implements the web.Encoder interface.
@@ -75,19 +76,24 @@ func (sr startResponse) Encode() ([]byte, string, error) {
 	return data, "application/json", nil
 }
 
-// statusResponse represents the response for scan status.
-type statusResponse struct {
-	Status string `json:"status"`
+// HTTPStatus implements the httpStatus interface to set the response status code.
+func (sr startResponse) HTTPStatus() int {
+	return http.StatusAccepted // 202
 }
 
+// statusResponse represents the response for scan status.
+// type statusResponse struct {
+// 	Status string `json:"status"`
+// }
+
 // Encode implements the web.Encoder interface.
-func (sr statusResponse) Encode() ([]byte, string, error) {
-	data, err := json.Marshal(sr)
-	if err != nil {
-		return nil, "", err
-	}
-	return data, "application/json", nil
-}
+// func (sr statusResponse) Encode() ([]byte, string, error) {
+// 	data, err := json.Marshal(sr)
+// 	if err != nil {
+// 		return nil, "", err
+// 	}
+// 	return data, "application/json", nil
+// }
 
 func start(cfg Config) web.HandlerFunc {
 	return func(ctx context.Context, r *http.Request) web.Encoder {
@@ -114,18 +120,20 @@ func start(cfg Config) web.HandlerFunc {
 		}
 
 		return startResponse{
-			Message: "scan started",
+			// TODO: Get the job ID.
+			// ID:     cmd.JobID().String(),
+			Status: "queued",
 		}
 	}
 }
 
-func status(cfg Config) web.HandlerFunc {
-	return func(ctx context.Context, r *http.Request) web.Encoder {
-		return statusResponse{
-			Status: "in_progress", // Placeholder
-		}
-	}
-}
+// func status(cfg Config) web.HandlerFunc {
+// 	return func(ctx context.Context, r *http.Request) web.Encoder {
+// 		return statusResponse{
+// 			Status: "in_progress", // Placeholder
+// 		}
+// 	}
+// }
 
 func buildTargetConfig(req startRequest) config.TargetSpec {
 	target := config.TargetSpec{

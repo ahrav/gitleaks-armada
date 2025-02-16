@@ -39,14 +39,9 @@ func NewGraphQLClient(
 	logger *logger.Logger,
 	tracer trace.Tracer,
 ) (*GraphQLClient, error) {
-	// TODO: This is a tamp solution. I need to clean this up.
-	var token string
-	if creds.Type == domain.CredentialTypeGitHub {
-		var err error
-		token, err = extractToken(creds)
-		if err != nil {
-			return nil, fmt.Errorf("failed to extract GitHub token: %w", err)
-		}
+	token, err := extractToken(creds)
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract GitHub token: %w", err)
 	}
 
 	// GitHub's default rate limit is 5000 requests per hour.
@@ -61,16 +56,20 @@ func NewGraphQLClient(
 	}, nil
 }
 
-// extractToken retrieves and validates the authentication token from GitHub credentials.
-// It returns an error if the credentials are not GitHub type or if the token is missing.
+// extractToken retrieves and validates the authentication token from credentials.
+// It returns an empty string for unauthenticated access.
 func extractToken(creds *domain.TaskCredentials) (string, error) {
-	if creds.Type != domain.CredentialTypeGitHub && creds.Type != domain.CredentialTypeUnauthenticated {
-		return "", fmt.Errorf("expected github credentials, got %s", creds.Type)
+	if creds == nil || creds.Type == domain.CredentialTypeNone {
+		return "", nil
 	}
 
-	tokenVal, ok := creds.Values["auth_token"].(string)
+	if creds.Type != domain.CredentialTypeToken {
+		return "", fmt.Errorf("GitHub API requires token authentication, got %s", creds.Type)
+	}
+
+	tokenVal, ok := creds.Values["token"].(string)
 	if !ok || tokenVal == "" {
-		return "", fmt.Errorf("auth_token missing or empty in GitHub credentials")
+		return "", fmt.Errorf("token missing or empty in credentials")
 	}
 	return tokenVal, nil
 }

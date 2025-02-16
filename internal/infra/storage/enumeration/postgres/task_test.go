@@ -44,7 +44,7 @@ func createTestTask(t *testing.T, ctx context.Context, sessionStore *enumeration
 		"filename": "test.txt",
 	}
 
-	credentials := enumeration.NewGitHubCredentials("test-token")
+	credentials := enumeration.NewTokenCredentials("test-token")
 	task := enumeration.NewTask(
 		shared.SourceTypeGitHub,
 		state.SessionID(),
@@ -156,7 +156,7 @@ func TestPGTaskStorage_MetadataHandling(t *testing.T) {
 		state.SessionID(),
 		"https://github.com/test-org/test-repo",
 		metadata,
-		enumeration.NewGitHubCredentials("test-token"),
+		enumeration.NewTokenCredentials("test-token"),
 	)
 
 	// Save and reload.

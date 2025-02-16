@@ -48,14 +48,16 @@ func (EnumerationToScanningTranslator) Translate(jobID uuid.UUID, enumTask *enum
 // toScanningAuthType maps enumeration auth types to scanning domain equivalents.
 func toScanningAuthType(ec enumeration.CredentialType) scanning.AuthType {
 	switch ec {
-	case enumeration.CredentialTypeUnauthenticated:
+	case enumeration.CredentialTypeNone:
 		return scanning.AuthTypeNone
-	case enumeration.CredentialTypeGitHub:
+	case enumeration.CredentialTypeToken:
 		return scanning.AuthTypeToken
-	case enumeration.CredentialTypeS3:
+	case enumeration.CredentialTypeAWS:
 		return scanning.AuthTypeAWS
-	case enumeration.CredentialTypeURL:
+	case enumeration.CredentialTypeBasic:
 		return scanning.AuthTypeBasic
+	case enumeration.CredentialTypeOAuth:
+		return scanning.AuthTypeOAuth
 	default:
 		return scanning.AuthTypeUnknown
 	}

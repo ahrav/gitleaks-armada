@@ -18,8 +18,8 @@ paths:
             schema:
               $ref: '#/components/schemas/ScanRequest'
       responses:
-        '200':
-          description: Scan started successfully
+        '202':
+          description: Scan started request accepted
           content:
             application/json:
               schema:
@@ -121,12 +121,22 @@ components:
     ScanResponse:
       type: object
       required:
-        - message
+        - id
+        - status
       properties:
-        message:
+        id:
           type: string
-          description: Status message about the scan operation
-          example: "scan started"
+          format: uuid
+          description: Unique identifier for the scan job
+          example: "123e4567-e89b-12d3-a456-426614174000"
+        status:
+          type: string
+          enum: [queued]
+          description: Current status of the scan job
+          example: "queued"
+      example:
+        id: "123e4567-e89b-12d3-a456-426614174000"
+        status: "queued"
 
     ErrorResponse:
       type: object
@@ -143,15 +153,6 @@ components:
         message:
           type: string
           description: Human-readable error message
-      examples:
-        validation_error:
-          value:
-            code: invalid_argument
-            message: "name is a required field"
-        internal_error:
-          value:
-            code: internal
-            message: "failed to process scan request"
 
     SourceAuth:
       type: object
