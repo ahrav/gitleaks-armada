@@ -84,7 +84,8 @@ func main() {
 		"app":       serviceType,
 	}
 
-	log = logger.NewWithMetadata(os.Stdout, logger.LevelInfo, svcName, traceIDFn, logEvents, metadata)
+	// TODO: Use env var to set log level.
+	log = logger.NewWithMetadata(os.Stdout, logger.LevelDebug, svcName, traceIDFn, logEvents, metadata)
 
 	ctx := context.Background()
 
