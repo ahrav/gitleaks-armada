@@ -3,18 +3,18 @@ package orchestration
 import (
 	"context"
 	"fmt"
-	"strings"
 
+	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/ahrav/gitleaks-armada/internal/app/acl"
 	rulessvc "github.com/ahrav/gitleaks-armada/internal/app/rules"
 	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/rules"
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
-	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 )
 
 // EventsFacilitator orchestrates the handling of domain events that span multiple
@@ -46,6 +46,12 @@ type EventsFacilitator struct {
 
 	// enumService is responsible for handling enumeration events.
 	enumService enumeration.Service
+	// scanToEnumTranslator is responsible for translating scanning domain objects to
+	// enumeration domain objects.
+	scanToEnumTranslator acl.ScanningToEnumerationTranslator
+	// enumToScanACL is responsible for translating enumeration domain objects to
+	// scanning domain objects.
+	enumToScanACL acl.EnumerationToScanningTranslator
 
 	// rulesService is responsible for persisting rules, updating rule states, etc.
 	// The EventsFacilitator calls into it when handling rule-related events.
@@ -184,67 +190,68 @@ func (ef *EventsFacilitator) HandleScanJobCreated(
 			attribute.String("job_id", jobEvt.JobID),
 		))
 
-		// Convert scanning domain types to enumeration domain types.
-		// targetSpec, err := scanningToEnumTargetSpec(jobEvt.Target, jobEvt.Auth)
-		// if err != nil {
-		// 	span.RecordError(err)
-		// 	return fmt.Errorf("failed to convert scanning target to enumeration spec: %w", err)
-		// }
+		targetSpec, err := ef.scanToEnumTranslator.ToEnumerationTargetSpec(jobEvt.Target, jobEvt.Auth)
+		if err != nil {
+			return fmt.Errorf("failed to convert scanning target to enumeration spec: %w", err)
+		}
 
-		// if err := ef.enumService.StartEnumeration(ctx, targetSpec); err != nil {
-		// 	return fmt.Errorf("failed to start enumeration: %w", err)
-		// }
+		// Get streaming results from enumeration service and delegate to execution tracker.
+		result := ef.enumService.StartEnumeration(ctx, targetSpec)
 
-		span.AddEvent("enumeration_started_successfully")
-		span.SetStatus(codes.Ok, "enumeration started successfully")
+		for {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+
+			case scanTargetIDs, ok := <-result.ScanTargetsCh:
+				if !ok {
+					result.ScanTargetsCh = nil
+					continue
+				}
+				// Delegate target linking to execution tracker.
+				if err := ef.executionTracker.LinkEnumeratedTargets(ctx, uuid.MustParse(jobEvt.JobID), scanTargetIDs); err != nil {
+					return fmt.Errorf("failed to link enumerated targets: %w", err)
+				}
+
+			case task, ok := <-result.TasksCh:
+				if !ok {
+					result.TasksCh = nil
+					continue
+				}
+				translationResult := ef.enumToScanACL.Translate(uuid.MustParse(jobEvt.JobID), task)
+
+				if err := ef.executionTracker.HandleEnumeratedScanTask(
+					ctx,
+					uuid.MustParse(jobEvt.JobID),
+					translationResult.Task,
+					translationResult.Credentials,
+					translationResult.Metadata,
+				); err != nil {
+					return fmt.Errorf("failed to handle enumerated scan task: %w", err)
+				}
+
+			case err, ok := <-result.ErrCh:
+				if !ok {
+					result.ErrCh = nil
+					continue
+				}
+				if err != nil {
+					span.RecordError(err)
+					return fmt.Errorf("enumeration error: %w", err)
+				}
+			}
+
+			if result.ScanTargetsCh == nil &&
+				result.TasksCh == nil &&
+				result.ErrCh == nil {
+				break
+			}
+		}
+
+		span.AddEvent("enumeration_completed_successfully")
+		span.SetStatus(codes.Ok, "enumeration completed")
 		return nil
 	}, ack)
-}
-
-// scanningToEnumTargetSpec converts scanning domain types to enumeration domain types.
-func scanningToEnumTargetSpec(scanTarget scanning.Target, scanAuth scanning.Auth) (*enumeration.TargetSpec, error) {
-	// Convert auth configuration
-	auth := enumeration.NewAuthSpec(
-		scanAuth.Type(),
-		scanAuth.Config(),
-	)
-
-	// Base target spec fields
-	spec := enumeration.NewTargetSpec(
-		scanTarget.Name(),
-		scanTarget.SourceType(),
-		scanTarget.AuthID(),
-		auth,
-	)
-
-	// Build source-specific configuration based on target type
-	switch scanTarget.SourceType() {
-	case shared.SourceTypeGitHub:
-		spec.SetGitHub(&enumeration.GitHubTargetSpec{
-			Org:      scanTarget.Metadata()["org"],
-			RepoList: strings.Split(scanTarget.Metadata()["repos"], ","),
-			Metadata: scanTarget.Metadata(),
-		})
-
-	case shared.SourceTypeURL:
-		spec.SetURL(&enumeration.URLTargetSpec{
-			URLs:     strings.Split(scanTarget.Metadata()["urls"], ","),
-			Metadata: scanTarget.Metadata(),
-		})
-
-	case shared.SourceTypeS3:
-		spec.SetS3(&enumeration.S3TargetSpec{
-			Bucket:   scanTarget.Metadata()["bucket"],
-			Prefix:   scanTarget.Metadata()["prefix"],
-			Region:   scanTarget.Metadata()["region"],
-			Metadata: scanTarget.Metadata(),
-		})
-
-	default:
-		return nil, fmt.Errorf("unsupported target type: %s", scanTarget.SourceType())
-	}
-
-	return spec, nil
 }
 
 // HandleTaskStarted processes a TaskStartedEvent.

@@ -11,6 +11,7 @@ import (
 
 // Event types relevant to Tasks:
 const (
+	EventTypeTaskCreated    events.EventType = "TaskCreated"
 	EventTypeTaskStarted    events.EventType = "TaskStarted"
 	EventTypeTaskProgressed events.EventType = "TaskProgressed"
 	EventTypeTaskStale      events.EventType = "TaskStale"
@@ -20,6 +21,39 @@ const (
 	EventTypeTaskHeartbeat  events.EventType = "TaskHeartbeat"
 	EventTypeTaskJobMetric  events.EventType = "TaskJobMetric"
 )
+
+// TaskCreatedEvent indicates a new task was discovered and needs to be scanned
+type TaskCreatedEvent struct {
+	occurredAt  time.Time
+	JobID       uuid.UUID
+	TaskID      uuid.UUID
+	SourceType  shared.SourceType
+	ResourceURI string
+	Metadata    map[string]string
+	Credentials Credentials
+}
+
+// NewTaskCreatedEvent creates a new TaskCreatedEvent.
+func NewTaskCreatedEvent(
+	jobID, taskID uuid.UUID,
+	sourceType shared.SourceType,
+	resourceURI string,
+	metadata map[string]string,
+	credentials Credentials,
+) TaskCreatedEvent {
+	return TaskCreatedEvent{
+		occurredAt:  time.Now(),
+		JobID:       jobID,
+		TaskID:      taskID,
+		SourceType:  sourceType,
+		ResourceURI: resourceURI,
+		Metadata:    metadata,
+		Credentials: credentials,
+	}
+}
+
+func (e TaskCreatedEvent) EventType() events.EventType { return EventTypeTaskCreated }
+func (e TaskCreatedEvent) OccurredAt() time.Time       { return e.occurredAt }
 
 // TaskStartedEvent indicates a new task was added to a job.
 type TaskStartedEvent struct {

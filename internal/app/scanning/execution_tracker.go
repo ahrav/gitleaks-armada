@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -12,6 +13,8 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
+
+var _ scanning.ExecutionTracker = (*executionTracker)(nil)
 
 // executionTracker coordinates task lifecycle events between the job service
 // and progress tracking subsystems.
@@ -82,6 +85,83 @@ func (t *executionTracker) CreateJobForTarget(ctx context.Context, target scanni
 		"job_id", job.JobID(),
 		"target_name", target.Name,
 		"target_type", target.SourceType,
+	)
+
+	return nil
+}
+
+// LinkEnumeratedTargets links discovered scan targets to a job.
+func (t *executionTracker) LinkEnumeratedTargets(
+	ctx context.Context,
+	jobID uuid.UUID,
+	scanTargetIDs []uuid.UUID,
+) error {
+	ctx, span := t.tracer.Start(ctx, "execution_tracker.scanning.link_enumerated_targets",
+		trace.WithAttributes(
+			attribute.String("controller_id", t.controllerID),
+			attribute.String("job_id", jobID.String()),
+			attribute.Int("target_count", len(scanTargetIDs)),
+		))
+	defer span.End()
+
+	if err := t.coordinator.LinkTargets(ctx, jobID, scanTargetIDs); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to link targets")
+		return fmt.Errorf("failed to link targets to job %s: %w", jobID, err)
+	}
+
+	span.AddEvent("targets_linked_successfully")
+	span.SetStatus(codes.Ok, "targets linked successfully")
+	t.logger.Info(ctx, "Enumerated targets linked to job",
+		"job_id", jobID,
+		"target_count", len(scanTargetIDs),
+	)
+
+	return nil
+}
+
+// HandleEnumeratedScanTask processes a scanning task discovered during enumeration
+// and publishes a TaskCreatedEvent with the task info, credentials, and metadata.
+func (t *executionTracker) HandleEnumeratedScanTask(
+	ctx context.Context,
+	jobID uuid.UUID,
+	task *scanning.Task,
+	credentials scanning.Credentials,
+	metadata map[string]string,
+) error {
+	ctx, span := t.tracer.Start(ctx, "execution_tracker.scanning.handle_enumerated_task",
+		trace.WithAttributes(
+			attribute.String("controller_id", t.controllerID),
+			attribute.String("job_id", jobID.String()),
+			attribute.String("task_id", task.ID.String()),
+		))
+	defer span.End()
+
+	// Create and publish scanning domain event with the task info, credentials, and metadata.
+	evt := scanning.NewTaskCreatedEvent(
+		jobID,
+		task.ID,
+		task.SourceType,
+		task.ResourceURI(),
+		metadata,
+		credentials,
+	)
+
+	if err := t.publisher.PublishDomainEvent(
+		ctx,
+		evt,
+		events.WithKey(task.ID.String()),
+	); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to publish task created event")
+		return fmt.Errorf("failed to publish task created event: %w", err)
+	}
+
+	span.AddEvent("task_event_published")
+	span.SetStatus(codes.Ok, "task handled successfully")
+	t.logger.Info(ctx, "Enumerated task handled",
+		"job_id", jobID,
+		"task_id", task.ID,
 	)
 
 	return nil

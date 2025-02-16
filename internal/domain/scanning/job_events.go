@@ -63,6 +63,7 @@ func NewJobCreatedEvent(jobID string, target Target, auth Auth) JobCreatedEvent 
 func (e JobCreatedEvent) EventType() events.EventType { return EventTypeJobCreated }
 func (e JobCreatedEvent) OccurredAt() time.Time       { return e.occurredAt }
 
+// ScanTargetsDiscoveredEvent is emitted when enumeration discovers new scan targets
 // JobCompletedEvent means the job finished scanning successfully.
 type JobCompletedEvent struct {
 	occurredAt  time.Time

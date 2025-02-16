@@ -3,6 +3,8 @@ package scanning
 
 import (
 	"context"
+
+	"github.com/google/uuid"
 )
 
 // Execution tracking manages the lifecycle and progress of scanning tasks as they
@@ -18,6 +20,25 @@ type ExecutionTracker interface {
 	// CreateJobForTarget creates a new job for the given target and publishes a JobCreatedEvent.
 	// This serves as the entry point for a new scan job and all tasks associated with the target.
 	CreateJobForTarget(ctx context.Context, target Target, auth Auth) error
+
+	// HandleEnumeratedScanTask processes a task discovered during enumeration and publishes a
+	// TaskCreatedEvent to initiate scanning. The event contains essential task details including:
+	// - Task identity and resource location
+	// - Authentication credentials for accessing the target
+	// - Contextual metadata to guide scanning behavior
+	// This serves as the bridge between enumeration and scanning phases, enabling distributed task execution.
+	HandleEnumeratedScanTask(
+		ctx context.Context,
+		jobID uuid.UUID,
+		task *Task,
+		credentials Credentials,
+		metadata map[string]string,
+	) error
+
+	// LinkEnumeratedTargets links discovered scan targets to a job.
+	// This provides the scanning domain a way to track all the enumerated targets
+	// that will be scanned as part of a scan job.
+	LinkEnumeratedTargets(ctx context.Context, jobID uuid.UUID, scanTargetIDs []uuid.UUID) error
 
 	// HandleTaskStart initializes tracking for a new task by registering it with the job service
 	// and setting up initial progress metrics. If this is the first task in a job, it will
