@@ -17,14 +17,11 @@ package serialization
 import (
 	"fmt"
 
-	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/rules"
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
-	serdeEnum "github.com/ahrav/gitleaks-armada/internal/infra/eventbus/serialization/protobuf/enumeration"
 	serdeRules "github.com/ahrav/gitleaks-armada/internal/infra/eventbus/serialization/protobuf/rules"
 	serdeScanning "github.com/ahrav/gitleaks-armada/internal/infra/eventbus/serialization/protobuf/scanning"
 	pb "github.com/ahrav/gitleaks-armada/proto"
@@ -116,11 +113,6 @@ func init() {
 // RegisterEventSerializers initializes the serialization system by registering handlers for all supported event types.
 // This must be called during system startup before any event processing can occur.
 func RegisterEventSerializers() {
-	// Enumeration.
-	// ------------------------------------------------------------------------------------------------
-	RegisterSerializeFunc(enumeration.EventTypeTaskCreated, serializeEnumerationTaskCreated)
-	RegisterDeserializeFunc(enumeration.EventTypeTaskCreated, deserializeEnumerationTaskCreated)
-
 	// Scanning.
 	// ------------------------------------------------------------------------------------------------
 
@@ -132,6 +124,8 @@ func RegisterEventSerializers() {
 	RegisterDeserializeFunc(scanning.EventTypeJobCreated, deserializeJobCreated)
 
 	// Task events.
+	RegisterSerializeFunc(scanning.EventTypeTaskCreated, serializeTaskCreated)
+	RegisterDeserializeFunc(scanning.EventTypeTaskCreated, deserializeTaskCreated)
 
 	RegisterSerializeFunc(scanning.EventTypeTaskStarted, serializeTaskStarted)
 	RegisterDeserializeFunc(scanning.EventTypeTaskStarted, deserializeTaskStarted)
@@ -165,32 +159,6 @@ func RegisterEventSerializers() {
 	RegisterSerializeFunc(rules.EventTypeRulesPublished, serializeRulePublishingCompleted)
 	RegisterDeserializeFunc(rules.EventTypeRulesPublished, deserializeRulePublishingCompleted)
 
-}
-
-// serializeEnumerationTaskCreated converts a TaskCreatedEvent to protobuf bytes.
-func serializeEnumerationTaskCreated(payload any) ([]byte, error) {
-	event, ok := payload.(enumeration.TaskCreatedEvent)
-	if !ok {
-		return nil, fmt.Errorf("serializeEnumerationTaskCreated: payload is not TaskCreatedEvent, got %T", payload)
-	}
-	pbTask, err := serdeEnum.TaskToProto(event.Task, event.JobID)
-	if err != nil {
-		return nil, fmt.Errorf("convert domain to proto: %w", err)
-	}
-	return proto.Marshal(pbTask)
-}
-
-// deserializeEnumerationTaskCreated converts protobuf bytes back into a TaskCreatedEvent.
-func deserializeEnumerationTaskCreated(data []byte) (any, error) {
-	var pbTask pb.EnumerationTask
-	if err := proto.Unmarshal(data, &pbTask); err != nil {
-		return nil, fmt.Errorf("unmarshal EnumerationTask: %w", err)
-	}
-	t, err := serdeEnum.ProtoToTask(&pbTask)
-	if err != nil {
-		return nil, fmt.Errorf("convert proto to domain: %w", err)
-	}
-	return enumeration.NewTaskCreatedEvent(uuid.MustParse(pbTask.JobId), t), nil
 }
 
 // serializeJobRequested converts a JobRequestedEvent to protobuf bytes
@@ -248,6 +216,32 @@ func deserializeJobCreated(data []byte) (any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("convert proto to domain: %w", err)
 	}
+	return event, nil
+}
+
+// serializeTaskCreated converts a TaskCreatedEvent to protobuf bytes.
+func serializeTaskCreated(payload any) ([]byte, error) {
+	event, ok := payload.(scanning.TaskCreatedEvent)
+	if !ok {
+		return nil, fmt.Errorf("serializeTaskCreated: payload is not TaskCreatedEvent, got %T", payload)
+	}
+
+	pbEvent := serdeScanning.TaskCreatedEventToProto(event)
+	return proto.Marshal(pbEvent)
+}
+
+// deserializeTaskCreated converts protobuf bytes back into a TaskCreatedEvent.
+func deserializeTaskCreated(data []byte) (any, error) {
+	var pbEvent pb.TaskCreatedEvent
+	if err := proto.Unmarshal(data, &pbEvent); err != nil {
+		return nil, fmt.Errorf("unmarshal TaskCreatedEvent: %w", err)
+	}
+
+	event, err := serdeScanning.ProtoToTaskCreatedEvent(&pbEvent)
+	if err != nil {
+		return nil, fmt.Errorf("convert proto to domain event: %w", err)
+	}
+
 	return event, nil
 }
 

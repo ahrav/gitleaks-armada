@@ -1,15 +1,145 @@
 package scanning
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	serializationerrors "github.com/ahrav/gitleaks-armada/internal/infra/eventbus/serialization/errors"
 	pb "github.com/ahrav/gitleaks-armada/proto"
 )
+
+// TaskCreatedEventToProto converts a domain TaskCreatedEvent to its protobuf representation.
+func TaskCreatedEventToProto(event scanning.TaskCreatedEvent) *pb.TaskCreatedEvent {
+	var credentials *pb.Credentials
+	if event.Credentials.Type != scanning.CredentialTypeUnknown {
+		credentials = &pb.Credentials{
+			Type:   string(event.Credentials.Type),
+			Values: toProtoAny(event.Credentials.Values),
+		}
+	}
+
+	return &pb.TaskCreatedEvent{
+		JobId:       event.JobID.String(),
+		TaskId:      event.TaskID.String(),
+		SourceType:  pb.SourceType(event.SourceType),
+		ResourceUri: event.ResourceURI,
+		Metadata:    event.Metadata,
+		Credentials: credentials,
+		Timestamp:   event.OccurredAt().UnixNano(),
+	}
+}
+
+// toProtoAny converts a Go map to protobuf Value map
+// TODO: REview this again.
+func toProtoAny(m map[string]any) map[string]*structpb.Value {
+	if m == nil {
+		return nil
+	}
+
+	result := make(map[string]*structpb.Value, len(m))
+	for k, v := range m {
+		val, err := structpb.NewValue(v)
+		if err != nil {
+			// If we can't convert directly, try JSON marshaling
+			b, err := json.Marshal(v)
+			if err != nil {
+				continue // Skip this value if we can't marshal it
+			}
+			val = structpb.NewStringValue(string(b))
+		}
+		result[k] = val
+	}
+	return result
+}
+
+// ProtoToTaskCreatedEvent converts a protobuf TaskCreatedEvent to its domain representation.
+func ProtoToTaskCreatedEvent(event *pb.TaskCreatedEvent) (scanning.TaskCreatedEvent, error) {
+	if event == nil {
+		return scanning.TaskCreatedEvent{}, serializationerrors.ErrNilEvent{EventType: "TaskCreated"}
+	}
+
+	jobID, err := uuid.Parse(event.JobId)
+	if err != nil {
+		return scanning.TaskCreatedEvent{}, serializationerrors.ErrInvalidUUID{Field: "job ID", Err: err}
+	}
+
+	taskID, err := uuid.Parse(event.TaskId)
+	if err != nil {
+		return scanning.TaskCreatedEvent{}, serializationerrors.ErrInvalidUUID{Field: "task ID", Err: err}
+	}
+
+	sourceType := shared.FromInt32(int32(event.SourceType))
+	if sourceType == shared.SourceTypeUnspecified {
+		return scanning.TaskCreatedEvent{}, serializationerrors.ErrInvalidSourceType{Value: event.SourceType}
+	}
+
+	var credentials scanning.Credentials
+	if event.Credentials != nil {
+		credentials = scanning.NewCredentials(
+			scanning.CredentialType(event.Credentials.Type),
+			fromProtoAny(event.Credentials.Values),
+		)
+	}
+
+	return scanning.NewTaskCreatedEvent(
+		jobID,
+		taskID,
+		sourceType,
+		event.ResourceUri,
+		event.Metadata,
+		credentials,
+	), nil
+}
+
+// fromProtoAny converts a protobuf Value map back to a Go map.
+// TODO: Review this again.
+func fromProtoAny(m map[string]*structpb.Value) map[string]any {
+	if m == nil {
+		return nil
+	}
+
+	result := make(map[string]any, len(m))
+	for k, v := range m {
+		if v == nil {
+			continue
+		}
+
+		switch v.Kind.(type) {
+		case *structpb.Value_StringValue,
+			*structpb.Value_NumberValue,
+			*structpb.Value_BoolValue:
+			result[k] = v.AsInterface()
+		case *structpb.Value_StructValue:
+			// Handle nested structures
+			if s := v.GetStructValue(); s != nil {
+				result[k] = s.AsMap()
+			}
+		case *structpb.Value_ListValue:
+			// Handle arrays/slices
+			if l := v.GetListValue(); l != nil {
+				var arr []any
+				for _, item := range l.Values {
+					arr = append(arr, item.AsInterface())
+				}
+				result[k] = arr
+			}
+		default:
+			// For complex types, try to unmarshal from JSON string
+			if str := v.GetStringValue(); str != "" {
+				var val any
+				if err := json.Unmarshal([]byte(str), &val); err == nil {
+					result[k] = val
+				}
+			}
+		}
+	}
+	return result
+}
 
 // TaskStartedEventToProto converts a domain TaskStartedEvent to its protobuf representation.
 func TaskStartedEventToProto(event scanning.TaskStartedEvent) *pb.TaskStartedEvent {

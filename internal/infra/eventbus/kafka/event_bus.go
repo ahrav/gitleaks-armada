@@ -12,7 +12,6 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/rules"
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
@@ -107,12 +106,12 @@ func NewEventBus(
 	// Map domain events to their corresponding Kafka topics.
 	// TODO: Maybe use a more performant data structure for this?
 	topicMap := map[events.EventType]string{
-		enumeration.EventTypeTaskCreated: cfg.EnumerationTaskTopic,  // controller -> scanner
 		rules.EventTypeRulesRequested:    cfg.RulesRequestTopic,     // controller -> scanner
 		rules.EventTypeRulesUpdated:      cfg.RulesResponseTopic,    // scanner -> controller
 		rules.EventTypeRulesPublished:    cfg.RulesResponseTopic,    // scanner -> controller
 		scanning.EventTypeJobRequested:   cfg.ScanningTaskTopic,     // api -> controller
 		scanning.EventTypeJobCreated:     cfg.JobCreatedTopic,       // controller -> controller
+		scanning.EventTypeTaskCreated:    cfg.EnumerationTaskTopic,  // controller -> scanner
 		scanning.EventTypeTaskStarted:    cfg.ScanningTaskTopic,     // scanner -> controller
 		scanning.EventTypeTaskProgressed: cfg.ScanningTaskTopic,     // scanner -> controller
 		scanning.EventTypeTaskCompleted:  cfg.ScanningTaskTopic,     // scanner -> controller

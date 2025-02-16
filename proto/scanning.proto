@@ -71,6 +71,23 @@ message JobCreatedEvent {
   shared.AuthConfig auth_config = 4;
 }
 
+// TaskCreatedEvent represents a new task discovered for scanning.
+message TaskCreatedEvent {
+  string job_id = 1;
+  string task_id = 2;
+  shared.SourceType source_type = 3;
+  string resource_uri = 4;
+  map<string, string> metadata = 5;
+  Credentials credentials = 6;
+  int64 timestamp = 7; // Unix timestamp in nanoseconds
+}
+
+// Credentials represents authentication details needed to access a scan target.
+message Credentials {
+  string type = 1; // e.g., "GITHUB", "S3", etc.
+  map<string, google.protobuf.Value> values = 2;
+}
+
 message TaskStartedEvent {
   string job_id = 1;
   string task_id = 2;

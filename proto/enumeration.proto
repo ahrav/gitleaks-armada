@@ -2,8 +2,6 @@ syntax = "proto3";
 
 package scanner;
 
-import "proto/shared.proto";
-
 option go_package = "github.com/ahrav/gitleaks-armada/proto;proto";
 
 // A universal envelope containing the actual domain event type
@@ -11,32 +9,4 @@ option go_package = "github.com/ahrav/gitleaks-armada/proto;proto";
 message UniversalEnvelope {
   string event_type = 1; // e.g. "TaskStarted", "TaskProgressed", etc.
   bytes payload = 2;     // serialized domain event data
-}
-
-message EnumerationTask {
-  string task_id = 1;
-  shared.SourceType source_type = 2;
-  string job_id = 3;
-  string session_id = 4;
-  string resource_uri = 5; // e.g., "git://github.com/org/repo"
-  map<string, string> metadata = 6;
-  TaskCredentials credentials = 7;
-}
-
-message TaskCredentials {
-  oneof auth {
-    UnauthenticatedCredentials unauthenticated = 1;
-    GitHubCredentials github = 2;
-    S3Credentials s3 = 3;
-  }
-}
-
-message UnauthenticatedCredentials {}
-
-message GitHubCredentials { string auth_token = 1; }
-
-message S3Credentials {
-  string access_key = 1;
-  string secret_key = 2;
-  string session_token = 3; // Optional for temporary credentials
 }
