@@ -13,6 +13,7 @@ import (
 	pb "github.com/ahrav/gitleaks-armada/proto"
 )
 
+// TODO: Tests...
 // TaskCreatedEventToProto converts a domain TaskCreatedEvent to its protobuf representation.
 func TaskCreatedEventToProto(event *scanning.TaskCreatedEvent) *pb.TaskCreatedEvent {
 	var credentials *pb.Credentials
