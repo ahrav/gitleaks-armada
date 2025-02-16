@@ -8,8 +8,8 @@ import (
 
 // AuthConfig represents an authentication configuration.
 type AuthConfig struct {
-	Type   string         `yaml:"type"`
-	Config map[string]any `yaml:"config"`
+	Type        string         `yaml:"type" json:"type"`
+	Credentials map[string]any `yaml:"credentials" json:"credentials"`
 }
 
 // Config represents the top-level configuration.
@@ -23,7 +23,7 @@ type Config struct {
 type TargetSpec struct {
 	Name       string            `yaml:"name" json:"name"`
 	SourceType shared.SourceType `yaml:"source_type" json:"source_type"`
-	AuthRef    string            `yaml:"auth_ref" json:"auth_ref"`
+	SourceAuth *AuthConfig       `yaml:"source_auth,omitempty" json:"source_auth,omitempty"`
 	Metadata   map[string]string `yaml:"metadata,omitempty" json:"metadata,omitempty"`
 	GitHub     *GitHubTarget     `yaml:"github,omitempty" json:"github,omitempty"`
 	S3         *S3Target         `yaml:"s3,omitempty" json:"s3,omitempty"`

@@ -59,8 +59,7 @@ message JobRequestedEvent {
   string event_id = 1;
   int64 occurred_at = 2;
   repeated shared.TargetSpec targets = 3;
-  map<string, shared.AuthConfig> auth = 4;
-  string requested_by = 5;
+  string requested_by = 4;
 }
 
 // JobCreatedEvent represents the creation of a new scan job.
@@ -68,7 +67,6 @@ message JobCreatedEvent {
   string job_id = 1;
   int64 timestamp = 2;
   shared.TargetSpec target_spec = 3;
-  shared.AuthConfig auth_config = 4;
 }
 
 // TaskCreatedEvent represents a new task discovered for scanning.
@@ -78,14 +76,8 @@ message TaskCreatedEvent {
   shared.SourceType source_type = 3;
   string resource_uri = 4;
   map<string, string> metadata = 5;
-  Credentials credentials = 6;
-  int64 timestamp = 7; // Unix timestamp in nanoseconds
-}
-
-// Credentials represents authentication details needed to access a scan target.
-message Credentials {
-  string type = 1; // e.g., "GITHUB", "S3", etc.
-  map<string, google.protobuf.Value> values = 2;
+  shared.Auth auth = 6;
+  int64 timestamp = 7;
 }
 
 message TaskStartedEvent {

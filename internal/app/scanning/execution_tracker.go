@@ -51,7 +51,7 @@ func NewExecutionTracker(
 }
 
 // CreateJobForTarget creates a new scan job for the given target and publishes a JobCreatedEvent.
-func (t *executionTracker) CreateJobForTarget(ctx context.Context, target scanning.Target, auth scanning.Auth) error {
+func (t *executionTracker) CreateJobForTarget(ctx context.Context, target scanning.Target) error {
 	ctx, span := t.tracer.Start(ctx, "execution_tracker.scanning.create_job",
 		trace.WithAttributes(
 			attribute.String("controller_id", t.controllerID),
@@ -71,7 +71,7 @@ func (t *executionTracker) CreateJobForTarget(ctx context.Context, target scanni
 	// The target information is required by downstream consumers of the JobCreatedEvent
 	// to link scan targets to a single scan job.
 	// TODO: Should we also go ahead and create the task here too?
-	evt := scanning.NewJobCreatedEvent(job.JobID().String(), target, auth)
+	evt := scanning.NewJobCreatedEvent(job.JobID().String(), target)
 	if err := t.publisher.PublishDomainEvent(
 		ctx, evt, events.WithKey(job.JobID().String()),
 	); err != nil {
@@ -127,7 +127,7 @@ func (t *executionTracker) HandleEnumeratedScanTask(
 	ctx context.Context,
 	jobID uuid.UUID,
 	task *scanning.Task,
-	credentials scanning.Credentials,
+	auth scanning.Auth,
 	metadata map[string]string,
 ) error {
 	ctx, span := t.tracer.Start(ctx, "execution_tracker.scanning.handle_enumerated_task",
@@ -145,7 +145,7 @@ func (t *executionTracker) HandleEnumeratedScanTask(
 		task.SourceType,
 		task.ResourceURI(),
 		metadata,
-		credentials,
+		auth,
 	)
 
 	if err := t.publisher.PublishDomainEvent(

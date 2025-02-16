@@ -64,7 +64,6 @@ func (f *enumerationFactory) CreateEnumerator(
 		trace.WithAttributes(
 			attribute.String("controller_id", f.controllerID),
 			attribute.String("source_type", string(target.SourceType())),
-			attribute.String("auth_ref", target.AuthRef()),
 		))
 	defer span.End()
 
@@ -112,7 +111,7 @@ func (f *enumerationFactory) CreateEnumerator(
 		// TODO: Implement S3 enumerator.
 		panic("not implemented")
 	default:
-		err := fmt.Errorf("unsupported source type: %s", target.SourceType)
+		err := fmt.Errorf("unsupported source type: %s", target.SourceType().String())
 		span.RecordError(err)
 		return nil, err
 	}

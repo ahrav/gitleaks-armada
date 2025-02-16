@@ -62,17 +62,12 @@ func (h *CommandHandler) handleStartScan(ctx context.Context, cmd StartScanComma
 
 	// Convert config types to domain types.
 	targets := make([]scanning.Target, 0, len(cmd.Config.Targets))
-	authMap := make(map[string]scanning.Auth, len(cmd.Config.Auth))
-
-	for id, authCfg := range cmd.Config.Auth {
-		authMap[id] = configToDomainAuth(authCfg)
-	}
 
 	for _, targetCfg := range cmd.Config.Targets {
 		targets = append(targets, configToDomainTarget(targetCfg))
 	}
 
-	evt := scanning.NewJobRequestedEvent(targets, authMap, cmd.RequestedBy)
+	evt := scanning.NewJobRequestedEvent(targets, cmd.RequestedBy)
 	if err := h.eventBus.PublishDomainEvent(ctx, evt); err != nil {
 		h.logger.Error(ctx, "failed to publish job requested event",
 			"error", err,
@@ -87,15 +82,24 @@ func (h *CommandHandler) handleStartScan(ctx context.Context, cmd StartScanComma
 
 // configToDomainTarget converts a config.TargetSpec to a domain scanning.Target
 func configToDomainTarget(cfg config.TargetSpec) scanning.Target {
+	var auth *scanning.Auth
+	if cfg.SourceAuth != nil {
+		domainAuth := scanning.NewAuth(
+			cfg.SourceAuth.Type,
+			cfg.SourceAuth.Credentials,
+		)
+		auth = &domainAuth
+	}
+
 	return scanning.NewTarget(
 		cfg.Name,
 		cfg.SourceType,
-		cfg.AuthRef,
+		auth,
 		cfg.Metadata,
 	)
 }
 
 // configToDomainAuth converts a config.AuthConfig to a domain scanning.Auth
 func configToDomainAuth(cfg config.AuthConfig) scanning.Auth {
-	return scanning.NewAuth(cfg.Type, cfg.Config)
+	return scanning.NewAuth(cfg.Type, cfg.Credentials)
 }

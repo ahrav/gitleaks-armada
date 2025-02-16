@@ -30,7 +30,7 @@ type TaskCreatedEvent struct {
 	SourceType  shared.SourceType
 	ResourceURI string
 	Metadata    map[string]string
-	Credentials Credentials
+	Auth        Auth
 }
 
 // NewTaskCreatedEvent creates a new TaskCreatedEvent.
@@ -39,7 +39,7 @@ func NewTaskCreatedEvent(
 	sourceType shared.SourceType,
 	resourceURI string,
 	metadata map[string]string,
-	credentials Credentials,
+	auth Auth,
 ) *TaskCreatedEvent {
 	return &TaskCreatedEvent{
 		occurredAt:  time.Now(),
@@ -48,7 +48,7 @@ func NewTaskCreatedEvent(
 		SourceType:  sourceType,
 		ResourceURI: resourceURI,
 		Metadata:    metadata,
-		Credentials: credentials,
+		Auth:        auth,
 	}
 }
 

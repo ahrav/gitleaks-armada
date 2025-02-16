@@ -16,12 +16,10 @@ import (
 // TODO: Tests...
 // TaskCreatedEventToProto converts a domain TaskCreatedEvent to its protobuf representation.
 func TaskCreatedEventToProto(event *scanning.TaskCreatedEvent) *pb.TaskCreatedEvent {
-	var credentials *pb.Credentials
-	if event.Credentials.Type != scanning.CredentialTypeUnknown {
-		credentials = &pb.Credentials{
-			Type:   string(event.Credentials.Type),
-			Values: toProtoAny(event.Credentials.Values),
-		}
+	var auth *pb.Auth
+	auth = &pb.Auth{
+		Type:        string(event.Auth.Type()),
+		Credentials: toProtoAny(event.Auth.Credentials()),
 	}
 
 	return &pb.TaskCreatedEvent{
@@ -30,7 +28,7 @@ func TaskCreatedEventToProto(event *scanning.TaskCreatedEvent) *pb.TaskCreatedEv
 		SourceType:  pb.SourceType(event.SourceType),
 		ResourceUri: event.ResourceURI,
 		Metadata:    event.Metadata,
-		Credentials: credentials,
+		Auth:        auth,
 		Timestamp:   event.OccurredAt().UnixNano(),
 	}
 }
@@ -79,12 +77,13 @@ func ProtoToTaskCreatedEvent(event *pb.TaskCreatedEvent) (*scanning.TaskCreatedE
 		return nil, serializationerrors.ErrInvalidSourceType{Value: event.SourceType}
 	}
 
-	var credentials scanning.Credentials
-	if event.Credentials != nil {
-		credentials = scanning.NewCredentials(
-			scanning.CredentialType(event.Credentials.Type),
-			fromProtoAny(event.Credentials.Values),
+	var auth scanning.Auth
+	if event.Auth != nil {
+		domainAuth := scanning.NewAuth(
+			event.Auth.Type,
+			fromProtoAny(event.Auth.Credentials),
 		)
+		auth = domainAuth
 	}
 
 	return scanning.NewTaskCreatedEvent(
@@ -93,7 +92,7 @@ func ProtoToTaskCreatedEvent(event *pb.TaskCreatedEvent) (*scanning.TaskCreatedE
 		sourceType,
 		event.ResourceUri,
 		event.Metadata,
-		credentials,
+		auth,
 	), nil
 }
 

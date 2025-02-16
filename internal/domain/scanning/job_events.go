@@ -23,17 +23,15 @@ type JobRequestedEvent struct {
 	id          string
 	occurredAt  time.Time
 	Targets     []Target
-	Auth        map[string]Auth
 	RequestedBy string
 }
 
 // NewJobRequestedEvent creates a new scan job requested event.
-func NewJobRequestedEvent(targets []Target, auth map[string]Auth, requestedBy string) JobRequestedEvent {
+func NewJobRequestedEvent(targets []Target, requestedBy string) JobRequestedEvent {
 	return JobRequestedEvent{
 		id:          uuid.New().String(),
 		occurredAt:  time.Now(),
 		Targets:     targets,
-		Auth:        auth,
 		RequestedBy: requestedBy,
 	}
 }
@@ -47,16 +45,14 @@ type JobCreatedEvent struct {
 	occurredAt time.Time
 	JobID      string
 	Target     Target
-	Auth       Auth
 }
 
 // NewJobCreatedEvent creates a new scan job created event.
-func NewJobCreatedEvent(jobID string, target Target, auth Auth) JobCreatedEvent {
+func NewJobCreatedEvent(jobID string, target Target) JobCreatedEvent {
 	return JobCreatedEvent{
 		occurredAt: time.Now(),
 		JobID:      jobID,
 		Target:     target,
-		Auth:       auth,
 	}
 }
 

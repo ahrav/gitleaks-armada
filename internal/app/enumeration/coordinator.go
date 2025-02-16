@@ -125,7 +125,7 @@ func (s *coordinator) startSpan(
 	extraAttrs ...attribute.KeyValue,
 ) (context.Context, trace.Span) {
 	baseAttrs := []attribute.KeyValue{
-		attribute.String("component", "coordinator"),
+		attribute.String("component", "enumeration_coordinator"),
 	}
 	baseAttrs = append(baseAttrs, extraAttrs...)
 	return s.tracer.Start(ctx, spanName, trace.WithAttributes(baseAttrs...))
@@ -164,7 +164,6 @@ func (s *coordinator) EnumerateTarget(ctx context.Context, target domain.TargetS
 			attribute.String("operation", "enumerate_target"),
 			attribute.String("target_name", target.Name()),
 			attribute.String("target_type", string(target.SourceType())),
-			attribute.String("auth_ref", target.AuthRef()),
 		)
 		defer span.End()
 

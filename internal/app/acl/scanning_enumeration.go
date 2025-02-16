@@ -12,22 +12,23 @@ import (
 // ScanningToEnumerationTranslator converts scanning domain objects to enumeration domain objects.
 type ScanningToEnumerationTranslator struct{}
 
-// ToEnumerationTargetSpec converts scanning Target and Auth to an enumeration TargetSpec.
+// ToEnumerationTargetSpec converts a scanning Target to an enumeration TargetSpec.
 func (ScanningToEnumerationTranslator) ToEnumerationTargetSpec(
 	scanTarget scanning.Target,
-	scanAuth scanning.Auth,
 ) (*enumeration.TargetSpec, error) {
-	// Convert auth configuration.
-	auth := enumeration.NewAuthSpec(
-		scanAuth.Type(),
-		scanAuth.Config(),
-	)
+	// Convert auth if present.
+	var auth *enumeration.AuthSpec
+	if scanTarget.HasAuth() {
+		auth = enumeration.NewAuthSpec(
+			string(scanTarget.Auth().Type()),
+			scanTarget.Auth().Credentials(),
+		)
+	}
 
-	// Base target spec fields.
+	// Create base target spec.
 	spec := enumeration.NewTargetSpec(
 		scanTarget.Name(),
 		scanTarget.SourceType(),
-		scanTarget.AuthID(),
 		auth,
 	)
 

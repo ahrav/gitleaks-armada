@@ -25,8 +25,8 @@ type ScanRequest struct {
 	ResourceURI string
 	// Metadata provides additional context for scan processing.
 	Metadata map[string]string
-	// Credentials contains authentication details for accessing the resource.
-	Credentials scanning.Credentials
+	// Auth contains authentication details for accessing the resource.
+	Auth scanning.Auth
 }
 
 // Define a constant for the metadata key
@@ -49,7 +49,7 @@ func NewScanRequestFromScanningTask(task *scanning.TaskCreatedEvent) *ScanReques
 		// SessionID:   task.SessionID,
 		ResourceURI: task.ResourceURI,
 		Metadata:    task.Metadata,
-		Credentials: task.Credentials,
+		Auth:        task.Auth,
 	}
 }
 

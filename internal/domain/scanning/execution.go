@@ -19,7 +19,7 @@ import (
 type ExecutionTracker interface {
 	// CreateJobForTarget creates a new job for the given target and publishes a JobCreatedEvent.
 	// This serves as the entry point for a new scan job and all tasks associated with the target.
-	CreateJobForTarget(ctx context.Context, target Target, auth Auth) error
+	CreateJobForTarget(ctx context.Context, target Target) error
 
 	// HandleEnumeratedScanTask processes a task discovered during enumeration and publishes a
 	// TaskCreatedEvent to initiate scanning. The event contains essential task details including:
@@ -31,7 +31,7 @@ type ExecutionTracker interface {
 		ctx context.Context,
 		jobID uuid.UUID,
 		task *Task,
-		credentials Credentials,
+		auth Auth,
 		metadata map[string]string,
 	) error
 

@@ -11,50 +11,52 @@ import (
 // EnumerationToScanningTranslator converts enumeration domain objects to scanning domain objects.
 type EnumerationToScanningTranslator struct{}
 
-// TranslationResult contains both the scanning task and its associated credentials.
+// TranslationResult contains both the scanning task and its associated metadata.
 type TranslationResult struct {
-	Task        *scanning.Task
-	Credentials scanning.Credentials
-	Metadata    map[string]string
+	Task     *scanning.Task
+	Auth     scanning.Auth
+	Metadata map[string]string
 }
 
-// ToScanningTask converts an enumeration Task to a translation result.
-// The translation result contains the scanning task, credentials, and metadata.
+// Translate converts an enumeration Task to a translation result.
+// The translation result contains the scanning task, auth configuration, and metadata.
 func (EnumerationToScanningTranslator) Translate(jobID uuid.UUID, enumTask *enumeration.Task) TranslationResult {
-	// Create the core scanning task (focused on execution state).
+	// Convert auth if present.
+	var auth scanning.Auth
+	if enumCreds := enumTask.Credentials(); enumCreds != nil {
+		domainAuth := scanning.NewAuth(
+			string(toScanningAuthType(enumCreds.Type)),
+			enumCreds.Values,
+		)
+		auth = domainAuth
+	}
+
+	// Create the core scanning task.
 	task := scanning.NewScanTask(
 		jobID,
 		enumTask.ID,
 		enumTask.ResourceURI(),
 	)
-	creds := toScanningCredentials(enumTask.Credentials())
 
-	return TranslationResult{Task: task, Credentials: creds, Metadata: enumTask.Metadata()}
-}
-
-// toScanningCredentials converts enumeration credentials to scanning credentials.
-func toScanningCredentials(creds *enumeration.TaskCredentials) scanning.Credentials {
-	if creds == nil {
-		return scanning.NewCredentials(scanning.CredentialTypeUnknown, nil)
+	return TranslationResult{
+		Task:     task,
+		Auth:     auth,
+		Metadata: enumTask.Metadata(),
 	}
-	return scanning.NewCredentials(
-		toScanningCredentialType(creds.Type),
-		creds.Values,
-	)
 }
 
-// toScanningCredentialType maps enumeration credential types to scanning domain equivalents.
-func toScanningCredentialType(ec enumeration.CredentialType) scanning.CredentialType {
+// toScanningAuthType maps enumeration auth types to scanning domain equivalents.
+func toScanningAuthType(ec enumeration.CredentialType) scanning.AuthType {
 	switch ec {
 	case enumeration.CredentialTypeUnauthenticated:
-		return scanning.CredentialTypeUnauthenticated
+		return scanning.AuthTypeNone
 	case enumeration.CredentialTypeGitHub:
-		return scanning.CredentialTypeGitHub
+		return scanning.AuthTypeToken
 	case enumeration.CredentialTypeS3:
-		return scanning.CredentialTypeS3
+		return scanning.AuthTypeAWS
 	case enumeration.CredentialTypeURL:
-		return scanning.CredentialTypeURL
+		return scanning.AuthTypeBasic
 	default:
-		return scanning.CredentialTypeUnknown
+		return scanning.AuthTypeUnknown
 	}
 }

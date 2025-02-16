@@ -6,7 +6,7 @@ import "github.com/ahrav/gitleaks-armada/internal/domain/shared"
 type Target struct {
 	name       string
 	sourceType shared.SourceType
-	authID     string
+	auth       *Auth
 	metadata   map[string]string
 }
 
@@ -14,13 +14,13 @@ type Target struct {
 func NewTarget(
 	name string,
 	sourceType shared.SourceType,
-	authID string,
+	auth *Auth,
 	metadata map[string]string,
 ) Target {
 	return Target{
 		name:       name,
 		sourceType: sourceType,
-		authID:     authID,
+		auth:       auth,
 		metadata:   metadata,
 	}
 }
@@ -31,8 +31,11 @@ func (t Target) Name() string { return t.name }
 // SourceType returns the target's source type.
 func (t Target) SourceType() shared.SourceType { return t.sourceType }
 
-// AuthID returns the target's auth ID.
-func (t Target) AuthID() string { return t.authID }
+// Auth returns the target's authentication configuration.
+func (t Target) Auth() *Auth { return t.auth }
 
 // Metadata returns the target's metadata.
 func (t Target) Metadata() map[string]string { return t.metadata }
+
+// HasAuth returns true if the target has authentication configured.
+func (t Target) HasAuth() bool { return t.auth != nil }

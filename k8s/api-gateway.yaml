@@ -44,11 +44,6 @@ spec:
               key: KAFKA_BROKERS
         - name: KAFKA_GROUP_ID
           value: "api-gateway"
-        - name: KAFKA_ENUMERATION_TASK_TOPIC
-          valueFrom:
-            configMapKeyRef:
-              name: scanner-config
-              key: KAFKA_ENUMERATION_TASK_TOPIC
         - name: KAFKA_SCANNING_TASK_TOPIC
           valueFrom:
             configMapKeyRef:

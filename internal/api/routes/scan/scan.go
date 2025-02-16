@@ -33,28 +33,32 @@ type startRequest struct {
 	Name       string `json:"name" validate:"required"`
 	SourceType string `json:"source_type" validate:"required,oneof=github s3 url"`
 
-	// Authentication (optional)
-	AuthType   string         `json:"auth_type,omitempty"`
-	AuthConfig map[string]any `json:"auth_config,omitempty"`
+	// Source authentication.
+	SourceAuth *sourceAuth `json:"source_auth,omitempty"`
 
-	// Source-specific configurations
+	// Source-specific configurations.
 	URLs          []string          `json:"urls,omitempty"`
 	ArchiveFormat string            `json:"archive_format,omitempty"`
 	RateLimit     float64           `json:"rate_limit,omitempty"`
 	Headers       map[string]string `json:"headers,omitempty"`
 
-	// GitHub-specific fields
+	// GitHub-specific fields.
 	Organization string   `json:"organization,omitempty"`
 	Repositories []string `json:"repositories,omitempty"`
 
-	// S3-specific fields
+	// S3-specific fields.
 	Bucket string `json:"bucket,omitempty"`
 	Prefix string `json:"prefix,omitempty"`
 	Region string `json:"region,omitempty"`
 
-	// Common options
+	// Common options.
 	RetryConfig *config.RetryConfig `json:"retry,omitempty"`
 	Metadata    map[string]string   `json:"metadata,omitempty"`
+}
+
+type sourceAuth struct {
+	Type        string         `json:"type"`
+	Credentials map[string]any `json:"credentials"`
 }
 
 // startResponse represents the response for starting a scan.
@@ -98,13 +102,9 @@ func start(cfg Config) web.HandlerFunc {
 
 		// Convert API request to config structure.
 		target := buildTargetConfig(req)
-		auth := buildAuthConfig(req)
 
 		// Create scan configuration.
 		scanCfg := &config.Config{
-			Auth: map[string]config.AuthConfig{
-				req.Name: auth,
-			},
 			Targets: []config.TargetSpec{target},
 		}
 
@@ -131,8 +131,15 @@ func buildTargetConfig(req startRequest) config.TargetSpec {
 	target := config.TargetSpec{
 		Name:       req.Name,
 		SourceType: shared.ParseSourceType(req.SourceType),
-		AuthRef:    req.Name, // Reference to auth config
 		Metadata:   req.Metadata,
+	}
+
+	// Set source authentication if provided.
+	if req.SourceAuth != nil {
+		target.SourceAuth = &config.AuthConfig{
+			Type:        req.SourceAuth.Type,
+			Credentials: req.SourceAuth.Credentials,
+		}
 	}
 
 	switch shared.ParseSourceType(req.SourceType) {
@@ -151,14 +158,4 @@ func buildTargetConfig(req startRequest) config.TargetSpec {
 		}
 	}
 	return target
-}
-
-func buildAuthConfig(req startRequest) config.AuthConfig {
-	if req.AuthType == "" {
-		return config.AuthConfig{}
-	}
-	return config.AuthConfig{
-		Type:   req.AuthType,
-		Config: req.AuthConfig,
-	}
 }

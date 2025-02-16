@@ -12,7 +12,6 @@ import (
 type TargetSpec struct {
 	name       string
 	sourceType shared.SourceType
-	authRef    string
 	auth       *AuthSpec
 	github     *GitHubTargetSpec
 	s3         *S3TargetSpec
@@ -67,28 +66,18 @@ const (
 func NewTargetSpec(
 	name string,
 	sourceType shared.SourceType,
-	authRef string,
 	auth *AuthSpec,
-	// github *GitHubTargetSpec,
-	// s3 *S3TargetSpec,
-	// url *URLTargetSpec,
 ) *TargetSpec {
 	return &TargetSpec{
 		name:       name,
 		sourceType: sourceType,
-		authRef:    authRef,
 		auth:       auth,
-		// github:     github,
-		// s3:         s3,
-		// url:        url,
 	}
 }
 
 func (t *TargetSpec) Name() string { return t.name }
 
 func (t *TargetSpec) SourceType() shared.SourceType { return t.sourceType }
-
-func (t *TargetSpec) AuthRef() string { return t.authRef }
 
 func (t *TargetSpec) Auth() *AuthSpec { return t.auth }
 

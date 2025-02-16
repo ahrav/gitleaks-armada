@@ -1,46 +1,113 @@
 package scanning
 
+// AuthType identifies the type of authentication mechanism.
+type AuthType string
+
+const (
+	// AuthTypeUnknown indicates an unknown authentication type.
+	AuthTypeUnknown AuthType = "unknown"
+
+	// AuthTypeNone indicates no authentication is required.
+	AuthTypeNone AuthType = "none"
+
+	// AuthTypeBasic represents username/password authentication.
+	AuthTypeBasic AuthType = "basic"
+
+	// AuthTypeToken represents token-based authentication.
+	AuthTypeToken AuthType = "token"
+
+	// AuthTypeOAuth represents OAuth-based authentication.
+	AuthTypeOAuth AuthType = "oauth"
+
+	// AuthTypeAWS represents AWS credentials authentication.
+	AuthTypeAWS AuthType = "aws"
+)
+
 // Auth represents authentication configuration in the scanning domain.
 type Auth struct {
-	authType string
-	config   map[string]any
+	authType    AuthType
+	credentials map[string]any
 }
 
 // NewAuth creates a new Auth instance.
-func NewAuth(authType string, config map[string]any) Auth {
-	return Auth{authType: authType, config: config}
+func NewAuth(authType string, credentials map[string]any) Auth {
+	return Auth{
+		authType:    AuthType(authType),
+		credentials: credentials,
+	}
 }
 
 // Type returns the authentication type.
-func (a Auth) Type() string { return a.authType }
+func (a Auth) Type() AuthType { return a.authType }
 
-// Config returns the authentication configuration.
-func (a Auth) Config() map[string]any { return a.config }
+// Credentials returns the authentication credentials.
+func (a Auth) Credentials() map[string]any { return a.credentials }
 
-// CredentialType identifies the authentication mechanism used to access scan targets.
-type CredentialType string
+// ValidateCredentials ensures the credentials match the requirements for the auth type.
+func (a Auth) ValidateCredentials() error {
+	switch AuthType(a.authType) {
+	case AuthTypeNone:
+		return nil
+	case AuthTypeBasic:
+		return validateBasicAuth(a.credentials)
+	case AuthTypeToken:
+		return validateTokenAuth(a.credentials)
+	case AuthTypeOAuth:
+		return validateOAuthAuth(a.credentials)
+	case AuthTypeAWS:
+		return validateAWSAuth(a.credentials)
+	default:
+		return ErrUnsupportedAuthType
+	}
+}
 
-const (
-	// CredentialTypeUnknown indicates the credential type could not be determined.
-	CredentialTypeUnknown CredentialType = "UNKNOWN"
-	// CredentialTypeUnauthenticated is used for public resources requiring no auth.
-	CredentialTypeUnauthenticated CredentialType = "UNAUTHENTICATED"
-	// CredentialTypeGitHub authenticates against GitHub using a personal access token.
-	CredentialTypeGitHub CredentialType = "GITHUB"
-	// CredentialTypeS3 authenticates against AWS S3 using access credentials.
-	CredentialTypeS3 CredentialType = "S3"
-	// CredentialTypeURL authenticates against a URL using a personal access token.
-	CredentialTypeURL CredentialType = "URL"
+// Helper functions for credential validation
+func validateBasicAuth(creds map[string]any) error {
+	if _, ok := creds["username"]; !ok {
+		return ErrMissingUsername
+	}
+	if _, ok := creds["password"]; !ok {
+		return ErrMissingPassword
+	}
+	return nil
+}
+
+func validateTokenAuth(creds map[string]any) error {
+	if _, ok := creds["token"]; !ok {
+		return ErrMissingToken
+	}
+	return nil
+}
+
+func validateOAuthAuth(creds map[string]any) error {
+	if _, ok := creds["access_token"]; !ok {
+		return ErrMissingAccessToken
+	}
+	return nil
+}
+
+func validateAWSAuth(creds map[string]any) error {
+	if _, ok := creds["access_key_id"]; !ok {
+		return ErrMissingAccessKeyID
+	}
+	if _, ok := creds["secret_access_key"]; !ok {
+		return ErrMissingSecretAccessKey
+	}
+	return nil
+}
+
+// Error definitions for authentication validation.
+var (
+	ErrUnsupportedAuthType    = Error("unsupported authentication type")
+	ErrMissingUsername        = Error("missing username")
+	ErrMissingPassword        = Error("missing password")
+	ErrMissingToken           = Error("missing token")
+	ErrMissingAccessToken     = Error("missing access token")
+	ErrMissingAccessKeyID     = Error("missing AWS access key ID")
+	ErrMissingSecretAccessKey = Error("missing AWS secret access key")
 )
 
-// Credentials encapsulates authentication details needed to access a scan target.
-// The Values map stores credential data in a type-safe way based on the CredentialType.
-type Credentials struct {
-	Type   CredentialType
-	Values map[string]any
-}
+// Error represents an authentication error.
+type Error string
 
-// NewCredentials creates a new Credentials instance.
-func NewCredentials(credType CredentialType, values map[string]any) Credentials {
-	return Credentials{Type: credType, Values: values}
-}
+func (e Error) Error() string { return string(e) }

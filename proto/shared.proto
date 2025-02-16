@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package shared;
 
+import "google/protobuf/struct.proto";
+
 option go_package = "github.com/ahrav/gitleaks-armada/proto;proto";
 
 // Common source types used across different domains (enumeration, scanning)
@@ -10,6 +12,23 @@ enum SourceType {
   SOURCE_TYPE_GITHUB = 1;
   SOURCE_TYPE_S3 = 2;
   SOURCE_TYPE_URL = 3;
+}
+
+message Auth {
+  string type = 1;
+  map<string, google.protobuf.Value> credentials = 2;
+}
+
+message TargetSpec {
+  string name = 1;
+  SourceType source_type = 2;
+  Auth auth = 3; // Changed from auth_ref to direct auth
+  map<string, string> metadata = 4;
+  oneof target {
+    GitHubTarget github = 5;
+    S3Target s3 = 6;
+    URLTarget url = 7;
+  }
 }
 
 message GitHubTarget {
@@ -35,21 +54,4 @@ message RetryConfig {
   int32 max_attempts = 1;
   int64 initial_wait_ms = 2;
   int64 max_wait_ms = 3;
-}
-
-message TargetSpec {
-  string name = 1;
-  SourceType source_type = 2;
-  string auth_ref = 3;
-  map<string, string> metadata = 4;
-  oneof target {
-    GitHubTarget github = 5;
-    S3Target s3 = 6;
-    URLTarget url = 7;
-  }
-}
-
-message AuthConfig {
-  string type = 1;
-  map<string, string> config = 2;
 }

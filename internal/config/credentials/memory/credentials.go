@@ -21,7 +21,7 @@ func NewCredentialStore(authConfigs map[string]config.AuthConfig) (*CredentialSt
 	}
 
 	for name, auth := range authConfigs {
-		creds, err := enumeration.CreateCredentials(enumeration.CredentialType(auth.Type), auth.Config)
+		creds, err := enumeration.CreateCredentials(enumeration.CredentialType(auth.Type), auth.Credentials)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create credentials for %s: %w", name, err)
 		}

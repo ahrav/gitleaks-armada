@@ -51,6 +51,8 @@ components:
           type: string
           enum: [github, s3, url]
           description: Type of source to scan
+        source_auth:
+          $ref: '#/components/schemas/SourceAuth'
         auth_type:
           type: string
           description: Type of authentication to use
@@ -150,3 +152,16 @@ components:
           value:
             code: internal
             message: "failed to process scan request"
+
+    SourceAuth:
+      type: object
+      description: Authentication configuration for the source
+      properties:
+        type:
+          type: string
+          description: Type of authentication (e.g., 'basic', 'oauth', 'token', 'aws')
+          example: "basic"
+        credentials:
+          type: object
+          additionalProperties: true
+          description: Authentication credentials specific to the auth type

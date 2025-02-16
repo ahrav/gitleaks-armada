@@ -162,8 +162,7 @@ func (ef *EventsFacilitator) HandleScanJobRequested(
 
 		// Create a job for each target.
 		for _, target := range jobEvt.Targets {
-			auth := jobEvt.Auth[target.AuthID()]
-			if err := ef.executionTracker.CreateJobForTarget(ctx, target, auth); err != nil {
+			if err := ef.executionTracker.CreateJobForTarget(ctx, target); err != nil {
 				return fmt.Errorf("failed to create job for target %s: %w", target.Name(), err)
 			}
 		}
@@ -190,7 +189,7 @@ func (ef *EventsFacilitator) HandleScanJobCreated(
 			attribute.String("job_id", jobEvt.JobID),
 		))
 
-		targetSpec, err := ef.scanToEnumTranslator.ToEnumerationTargetSpec(jobEvt.Target, jobEvt.Auth)
+		targetSpec, err := ef.scanToEnumTranslator.ToEnumerationTargetSpec(jobEvt.Target)
 		if err != nil {
 			return fmt.Errorf("failed to convert scanning target to enumeration spec: %w", err)
 		}
@@ -224,7 +223,7 @@ func (ef *EventsFacilitator) HandleScanJobCreated(
 					ctx,
 					uuid.MustParse(jobEvt.JobID),
 					translationResult.Task,
-					translationResult.Credentials,
+					translationResult.Auth,
 					translationResult.Metadata,
 				); err != nil {
 					return fmt.Errorf("failed to handle enumerated scan task: %w", err)
