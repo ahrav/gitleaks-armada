@@ -6,11 +6,12 @@ import (
 	"github.com/google/uuid"
 )
 
-// This struct holds the channels for the outside world to consume.
+// EnumerationResult represents the outcome of an enumeration operation
+// and streams the results back to the caller.
 type EnumerationResult struct {
-	ScanTargetCh <-chan []uuid.UUID
-	TaskCh       <-chan *Task
-	ErrCh        <-chan error
+	ScanTargetsCh <-chan []uuid.UUID // Stream of discovered scan target IDs
+	TasksCh       <-chan *Task       // Stream of created tasks
+	ErrCh         <-chan error       // Stream of errors
 }
 
 // Coordinator orchestrates the discovery and enumeration of scan targets across different

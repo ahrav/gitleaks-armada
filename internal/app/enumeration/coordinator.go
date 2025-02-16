@@ -109,9 +109,9 @@ func newEnumerationPipes(taskBuffer int) (domain.EnumerationResult, enumerationP
 	errs := make(chan error, 1)
 
 	return domain.EnumerationResult{
-			ScanTargetCh: scanTargets,
-			TaskCh:       tasks,
-			ErrCh:        errs,
+			ScanTargetsCh: scanTargets,
+			TasksCh:       tasks,
+			ErrCh:         errs,
 		}, enumerationPipes{
 			scanTargetWriter: scanTargets,
 			taskWriter:       tasks,

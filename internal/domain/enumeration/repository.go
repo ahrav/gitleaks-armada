@@ -10,17 +10,14 @@ package enumeration
 import (
 	"context"
 
-	"github.com/ahrav/gitleaks-armada/internal/config"
 	"github.com/google/uuid"
 )
 
 // Service defines the behavior for running the enumeration process.
 type Service interface {
-	// StartEnumeration runs a fresh enumeration based on the provided configuration.
-	StartEnumeration(ctx context.Context, cfg *config.Config) error
-
-	// ResumeEnumeration runs enumeration for active states (if needed).
-	// ResumeEnumeration(ctx context.Context, states []*SessionState) error
+	// StartEnumeration begins the enumeration process for a target and returns
+	// channels to stream the results
+	StartEnumeration(ctx context.Context, targetSpec *TargetSpec) EnumerationResult
 }
 
 // GithubRepository defines the interface for persisting and retrieving GitHub repository aggregates.

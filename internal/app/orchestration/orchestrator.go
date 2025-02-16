@@ -90,7 +90,7 @@ func NewOrchestrator(
 	queue events.EventBus,
 	eventPublisher events.DomainEventPublisher,
 	eventReplayer events.DomainEventReplayer,
-	enumerationService enumeration.Coordinator,
+	enumCoord enumeration.Coordinator,
 	rulesService rulessvc.Service,
 	taskRepo scanning.TaskRepository,
 	jobRepo scanning.JobRepository,
@@ -145,8 +145,7 @@ func NewOrchestrator(
 
 	o.enumService = enumCoordinator.NewEnumService(
 		id,
-		scanJobCoordinator,
-		enumerationService,
+		enumCoord,
 		eventPublisher,
 		logger,
 		metrics,
@@ -372,7 +371,9 @@ func (o *Orchestrator) handleLeadership(ctx context.Context, isLeader bool, read
 	}
 
 	err := o.metrics.TrackEnumeration(leaderCtx, func() error {
-		return o.Enumerate(leaderCtx)
+		// TODO: This should get ripped out and use the enumeration service.
+		// return o.Enumerate(leaderCtx)
+		return nil
 	})
 	if err != nil {
 		leaderSpan.RecordError(err)
@@ -427,56 +428,58 @@ func (o *Orchestrator) requestRulesUpdate(ctx context.Context) error {
 	return nil
 }
 
+// TODO: Consolidate this with the enumeration service with a provided config via a configloader
+// or some other mechanism.
 // Enumerate starts enumeration sessions for each target in the configuration.
 // It creates a job for each target and associates discovered scan targets with that job.
-func (o *Orchestrator) Enumerate(ctx context.Context) error {
-	ctx, span := o.tracer.Start(ctx, "orchestrator.enumerate",
-		trace.WithAttributes(
-			attribute.String("controller_id", o.controllerID),
-		),
-	)
-	defer span.End()
+// func (o *Orchestrator) Enumerate(ctx context.Context) error {
+// 	ctx, span := o.tracer.Start(ctx, "orchestrator.enumerate",
+// 		trace.WithAttributes(
+// 			attribute.String("controller_id", o.controllerID),
+// 		),
+// 	)
+// 	defer span.End()
 
-	span.AddEvent("checking_active_states")
-	activeStates, err := o.stateRepo.GetActiveStates(ctx)
-	if err != nil {
-		span.RecordError(err)
-		return fmt.Errorf("failed to load active states: %w", err)
-	}
-	isResumeJob := len(activeStates) > 0
+// 	span.AddEvent("checking_active_states")
+// 	activeStates, err := o.stateRepo.GetActiveStates(ctx)
+// 	if err != nil {
+// 		span.RecordError(err)
+// 		return fmt.Errorf("failed to load active states: %w", err)
+// 	}
+// 	isResumeJob := len(activeStates) > 0
 
-	span.SetAttributes(
-		attribute.Int("active_states", len(activeStates)),
-		attribute.Bool("is_resume_job", isResumeJob),
-	)
+// 	span.SetAttributes(
+// 		attribute.Int("active_states", len(activeStates)),
+// 		attribute.Bool("is_resume_job", isResumeJob),
+// 	)
 
-	if isResumeJob {
-		// TODO: Implement resume enumerations.
-		// o.enumService.ResumeEnumeration(ctx, activeStates)
-	}
+// 	if isResumeJob {
+// 		// TODO: Implement resume enumerations.
+// 		// o.enumService.ResumeEnumeration(ctx, activeStates)
+// 	}
 
-	cfg, err := o.cfgLoader.Load(ctx)
-	if err != nil {
-		o.metrics.IncConfigReloadErrors(ctx)
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-	span.AddEvent("config_loaded")
-	span.SetAttributes(
-		attribute.Int("target_count", len(cfg.Targets)),
-	)
-	o.metrics.IncConfigReloads(ctx)
+// 	cfg, err := o.cfgLoader.Load(ctx)
+// 	if err != nil {
+// 		o.metrics.IncConfigReloadErrors(ctx)
+// 		return fmt.Errorf("failed to load config: %w", err)
+// 	}
+// 	span.AddEvent("config_loaded")
+// 	span.SetAttributes(
+// 		attribute.Int("target_count", len(cfg.Targets)),
+// 	)
+// 	o.metrics.IncConfigReloads(ctx)
 
-	// Delegate the enumeration process to the dedicated enumeration service.
-	if err := o.enumService.StartEnumeration(ctx, cfg); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "enumeration failed")
-		o.logger.Error(ctx, "Enumeration failed", "error", err)
-		return fmt.Errorf("failed to start enumeration: %w", err)
-	}
-	span.AddEvent("enumeration_started")
+// 	// Delegate the enumeration process to the dedicated enumeration service.
+// 	if err := o.enumService.StartEnumeration(ctx, cfg); err != nil {
+// 		span.RecordError(err)
+// 		span.SetStatus(codes.Error, "enumeration failed")
+// 		o.logger.Error(ctx, "Enumeration failed", "error", err)
+// 		return fmt.Errorf("failed to start enumeration: %w", err)
+// 	}
+// 	span.AddEvent("enumeration_started")
 
-	return nil
-}
+// 	return nil
+// }
 
 // Stop gracefully shuts down the controller if it is running.
 // It is safe to call multiple times.
