@@ -92,14 +92,14 @@ func (es *EnumService) StartEnumeration(ctx context.Context, targetSpec *enumera
 	logger := es.logger.With(
 		"operation", "start_enumeration",
 		"target_name", targetSpec.Name(),
-		"source_type", string(targetSpec.SourceType()),
+		"source_type", targetSpec.SourceType().String(),
 	)
 
 	ctx, span := es.tracer.Start(ctx, "enum_service.start_enumeration",
 		trace.WithAttributes(
 			attribute.String("controller_id", es.controllerID),
 			attribute.String("target_name", targetSpec.Name()),
-			attribute.String("source_type", string(targetSpec.SourceType())),
+			attribute.String("source_type", targetSpec.SourceType().String()),
 		))
 
 	es.metrics.IncEnumerationStarted(ctx)
