@@ -57,10 +57,9 @@ func (m *mockScanJobCoordinator) UpdateTaskProgress(
 
 func (m *mockScanJobCoordinator) CompleteTask(
 	ctx context.Context,
-	jobID,
 	taskID uuid.UUID,
 ) (*scanning.Task, error) {
-	args := m.Called(ctx, jobID, taskID)
+	args := m.Called(ctx, taskID)
 	if task := args.Get(0); task != nil {
 		return task.(*scanning.Task), args.Error(1)
 	}

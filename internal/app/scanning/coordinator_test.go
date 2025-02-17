@@ -493,7 +493,7 @@ func TestCompleteTask(t *testing.T) {
 			suite := newCoordinatorTestSuite(t)
 			tt.setup(suite)
 
-			task, err := suite.coord.CompleteTask(context.Background(), jobID, taskID)
+			task, err := suite.coord.CompleteTask(context.Background(), taskID)
 			if tt.wantErr {
 				require.Error(t, err)
 				return

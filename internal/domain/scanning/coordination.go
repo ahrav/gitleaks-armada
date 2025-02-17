@@ -46,9 +46,8 @@ type ScanJobCoordinator interface {
 	// while maintaining reasonable consistency guarantees.
 	UpdateTaskProgress(ctx context.Context, progress Progress) (*Task, error)
 
-	// CompleteTask marks a task as successful and updates job metrics.
-	// This triggers potential job completion checks if all tasks are finished.
-	CompleteTask(ctx context.Context, jobID, taskID uuid.UUID) (*Task, error)
+	// CompleteTask marks a task as successful.
+	CompleteTask(ctx context.Context, taskID uuid.UUID) (*Task, error)
 
 	// FailTask handles task failure scenarios, updating job state appropriately
 	// to ensure accurate status reporting and potential retry mechanisms.

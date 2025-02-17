@@ -255,7 +255,7 @@ func (t *executionTracker) HandleTaskCompletion(ctx context.Context, evt scannin
 		))
 	defer span.End()
 
-	_, err := t.coordinator.CompleteTask(ctx, evt.JobID, evt.TaskID)
+	_, err := t.coordinator.CompleteTask(ctx, evt.TaskID)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to complete task")

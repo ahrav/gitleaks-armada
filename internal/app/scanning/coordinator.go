@@ -225,13 +225,11 @@ func (c *scanJobCoordinator) UpdateTaskProgress(ctx context.Context, progress do
 	return task, nil
 }
 
-// CompleteTask finalizes a successful task execution and updates the parent job's state.
-// This may trigger job completion if all tasks are finished.
-func (c *scanJobCoordinator) CompleteTask(ctx context.Context, jobID, taskID uuid.UUID) (*domain.Task, error) {
+// CompleteTask finalizes a successful task execution.
+func (c *scanJobCoordinator) CompleteTask(ctx context.Context, taskID uuid.UUID) (*domain.Task, error) {
 	ctx, span := c.tracer.Start(ctx, "scan_job_coordinator.scanning.complete_task",
 		trace.WithAttributes(
 			attribute.String("controller_id", c.controllerID),
-			attribute.String("job_id", jobID.String()),
 			attribute.String("task_id", taskID.String()),
 		))
 	defer span.End()
