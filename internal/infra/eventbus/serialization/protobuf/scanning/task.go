@@ -16,8 +16,7 @@ import (
 // TODO: Tests...
 // TaskCreatedEventToProto converts a domain TaskCreatedEvent to its protobuf representation.
 func TaskCreatedEventToProto(event *scanning.TaskCreatedEvent) *pb.TaskCreatedEvent {
-	var auth *pb.Auth
-	auth = &pb.Auth{
+	auth := &pb.Auth{
 		Type:        string(event.Auth.Type()),
 		Credentials: toProtoAny(event.Auth.Credentials()),
 	}
@@ -25,7 +24,7 @@ func TaskCreatedEventToProto(event *scanning.TaskCreatedEvent) *pb.TaskCreatedEv
 	return &pb.TaskCreatedEvent{
 		JobId:       event.JobID.String(),
 		TaskId:      event.TaskID.String(),
-		SourceType:  pb.SourceType(event.SourceType),
+		SourceType:  pb.SourceType(event.SourceType.Int32()),
 		ResourceUri: event.ResourceURI,
 		Metadata:    event.Metadata,
 		Auth:        auth,

@@ -7,6 +7,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 )
 
 func TestNewScanTask(t *testing.T) {
@@ -17,7 +19,7 @@ func TestNewScanTask(t *testing.T) {
 	mockTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	mockProvider := &mockTimeProvider{currentTime: mockTime}
 
-	task := NewScanTask(jobID, taskID, "https://example.com", WithTimeProvider(mockProvider))
+	task := NewScanTask(jobID, shared.SourceTypeGitHub, taskID, "https://example.com", WithTimeProvider(mockProvider))
 
 	assert.NotNil(t, task)
 	assert.Equal(t, jobID, task.JobID())
@@ -40,7 +42,7 @@ func TestNewScanTask_DefaultTimeProvider(t *testing.T) {
 	jobID := uuid.New()
 	taskID := uuid.New()
 
-	task := NewScanTask(jobID, taskID, "https://example.com") // No time provider specified
+	task := NewScanTask(jobID, shared.SourceTypeGitHub, taskID, "https://example.com") // No time provider specified
 
 	assert.NotNil(t, task)
 	assert.True(t, task.StartTime().IsZero())
@@ -68,7 +70,7 @@ func TestTask_ApplyProgress(t *testing.T) {
 		{
 			name: "basic progress update",
 			setupTask: func() *Task {
-				return NewScanTask(uuid.New(), uuid.New(), "https://example.com")
+				return NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com")
 			},
 			progress: Progress{
 				sequenceNum:    1,
@@ -82,7 +84,7 @@ func TestTask_ApplyProgress(t *testing.T) {
 		{
 			name: "update with checkpoint",
 			setupTask: func() *Task {
-				return NewScanTask(uuid.New(), uuid.New(), "https://example.com")
+				return NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com")
 			},
 			progress: Progress{
 				sequenceNum: 1,
@@ -97,7 +99,7 @@ func TestTask_ApplyProgress(t *testing.T) {
 		{
 			name: "out of order update",
 			setupTask: func() *Task {
-				task := NewScanTask(uuid.New(), uuid.New(), "https://example.com")
+				task := NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com")
 				_ = task.ApplyProgress(Progress{
 					sequenceNum: 2,
 				})
@@ -113,7 +115,7 @@ func TestTask_ApplyProgress(t *testing.T) {
 		{
 			name: "recover from stale state",
 			setupTask: func() *Task {
-				task := NewScanTask(uuid.New(), uuid.New(), "https://example.com")
+				task := NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com")
 
 				_ = task.ApplyProgress(Progress{
 					taskID:      task.TaskID(),
@@ -137,7 +139,7 @@ func TestTask_ApplyProgress(t *testing.T) {
 		{
 			name: "multiple recoveries from stale state",
 			setupTask: func() *Task {
-				task := NewScanTask(uuid.New(), uuid.New(), "https://example.com")
+				task := NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com")
 				reason := StallReasonNoProgress
 
 				_ = task.ApplyProgress(Progress{
@@ -212,7 +214,7 @@ func TestTask_GetSummary(t *testing.T) {
 
 	taskID := uuid.New()
 	jobID := uuid.New()
-	task := NewScanTask(jobID, taskID, "https://example.com", WithTimeProvider(mockProvider))
+	task := NewScanTask(jobID, shared.SourceTypeGitHub, taskID, "https://example.com", WithTimeProvider(mockProvider))
 
 	progress := Progress{
 		taskID:         taskID,
@@ -247,7 +249,7 @@ func TestTask_Complete(t *testing.T) {
 		{
 			name: "successful completion",
 			setupTask: func(tp *mockTimeProvider) *Task {
-				task := NewScanTask(uuid.New(), uuid.New(), "https://example.com", WithTimeProvider(tp))
+				task := NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com", WithTimeProvider(tp))
 				task.status = TaskStatusInProgress
 				task.itemsProcessed = 100
 				return task
@@ -260,7 +262,7 @@ func TestTask_Complete(t *testing.T) {
 		{
 			name: "idempotent completion - already completed task",
 			setupTask: func(tp *mockTimeProvider) *Task {
-				task := NewScanTask(uuid.New(), uuid.New(), "https://example.com", WithTimeProvider(tp))
+				task := NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com", WithTimeProvider(tp))
 				task.status = TaskStatusCompleted
 				task.timeline.MarkCompleted()
 				return task
@@ -275,7 +277,7 @@ func TestTask_Complete(t *testing.T) {
 		{
 			name: "failed task",
 			setupTask: func(tp *mockTimeProvider) *Task {
-				task := NewScanTask(uuid.New(), uuid.New(), "https://example.com", WithTimeProvider(tp))
+				task := NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com", WithTimeProvider(tp))
 				task.status = TaskStatusFailed
 				return task
 			},

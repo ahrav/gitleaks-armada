@@ -417,6 +417,7 @@ func (h *domainEventHandler) ConsumeClaim(
 
 				evtType, domainBytes, err := serialization.UnmarshalUniversalEnvelope(msg.Value)
 				if err != nil {
+					h.logger.Error(msgCtx, "Failed to unmarshal universal envelope", "error", err)
 					sess.MarkMessage(msg, "")
 					span.RecordError(err)
 					return
@@ -424,6 +425,7 @@ func (h *domainEventHandler) ConsumeClaim(
 
 				payloadObj, err := serialization.DeserializePayload(evtType, domainBytes)
 				if err != nil {
+					h.logger.Error(msgCtx, "Failed to deserialize payload", "error", err)
 					sess.MarkMessage(msg, "")
 					span.RecordError(err)
 					return

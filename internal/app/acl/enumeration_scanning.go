@@ -34,6 +34,7 @@ func (EnumerationToScanningTranslator) Translate(jobID uuid.UUID, enumTask *enum
 	// Create the core scanning task.
 	task := scanning.NewScanTask(
 		jobID,
+		enumTask.SourceType,
 		enumTask.ID,
 		enumTask.ResourceURI(),
 	)

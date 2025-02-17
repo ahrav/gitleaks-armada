@@ -417,7 +417,7 @@ func TestCompleteTask(t *testing.T) {
 			name: "successful task completion",
 			setup: func(s *coordinatorTestSuite) {
 				// Create initial task in IN_PROGRESS state
-				task := scanning.NewScanTask(jobID, taskID, "https://example.com")
+				task := scanning.NewScanTask(jobID, shared.SourceTypeGitHub, taskID, "https://example.com")
 				task.ApplyProgress(scanning.NewProgress(
 					taskID,
 					jobID,
@@ -485,7 +485,7 @@ func TestFailTask(t *testing.T) {
 		{
 			name: "successful task failure",
 			setup: func(s *coordinatorTestSuite) {
-				task := scanning.NewScanTask(jobID, taskID, "https://example.com")
+				task := scanning.NewScanTask(jobID, shared.SourceTypeGitHub, taskID, "https://example.com")
 				task.ApplyProgress(scanning.NewProgress(
 					taskID,
 					jobID,
@@ -522,7 +522,7 @@ func TestFailTask(t *testing.T) {
 		{
 			name: "update task fails",
 			setup: func(s *coordinatorTestSuite) {
-				task := scanning.NewScanTask(jobID, taskID, "https://example.com")
+				task := scanning.NewScanTask(jobID, shared.SourceTypeGitHub, taskID, "https://example.com")
 				s.taskRepo.On("GetTask", mock.Anything, taskID).
 					Return(task, nil)
 				s.taskRepo.On("UpdateTask", mock.Anything, mock.MatchedBy(func(t *scanning.Task) bool {
@@ -565,7 +565,7 @@ func TestMarkTaskStale(t *testing.T) {
 		{
 			name: "successful mark task as stale",
 			setup: func(s *coordinatorTestSuite) {
-				task := scanning.NewScanTask(jobID, taskID, "https://example.com")
+				task := scanning.NewScanTask(jobID, shared.SourceTypeGitHub, taskID, "https://example.com")
 				task.ApplyProgress(scanning.NewProgress(
 					taskID,
 					jobID,
@@ -603,7 +603,7 @@ func TestMarkTaskStale(t *testing.T) {
 		{
 			name: "task update fails",
 			setup: func(s *coordinatorTestSuite) {
-				task := scanning.NewScanTask(jobID, taskID, "https://example.com")
+				task := scanning.NewScanTask(jobID, shared.SourceTypeGitHub, taskID, "https://example.com")
 
 				s.taskRepo.On("GetTask", mock.Anything, taskID).
 					Return(task, nil)
@@ -676,7 +676,7 @@ func TestGetTask(t *testing.T) {
 			name:   "successfully get task from repository",
 			taskID: uuid.New(),
 			setup: func(s *coordinatorTestSuite) {
-				task := scanning.NewScanTask(uuid.New(), s.taskID, "test://resource")
+				task := scanning.NewScanTask(uuid.New(), shared.SourceTypeGitHub, s.taskID, "test://resource")
 				s.taskRepo.On("GetTask", mock.Anything, s.taskID).
 					Return(task, nil)
 			},

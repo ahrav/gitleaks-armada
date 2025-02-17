@@ -133,7 +133,8 @@ func (c *scanJobCoordinator) StartTask(ctx context.Context, jobID, taskID uuid.U
 		))
 	defer span.End()
 
-	newTask := domain.NewScanTask(jobID, taskID, resourceURI)
+	// TODO: This is wrong.
+	newTask := domain.NewScanTask(jobID, shared.SourceTypeGitHub, taskID, resourceURI)
 	if err := c.taskRepo.CreateTask(ctx, newTask, controllerID); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to create task in repo")

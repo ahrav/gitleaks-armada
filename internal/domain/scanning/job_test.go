@@ -453,7 +453,7 @@ func TestFailTask(t *testing.T) {
 
 			job := NewJob()
 			taskID := uuid.New()
-			task := NewScanTask(job.JobID(), taskID, "https://example.com")
+			task := NewScanTask(job.JobID(), shared.SourceTypeGitHub, taskID, "https://example.com")
 			task.status = tc.initialStatus
 
 			err := job.AddTask(task)

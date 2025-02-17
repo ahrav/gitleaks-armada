@@ -171,6 +171,7 @@ func (s *ScannerService) handleEvent(ctx context.Context, evt events.EventEnvelo
 	case scanning.EventTypeTaskResume:
 		return s.handleTaskResumeEvent(ctx, evt, ack)
 	case scanning.EventTypeTaskCreated:
+		fmt.Printf("received task created event: %+v\n", evt.Payload)
 		return s.handleTaskEvent(ctx, evt, ack)
 	case rules.EventTypeRulesRequested:
 		return s.handleRuleRequest(ctx, evt, ack)
