@@ -24,19 +24,19 @@ var _ scanning.ExecutionTracker = (*executionTracker)(nil)
 type executionTracker struct {
 	controllerID string
 
-	coordinator scanning.JobTaskService // Manages job and task state transitions
-	publisher   events.DomainEventPublisher
+	jobTaskSvc scanning.JobTaskService // Manages job and task state transitions
+	publisher  events.DomainEventPublisher
 
 	logger *logger.Logger // Structured logging for operational visibility
 	tracer trace.Tracer   // OpenTelemetry tracing for request flows
 }
 
 // NewExecutionTracker constructs a new ExecutionTracker with required dependencies.
-// The coordinator handles state persistence and transitions, while logger and tracer
+// The jobTaskSvc handles state persistence and transitions, while logger and tracer
 // provide operational visibility into the progress tracking subsystem.
 func NewExecutionTracker(
 	controllerID string,
-	coordinator scanning.JobTaskService,
+	jobTaskSvc scanning.JobTaskService,
 	publisher events.DomainEventPublisher,
 	logger *logger.Logger,
 	tracer trace.Tracer,
@@ -44,7 +44,7 @@ func NewExecutionTracker(
 	logger = logger.With("component", "execution_tracker")
 	return &executionTracker{
 		controllerID: controllerID,
-		coordinator:  coordinator,
+		jobTaskSvc:   jobTaskSvc,
 		publisher:    publisher,
 		logger:       logger,
 		tracer:       tracer,
@@ -61,7 +61,7 @@ func (t *executionTracker) CreateJobForTarget(ctx context.Context, target scanni
 		))
 	defer span.End()
 
-	job, err := t.coordinator.CreateJob(ctx)
+	job, err := t.jobTaskSvc.CreateJob(ctx)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to create job")
@@ -106,7 +106,7 @@ func (t *executionTracker) LinkEnumeratedTargets(
 		))
 	defer span.End()
 
-	if err := t.coordinator.LinkTargets(ctx, jobID, scanTargetIDs); err != nil {
+	if err := t.jobTaskSvc.LinkTargets(ctx, jobID, scanTargetIDs); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to link targets")
 		return fmt.Errorf("failed to link targets to job %s: %w", jobID, err)
@@ -140,7 +140,7 @@ func (t *executionTracker) HandleEnumeratedScanTask(
 	defer span.End()
 
 	newTask := domain.NewScanTask(jobID, task.SourceType, task.ID, task.ResourceURI())
-	if err := t.coordinator.CreateTask(ctx, newTask); err != nil {
+	if err := t.jobTaskSvc.CreateTask(ctx, newTask); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to create task in repo")
 		return fmt.Errorf("creating task: %w", err)
@@ -194,7 +194,7 @@ func (t *executionTracker) HandleTaskStart(ctx context.Context, evt scanning.Tas
 		))
 	defer span.End()
 
-	err := t.coordinator.StartTask(ctx, taskID, resourceURI)
+	err := t.jobTaskSvc.StartTask(ctx, taskID, resourceURI)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to start task tracking")
@@ -227,7 +227,7 @@ func (t *executionTracker) HandleTaskProgress(ctx context.Context, evt scanning.
 		))
 	defer span.End()
 
-	_, err := t.coordinator.UpdateTaskProgress(ctx, evt.Progress)
+	_, err := t.jobTaskSvc.UpdateTaskProgress(ctx, evt.Progress)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to update task progress")
@@ -255,7 +255,7 @@ func (t *executionTracker) HandleTaskCompletion(ctx context.Context, evt scannin
 		))
 	defer span.End()
 
-	_, err := t.coordinator.CompleteTask(ctx, evt.TaskID)
+	_, err := t.jobTaskSvc.CompleteTask(ctx, evt.TaskID)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to complete task")
@@ -278,7 +278,7 @@ func (t *executionTracker) HandleTaskFailure(ctx context.Context, evt scanning.T
 		))
 	defer span.End()
 
-	_, err := t.coordinator.FailTask(ctx, evt.TaskID)
+	_, err := t.jobTaskSvc.FailTask(ctx, evt.TaskID)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to fail task")
@@ -306,7 +306,7 @@ func (t *executionTracker) HandleTaskStale(ctx context.Context, evt scanning.Tas
 		))
 	defer span.End()
 
-	task, err := t.coordinator.MarkTaskStale(ctx, evt.TaskID, evt.Reason)
+	task, err := t.jobTaskSvc.MarkTaskStale(ctx, evt.TaskID, evt.Reason)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to mark task as stale")
@@ -314,7 +314,7 @@ func (t *executionTracker) HandleTaskStale(ctx context.Context, evt scanning.Tas
 			evt.Reason, evt.StalledSince, err)
 	}
 
-	sourceType, err := t.coordinator.GetTaskSourceType(ctx, task.TaskID())
+	sourceType, err := t.jobTaskSvc.GetTaskSourceType(ctx, task.TaskID())
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to get task source type")
