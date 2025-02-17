@@ -1,4 +1,3 @@
-// Package scanning provides domain types and interfaces for managing distributed scanning operations.
 package scanning
 
 import (
@@ -10,15 +9,11 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 )
 
-// The JobTaskService in our distributed scanning system manages the lifecycle and relationships
-// between jobs and their constituent tasks. It provides the core abstractions needed
-// to maintain consistency, handle state transitions, and ensure reliable execution
-// across the distributed system. The JobTaskService acts as the primary interface for
-// job management, task execution, and system-wide state coordination.
-
-// JobTaskService provides the primary interface for managing scan operations
-// across the system. It handles both job-level coordination and task lifecycle
-// management while maintaining consistency between distributed components.
+// JobTaskService provides the primary interface for managing scan operations in our distributed
+// scanning system. It manages the lifecycle and relationships between jobs and their constituent
+// tasks, providing core abstractions for maintaining consistency, handling state transitions,
+// and ensuring reliable execution. The service handles both job-level coordination and task
+// lifecycle management while maintaining consistency between distributed components.
 type JobTaskService interface {
 	// ---------------------------
 	// Job-level operations

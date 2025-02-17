@@ -20,11 +20,11 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
 
-// mockScanJobCoordinator helps test the progress tracker's interactions
-// with the job coordination layer
-type mockScanJobCoordinator struct{ mock.Mock }
+// mockJobTaskSvc helps test the progress tracker's interactions
+// with the job task service layer
+type mockJobTaskSvc struct{ mock.Mock }
 
-func (m *mockScanJobCoordinator) CreateJob(ctx context.Context) (*scanning.Job, error) {
+func (m *mockJobTaskSvc) CreateJob(ctx context.Context) (*scanning.Job, error) {
 	args := m.Called(ctx)
 	if job := args.Get(0); job != nil {
 		return job.(*scanning.Job), args.Error(1)
@@ -32,19 +32,19 @@ func (m *mockScanJobCoordinator) CreateJob(ctx context.Context) (*scanning.Job, 
 	return nil, args.Error(1)
 }
 
-func (m *mockScanJobCoordinator) LinkTargets(ctx context.Context, jobID uuid.UUID, targets []uuid.UUID) error {
+func (m *mockJobTaskSvc) LinkTargets(ctx context.Context, jobID uuid.UUID, targets []uuid.UUID) error {
 	return m.Called(ctx, jobID, targets).Error(0)
 }
 
-func (m *mockScanJobCoordinator) CreateTask(ctx context.Context, task *scanning.Task) error {
+func (m *mockJobTaskSvc) CreateTask(ctx context.Context, task *scanning.Task) error {
 	return m.Called(ctx, task).Error(0)
 }
 
-func (m *mockScanJobCoordinator) StartTask(ctx context.Context, taskID uuid.UUID, resourceURI string) error {
+func (m *mockJobTaskSvc) StartTask(ctx context.Context, taskID uuid.UUID, resourceURI string) error {
 	return m.Called(ctx, taskID, resourceURI).Error(0)
 }
 
-func (m *mockScanJobCoordinator) UpdateTaskProgress(
+func (m *mockJobTaskSvc) UpdateTaskProgress(
 	ctx context.Context,
 	progress scanning.Progress,
 ) (*scanning.Task, error) {
@@ -55,7 +55,7 @@ func (m *mockScanJobCoordinator) UpdateTaskProgress(
 	return nil, args.Error(1)
 }
 
-func (m *mockScanJobCoordinator) CompleteTask(
+func (m *mockJobTaskSvc) CompleteTask(
 	ctx context.Context,
 	taskID uuid.UUID,
 ) (*scanning.Task, error) {
@@ -66,7 +66,7 @@ func (m *mockScanJobCoordinator) CompleteTask(
 	return nil, args.Error(1)
 }
 
-func (m *mockScanJobCoordinator) FailTask(
+func (m *mockJobTaskSvc) FailTask(
 	ctx context.Context,
 	taskID uuid.UUID,
 ) (*scanning.Task, error) {
@@ -77,12 +77,12 @@ func (m *mockScanJobCoordinator) FailTask(
 	return nil, args.Error(1)
 }
 
-func (m *mockScanJobCoordinator) GetTaskSourceType(ctx context.Context, taskID uuid.UUID) (shared.SourceType, error) {
+func (m *mockJobTaskSvc) GetTaskSourceType(ctx context.Context, taskID uuid.UUID) (shared.SourceType, error) {
 	args := m.Called(ctx, taskID)
 	return args.Get(0).(shared.SourceType), args.Error(1)
 }
 
-func (m *mockScanJobCoordinator) MarkTaskStale(
+func (m *mockJobTaskSvc) MarkTaskStale(
 	ctx context.Context,
 	taskID uuid.UUID,
 	reason scanning.StallReason,
@@ -94,7 +94,7 @@ func (m *mockScanJobCoordinator) MarkTaskStale(
 	return nil, args.Error(1)
 }
 
-func (m *mockScanJobCoordinator) GetTask(ctx context.Context, taskID uuid.UUID) (*scanning.Task, error) {
+func (m *mockJobTaskSvc) GetTask(ctx context.Context, taskID uuid.UUID) (*scanning.Task, error) {
 	args := m.Called(ctx, taskID)
 	if task := args.Get(0); task != nil {
 		return task.(*scanning.Task), args.Error(1)
@@ -102,12 +102,12 @@ func (m *mockScanJobCoordinator) GetTask(ctx context.Context, taskID uuid.UUID) 
 	return nil, args.Error(1)
 }
 
-func (m *mockScanJobCoordinator) FindStaleTasks(ctx context.Context, controllerID string, cutoff time.Time) ([]scanning.StaleTaskInfo, error) {
+func (m *mockJobTaskSvc) FindStaleTasks(ctx context.Context, controllerID string, cutoff time.Time) ([]scanning.StaleTaskInfo, error) {
 	args := m.Called(ctx, controllerID, cutoff)
 	return args.Get(0).([]scanning.StaleTaskInfo), args.Error(1)
 }
 
-func (m *mockScanJobCoordinator) UpdateHeartbeats(ctx context.Context, heartbeats map[uuid.UUID]time.Time) (int64, error) {
+func (m *mockJobTaskSvc) UpdateHeartbeats(ctx context.Context, heartbeats map[uuid.UUID]time.Time) (int64, error) {
 	args := m.Called(ctx, heartbeats)
 	return args.Get(0).(int64), args.Error(1)
 }
@@ -119,7 +119,7 @@ func (m *mockDomainEventPublisher) PublishDomainEvent(ctx context.Context, event
 }
 
 type trackerTestSuite struct {
-	jobCoordinator  *mockScanJobCoordinator
+	jobCoordinator  *mockJobTaskSvc
 	domainPublisher *mockDomainEventPublisher
 	logger          *logger.Logger
 	tracer          trace.Tracer
@@ -129,7 +129,7 @@ type trackerTestSuite struct {
 func newTrackerTestSuite(t *testing.T) *trackerTestSuite {
 	t.Helper()
 
-	jobCoordinator := new(mockScanJobCoordinator)
+	jobCoordinator := new(mockJobTaskSvc)
 	domainPublisher := new(mockDomainEventPublisher)
 	logger := logger.New(io.Discard, logger.LevelDebug, "test", nil)
 	tracer := noop.NewTracerProvider().Tracer("test")
@@ -146,13 +146,13 @@ func newTrackerTestSuite(t *testing.T) *trackerTestSuite {
 func TestExecutionTracker_StartTracking(t *testing.T) {
 	tests := []struct {
 		name    string
-		setup   func(*mockScanJobCoordinator)
+		setup   func(*mockJobTaskSvc)
 		event   scanning.TaskStartedEvent
 		wantErr bool
 	}{
 		{
 			name: "successful task start",
-			setup: func(m *mockScanJobCoordinator) {
+			setup: func(m *mockJobTaskSvc) {
 				m.On("StartTask", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
 			},
@@ -165,7 +165,7 @@ func TestExecutionTracker_StartTracking(t *testing.T) {
 		},
 		{
 			name: "coordinator failure",
-			setup: func(m *mockScanJobCoordinator) {
+			setup: func(m *mockJobTaskSvc) {
 				m.On("StartTask", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(errors.New("coordinator failure"))
 			},
@@ -197,13 +197,13 @@ func TestExecutionTracker_StartTracking(t *testing.T) {
 func TestExecutionTracker_UpdateProgress(t *testing.T) {
 	tests := []struct {
 		name    string
-		setup   func(*mockScanJobCoordinator)
+		setup   func(*mockJobTaskSvc)
 		event   scanning.TaskProgressedEvent
 		wantErr bool
 	}{
 		{
 			name: "successful progress update",
-			setup: func(m *mockScanJobCoordinator) {
+			setup: func(m *mockJobTaskSvc) {
 				m.On("UpdateTaskProgress", mock.Anything, mock.Anything).
 					Return(new(scanning.Task), nil)
 			},
@@ -214,7 +214,7 @@ func TestExecutionTracker_UpdateProgress(t *testing.T) {
 		},
 		{
 			name: "failed progress update",
-			setup: func(m *mockScanJobCoordinator) {
+			setup: func(m *mockJobTaskSvc) {
 				m.On("UpdateTaskProgress", mock.Anything, mock.Anything).
 					Return(nil, errors.New("coordinator failure"))
 			},
@@ -286,13 +286,13 @@ func TestExecutionTracker_FullScanningLifecycle(t *testing.T) {
 func TestExecutionTracker_StopTracking(t *testing.T) {
 	tests := []struct {
 		name    string
-		setup   func(*mockScanJobCoordinator)
+		setup   func(*mockJobTaskSvc)
 		event   scanning.TaskCompletedEvent
 		wantErr bool
 	}{
 		{
 			name: "successful task completion",
-			setup: func(m *mockScanJobCoordinator) {
+			setup: func(m *mockJobTaskSvc) {
 				m.On("CompleteTask", mock.Anything, mock.Anything, mock.Anything).
 					Return(new(scanning.Task), nil)
 			},
@@ -304,7 +304,7 @@ func TestExecutionTracker_StopTracking(t *testing.T) {
 		},
 		{
 			name: "failed task completion",
-			setup: func(m *mockScanJobCoordinator) {
+			setup: func(m *mockJobTaskSvc) {
 				m.On("CompleteTask", mock.Anything, mock.Anything, mock.Anything).
 					Return(new(scanning.Task), errors.New("completion failed"))
 			},
@@ -336,13 +336,13 @@ func TestExecutionTracker_StopTracking(t *testing.T) {
 func TestExecutionTracker_MarkTaskFailure(t *testing.T) {
 	tests := []struct {
 		name    string
-		setup   func(*mockScanJobCoordinator)
+		setup   func(*mockJobTaskSvc)
 		event   scanning.TaskFailedEvent
 		wantErr bool
 	}{
 		{
 			name: "successful task failure marking",
-			setup: func(m *mockScanJobCoordinator) {
+			setup: func(m *mockJobTaskSvc) {
 				m.On("FailTask", mock.Anything, mock.Anything, mock.Anything).
 					Return(new(scanning.Task), nil)
 			},
@@ -354,7 +354,7 @@ func TestExecutionTracker_MarkTaskFailure(t *testing.T) {
 		},
 		{
 			name: "error marking task as failed",
-			setup: func(m *mockScanJobCoordinator) {
+			setup: func(m *mockJobTaskSvc) {
 				m.On("FailTask", mock.Anything, mock.Anything, mock.Anything).
 					Return(new(scanning.Task), errors.New("failure marking failed"))
 			},
@@ -386,13 +386,13 @@ func TestExecutionTracker_MarkTaskFailure(t *testing.T) {
 func TestExecutionTracker_MarkTaskStale(t *testing.T) {
 	tests := []struct {
 		name    string
-		setup   func(*mockScanJobCoordinator, *mockDomainEventPublisher)
+		setup   func(*mockJobTaskSvc, *mockDomainEventPublisher)
 		event   scanning.TaskStaleEvent
 		wantErr bool
 	}{
 		{
 			name: "successful stale task marking",
-			setup: func(m *mockScanJobCoordinator, p *mockDomainEventPublisher) {
+			setup: func(m *mockJobTaskSvc, p *mockDomainEventPublisher) {
 				m.On("MarkTaskStale", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(new(scanning.Task), nil)
 				m.On("GetTaskSourceType", mock.Anything, mock.Anything).
@@ -415,7 +415,7 @@ func TestExecutionTracker_MarkTaskStale(t *testing.T) {
 		},
 		{
 			name: "error marking task as stale",
-			setup: func(m *mockScanJobCoordinator, p *mockDomainEventPublisher) {
+			setup: func(m *mockJobTaskSvc, p *mockDomainEventPublisher) {
 				m.On("MarkTaskStale", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(new(scanning.Task), errors.New("stale marking failed"))
 			},
@@ -428,7 +428,7 @@ func TestExecutionTracker_MarkTaskStale(t *testing.T) {
 		},
 		{
 			name: "error publishing resume event",
-			setup: func(m *mockScanJobCoordinator, p *mockDomainEventPublisher) {
+			setup: func(m *mockJobTaskSvc, p *mockDomainEventPublisher) {
 				m.On("MarkTaskStale", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(new(scanning.Task), nil)
 				m.On("GetTaskSourceType", mock.Anything, mock.Anything).
@@ -471,7 +471,7 @@ func TestExecutionTracker_MarkTaskStale(t *testing.T) {
 func TestExecutionTracker_HandleEnumeratedScanTask(t *testing.T) {
 	tests := []struct {
 		name    string
-		setup   func(*mockScanJobCoordinator, *mockDomainEventPublisher)
+		setup   func(*mockJobTaskSvc, *mockDomainEventPublisher)
 		jobID   uuid.UUID
 		task    *scanning.Task
 		auth    scanning.Auth
@@ -480,7 +480,7 @@ func TestExecutionTracker_HandleEnumeratedScanTask(t *testing.T) {
 	}{
 		{
 			name: "successful task creation and event publish",
-			setup: func(m *mockScanJobCoordinator, p *mockDomainEventPublisher) {
+			setup: func(m *mockJobTaskSvc, p *mockDomainEventPublisher) {
 				m.On("CreateTask", mock.Anything, mock.Anything).
 					Return(nil)
 				p.On("PublishDomainEvent", mock.Anything, mock.Anything, mock.Anything).
@@ -494,7 +494,7 @@ func TestExecutionTracker_HandleEnumeratedScanTask(t *testing.T) {
 		},
 		{
 			name: "task creation failure",
-			setup: func(m *mockScanJobCoordinator, p *mockDomainEventPublisher) {
+			setup: func(m *mockJobTaskSvc, p *mockDomainEventPublisher) {
 				m.On("CreateTask", mock.Anything, mock.Anything).
 					Return(errors.New("creation failed"))
 			},
@@ -506,7 +506,7 @@ func TestExecutionTracker_HandleEnumeratedScanTask(t *testing.T) {
 		},
 		{
 			name: "event publish failure",
-			setup: func(m *mockScanJobCoordinator, p *mockDomainEventPublisher) {
+			setup: func(m *mockJobTaskSvc, p *mockDomainEventPublisher) {
 				m.On("CreateTask", mock.Anything, mock.Anything).
 					Return(nil)
 				p.On("PublishDomainEvent", mock.Anything, mock.Anything, mock.Anything).
