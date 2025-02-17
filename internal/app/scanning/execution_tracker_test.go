@@ -143,6 +143,83 @@ func newTrackerTestSuite(t *testing.T) *trackerTestSuite {
 	}
 }
 
+func TestExecutionTracker_HandleEnumeratedScanTask(t *testing.T) {
+	tests := []struct {
+		name    string
+		setup   func(*mockJobTaskSvc, *mockDomainEventPublisher)
+		jobID   uuid.UUID
+		task    *scanning.Task
+		auth    scanning.Auth
+		meta    map[string]string
+		wantErr bool
+	}{
+		{
+			name: "successful task creation and event publish",
+			setup: func(m *mockJobTaskSvc, p *mockDomainEventPublisher) {
+				m.On("CreateTask", mock.Anything, mock.Anything).
+					Return(nil)
+				p.On("PublishDomainEvent", mock.Anything, mock.Anything, mock.Anything).
+					Return(nil)
+			},
+			jobID:   uuid.New(),
+			task:    scanning.NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com"),
+			auth:    scanning.Auth{},
+			meta:    map[string]string{"key": "value"},
+			wantErr: false,
+		},
+		{
+			name: "task creation failure",
+			setup: func(m *mockJobTaskSvc, p *mockDomainEventPublisher) {
+				m.On("CreateTask", mock.Anything, mock.Anything).
+					Return(errors.New("creation failed"))
+			},
+			jobID:   uuid.New(),
+			task:    scanning.NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com"),
+			auth:    scanning.Auth{},
+			meta:    map[string]string{"key": "value"},
+			wantErr: true,
+		},
+		{
+			name: "event publish failure",
+			setup: func(m *mockJobTaskSvc, p *mockDomainEventPublisher) {
+				m.On("CreateTask", mock.Anything, mock.Anything).
+					Return(nil)
+				p.On("PublishDomainEvent", mock.Anything, mock.Anything, mock.Anything).
+					Return(errors.New("publish failed"))
+			},
+			jobID:   uuid.New(),
+			task:    scanning.NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com"),
+			auth:    scanning.Auth{},
+			meta:    map[string]string{"key": "value"},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			suite := newTrackerTestSuite(t)
+			tt.setup(suite.jobCoordinator, suite.domainPublisher)
+
+			err := suite.tracker.HandleEnumeratedScanTask(
+				context.Background(),
+				tt.jobID,
+				tt.task,
+				tt.auth,
+				tt.meta,
+			)
+
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+
+			suite.jobCoordinator.AssertExpectations(t)
+			suite.domainPublisher.AssertExpectations(t)
+		})
+	}
+}
+
 func TestExecutionTracker_StartTracking(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -462,83 +539,6 @@ func TestExecutionTracker_MarkTaskStale(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 			}
-			suite.jobCoordinator.AssertExpectations(t)
-			suite.domainPublisher.AssertExpectations(t)
-		})
-	}
-}
-
-func TestExecutionTracker_HandleEnumeratedScanTask(t *testing.T) {
-	tests := []struct {
-		name    string
-		setup   func(*mockJobTaskSvc, *mockDomainEventPublisher)
-		jobID   uuid.UUID
-		task    *scanning.Task
-		auth    scanning.Auth
-		meta    map[string]string
-		wantErr bool
-	}{
-		{
-			name: "successful task creation and event publish",
-			setup: func(m *mockJobTaskSvc, p *mockDomainEventPublisher) {
-				m.On("CreateTask", mock.Anything, mock.Anything).
-					Return(nil)
-				p.On("PublishDomainEvent", mock.Anything, mock.Anything, mock.Anything).
-					Return(nil)
-			},
-			jobID:   uuid.New(),
-			task:    scanning.NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com"),
-			auth:    scanning.Auth{},
-			meta:    map[string]string{"key": "value"},
-			wantErr: false,
-		},
-		{
-			name: "task creation failure",
-			setup: func(m *mockJobTaskSvc, p *mockDomainEventPublisher) {
-				m.On("CreateTask", mock.Anything, mock.Anything).
-					Return(errors.New("creation failed"))
-			},
-			jobID:   uuid.New(),
-			task:    scanning.NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com"),
-			auth:    scanning.Auth{},
-			meta:    map[string]string{"key": "value"},
-			wantErr: true,
-		},
-		{
-			name: "event publish failure",
-			setup: func(m *mockJobTaskSvc, p *mockDomainEventPublisher) {
-				m.On("CreateTask", mock.Anything, mock.Anything).
-					Return(nil)
-				p.On("PublishDomainEvent", mock.Anything, mock.Anything, mock.Anything).
-					Return(errors.New("publish failed"))
-			},
-			jobID:   uuid.New(),
-			task:    scanning.NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com"),
-			auth:    scanning.Auth{},
-			meta:    map[string]string{"key": "value"},
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			suite := newTrackerTestSuite(t)
-			tt.setup(suite.jobCoordinator, suite.domainPublisher)
-
-			err := suite.tracker.HandleEnumeratedScanTask(
-				context.Background(),
-				tt.jobID,
-				tt.task,
-				tt.auth,
-				tt.meta,
-			)
-
-			if tt.wantErr {
-				require.Error(t, err)
-			} else {
-				require.NoError(t, err)
-			}
-
 			suite.jobCoordinator.AssertExpectations(t)
 			suite.domainPublisher.AssertExpectations(t)
 		})
