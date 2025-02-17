@@ -251,7 +251,7 @@ func TestExecutionTracker_FullScanningLifecycle(t *testing.T) {
 	resourceURI := "https://example.com"
 
 	// Setup expectations for the full lifecycle.
-	suite.jobCoordinator.On("StartTask", mock.Anything, jobID, taskID, resourceURI).
+	suite.jobCoordinator.On("StartTask", mock.Anything, taskID, resourceURI).
 		Return(nil)
 	suite.jobCoordinator.On("UpdateTaskProgress", mock.Anything, mock.Anything).
 		Return(new(scanning.Task), nil).Times(3)
