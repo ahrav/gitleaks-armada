@@ -30,37 +30,44 @@ func Routes(app *web.App, cfg Config) {
 
 // TODO: Add sanitization, etc...
 
-// startRequest represents the request payload for starting a scan.
+// startRequest represents the payload for starting a scan with multiple targets.
 type startRequest struct {
-	Name       string            `json:"name" validate:"required"`
-	SourceType string            `json:"source_type" validate:"required,oneof=github s3 url"`
-	SourceAuth *sourceAuth       `json:"source_auth,omitempty"`
-	GitHub     *githubConfig     `json:"github,omitempty"`
-	S3         *s3Config         `json:"s3,omitempty"`
-	URL        *urlConfig        `json:"url,omitempty"`
-	Metadata   map[string]string `json:"metadata,omitempty"`
+	Name     string            `json:"name,omitempty"` // Optional, user-friendly name.
+	Targets  []targetRequest   `json:"targets" validate:"required,dive"`
+	Metadata map[string]string `json:"metadata,omitempty"`
 }
 
-type sourceAuth struct {
-	Type        string         `json:"type" validate:"required,oneof=none basic token oauth aws"`
-	Credentials map[string]any `json:"credentials"`
-}
+// targetRequest represents a single target for scanning.
+type targetRequest struct {
+	// Common fields.
+	Type       string      `json:"type" validate:"required,oneof=github s3 url"`
+	SourceAuth *sourceAuth `json:"source_auth,omitempty"`
+	// TODO: Look to potentially limit size of metadata.
+	Metadata map[string]string `json:"metadata,omitempty"`
 
-type githubConfig struct {
-	RepositoryURLs []string `json:"repository_urls" validate:"required,min=1,dive,url"`
-}
+	// GitHub-specific fields.
+	Organization string   `json:"organization,omitempty"`
+	Repositories []string `json:"repositories,omitempty"`
+	// TODO: Add repository regex pattern.
+	RepositoryPattern string `json:"repository_pattern,omitempty"`
 
-type s3Config struct {
-	Bucket string `json:"bucket" validate:"required"`
+	// S3-specific fields.
+	Bucket string `json:"bucket,omitempty"`
 	Prefix string `json:"prefix,omitempty"`
-	Region string `json:"region" validate:"required"`
-}
+	Region string `json:"region,omitempty"`
 
-type urlConfig struct {
-	URLs          []string          `json:"urls" validate:"required,min=1,dive,url"`
+	// URL-specific fields.
+	URLs          []string          `json:"urls,omitempty"`
 	ArchiveFormat string            `json:"archive_format,omitempty" validate:"omitempty,oneof=none gzip tar.gz zip warc.gz auto"`
 	RateLimit     float64           `json:"rate_limit,omitempty" validate:"omitempty,min=0"`
 	Headers       map[string]string `json:"headers,omitempty"`
+	// TODO: Add retry config.
+}
+
+// sourceAuth remains unchanged.
+type sourceAuth struct {
+	Type        string         `json:"type" validate:"required,oneof=none basic token oauth aws"`
+	Credentials map[string]any `json:"credentials"`
 }
 
 // startResponse represents the response for starting a scan.
@@ -79,9 +86,7 @@ func (sr startResponse) Encode() ([]byte, string, error) {
 }
 
 // HTTPStatus implements the httpStatus interface to set the response status code.
-func (sr startResponse) HTTPStatus() int {
-	return http.StatusAccepted // 202
-}
+func (sr startResponse) HTTPStatus() int { return http.StatusAccepted } // 202
 
 func start(cfg Config) web.HandlerFunc {
 	return func(ctx context.Context, r *http.Request) web.Encoder {
@@ -94,65 +99,71 @@ func start(cfg Config) web.HandlerFunc {
 			return errs.New(errs.InvalidArgument, err)
 		}
 
-		// Convert API request to config structure.
-		target := buildTargetConfig(req)
-
-		// Create scan configuration.
-		scanCfg := &config.Config{
-			Targets: []config.TargetSpec{target},
+		// Build a list of target configurations from the API request
+		// and merge global metadata from the request if needed.
+		var targets []config.TargetSpec
+		for _, t := range req.Targets {
+			tgt := buildTargetConfig(t)
+			tgt.Metadata = req.Metadata
+			targets = append(targets, tgt)
 		}
 
-		cmd := scanning.NewStartScanCommand(scanCfg, "system") // TODO: JWT user
+		// Create scan configuration with multiple targets.
+		scanCfg := &config.Config{Targets: targets}
+		cmd := scanning.NewStartScanCommand(scanCfg, "system") // TODO: Use JWT user instead of "system" if available.
 		if err := cfg.CmdHandler.Handle(ctx, cmd); err != nil {
 			return errs.New(errs.Internal, err)
 		}
 
 		return startResponse{
-			// TODO: Get the job ID.
-			// ID:     cmd.JobID().String(),
+			// TODO: Retrieve and set the job ID from cmd.
 			Status: "queued",
 		}
 	}
 }
 
-func buildTargetConfig(req startRequest) config.TargetSpec {
+// buildTargetConfig converts a targetRequest into a config.TargetSpec.
+func buildTargetConfig(tr targetRequest) config.TargetSpec {
 	target := config.TargetSpec{
-		Name:       req.Name,
-		SourceType: shared.ParseSourceType(req.SourceType),
-		Metadata:   req.Metadata,
+		Name:     tr.Type, // You might adjust this to include tr.Organization or other details.
+		Metadata: tr.Metadata,
 	}
 
-	if req.SourceAuth != nil {
+	// Set source authentication if provided.
+	if tr.SourceAuth != nil {
 		target.SourceAuth = &config.AuthConfig{
-			Type:        req.SourceAuth.Type,
-			Credentials: req.SourceAuth.Credentials,
+			Type:        tr.SourceAuth.Type,
+			Credentials: tr.SourceAuth.Credentials,
 		}
 	}
 
-	switch shared.ParseSourceType(req.SourceType) {
+	// Switch over the target type.
+	switch shared.ParseSourceType(tr.Type) {
 	case shared.SourceTypeGitHub:
-		if req.GitHub != nil {
-			target.GitHub = &config.GitHubTarget{
-				RepoList: req.GitHub.RepositoryURLs,
-			}
+		// Map GitHub-specific information.
+		target.GitHub = &config.GitHubTarget{
+			// Depending on how your backend expects the repository information,
+			// you may choose repositories or a regex pattern.
+			RepoList: tr.Repositories,
+			// You might store the repository pattern as well if needed:
+			// RepositoryPattern: tr.RepositoryPattern,
 		}
 	case shared.SourceTypeURL:
-		if req.URL != nil {
-			target.URL = &config.URLTarget{
-				URLs:          req.URL.URLs,
-				ArchiveFormat: config.ArchiveFormat(req.URL.ArchiveFormat),
-				RateLimit:     req.URL.RateLimit,
-				Headers:       req.URL.Headers,
-			}
+		// Map URL-specific information.
+		target.URL = &config.URLTarget{
+			URLs:          tr.URLs,
+			ArchiveFormat: config.ArchiveFormat(tr.ArchiveFormat),
+			RateLimit:     tr.RateLimit,
+			Headers:       tr.Headers,
 		}
 	case shared.SourceTypeS3:
-		if req.S3 != nil {
-			target.S3 = &config.S3Target{
-				Bucket: req.S3.Bucket,
-				Prefix: req.S3.Prefix,
-				Region: req.S3.Region,
-			}
+		// Map S3-specific information.
+		target.S3 = &config.S3Target{
+			Bucket: tr.Bucket,
+			Prefix: tr.Prefix,
+			Region: tr.Region,
 		}
 	}
+
 	return target
 }
