@@ -164,7 +164,7 @@ clean:
 	kubectl delete -f $(K8S_MANIFESTS)/postgres.yaml -n $(NAMESPACE) || true
 
 # Additional convenience targets
-dev: kind-up all
+dev: kind-up all postgres-port-forward grafana-port-forward api-gateway-port-forward
 
 # Rebuild and redeploy without recreating cluster
 redeploy: build-all docker-all kind-load dev-apply rollout-restart
@@ -532,6 +532,10 @@ grafana-restart:
 	kubectl apply -f $(K8S_MANIFESTS)/grafana-dashboards.yaml -n $(NAMESPACE)
 	kubectl apply -f $(K8S_MANIFESTS)/grafana-dashboards-provisioning.yaml -n $(NAMESPACE)
 
+# Grafana port forward
+grafana-port-forward:
+	kubectl port-forward -n $(NAMESPACE) svc/grafana 3000:3000 &
+
 prometheus-restart:
 	kubectl rollout restart deployment/prometheus -n $(NAMESPACE)
 
@@ -578,4 +582,4 @@ promtail-logs:
 # Port forwarding for development
 api-gateway-port-forward:
 	@echo "Port forwarding API Gateway to localhost:8080..."
-	kubectl port-forward -n ingress-nginx svc/ingress-nginx-controller 8080:80
+	kubectl port-forward -n ingress-nginx svc/ingress-nginx-controller 8080:80 &
