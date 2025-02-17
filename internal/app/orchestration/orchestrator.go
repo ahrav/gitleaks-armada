@@ -114,7 +114,7 @@ func NewOrchestrator(
 		tracer:             tracer,
 	}
 
-	scanJobCoordinator := scan.NewJobTaskService(
+	jobTaskSvc := scan.NewJobTaskService(
 		id,
 		jobRepo,
 		taskRepo,
@@ -124,7 +124,7 @@ func NewOrchestrator(
 
 	executionTracker := scan.NewExecutionTracker(
 		id,
-		scanJobCoordinator,
+		jobTaskSvc,
 		eventPublisher,
 		logger,
 		tracer,
@@ -132,7 +132,7 @@ func NewOrchestrator(
 
 	o.taskHealthSupervisor = scan.NewTaskHealthSupervisor(
 		id,
-		scanJobCoordinator,
+		jobTaskSvc,
 		executionTracker,
 		eventPublisher,
 		tracer,
