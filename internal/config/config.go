@@ -6,6 +6,12 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 )
 
+// TODO: Think through a couple approaches for handling credentials.
+// 1. Provide integration with a secrets manager. (AWS Secret Manager, Vault, etc.)
+// 2. Credential Forwarding using a SDK to encrypt client creds with server-side public key.
+// This would require a separate API endpoint.
+// 3. Oauth2.0 flow for some sources.
+// 4. Encrypted credential storage with strong key management.
 // AuthConfig represents an authentication configuration.
 type AuthConfig struct {
 	Type        string         `yaml:"type" json:"type"`
