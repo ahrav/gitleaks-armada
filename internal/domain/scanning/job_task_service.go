@@ -10,16 +10,16 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 )
 
-// Coordination in our distributed scanning system manages the lifecycle and relationships
+// The JobTaskService in our distributed scanning system manages the lifecycle and relationships
 // between jobs and their constituent tasks. It provides the core abstractions needed
 // to maintain consistency, handle state transitions, and ensure reliable execution
-// across the distributed system. The coordinator acts as the primary interface for
+// across the distributed system. The JobTaskService acts as the primary interface for
 // job management, task execution, and system-wide state coordination.
 
-// ScanJobCoordinator provides the primary interface for managing scan operations
+// JobTaskService provides the primary interface for managing scan operations
 // across the system. It handles both job-level coordination and task lifecycle
 // management while maintaining consistency between distributed components.
-type ScanJobCoordinator interface {
+type JobTaskService interface {
 	// ---------------------------
 	// Job-level operations
 	// ---------------------------

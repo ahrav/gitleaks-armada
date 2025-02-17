@@ -24,7 +24,7 @@ var _ scanning.ExecutionTracker = (*executionTracker)(nil)
 type executionTracker struct {
 	controllerID string
 
-	coordinator scanning.ScanJobCoordinator // Manages job and task state transitions
+	coordinator scanning.JobTaskService // Manages job and task state transitions
 	publisher   events.DomainEventPublisher
 
 	logger *logger.Logger // Structured logging for operational visibility
@@ -36,7 +36,7 @@ type executionTracker struct {
 // provide operational visibility into the progress tracking subsystem.
 func NewExecutionTracker(
 	controllerID string,
-	coordinator scanning.ScanJobCoordinator,
+	coordinator scanning.JobTaskService,
 	publisher events.DomainEventPublisher,
 	logger *logger.Logger,
 	tracer trace.Tracer,

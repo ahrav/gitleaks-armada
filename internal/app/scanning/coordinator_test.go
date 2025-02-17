@@ -107,7 +107,7 @@ func (m *mockTaskRepository) BatchUpdateHeartbeats(ctx context.Context, heartbea
 type coordinatorTestSuite struct {
 	jobRepo  *mockJobRepository
 	taskRepo *mockTaskRepository
-	coord    *scanJobCoordinator
+	coord    *jobTaskService
 	tracer   trace.Tracer
 	taskID   uuid.UUID
 }
@@ -122,7 +122,7 @@ func newCoordinatorTestSuite(t *testing.T) *coordinatorTestSuite {
 	return &coordinatorTestSuite{
 		jobRepo:  jobRepo,
 		taskRepo: taskRepo,
-		coord: &scanJobCoordinator{
+		coord: &jobTaskService{
 			jobRepo:  jobRepo,
 			taskRepo: taskRepo,
 			tracer:   tracer,

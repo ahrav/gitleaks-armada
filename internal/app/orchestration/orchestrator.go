@@ -114,7 +114,7 @@ func NewOrchestrator(
 		tracer:             tracer,
 	}
 
-	scanJobCoordinator := scan.NewScanJobCoordinator(
+	scanJobCoordinator := scan.NewJobTaskService(
 		id,
 		jobRepo,
 		taskRepo,
