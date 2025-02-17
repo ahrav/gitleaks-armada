@@ -52,7 +52,53 @@ POSTGRES_URL = postgres://postgres:postgres@localhost:5432/secretscanner?sslmode
 # -------------------------------------------------------------------------------
 # Targets
 # -------------------------------------------------------------------------------
-.PHONY: all build-all docker-all kind-up kind-down kind-load dev-apply dev-status clean proto proto-gen kafka-setup kafka-logs kafka-topics kafka-restart kafka-delete kafka-consumer-groups kafka-delete-topics kafka-reset create-config-secret monitoring-setup monitoring-port-forward monitoring-cleanup postgres-setup postgres-logs postgres-restart postgres-delete sqlc-proto-gen rollout-restart-controller rollout-restart-scanner rollout-restart-api-gateway rollout-restart test test-coverage setup-local-ingress
+.PHONY: all build-all docker-all kind-up kind-down kind-load dev-apply dev-status clean proto proto-gen kafka-setup kafka-logs kafka-topics kafka-restart kafka-delete kafka-consumer-groups kafka-delete-topics kafka-reset create-config-secret monitoring-setup monitoring-port-forward monitoring-cleanup postgres-setup postgres-logs postgres-restart postgres-delete sqlc-proto-gen rollout-restart-controller rollout-restart-scanner rollout-restart-api-gateway rollout-restart test test-coverage setup-local-ingress dev-brew dev-gotooling dev-docker dev-pull-images dev-apply postgres-port-forward grafana-port-forward api-gateway-port-forward dev-setup
+
+# -------------------------------------------------------------------------------
+# ONBOARDING TARGETS
+# -------------------------------------------------------------------------------
+
+# Pull and install everything a developer needs:
+dev-setup: dev-brew dev-gotooling dev-docker
+
+# Installs some recommended local tooling with Homebrew
+dev-brew:
+	brew update
+	brew list kind || brew install kind
+	brew list kubectl || brew install kubectl
+	brew list kustomize || brew install kustomize
+	brew list watch || brew install watch
+	@echo "Homebrew packages are installed or already present."
+
+# Installs common Go-based tooling for local development
+dev-gotooling:
+	@echo "Installing Go-based tools..."
+	go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+	go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+	go install github.com/divan/expvarmon@latest
+	go install github.com/rakyll/hey@latest
+	go install honnef.co/go/tools/cmd/staticcheck@latest
+	go install golang.org/x/vuln/cmd/govulncheck@latest
+	go install golang.org/x/tools/cmd/goimports@latest
+	@echo "Go tools have been installed."
+
+# Pulls Docker images that are frequently used in this project
+dev-docker:
+	@echo "Pulling Docker images for local development..."
+	docker pull $(CONTROLLER_IMAGE) || true
+	docker pull $(SCANNER_IMAGE) || true
+	docker pull $(API_GATEWAY_IMAGE) || true
+	docker pull $(PROMETHEUS_IMAGE) || true
+	docker pull $(GRAFANA_IMAGE) || true
+	docker pull $(TEMPO_IMAGE) || true
+	docker pull $(LOKI) || true
+	docker pull $(PROMTAIL) || true
+	docker pull $(OTEL_COLLECTOR_IMAGE) || true
+	docker pull $(POSTGRES_IMAGE) || true
+	docker pull $(KAFKA_IMAGE) || true
+	docker pull $(ZOOKEEPER_IMAGE) || true
+	@echo "Docker images have been pulled."
+
 
 all: build-all docker-all kind-load postgres-setup kafka-setup create-config-secret monitoring-setup dev-apply
 
@@ -583,3 +629,24 @@ promtail-logs:
 api-gateway-port-forward:
 	@echo "Port forwarding API Gateway to localhost:8080..."
 	kubectl port-forward -n ingress-nginx svc/ingress-nginx-controller 8080:80 &
+
+# -------------------------------------------------------------------------------
+# HELP TARGET
+# -------------------------------------------------------------------------------
+help:
+	@echo "Usage: make <command>"
+	@echo ""
+	@echo "Common Developer Targets:"
+	@echo "  dev-setup              Installs Homebrew packages, Go tooling, and Docker images"
+	@echo "  dev-brew               Installs recommended Homebrew packages (kind, kubectl, etc.)"
+	@echo "  dev-gotooling          Installs Go-based tooling (staticcheck, protoc-gen, etc.)"
+	@echo "  dev-docker             Pulls Docker images used by the project"
+	@echo "  kind-up                Creates the KinD cluster"
+	@echo "  dev-apply              Applies the Kubernetes manifests"
+	@echo "  dev-status             Shows the status of the pods"
+	@echo "  dev                    Brings up the cluster, sets up or updates local environment"
+	@echo "  test                   Runs all tests"
+	@echo "  test-coverage          Runs tests and generates a coverage report"
+	@echo "  kafka-setup            Sets up Kafka in the cluster"
+	@echo "  postgres-setup         Sets up Postgres in the cluster"
+	@echo "  help                   Prints this help text"
