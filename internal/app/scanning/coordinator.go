@@ -145,15 +145,10 @@ func (c *scanJobCoordinator) CreateTask(ctx context.Context, task *domain.Task) 
 
 // StartTask updates an existing task's state to indicate it has begun execution.
 // It returns an error if the task is not in a valid state for starting.
-func (c *scanJobCoordinator) StartTask(
-	ctx context.Context,
-	jobID, taskID uuid.UUID,
-	resourceURI string,
-) error {
+func (c *scanJobCoordinator) StartTask(ctx context.Context, taskID uuid.UUID, resourceURI string) error {
 	ctx, span := c.tracer.Start(ctx, "scan_job_coordinator.scanning.start_task",
 		trace.WithAttributes(
 			attribute.String("controller_id", c.controllerID),
-			attribute.String("job_id", jobID.String()),
 			attribute.String("task_id", taskID.String()),
 		))
 	defer span.End()

@@ -40,8 +40,8 @@ func (m *mockScanJobCoordinator) CreateTask(ctx context.Context, task *scanning.
 	return m.Called(ctx, task).Error(0)
 }
 
-func (m *mockScanJobCoordinator) StartTask(ctx context.Context, jobID, taskID uuid.UUID, resourceURI string) error {
-	return m.Called(ctx, jobID, taskID, resourceURI).Error(0)
+func (m *mockScanJobCoordinator) StartTask(ctx context.Context, taskID uuid.UUID, resourceURI string) error {
+	return m.Called(ctx, taskID, resourceURI).Error(0)
 }
 
 func (m *mockScanJobCoordinator) UpdateTaskProgress(

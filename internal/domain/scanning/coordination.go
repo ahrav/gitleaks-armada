@@ -39,7 +39,7 @@ type ScanJobCoordinator interface {
 	CreateTask(ctx context.Context, task *Task) error
 
 	// StartTask begins a new scanning task.
-	StartTask(ctx context.Context, jobID, taskID uuid.UUID, resourceURI string) error
+	StartTask(ctx context.Context, taskID uuid.UUID, resourceURI string) error
 
 	// UpdateTaskProgress handles incremental updates from running scanners.
 	// Updates are cached in memory and periodically persisted to reduce database load

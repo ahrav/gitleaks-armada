@@ -268,7 +268,6 @@ func TestStartTask(t *testing.T) {
 	tests := []struct {
 		name    string
 		setup   func(*mockTaskRepository)
-		jobID   uuid.UUID
 		taskID  uuid.UUID
 		wantErr bool
 	}{
@@ -286,7 +285,6 @@ func TestStartTask(t *testing.T) {
 					return t.Status() == scanning.TaskStatusInProgress
 				})).Return(nil)
 			},
-			jobID:   uuid.MustParse("429735d7-ec1b-4d96-8749-938ca0a744be"),
 			taskID:  uuid.MustParse("b1f7eff4-2921-4e6c-9d88-da2de5707a2b"),
 			wantErr: false,
 		},
@@ -296,7 +294,6 @@ func TestStartTask(t *testing.T) {
 				repo.On("GetTask", mock.Anything, mock.Anything).
 					Return(nil, assert.AnError)
 			},
-			jobID:   uuid.New(),
 			taskID:  uuid.New(),
 			wantErr: true,
 		},
@@ -313,7 +310,6 @@ func TestStartTask(t *testing.T) {
 				repo.On("UpdateTask", mock.Anything, mock.Anything).
 					Return(assert.AnError)
 			},
-			jobID:   uuid.New(),
 			taskID:  uuid.New(),
 			wantErr: true,
 		},
@@ -331,7 +327,6 @@ func TestStartTask(t *testing.T) {
 				require.NoError(t, err)
 				repo.On("GetTask", mock.Anything, mock.Anything).Return(task, nil)
 			},
-			jobID:   uuid.New(),
 			taskID:  uuid.New(),
 			wantErr: true,
 		},
@@ -342,7 +337,7 @@ func TestStartTask(t *testing.T) {
 			suite := newCoordinatorTestSuite(t)
 			tt.setup(suite.taskRepo)
 
-			err := suite.coord.StartTask(context.Background(), tt.jobID, tt.taskID, "https://github.com/org/repo")
+			err := suite.coord.StartTask(context.Background(), tt.taskID, "https://github.com/org/repo")
 			if tt.wantErr {
 				require.Error(t, err)
 				return

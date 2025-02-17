@@ -194,7 +194,7 @@ func (t *executionTracker) HandleTaskStart(ctx context.Context, evt scanning.Tas
 		))
 	defer span.End()
 
-	err := t.coordinator.StartTask(ctx, jobID, taskID, resourceURI)
+	err := t.coordinator.StartTask(ctx, taskID, resourceURI)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to start task tracking")
