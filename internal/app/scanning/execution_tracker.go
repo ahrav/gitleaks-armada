@@ -11,6 +11,7 @@ import (
 
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
+	domain "github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
 
@@ -138,7 +139,15 @@ func (t *executionTracker) HandleEnumeratedScanTask(
 		))
 	defer span.End()
 
-	// Create and publish scanning domain event with the task info, credentials, and metadata.
+	newTask := domain.NewScanTask(jobID, task.SourceType, task.ID, task.ResourceURI())
+	if err := t.coordinator.CreateTask(ctx, newTask); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to create task in repo")
+		return fmt.Errorf("creating task: %w", err)
+	}
+	span.AddEvent("task_created_in_repo")
+
+	// Create and publish scanning domain event with the task info, credentials, and metadata
 	evt := scanning.NewTaskCreatedEvent(
 		jobID,
 		task.ID,
@@ -148,7 +157,6 @@ func (t *executionTracker) HandleEnumeratedScanTask(
 		auth,
 	)
 
-	// TODO: Should we also go ahead and create the task here too?
 	if err := t.publisher.PublishDomainEvent(
 		ctx,
 		evt,
@@ -186,8 +194,7 @@ func (t *executionTracker) HandleTaskStart(ctx context.Context, evt scanning.Tas
 		))
 	defer span.End()
 
-	// Initialize task state in job aggregate before any other operations.
-	_, err := t.coordinator.StartTask(ctx, jobID, taskID, resourceURI, t.controllerID)
+	err := t.coordinator.StartTask(ctx, jobID, taskID, resourceURI)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to start task tracking")

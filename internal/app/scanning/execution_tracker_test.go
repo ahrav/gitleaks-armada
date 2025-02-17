@@ -36,12 +36,12 @@ func (m *mockScanJobCoordinator) LinkTargets(ctx context.Context, jobID uuid.UUI
 	return m.Called(ctx, jobID, targets).Error(0)
 }
 
-func (m *mockScanJobCoordinator) StartTask(ctx context.Context, jobID, taskID uuid.UUID, resourceURI string, controllerID string) (*scanning.Task, error) {
-	args := m.Called(ctx, jobID, taskID, resourceURI, controllerID)
-	if task := args.Get(0); task != nil {
-		return task.(*scanning.Task), args.Error(1)
-	}
-	return nil, args.Error(1)
+func (m *mockScanJobCoordinator) CreateTask(ctx context.Context, task *scanning.Task) error {
+	return m.Called(ctx, task).Error(0)
+}
+
+func (m *mockScanJobCoordinator) StartTask(ctx context.Context, jobID, taskID uuid.UUID, resourceURI string) error {
+	return m.Called(ctx, jobID, taskID, resourceURI).Error(0)
 }
 
 func (m *mockScanJobCoordinator) UpdateTaskProgress(
@@ -156,19 +156,27 @@ func TestExecutionTracker_StartTracking(t *testing.T) {
 		{
 			name: "successful task start",
 			setup: func(m *mockScanJobCoordinator) {
-				m.On("StartTask", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-					Return(new(scanning.Task), nil)
+				m.On("StartTask", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					Return(nil)
 			},
-			event:   scanning.TaskStartedEvent{JobID: uuid.New(), TaskID: uuid.New()},
+			event: scanning.TaskStartedEvent{
+				JobID:       uuid.New(),
+				TaskID:      uuid.New(),
+				ResourceURI: "https://example.com",
+			},
 			wantErr: false,
 		},
 		{
 			name: "coordinator failure",
 			setup: func(m *mockScanJobCoordinator) {
-				m.On("StartTask", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-					Return(nil, errors.New("coordinator failure"))
+				m.On("StartTask", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					Return(errors.New("coordinator failure"))
 			},
-			event:   scanning.TaskStartedEvent{JobID: uuid.New(), TaskID: uuid.New()},
+			event: scanning.TaskStartedEvent{
+				JobID:       uuid.New(),
+				TaskID:      uuid.New(),
+				ResourceURI: "https://example.com",
+			},
 			wantErr: true,
 		},
 	}
@@ -243,8 +251,8 @@ func TestExecutionTracker_FullScanningLifecycle(t *testing.T) {
 	resourceURI := "https://example.com"
 
 	// Setup expectations for the full lifecycle.
-	suite.jobCoordinator.On("StartTask", mock.Anything, jobID, taskID, resourceURI, "test-controller").
-		Return(new(scanning.Task), nil)
+	suite.jobCoordinator.On("StartTask", mock.Anything, jobID, taskID, resourceURI).
+		Return(nil)
 	suite.jobCoordinator.On("UpdateTaskProgress", mock.Anything, mock.Anything).
 		Return(new(scanning.Task), nil).Times(3)
 	suite.jobCoordinator.On("CompleteTask", mock.Anything, jobID, taskID).
@@ -457,6 +465,83 @@ func TestExecutionTracker_MarkTaskStale(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 			}
+			suite.jobCoordinator.AssertExpectations(t)
+			suite.domainPublisher.AssertExpectations(t)
+		})
+	}
+}
+
+func TestExecutionTracker_HandleEnumeratedScanTask(t *testing.T) {
+	tests := []struct {
+		name    string
+		setup   func(*mockScanJobCoordinator, *mockDomainEventPublisher)
+		jobID   uuid.UUID
+		task    *scanning.Task
+		auth    scanning.Auth
+		meta    map[string]string
+		wantErr bool
+	}{
+		{
+			name: "successful task creation and event publish",
+			setup: func(m *mockScanJobCoordinator, p *mockDomainEventPublisher) {
+				m.On("CreateTask", mock.Anything, mock.Anything).
+					Return(nil)
+				p.On("PublishDomainEvent", mock.Anything, mock.Anything, mock.Anything).
+					Return(nil)
+			},
+			jobID:   uuid.New(),
+			task:    scanning.NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com"),
+			auth:    scanning.Auth{},
+			meta:    map[string]string{"key": "value"},
+			wantErr: false,
+		},
+		{
+			name: "task creation failure",
+			setup: func(m *mockScanJobCoordinator, p *mockDomainEventPublisher) {
+				m.On("CreateTask", mock.Anything, mock.Anything).
+					Return(errors.New("creation failed"))
+			},
+			jobID:   uuid.New(),
+			task:    scanning.NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com"),
+			auth:    scanning.Auth{},
+			meta:    map[string]string{"key": "value"},
+			wantErr: true,
+		},
+		{
+			name: "event publish failure",
+			setup: func(m *mockScanJobCoordinator, p *mockDomainEventPublisher) {
+				m.On("CreateTask", mock.Anything, mock.Anything).
+					Return(nil)
+				p.On("PublishDomainEvent", mock.Anything, mock.Anything, mock.Anything).
+					Return(errors.New("publish failed"))
+			},
+			jobID:   uuid.New(),
+			task:    scanning.NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com"),
+			auth:    scanning.Auth{},
+			meta:    map[string]string{"key": "value"},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			suite := newTrackerTestSuite(t)
+			tt.setup(suite.jobCoordinator, suite.domainPublisher)
+
+			err := suite.tracker.HandleEnumeratedScanTask(
+				context.Background(),
+				tt.jobID,
+				tt.task,
+				tt.auth,
+				tt.meta,
+			)
+
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+
 			suite.jobCoordinator.AssertExpectations(t)
 			suite.domainPublisher.AssertExpectations(t)
 		})

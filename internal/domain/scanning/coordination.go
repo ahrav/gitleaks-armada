@@ -34,9 +34,12 @@ type ScanJobCoordinator interface {
 	// ---------------------------
 	// Task-level operations
 	// ---------------------------
+
+	CreateTask(ctx context.Context, task *Task) error
+
 	// StartTask begins a new scanning task and updates job metrics accordingly.
 	// This is crucial for tracking progress and ensuring all targets are processed.
-	StartTask(ctx context.Context, jobID, taskID uuid.UUID, resourceURI string, controllerID string) (*Task, error)
+	StartTask(ctx context.Context, jobID, taskID uuid.UUID, resourceURI string) error
 
 	// UpdateTaskProgress handles incremental updates from running scanners.
 	// Updates are cached in memory and periodically persisted to reduce database load

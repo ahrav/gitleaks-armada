@@ -393,6 +393,22 @@ func (t *Task) RecoveryAttempts() int { return t.recoveryAttempts }
 // IsInProgress returns true if the task is in the IN_PROGRESS state.
 func (t *Task) IsInProgress() bool { return t.status == TaskStatusInProgress }
 
+// Start transitions a task to IN_PROGRESS state. It can only be called on tasks
+// in PENDING state. This marks the beginning of task execution.
+func (t *Task) Start() error {
+	if t.status != TaskStatusPending {
+		return TaskInvalidStateError{
+			taskID: t.ID,
+			status: t.status,
+			reason: TaskInvalidStateReasonWrongStatus,
+		}
+	}
+
+	t.status = TaskStatusInProgress
+	t.timeline.MarkStarted()
+	return nil
+}
+
 // OutOfOrderProgressError is an error type for indicating that a progress update
 // is out of order and should be ignored.
 type OutOfOrderProgressError struct {

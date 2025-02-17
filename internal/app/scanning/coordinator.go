@@ -122,29 +122,66 @@ func (c *scanJobCoordinator) loadTask(ctx context.Context, taskID uuid.UUID) (*d
 	return task, nil
 }
 
-// StartTask initializes a new scanning task and updates the parent job's metrics.
-// The task is cached immediately to optimize subsequent progress updates.
-func (c *scanJobCoordinator) StartTask(ctx context.Context, jobID, taskID uuid.UUID, resourceURI string, controllerID string) (*domain.Task, error) {
-	ctx, span := c.tracer.Start(ctx, "scan_job_coordinator.scanning.start_task",
+// CreateTask creates a new task in the repository.
+func (c *scanJobCoordinator) CreateTask(ctx context.Context, task *domain.Task) error {
+	ctx, span := c.tracer.Start(ctx, "scan_job_coordinator.scanning.create_task",
 		trace.WithAttributes(
-			attribute.String("job_id", jobID.String()),
-			attribute.String("task_id", taskID.String()),
-			attribute.String("controller_id", controllerID),
+			attribute.String("controller_id", c.controllerID),
+			attribute.String("job_id", task.JobID().String()),
+			attribute.String("task_id", task.ID.String()),
 		))
 	defer span.End()
 
-	// TODO: This is wrong.
-	newTask := domain.NewScanTask(jobID, shared.SourceTypeGitHub, taskID, resourceURI)
-	if err := c.taskRepo.CreateTask(ctx, newTask, controllerID); err != nil {
+	if err := c.taskRepo.CreateTask(ctx, task, c.controllerID); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to create task in repo")
-		return nil, fmt.Errorf("creating task: %w", err)
+		return fmt.Errorf("creating task: %w", err)
 	}
 	span.AddEvent("task_created_in_repo")
+	span.SetStatus(codes.Ok, "task created successfully")
 
+	return nil
+}
+
+// StartTask updates an existing task's state to indicate it has begun execution.
+// It returns an error if the task is not in a valid state for starting.
+func (c *scanJobCoordinator) StartTask(
+	ctx context.Context,
+	jobID, taskID uuid.UUID,
+	resourceURI string,
+) error {
+	ctx, span := c.tracer.Start(ctx, "scan_job_coordinator.scanning.start_task",
+		trace.WithAttributes(
+			attribute.String("controller_id", c.controllerID),
+			attribute.String("job_id", jobID.String()),
+			attribute.String("task_id", taskID.String()),
+		))
+	defer span.End()
+
+	// Load existing task
+	task, err := c.loadTask(ctx, taskID)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to load task")
+		return fmt.Errorf("load task: %w", err)
+	}
+
+	if err := task.Start(); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to start task")
+		return fmt.Errorf("start task failed: %w", err)
+	}
+
+	// Persist the updated task state
+	if err := c.taskRepo.UpdateTask(ctx, task); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to persist task update")
+		return fmt.Errorf("persist task update: %w", err)
+	}
+
+	span.AddEvent("task_started")
 	span.SetStatus(codes.Ok, "task started successfully")
-
-	return newTask, nil
+	return nil
 }
 
 // UpdateTaskProgress handles incremental scan progress updates while managing database load.

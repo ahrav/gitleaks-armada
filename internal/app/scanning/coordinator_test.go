@@ -265,53 +265,90 @@ func (m *mockTimeProvider) Now() time.Time {
 }
 
 func TestStartTask(t *testing.T) {
-	jobID := uuid.MustParse("429735d7-ec1b-4d96-8749-938ca0a744be")
-	taskID := uuid.MustParse("b1f7eff4-2921-4e6c-9d88-da2de5707a2b")
-
 	tests := []struct {
 		name    string
-		setup   func(*coordinatorTestSuite)
+		setup   func(*mockTaskRepository)
+		jobID   uuid.UUID
+		taskID  uuid.UUID
 		wantErr bool
 	}{
 		{
 			name: "successful task start",
-			setup: func(s *coordinatorTestSuite) {
-				job := scanning.ReconstructJob(
-					jobID,
-					scanning.JobStatusRunning,
-					scanning.NewTimeline(&mockTimeProvider{now: time.Now()}),
-					[]uuid.UUID{},
-					scanning.NewJobMetrics(),
+			setup: func(repo *mockTaskRepository) {
+				task := scanning.NewScanTask(
+					uuid.MustParse("429735d7-ec1b-4d96-8749-938ca0a744be"),
+					shared.SourceTypeGitHub,
+					uuid.MustParse("b1f7eff4-2921-4e6c-9d88-da2de5707a2b"),
+					"https://github.com/org/repo",
 				)
-
-				s.taskRepo.On("CreateTask", mock.Anything, mock.MatchedBy(func(task *scanning.Task) bool {
-					return task.JobID() == jobID && task.TaskID() == taskID
+				repo.On("GetTask", mock.Anything, mock.Anything).Return(task, nil)
+				repo.On("UpdateTask", mock.Anything, mock.MatchedBy(func(t *scanning.Task) bool {
+					return t.Status() == scanning.TaskStatusInProgress
 				})).Return(nil)
-
-				s.jobRepo.On("GetJob", mock.Anything, jobID).
-					Return(job, nil)
 			},
+			jobID:   uuid.MustParse("429735d7-ec1b-4d96-8749-938ca0a744be"),
+			taskID:  uuid.MustParse("b1f7eff4-2921-4e6c-9d88-da2de5707a2b"),
 			wantErr: false,
+		},
+		{
+			name: "task not found",
+			setup: func(repo *mockTaskRepository) {
+				repo.On("GetTask", mock.Anything, mock.Anything).
+					Return(nil, assert.AnError)
+			},
+			jobID:   uuid.New(),
+			taskID:  uuid.New(),
+			wantErr: true,
+		},
+		{
+			name: "update task fails",
+			setup: func(repo *mockTaskRepository) {
+				task := scanning.NewScanTask(
+					uuid.MustParse("429735d7-ec1b-4d96-8749-938ca0a744be"),
+					shared.SourceTypeGitHub,
+					uuid.MustParse("b1f7eff4-2921-4e6c-9d88-da2de5707a2b"),
+					"https://github.com/org/repo",
+				)
+				repo.On("GetTask", mock.Anything, mock.Anything).Return(task, nil)
+				repo.On("UpdateTask", mock.Anything, mock.Anything).
+					Return(assert.AnError)
+			},
+			jobID:   uuid.New(),
+			taskID:  uuid.New(),
+			wantErr: true,
+		},
+		{
+			name: "invalid state transition",
+			setup: func(repo *mockTaskRepository) {
+				task := scanning.NewScanTask(
+					uuid.MustParse("429735d7-ec1b-4d96-8749-938ca0a744be"),
+					shared.SourceTypeGitHub,
+					uuid.MustParse("b1f7eff4-2921-4e6c-9d88-da2de5707a2b"),
+					"https://github.com/org/repo",
+				)
+				// Set task to a state that can't transition to IN_PROGRESS.
+				err := task.Complete()
+				require.NoError(t, err)
+				repo.On("GetTask", mock.Anything, mock.Anything).Return(task, nil)
+			},
+			jobID:   uuid.New(),
+			taskID:  uuid.New(),
+			wantErr: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
 			suite := newCoordinatorTestSuite(t)
-			tt.setup(suite)
+			tt.setup(suite.taskRepo)
 
-			task, err := suite.coord.StartTask(context.Background(), jobID, taskID, "https://example.com", "test-controller")
-
+			err := suite.coord.StartTask(context.Background(), tt.jobID, tt.taskID, "https://github.com/org/repo")
 			if tt.wantErr {
 				require.Error(t, err)
 				return
 			}
 
 			require.NoError(t, err)
-			assert.NotNil(t, task)
-			assert.Equal(t, scanning.TaskStatusPending, task.Status())
 			suite.taskRepo.AssertExpectations(t)
 		})
 	}
@@ -353,7 +390,8 @@ func TestUpdateTaskProgress(t *testing.T) {
 					[]uuid.UUID{},
 					scanning.NewJobMetrics(),
 				)
-				job.AddTask(task)
+				err := job.AddTask(task)
+				require.NoError(t, err)
 
 				s.taskRepo.On("GetTask", mock.Anything, taskID).
 					Return(task, nil)
@@ -418,7 +456,7 @@ func TestCompleteTask(t *testing.T) {
 			setup: func(s *coordinatorTestSuite) {
 				// Create initial task in IN_PROGRESS state
 				task := scanning.NewScanTask(jobID, shared.SourceTypeGitHub, taskID, "https://example.com")
-				task.ApplyProgress(scanning.NewProgress(
+				err := task.ApplyProgress(scanning.NewProgress(
 					taskID,
 					jobID,
 					1,
@@ -429,6 +467,7 @@ func TestCompleteTask(t *testing.T) {
 					nil,
 					nil,
 				))
+				require.NoError(t, err)
 
 				// First mock: Return the task when GetTask is called
 				s.taskRepo.On("GetTask", mock.Anything, taskID).
@@ -486,7 +525,7 @@ func TestFailTask(t *testing.T) {
 			name: "successful task failure",
 			setup: func(s *coordinatorTestSuite) {
 				task := scanning.NewScanTask(jobID, shared.SourceTypeGitHub, taskID, "https://example.com")
-				task.ApplyProgress(scanning.NewProgress(
+				err := task.ApplyProgress(scanning.NewProgress(
 					taskID,
 					jobID,
 					1,
@@ -497,6 +536,7 @@ func TestFailTask(t *testing.T) {
 					nil,
 					nil,
 				))
+				require.NoError(t, err)
 
 				s.taskRepo.On("GetTask", mock.Anything, taskID).
 					Return(task, nil)
@@ -566,7 +606,7 @@ func TestMarkTaskStale(t *testing.T) {
 			name: "successful mark task as stale",
 			setup: func(s *coordinatorTestSuite) {
 				task := scanning.NewScanTask(jobID, shared.SourceTypeGitHub, taskID, "https://example.com")
-				task.ApplyProgress(scanning.NewProgress(
+				err := task.ApplyProgress(scanning.NewProgress(
 					taskID,
 					jobID,
 					1,
@@ -577,6 +617,7 @@ func TestMarkTaskStale(t *testing.T) {
 					nil,
 					nil,
 				))
+				require.NoError(t, err)
 
 				s.taskRepo.On("GetTask", mock.Anything, taskID).
 					Return(task, nil)
