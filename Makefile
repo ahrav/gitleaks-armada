@@ -445,7 +445,7 @@ postgres-setup:
 	kind load docker-image $(POSTGRES_IMAGE) --name $(KIND_CLUSTER)
 	kubectl apply -f $(K8S_MANIFESTS)/postgres.yaml -n $(NAMESPACE)
 	@echo "Waiting for PostgreSQL to be ready..."
-	kubectl wait --for=condition=ready pod -l app=postgres --timeout=120s -n $(NAMESPACE)
+	kubectl wait --for=condition=ready pod -l app=postgres --timeout=180s -n $(NAMESPACE)
 
 postgres-logs:
 	kubectl logs -l app=postgres -n $(NAMESPACE) --tail=100 -f
