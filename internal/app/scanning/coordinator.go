@@ -295,11 +295,10 @@ func (c *scanJobCoordinator) FailTask(ctx context.Context, taskID uuid.UUID) (*d
 
 // MarkTaskStale flags a task that has become unresponsive or stopped reporting progress.
 // This enables automated detection and recovery of failed tasks that require intervention.
-func (s *scanJobCoordinator) MarkTaskStale(ctx context.Context, jobID, taskID uuid.UUID, reason domain.StallReason) (*domain.Task, error) {
+func (s *scanJobCoordinator) MarkTaskStale(ctx context.Context, taskID uuid.UUID, reason domain.StallReason) (*domain.Task, error) {
 	ctx, span := s.tracer.Start(ctx, "scan_job_coordinator.scanning.mark_task_stale",
 		trace.WithAttributes(
 			attribute.String("controller_id", s.controllerID),
-			attribute.String("job_id", jobID.String()),
 			attribute.String("task_id", taskID.String()),
 			attribute.String("reason", string(reason)),
 		))

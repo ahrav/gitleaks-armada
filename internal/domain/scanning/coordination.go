@@ -54,7 +54,7 @@ type ScanJobCoordinator interface {
 
 	// MarkTaskStale flags a task that has become unresponsive or stopped reporting progress.
 	// This enables automated detection and recovery of failed tasks that require intervention.
-	MarkTaskStale(ctx context.Context, jobID, taskID uuid.UUID, reason StallReason) (*Task, error)
+	MarkTaskStale(ctx context.Context, taskID uuid.UUID, reason StallReason) (*Task, error)
 
 	// GetTaskSourceType retrieves the source type of a task.
 	// This is needed for task resume operations.

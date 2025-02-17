@@ -684,7 +684,7 @@ func TestMarkTaskStale(t *testing.T) {
 			suite := newCoordinatorTestSuite(t)
 			tt.setup(suite)
 
-			task, err := suite.coord.MarkTaskStale(context.Background(), jobID, taskID, tt.stallReason)
+			task, err := suite.coord.MarkTaskStale(context.Background(), taskID, tt.stallReason)
 			if tt.wantErr {
 				require.Error(t, err)
 				return

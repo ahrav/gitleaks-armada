@@ -306,7 +306,7 @@ func (t *executionTracker) HandleTaskStale(ctx context.Context, evt scanning.Tas
 		))
 	defer span.End()
 
-	task, err := t.coordinator.MarkTaskStale(ctx, evt.JobID, evt.TaskID, evt.Reason)
+	task, err := t.coordinator.MarkTaskStale(ctx, evt.TaskID, evt.Reason)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to mark task as stale")

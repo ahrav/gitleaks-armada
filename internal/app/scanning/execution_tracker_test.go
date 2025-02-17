@@ -84,11 +84,10 @@ func (m *mockScanJobCoordinator) GetTaskSourceType(ctx context.Context, taskID u
 
 func (m *mockScanJobCoordinator) MarkTaskStale(
 	ctx context.Context,
-	jobID,
 	taskID uuid.UUID,
 	reason scanning.StallReason,
 ) (*scanning.Task, error) {
-	args := m.Called(ctx, jobID, taskID, reason)
+	args := m.Called(ctx, taskID, reason)
 	if task := args.Get(0); task != nil {
 		return task.(*scanning.Task), args.Error(1)
 	}
