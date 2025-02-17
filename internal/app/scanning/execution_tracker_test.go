@@ -68,10 +68,9 @@ func (m *mockScanJobCoordinator) CompleteTask(
 
 func (m *mockScanJobCoordinator) FailTask(
 	ctx context.Context,
-	jobID,
 	taskID uuid.UUID,
 ) (*scanning.Task, error) {
-	args := m.Called(ctx, jobID, taskID)
+	args := m.Called(ctx, taskID)
 	if task := args.Get(0); task != nil {
 		return task.(*scanning.Task), args.Error(1)
 	}
@@ -254,7 +253,7 @@ func TestExecutionTracker_FullScanningLifecycle(t *testing.T) {
 		Return(nil)
 	suite.jobCoordinator.On("UpdateTaskProgress", mock.Anything, mock.Anything).
 		Return(new(scanning.Task), nil).Times(3)
-	suite.jobCoordinator.On("CompleteTask", mock.Anything, jobID, taskID).
+	suite.jobCoordinator.On("CompleteTask", mock.Anything, taskID).
 		Return(new(scanning.Task), nil)
 
 	ctx := context.Background()

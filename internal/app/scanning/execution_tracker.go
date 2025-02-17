@@ -268,11 +268,7 @@ func (t *executionTracker) HandleTaskCompletion(ctx context.Context, evt scannin
 	return nil
 }
 
-// HandleTaskFailure handles task failure scenarios by:
-// 1. Marking the task as FAILED in the job aggregate
-// 2. Potentially triggering job-level failure if configured
-// 3. Recording error details and final metrics
-// This ensures proper error handling and maintains system consistency during failures.
+// HandleTaskFailure handles task failure.
 func (t *executionTracker) HandleTaskFailure(ctx context.Context, evt scanning.TaskFailedEvent) error {
 	taskID := evt.TaskID
 	ctx, span := t.tracer.Start(ctx, "execution_tracker.scanning.fail_task",
@@ -282,7 +278,7 @@ func (t *executionTracker) HandleTaskFailure(ctx context.Context, evt scanning.T
 		))
 	defer span.End()
 
-	_, err := t.coordinator.FailTask(ctx, evt.JobID, evt.TaskID)
+	_, err := t.coordinator.FailTask(ctx, evt.TaskID)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to fail task")

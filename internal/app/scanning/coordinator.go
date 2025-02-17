@@ -259,13 +259,11 @@ func (c *scanJobCoordinator) CompleteTask(ctx context.Context, taskID uuid.UUID)
 	return task, nil
 }
 
-// FailTask handles task failure scenarios and updates the parent job accordingly.
-// This information is crucial for error reporting and potential retry mechanisms.
-func (c *scanJobCoordinator) FailTask(ctx context.Context, jobID, taskID uuid.UUID) (*domain.Task, error) {
+// FailTask marks a task as failed in the repository.
+func (c *scanJobCoordinator) FailTask(ctx context.Context, taskID uuid.UUID) (*domain.Task, error) {
 	ctx, span := c.tracer.Start(ctx, "scan_job_coordinator.scanning.fail_task",
 		trace.WithAttributes(
 			attribute.String("controller_id", c.controllerID),
-			attribute.String("job_id", jobID.String()),
 			attribute.String("task_id", taskID.String()),
 		))
 	defer span.End()

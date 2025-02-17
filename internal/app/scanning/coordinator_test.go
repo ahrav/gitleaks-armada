@@ -538,7 +538,6 @@ func TestFailTask(t *testing.T) {
 
 				s.taskRepo.On("UpdateTask", mock.Anything, mock.MatchedBy(func(t *scanning.Task) bool {
 					isMatch := t.TaskID() == taskID &&
-						t.JobID() == jobID &&
 						t.Status() == scanning.TaskStatusFailed &&
 						t.ResourceURI() == "https://example.com"
 					return isMatch
@@ -573,7 +572,7 @@ func TestFailTask(t *testing.T) {
 			suite := newCoordinatorTestSuite(t)
 			tt.setup(suite)
 
-			task, err := suite.coord.FailTask(context.Background(), jobID, taskID)
+			task, err := suite.coord.FailTask(context.Background(), taskID)
 			if tt.wantErr {
 				require.Error(t, err)
 				return

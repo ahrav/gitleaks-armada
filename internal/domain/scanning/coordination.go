@@ -49,9 +49,8 @@ type ScanJobCoordinator interface {
 	// CompleteTask marks a task as successful.
 	CompleteTask(ctx context.Context, taskID uuid.UUID) (*Task, error)
 
-	// FailTask handles task failure scenarios, updating job state appropriately
-	// to ensure accurate status reporting and potential retry mechanisms.
-	FailTask(ctx context.Context, jobID, taskID uuid.UUID) (*Task, error)
+	// FailTask handles task failure scenarios.
+	FailTask(ctx context.Context, taskID uuid.UUID) (*Task, error)
 
 	// MarkTaskStale flags a task that has become unresponsive or stopped reporting progress.
 	// This enables automated detection and recovery of failed tasks that require intervention.
