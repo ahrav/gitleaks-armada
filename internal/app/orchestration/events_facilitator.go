@@ -208,7 +208,7 @@ func (ef *EventsFacilitator) HandleScanJobCreated(
 					continue
 				}
 				// Delegate target linking to execution tracker.
-				if err := ef.executionTracker.LinkEnumeratedTargets(ctx, uuid.MustParse(jobEvt.JobID), scanTargetIDs); err != nil {
+				if err := ef.executionTracker.AssociateEnumeratedTargetsToJob(ctx, uuid.MustParse(jobEvt.JobID), scanTargetIDs); err != nil {
 					return fmt.Errorf("failed to link enumerated targets: %w", err)
 				}
 

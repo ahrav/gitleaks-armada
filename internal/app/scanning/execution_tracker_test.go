@@ -228,7 +228,7 @@ func TestExecutionTracker_CreateJobForTarget(t *testing.T) {
 	}
 }
 
-func TestExecutionTracker_LinkEnumeratedTargets(t *testing.T) {
+func TestExecutionTracker_AssociateEnumeratedTargetsToJob(t *testing.T) {
 	tests := []struct {
 		name        string
 		setup       func(*mockJobTaskSvc)
@@ -282,7 +282,7 @@ func TestExecutionTracker_LinkEnumeratedTargets(t *testing.T) {
 			suite := newTrackerTestSuite(t)
 			tt.setup(suite.jobCoordinator)
 
-			err := suite.tracker.LinkEnumeratedTargets(context.Background(), tt.jobID, tt.targetIDs)
+			err := suite.tracker.AssociateEnumeratedTargetsToJob(context.Background(), tt.jobID, tt.targetIDs)
 
 			if tt.wantErr {
 				require.Error(t, err)

@@ -35,10 +35,10 @@ type ExecutionTracker interface {
 		metadata map[string]string,
 	) error
 
-	// LinkEnumeratedTargets links discovered scan targets to a job.
+	// AssociateEnumeratedTargetsToJob links discovered scan targets to a job.
 	// This provides the scanning domain a way to track all the enumerated targets
 	// that will be scanned as part of a scan job.
-	LinkEnumeratedTargets(ctx context.Context, jobID uuid.UUID, scanTargetIDs []uuid.UUID) error
+	AssociateEnumeratedTargetsToJob(ctx context.Context, jobID uuid.UUID, scanTargetIDs []uuid.UUID) error
 
 	// HandleTaskStart initializes tracking for a new task by registering it with the job service
 	// and setting up initial progress metrics. If this is the first task in a job, it will

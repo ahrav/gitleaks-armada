@@ -92,8 +92,8 @@ func (t *executionTracker) CreateJobForTarget(ctx context.Context, target scanni
 	return nil
 }
 
-// LinkEnumeratedTargets links discovered scan targets to a job.
-func (t *executionTracker) LinkEnumeratedTargets(
+// AssociateEnumeratedTargetsToJob links discovered scan targets to a job.
+func (t *executionTracker) AssociateEnumeratedTargetsToJob(
 	ctx context.Context,
 	jobID uuid.UUID,
 	scanTargetIDs []uuid.UUID,
