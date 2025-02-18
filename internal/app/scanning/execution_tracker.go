@@ -67,7 +67,7 @@ func (t *executionTracker) CreateJobForTarget(ctx context.Context, target scanni
 	// Publish JobCreatedEvent with target information.
 	// The target information is required by downstream consumers of the JobCreatedEvent
 	// to link scan targets to a single scan job.
-	evt := scanning.NewJobCreatedEvent(job.JobID().String(), target)
+	evt := scanning.NewJobCreatedEvent(job, target)
 	if err := t.publisher.PublishDomainEvent(
 		ctx, evt, events.WithKey(job.JobID().String()),
 	); err != nil {

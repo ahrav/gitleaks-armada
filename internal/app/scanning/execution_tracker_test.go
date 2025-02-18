@@ -44,6 +44,10 @@ func (m *mockJobTaskSvc) GetJobMetrics(ctx context.Context, jobID uuid.UUID) (*s
 	return m.Called(ctx, jobID).Get(0).(*scanning.JobMetrics), m.Called(ctx, jobID).Error(1)
 }
 
+func (m *mockJobTaskSvc) UpdateJobStatus(ctx context.Context, job *scanning.Job, status scanning.JobStatus) error {
+	return m.Called(ctx, job, status).Error(0)
+}
+
 func (m *mockJobTaskSvc) CreateTask(ctx context.Context, task *scanning.Task) error {
 	return m.Called(ctx, task).Error(0)
 }

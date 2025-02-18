@@ -36,6 +36,9 @@ type JobTaskService interface {
 	// GetJobMetrics retrieves metrics for a specific job.
 	GetJobMetrics(ctx context.Context, jobID uuid.UUID) (*JobMetrics, error)
 
+	// UpdateJobStatus updates the status of a job.
+	UpdateJobStatus(ctx context.Context, job *Job, status JobStatus) error
+
 	// ---------------------------
 	// Task-level operations
 	// ---------------------------

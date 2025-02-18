@@ -41,9 +41,10 @@ message Finding {
 enum ScanJobStatus {
   SCAN_JOB_STATUS_UNSPECIFIED = 0;
   SCAN_JOB_STATUS_QUEUED = 1;
-  SCAN_JOB_STATUS_RUNNING = 2;
-  SCAN_JOB_STATUS_COMPLETED = 3;
-  SCAN_JOB_STATUS_FAILED = 4;
+  SCAN_JOB_STATUS_ENUMERATING = 2;
+  SCAN_JOB_STATUS_RUNNING = 3;
+  SCAN_JOB_STATUS_COMPLETED = 4;
+  SCAN_JOB_STATUS_FAILED = 5;
 }
 
 enum TaskStatus {
@@ -67,6 +68,7 @@ message JobCreatedEvent {
   string job_id = 1;
   int64 timestamp = 2;
   shared.TargetSpec target_spec = 3;
+  ScanJobStatus status = 4;
 }
 
 // JobEnumerationCompletedEvent signals that all targets for a job have been

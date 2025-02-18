@@ -44,15 +44,15 @@ func (e JobRequestedEvent) JobID() uuid.UUID            { return e.jobID }
 // JobCreatedEvent signals that a new ScanJob was initialized.
 type JobCreatedEvent struct {
 	occurredAt time.Time
-	JobID      string
+	Job        *Job
 	Target     Target
 }
 
 // NewJobCreatedEvent creates a new scan job created event.
-func NewJobCreatedEvent(jobID string, target Target) JobCreatedEvent {
+func NewJobCreatedEvent(job *Job, target Target) JobCreatedEvent {
 	return JobCreatedEvent{
 		occurredAt: time.Now(),
-		JobID:      jobID,
+		Job:        job,
 		Target:     target,
 	}
 }

@@ -8,26 +8,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// JobStatus represents the current state of a scan job. It enables tracking of
-// job lifecycle from initialization through completion or failure.
-type JobStatus string
-
-const (
-	// JobStatusInitialized indicates a job has been created but not yet started.
-	JobStatusQueued JobStatus = "QUEUED"
-
-	// JobStatusInProgress indicates a job is actively processing tasks.
-	JobStatusRunning JobStatus = "RUNNING"
-
-	// JobStatusCompleted indicates all job tasks finished successfully.
-	JobStatusCompleted JobStatus = "COMPLETED"
-
-	// JobStatusFailed indicates the job encountered an unrecoverable error.
-	JobStatusFailed JobStatus = "FAILED"
-)
-
-func (s JobStatus) String() string { return string(s) }
-
 // Job coordinates and tracks a collection of related scanning tasks.
 // It provides aggregated status and progress tracking across all child tasks.
 type Job struct {
@@ -46,6 +26,18 @@ func NewJob() *Job {
 	return &Job{
 		jobID:    uuid.New(),
 		status:   JobStatusQueued,
+		timeline: NewTimeline(new(realTimeProvider)),
+		metrics:  NewJobMetrics(),
+		tasks:    make(map[uuid.UUID]*Task),
+	}
+}
+
+// NewJobWithStatus creates a new Job instance with a specific status.
+// This should only be used when reconstructing a Job from an event.
+func NewJobWithStatus(jobID uuid.UUID, status JobStatus) *Job {
+	return &Job{
+		jobID:    jobID,
+		status:   status,
 		timeline: NewTimeline(new(realTimeProvider)),
 		metrics:  NewJobMetrics(),
 		tasks:    make(map[uuid.UUID]*Task),
@@ -224,7 +216,6 @@ func isValidTransition(oldStatus, newStatus TaskStatus) bool {
 	// Example rules:
 	// - We allow IN_PROGRESS -> COMPLETED, IN_PROGRESS -> FAILED, STALE -> COMPLETED, etc.
 	// - We disallow COMPLETED -> IN_PROGRESS, COMPLETED -> STALE, FAILED -> IN_PROGRESS, etc.
-	// This is entirely your domain’s choice—below is just an example.
 
 	switch oldStatus {
 	case TaskStatusInProgress, TaskStatusStale:

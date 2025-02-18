@@ -3,6 +3,7 @@
 -- Scan Job Status Enum
 CREATE TYPE scan_job_status AS ENUM (
     'QUEUED',
+    'ENUMERATING',
     'RUNNING',
     'COMPLETED',
     'FAILED'

@@ -140,6 +140,26 @@ func (s *jobTaskService) GetJobMetrics(ctx context.Context, jobID uuid.UUID) (*d
 	return metrics, nil
 }
 
+// UpdateJobStatus updates the status of a job.
+func (s *jobTaskService) UpdateJobStatus(ctx context.Context, job *domain.Job, status domain.JobStatus) error {
+	ctx, span := s.tracer.Start(ctx, "job_task_service.scanning.update_job_status",
+		trace.WithAttributes(
+			attribute.String("job_id", job.JobID().String()),
+			attribute.String("status", string(status)),
+		))
+	defer span.End()
+
+	if err := s.jobRepo.UpdateJob(ctx, job); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to update job status")
+		return fmt.Errorf("failed to update job status: %w", err)
+	}
+	span.AddEvent("job_status_updated")
+	span.SetStatus(codes.Ok, "job status updated successfully")
+
+	return nil
+}
+
 // loadTask retrieves a task using a cache-first strategy to minimize database access
 // during high-frequency progress updates.
 func (s *jobTaskService) loadTask(ctx context.Context, taskID uuid.UUID) (*domain.Task, error) {

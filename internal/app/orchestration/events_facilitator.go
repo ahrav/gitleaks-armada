@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -186,14 +185,14 @@ func (ef *EventsFacilitator) HandleScanJobCreated(
 		}
 
 		span.AddEvent("processing_job_created", trace.WithAttributes(
-			attribute.String("job_id", jobEvt.JobID),
+			attribute.String("job_id", jobEvt.Job.JobID().String()),
 		))
 
 		targetSpec, err := ef.scanToEnumACL.ToEnumerationTargetSpec(jobEvt.Target)
 		if err != nil {
 			return fmt.Errorf("failed to convert scanning target to enumeration spec: %w", err)
 		}
-		jobID := uuid.MustParse(jobEvt.JobID)
+		jobID := jobEvt.Job.JobID()
 
 		// Get streaming results from enumeration service and delegate to execution tracker.
 		result := ef.enumService.StartEnumeration(ctx, targetSpec)
