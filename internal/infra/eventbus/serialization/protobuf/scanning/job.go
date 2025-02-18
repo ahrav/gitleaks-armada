@@ -4,11 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/google/uuid"
+
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	serializationerrors "github.com/ahrav/gitleaks-armada/internal/infra/eventbus/serialization/errors"
 	pb "github.com/ahrav/gitleaks-armada/proto"
-	"github.com/google/uuid"
 )
 
 // JobRequestedEventToProto converts a domain JobRequestedEvent to its protobuf representation
@@ -226,4 +227,30 @@ func ProtoToAuth(pbAuth *pb.Auth) (scanning.Auth, error) {
 	}
 
 	return scanning.NewAuth(pbAuth.Type, configMap), nil
+}
+
+// JobEnumerationCompletedEventToProto converts a domain JobEnumerationCompletedEvent to its protobuf representation.
+func JobEnumerationCompletedEventToProto(event scanning.JobEnumerationCompletedEvent) *pb.JobEnumerationCompletedEvent {
+	return &pb.JobEnumerationCompletedEvent{
+		JobId:      event.JobID.String(),
+		Timestamp:  event.OccurredAt().UnixNano(),
+		TotalTasks: int32(event.TotalTasks),
+	}
+}
+
+// ProtoToJobEnumerationCompletedEvent converts a protobuf JobEnumerationCompletedEvent to its domain representation.
+func ProtoToJobEnumerationCompletedEvent(event *pb.JobEnumerationCompletedEvent) (scanning.JobEnumerationCompletedEvent, error) {
+	if event == nil {
+		return scanning.JobEnumerationCompletedEvent{}, serializationerrors.ErrNilEvent{EventType: "JobEnumerationCompletedEvent"}
+	}
+
+	jobID, err := uuid.Parse(event.JobId)
+	if err != nil {
+		return scanning.JobEnumerationCompletedEvent{}, fmt.Errorf("parse job ID: %w", err)
+	}
+
+	return scanning.NewJobEnumerationCompletedEvent(
+		jobID,
+		int(event.TotalTasks),
+	), nil
 }

@@ -130,6 +130,9 @@ func RegisterEventSerializers() {
 	RegisterSerializeFunc(scanning.EventTypeTaskStarted, serializeTaskStarted)
 	RegisterDeserializeFunc(scanning.EventTypeTaskStarted, deserializeTaskStarted)
 
+	RegisterSerializeFunc(scanning.EventTypeJobEnumerationCompleted, serializeJobEnumerationCompleted)
+	RegisterDeserializeFunc(scanning.EventTypeJobEnumerationCompleted, deserializeJobEnumerationCompleted)
+
 	RegisterSerializeFunc(scanning.EventTypeTaskProgressed, serializeTaskProgressed)
 	RegisterDeserializeFunc(scanning.EventTypeTaskProgressed, deserializeTaskProgressed)
 
@@ -158,7 +161,6 @@ func RegisterEventSerializers() {
 
 	RegisterSerializeFunc(rules.EventTypeRulesPublished, serializeRulePublishingCompleted)
 	RegisterDeserializeFunc(rules.EventTypeRulesPublished, deserializeRulePublishingCompleted)
-
 }
 
 // serializeJobRequested converts a JobRequestedEvent to protobuf bytes
@@ -264,6 +266,32 @@ func deserializeTaskStarted(data []byte) (any, error) {
 	}
 
 	event, err := serdeScanning.ProtoToTaskStartedEvent(&pbEvent)
+	if err != nil {
+		return nil, fmt.Errorf("convert proto to domain event: %w", err)
+	}
+
+	return event, nil
+}
+
+// serializeJobEnumerationCompleted converts a JobEnumerationCompletedEvent to protobuf bytes.
+func serializeJobEnumerationCompleted(payload any) ([]byte, error) {
+	event, ok := payload.(scanning.JobEnumerationCompletedEvent)
+	if !ok {
+		return nil, fmt.Errorf("serializeJobEnumerationCompleted: payload is not JobEnumerationCompletedEvent, got %T", payload)
+	}
+
+	pbEvent := serdeScanning.JobEnumerationCompletedEventToProto(event)
+	return proto.Marshal(pbEvent)
+}
+
+// deserializeJobEnumerationCompleted converts protobuf bytes back into a JobEnumerationCompletedEvent.
+func deserializeJobEnumerationCompleted(data []byte) (any, error) {
+	var pbEvent pb.JobEnumerationCompletedEvent
+	if err := proto.Unmarshal(data, &pbEvent); err != nil {
+		return nil, fmt.Errorf("unmarshal JobEnumerationCompletedEvent: %w", err)
+	}
+
+	event, err := serdeScanning.ProtoToJobEnumerationCompletedEvent(&pbEvent)
 	if err != nil {
 		return nil, fmt.Errorf("convert proto to domain event: %w", err)
 	}

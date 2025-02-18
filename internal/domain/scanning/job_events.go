@@ -12,9 +12,10 @@ import (
 const (
 	EventTypeJobRequested events.EventType = "JobRequested"
 
-	EventTypeJobCreated   events.EventType = "JobCreated"
-	EventTypeJobCompleted events.EventType = "JobCompleted"
-	EventTypeJobFailed    events.EventType = "JobFailed"
+	EventTypeJobCreated              events.EventType = "JobCreated"
+	EventTypeJobCompleted            events.EventType = "JobCompleted"
+	EventTypeJobFailed               events.EventType = "JobFailed"
+	EventTypeJobEnumerationCompleted events.EventType = "JobEnumerationCompleted"
 	// TODO: Add EventTypeJobCancelled, etc.
 )
 
@@ -58,6 +59,27 @@ func NewJobCreatedEvent(jobID string, target Target) JobCreatedEvent {
 
 func (e JobCreatedEvent) EventType() events.EventType { return EventTypeJobCreated }
 func (e JobCreatedEvent) OccurredAt() time.Time       { return e.occurredAt }
+
+// JobEnumerationCompletedEvent signals that all targets for a job have been enumerated.
+type JobEnumerationCompletedEvent struct {
+	occurredAt time.Time
+	JobID      uuid.UUID
+	TotalTasks int
+}
+
+// NewJobEnumerationCompletedEvent creates a new job enumeration completed event.
+func NewJobEnumerationCompletedEvent(jobID uuid.UUID, totalTasks int) JobEnumerationCompletedEvent {
+	return JobEnumerationCompletedEvent{
+		occurredAt: time.Now(),
+		JobID:      jobID,
+		TotalTasks: totalTasks,
+	}
+}
+
+func (e JobEnumerationCompletedEvent) EventType() events.EventType {
+	return EventTypeJobEnumerationCompleted
+}
+func (e JobEnumerationCompletedEvent) OccurredAt() time.Time { return e.occurredAt }
 
 // ScanTargetsDiscoveredEvent is emitted when enumeration discovers new scan targets
 // JobCompletedEvent means the job finished scanning successfully.

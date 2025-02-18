@@ -269,3 +269,41 @@ func TestJobRequestedEventConversion(t *testing.T) {
 		}
 	})
 }
+
+func TestJobEnumerationCompletedEventConversion(t *testing.T) {
+	t.Run("successful conversion", func(t *testing.T) {
+		jobID := uuid.New()
+		totalTasks := 10
+		domainEvent := scanning.NewJobEnumerationCompletedEvent(jobID, totalTasks)
+
+		// Task the domain event to proto.
+		protoEvent := JobEnumerationCompletedEventToProto(domainEvent)
+		require.NotNil(t, protoEvent)
+		assert.Equal(t, jobID.String(), protoEvent.JobId)
+		assert.Equal(t, int32(totalTasks), protoEvent.TotalTasks)
+		assert.Equal(t, domainEvent.OccurredAt().UnixNano(), protoEvent.Timestamp)
+
+		// Convert the proto event back to the domain event.
+		convertedEvent, err := ProtoToJobEnumerationCompletedEvent(protoEvent)
+		require.NoError(t, err)
+		assert.Equal(t, jobID, convertedEvent.JobID)
+		assert.Equal(t, totalTasks, convertedEvent.TotalTasks)
+	})
+
+	t.Run("nil event", func(t *testing.T) {
+		_, err := ProtoToJobEnumerationCompletedEvent(nil)
+		require.Error(t, err)
+		assert.IsType(t, serializationerrors.ErrNilEvent{}, err)
+	})
+
+	t.Run("invalid job id", func(t *testing.T) {
+		protoEvent := &pb.JobEnumerationCompletedEvent{
+			JobId:      "invalid-uuid",
+			Timestamp:  0,
+			TotalTasks: 5,
+		}
+		_, err := ProtoToJobEnumerationCompletedEvent(protoEvent)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "parse job ID")
+	})
+}

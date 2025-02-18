@@ -186,6 +186,9 @@ func (t *executionTracker) HandleEnumeratedScanTask(
 	return nil
 }
 
+// SignalEnumerationComplete signals that the enumeration phase is complete for a job.
+// It retrieves the job metrics and publishes an EnumerationCompleteEvent.
+// This allows for accurate job metrics tracking.
 func (t *executionTracker) SignalEnumerationComplete(ctx context.Context, jobID uuid.UUID) error {
 	ctx, span := t.tracer.Start(ctx, "execution_tracker.scanning.signal_enumeration_complete",
 		trace.WithAttributes(

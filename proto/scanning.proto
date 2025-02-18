@@ -69,6 +69,14 @@ message JobCreatedEvent {
   shared.TargetSpec target_spec = 3;
 }
 
+// JobEnumerationCompletedEvent signals that all targets for a job have been
+// enumerated.
+message JobEnumerationCompletedEvent {
+  string job_id = 1;
+  int64 timestamp = 2;
+  int32 total_tasks = 3;
+}
+
 // TaskCreatedEvent represents a new task discovered for scanning.
 message TaskCreatedEvent {
   string job_id = 1;
