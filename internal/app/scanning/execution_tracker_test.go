@@ -143,6 +143,91 @@ func newTrackerTestSuite(t *testing.T) *trackerTestSuite {
 	}
 }
 
+func TestExecutionTracker_CreateJobForTarget(t *testing.T) {
+	tests := []struct {
+		name    string
+		setup   func(*mockJobTaskSvc, *mockDomainEventPublisher)
+		target  scanning.Target
+		wantErr bool
+	}{
+		{
+			name: "successful job creation and event publish",
+			setup: func(m *mockJobTaskSvc, p *mockDomainEventPublisher) {
+				job := scanning.NewJob()
+				m.On("CreateJob", mock.Anything).
+					Return(job, nil)
+				p.On("PublishDomainEvent", mock.Anything, mock.Anything, mock.Anything).
+					Return(nil)
+			},
+			target: scanning.NewTarget(
+				"test-target",
+				shared.SourceTypeGitHub,
+				nil,
+				map[string]string{"env": "test"},
+				scanning.TargetConfig{
+					GitHub: scanning.NewGitHubTarget("test-org", []string{"repo1"}),
+				},
+			),
+			wantErr: false,
+		},
+		{
+			name: "job creation failure",
+			setup: func(m *mockJobTaskSvc, p *mockDomainEventPublisher) {
+				m.On("CreateJob", mock.Anything).
+					Return(nil, errors.New("failed to create job"))
+			},
+			target: scanning.NewTarget(
+				"test-target",
+				shared.SourceTypeGitHub,
+				nil,
+				map[string]string{"env": "test"},
+				scanning.TargetConfig{
+					GitHub: scanning.NewGitHubTarget("test-org", []string{"repo1"}),
+				},
+			),
+			wantErr: true,
+		},
+		{
+			name: "event publish failure",
+			setup: func(m *mockJobTaskSvc, p *mockDomainEventPublisher) {
+				job := scanning.NewJob()
+				m.On("CreateJob", mock.Anything).
+					Return(job, nil)
+				p.On("PublishDomainEvent", mock.Anything, mock.Anything, mock.Anything).
+					Return(errors.New("failed to publish event"))
+			},
+			target: scanning.NewTarget(
+				"test-target",
+				shared.SourceTypeGitHub,
+				nil,
+				map[string]string{"env": "test"},
+				scanning.TargetConfig{
+					GitHub: scanning.NewGitHubTarget("test-org", []string{"repo1"}),
+				},
+			),
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			suite := newTrackerTestSuite(t)
+			tt.setup(suite.jobCoordinator, suite.domainPublisher)
+
+			err := suite.tracker.CreateJobForTarget(context.Background(), tt.target)
+
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+
+			suite.jobCoordinator.AssertExpectations(t)
+			suite.domainPublisher.AssertExpectations(t)
+		})
+	}
+}
+
 func TestExecutionTracker_HandleEnumeratedScanTask(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -539,91 +624,6 @@ func TestExecutionTracker_MarkTaskStale(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 			}
-			suite.jobCoordinator.AssertExpectations(t)
-			suite.domainPublisher.AssertExpectations(t)
-		})
-	}
-}
-
-func TestExecutionTracker_CreateJobForTarget(t *testing.T) {
-	tests := []struct {
-		name    string
-		setup   func(*mockJobTaskSvc, *mockDomainEventPublisher)
-		target  scanning.Target
-		wantErr bool
-	}{
-		{
-			name: "successful job creation and event publish",
-			setup: func(m *mockJobTaskSvc, p *mockDomainEventPublisher) {
-				job := scanning.NewJob()
-				m.On("CreateJob", mock.Anything).
-					Return(job, nil)
-				p.On("PublishDomainEvent", mock.Anything, mock.Anything, mock.Anything).
-					Return(nil)
-			},
-			target: scanning.NewTarget(
-				"test-target",
-				shared.SourceTypeGitHub,
-				nil,
-				map[string]string{"env": "test"},
-				scanning.TargetConfig{
-					GitHub: scanning.NewGitHubTarget("test-org", []string{"repo1"}),
-				},
-			),
-			wantErr: false,
-		},
-		{
-			name: "job creation failure",
-			setup: func(m *mockJobTaskSvc, p *mockDomainEventPublisher) {
-				m.On("CreateJob", mock.Anything).
-					Return(nil, errors.New("failed to create job"))
-			},
-			target: scanning.NewTarget(
-				"test-target",
-				shared.SourceTypeGitHub,
-				nil,
-				map[string]string{"env": "test"},
-				scanning.TargetConfig{
-					GitHub: scanning.NewGitHubTarget("test-org", []string{"repo1"}),
-				},
-			),
-			wantErr: true,
-		},
-		{
-			name: "event publish failure",
-			setup: func(m *mockJobTaskSvc, p *mockDomainEventPublisher) {
-				job := scanning.NewJob()
-				m.On("CreateJob", mock.Anything).
-					Return(job, nil)
-				p.On("PublishDomainEvent", mock.Anything, mock.Anything, mock.Anything).
-					Return(errors.New("failed to publish event"))
-			},
-			target: scanning.NewTarget(
-				"test-target",
-				shared.SourceTypeGitHub,
-				nil,
-				map[string]string{"env": "test"},
-				scanning.TargetConfig{
-					GitHub: scanning.NewGitHubTarget("test-org", []string{"repo1"}),
-				},
-			),
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			suite := newTrackerTestSuite(t)
-			tt.setup(suite.jobCoordinator, suite.domainPublisher)
-
-			err := suite.tracker.CreateJobForTarget(context.Background(), tt.target)
-
-			if tt.wantErr {
-				require.Error(t, err)
-			} else {
-				require.NoError(t, err)
-			}
-
 			suite.jobCoordinator.AssertExpectations(t)
 			suite.domainPublisher.AssertExpectations(t)
 		})
