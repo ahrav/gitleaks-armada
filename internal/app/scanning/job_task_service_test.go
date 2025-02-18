@@ -35,6 +35,10 @@ func (m *mockJobRepository) AssociateTargets(ctx context.Context, jobID uuid.UUI
 	return m.Called(ctx, jobID, targetIDs).Error(0)
 }
 
+func (m *mockJobRepository) IncrementTotalTasks(ctx context.Context, jobID uuid.UUID, amount int) error {
+	return m.Called(ctx, jobID, amount).Error(0)
+}
+
 func (m *mockJobRepository) GetJob(ctx context.Context, jobID uuid.UUID) (*scanning.Job, error) {
 	args := m.Called(ctx, jobID)
 	if job := args.Get(0); job != nil {
@@ -242,6 +246,72 @@ func TestLinkTargets(t *testing.T) {
 			}
 
 			require.NoError(t, err)
+			suite.jobRepo.AssertExpectations(t)
+		})
+	}
+}
+
+func TestJobTaskService_IncrementJobTotalTasks(t *testing.T) {
+	tests := []struct {
+		name    string
+		jobID   uuid.UUID
+		amount  int
+		setup   func(*mockJobRepository)
+		wantErr bool
+	}{
+		{
+			name:   "successful increment",
+			jobID:  uuid.New(),
+			amount: 5,
+			setup: func(repo *mockJobRepository) {
+				repo.On("IncrementTotalTasks", mock.Anything, mock.Anything, 5).
+					Return(nil)
+			},
+			wantErr: false,
+		},
+		{
+			name:   "repository error",
+			jobID:  uuid.New(),
+			amount: 3,
+			setup: func(repo *mockJobRepository) {
+				repo.On("IncrementTotalTasks", mock.Anything, mock.Anything, 3).
+					Return(assert.AnError)
+			},
+			wantErr: true,
+		},
+		{
+			name:   "zero amount",
+			jobID:  uuid.New(),
+			amount: 0,
+			setup: func(repo *mockJobRepository) {
+				repo.On("IncrementTotalTasks", mock.Anything, mock.Anything, 0).
+					Return(nil)
+			},
+			wantErr: false,
+		},
+		{
+			name:   "negative amount",
+			jobID:  uuid.New(),
+			amount: -2,
+			setup: func(repo *mockJobRepository) {
+				repo.On("IncrementTotalTasks", mock.Anything, mock.Anything, -2).
+					Return(nil)
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			suite := newCoordinatorTestSuite(t)
+			tt.setup(suite.jobRepo)
+
+			err := suite.coord.IncrementJobTotalTasks(context.Background(), tt.jobID, tt.amount)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
 			suite.jobRepo.AssertExpectations(t)
 		})
 	}

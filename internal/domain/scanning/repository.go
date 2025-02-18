@@ -33,6 +33,9 @@ type JobRepository interface {
 	// CreateJob inserts a new job record, setting status and initial timestamps.
 	CreateJob(ctx context.Context, job *Job) error
 
+	// IncrementTotalTasks increments the total tasks count for a job.
+	IncrementTotalTasks(ctx context.Context, jobID uuid.UUID, amount int) error
+
 	// UpdateJob modifies an existing job's fields (status, end_time, etc.).
 	UpdateJob(ctx context.Context, job *Job) error
 

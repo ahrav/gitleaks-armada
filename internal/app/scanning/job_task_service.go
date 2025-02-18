@@ -98,6 +98,28 @@ func (s *jobTaskService) LinkTargets(ctx context.Context, jobID uuid.UUID, targe
 	return nil
 }
 
+// IncrementJobTotalTasks increments the total tasks count for a job.
+func (s *jobTaskService) IncrementJobTotalTasks(ctx context.Context, jobID uuid.UUID, amount int) error {
+	ctx, span := s.tracer.Start(ctx, "job_task_service.scanning.increment_job_total_tasks",
+		trace.WithAttributes(
+			attribute.String("controller_id", s.controllerID),
+			attribute.String("job_id", jobID.String()),
+			attribute.Int("amount", amount),
+		),
+	)
+	defer span.End()
+
+	if err := s.jobRepo.IncrementTotalTasks(ctx, jobID, amount); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to increment job total tasks")
+		return fmt.Errorf("repository job total tasks increment failed: %w", err)
+	}
+	span.AddEvent("job_total_tasks_incremented")
+	span.SetStatus(codes.Ok, "job total tasks incremented successfully")
+
+	return nil
+}
+
 // loadTask retrieves a task using a cache-first strategy to minimize database access
 // during high-frequency progress updates.
 func (s *jobTaskService) loadTask(ctx context.Context, taskID uuid.UUID) (*domain.Task, error) {

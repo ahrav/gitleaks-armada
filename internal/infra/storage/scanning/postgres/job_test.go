@@ -87,6 +87,59 @@ func TestJobStore_CreateAndGet_WithMetrics(t *testing.T) {
 	assert.Equal(t, 0, metrics.StaleTasks())
 }
 
+func TestJobStore_IncrementTotalTasks(t *testing.T) {
+	t.Parallel()
+	ctx, _, store, cleanup := setupJobTest(t)
+	defer cleanup()
+
+	job := createTestJob(t, scanning.JobStatusRunning)
+	err := store.CreateJob(ctx, job)
+	require.NoError(t, err)
+
+	err = store.IncrementTotalTasks(ctx, job.JobID(), 5)
+	require.NoError(t, err)
+
+	metrics, err := store.GetJobMetrics(ctx, job.JobID())
+	require.NoError(t, err)
+	assert.Equal(t, 5, metrics.TotalTasks())
+
+	err = store.IncrementTotalTasks(ctx, job.JobID(), 3)
+	require.NoError(t, err)
+
+	metrics, err = store.GetJobMetrics(ctx, job.JobID())
+	require.NoError(t, err)
+	assert.Equal(t, 8, metrics.TotalTasks())
+}
+
+func TestJobStore_IncrementTotalTasks_NonExistentJob(t *testing.T) {
+	t.Parallel()
+	ctx, _, store, cleanup := setupJobTest(t)
+	defer cleanup()
+
+	err := store.IncrementTotalTasks(ctx, uuid.New(), 5)
+	require.ErrorIs(t, err, scanning.ErrNoJobMetricsFound)
+}
+
+func TestJobStore_IncrementTotalTasks_NegativeAmount(t *testing.T) {
+	t.Parallel()
+	ctx, _, store, cleanup := setupJobTest(t)
+	defer cleanup()
+
+	job := createTestJob(t, scanning.JobStatusRunning)
+	err := store.CreateJob(ctx, job)
+	require.NoError(t, err)
+
+	err = store.IncrementTotalTasks(ctx, job.JobID(), 10)
+	require.NoError(t, err)
+
+	err = store.IncrementTotalTasks(ctx, job.JobID(), -3)
+	require.NoError(t, err)
+
+	metrics, err := store.GetJobMetrics(ctx, job.JobID())
+	require.NoError(t, err)
+	assert.Equal(t, 7, metrics.TotalTasks())
+}
+
 type mockTimeProvider struct {
 	current time.Time
 }

@@ -163,6 +163,12 @@ INSERT INTO scan_job_metrics (
     NOW()
 );
 
+-- name: IncrementTotalTasks :execrows
+UPDATE scan_job_metrics
+SET total_tasks = total_tasks + $2,
+    updated_at = NOW()
+WHERE job_id = $1;
+
 -- name: GetJobMetrics :one
 SELECT
     total_tasks,

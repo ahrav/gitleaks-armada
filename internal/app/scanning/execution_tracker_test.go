@@ -36,6 +36,10 @@ func (m *mockJobTaskSvc) LinkTargets(ctx context.Context, jobID uuid.UUID, targe
 	return m.Called(ctx, jobID, targets).Error(0)
 }
 
+func (m *mockJobTaskSvc) IncrementTotalTasks(ctx context.Context, jobID uuid.UUID, amount int) error {
+	return m.Called(ctx, jobID, amount).Error(0)
+}
+
 func (m *mockJobTaskSvc) CreateTask(ctx context.Context, task *scanning.Task) error {
 	return m.Called(ctx, task).Error(0)
 }
@@ -112,6 +116,10 @@ func (m *mockJobTaskSvc) UpdateHeartbeats(ctx context.Context, heartbeats map[uu
 	return args.Get(0).(int64), args.Error(1)
 }
 
+func (m *mockJobTaskSvc) IncrementJobTotalTasks(ctx context.Context, jobID uuid.UUID, amount int) error {
+	return m.Called(ctx, jobID, amount).Error(0)
+}
+
 type mockDomainEventPublisher struct{ mock.Mock }
 
 func (m *mockDomainEventPublisher) PublishDomainEvent(ctx context.Context, event events.DomainEvent, opts ...events.PublishOption) error {
@@ -119,7 +127,7 @@ func (m *mockDomainEventPublisher) PublishDomainEvent(ctx context.Context, event
 }
 
 type trackerTestSuite struct {
-	jobCoordinator  *mockJobTaskSvc
+	jobTaskSvc      *mockJobTaskSvc
 	domainPublisher *mockDomainEventPublisher
 	logger          *logger.Logger
 	tracer          trace.Tracer
@@ -129,17 +137,17 @@ type trackerTestSuite struct {
 func newTrackerTestSuite(t *testing.T) *trackerTestSuite {
 	t.Helper()
 
-	jobCoordinator := new(mockJobTaskSvc)
+	jobTaskSvc := new(mockJobTaskSvc)
 	domainPublisher := new(mockDomainEventPublisher)
 	logger := logger.New(io.Discard, logger.LevelDebug, "test", nil)
 	tracer := noop.NewTracerProvider().Tracer("test")
 
 	return &trackerTestSuite{
-		jobCoordinator:  jobCoordinator,
+		jobTaskSvc:      jobTaskSvc,
 		domainPublisher: domainPublisher,
 		logger:          logger,
 		tracer:          tracer,
-		tracker:         NewExecutionTracker("test-controller", jobCoordinator, domainPublisher, logger, tracer),
+		tracker:         NewExecutionTracker("test-controller", jobTaskSvc, domainPublisher, logger, tracer),
 	}
 }
 
@@ -212,7 +220,7 @@ func TestExecutionTracker_CreateJobForTarget(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			suite := newTrackerTestSuite(t)
-			tt.setup(suite.jobCoordinator, suite.domainPublisher)
+			tt.setup(suite.jobTaskSvc, suite.domainPublisher)
 
 			err := suite.tracker.CreateJobForTarget(context.Background(), tt.target)
 
@@ -222,7 +230,7 @@ func TestExecutionTracker_CreateJobForTarget(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			suite.jobCoordinator.AssertExpectations(t)
+			suite.jobTaskSvc.AssertExpectations(t)
 			suite.domainPublisher.AssertExpectations(t)
 		})
 	}
@@ -238,9 +246,11 @@ func TestExecutionTracker_AssociateEnumeratedTargetsToJob(t *testing.T) {
 		expectedErr string
 	}{
 		{
-			name: "successful target linking",
+			name: "successful target linking and task increment",
 			setup: func(m *mockJobTaskSvc) {
 				m.On("LinkTargets", mock.Anything, mock.Anything, mock.Anything).
+					Return(nil)
+				m.On("IncrementJobTotalTasks", mock.Anything, mock.Anything, 2).
 					Return(nil)
 			},
 			jobID: uuid.New(),
@@ -265,11 +275,29 @@ func TestExecutionTracker_AssociateEnumeratedTargetsToJob(t *testing.T) {
 			expectedErr: "failed to link targets to job",
 		},
 		{
+			name: "increment failure",
+			setup: func(m *mockJobTaskSvc) {
+				m.On("LinkTargets", mock.Anything, mock.Anything, mock.Anything).
+					Return(nil)
+				m.On("IncrementJobTotalTasks", mock.Anything, mock.Anything, 2).
+					Return(errors.New("failed to increment"))
+			},
+			jobID: uuid.New(),
+			targetIDs: []uuid.UUID{
+				uuid.New(),
+				uuid.New(),
+			},
+			wantErr:     true,
+			expectedErr: "failed to increment job total tasks",
+		},
+		{
 			name: "empty target list",
 			setup: func(m *mockJobTaskSvc) {
 				m.On("LinkTargets", mock.Anything, mock.Anything, mock.MatchedBy(func(targets []uuid.UUID) bool {
 					return len(targets) == 0
 				})).Return(nil)
+				m.On("IncrementJobTotalTasks", mock.Anything, mock.Anything, 0).
+					Return(nil)
 			},
 			jobID:     uuid.New(),
 			targetIDs: []uuid.UUID{},
@@ -280,10 +308,9 @@ func TestExecutionTracker_AssociateEnumeratedTargetsToJob(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			suite := newTrackerTestSuite(t)
-			tt.setup(suite.jobCoordinator)
+			tt.setup(suite.jobTaskSvc)
 
 			err := suite.tracker.AssociateEnumeratedTargetsToJob(context.Background(), tt.jobID, tt.targetIDs)
-
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.expectedErr)
@@ -291,7 +318,7 @@ func TestExecutionTracker_AssociateEnumeratedTargetsToJob(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			suite.jobCoordinator.AssertExpectations(t)
+			suite.jobTaskSvc.AssertExpectations(t)
 		})
 	}
 }
@@ -351,7 +378,7 @@ func TestExecutionTracker_HandleEnumeratedScanTask(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			suite := newTrackerTestSuite(t)
-			tt.setup(suite.jobCoordinator, suite.domainPublisher)
+			tt.setup(suite.jobTaskSvc, suite.domainPublisher)
 
 			err := suite.tracker.HandleEnumeratedScanTask(
 				context.Background(),
@@ -367,7 +394,7 @@ func TestExecutionTracker_HandleEnumeratedScanTask(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			suite.jobCoordinator.AssertExpectations(t)
+			suite.jobTaskSvc.AssertExpectations(t)
 			suite.domainPublisher.AssertExpectations(t)
 		})
 	}
@@ -411,7 +438,7 @@ func TestExecutionTracker_StartTracking(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			suite := newTrackerTestSuite(t)
-			tt.setup(suite.jobCoordinator)
+			tt.setup(suite.jobTaskSvc)
 
 			err := suite.tracker.HandleTaskStart(context.Background(), tt.event)
 			if tt.wantErr {
@@ -419,7 +446,7 @@ func TestExecutionTracker_StartTracking(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 			}
-			suite.jobCoordinator.AssertExpectations(t)
+			suite.jobTaskSvc.AssertExpectations(t)
 		})
 	}
 }
@@ -458,7 +485,7 @@ func TestExecutionTracker_UpdateProgress(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			suite := newTrackerTestSuite(t)
-			tt.setup(suite.jobCoordinator)
+			tt.setup(suite.jobTaskSvc)
 
 			err := suite.tracker.HandleTaskProgress(context.Background(), tt.event)
 			if tt.wantErr {
@@ -466,7 +493,7 @@ func TestExecutionTracker_UpdateProgress(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 			}
-			suite.jobCoordinator.AssertExpectations(t)
+			suite.jobTaskSvc.AssertExpectations(t)
 		})
 	}
 }
@@ -478,11 +505,11 @@ func TestExecutionTracker_FullScanningLifecycle(t *testing.T) {
 	resourceURI := "https://example.com"
 
 	// Setup expectations for the full lifecycle.
-	suite.jobCoordinator.On("StartTask", mock.Anything, taskID, resourceURI).
+	suite.jobTaskSvc.On("StartTask", mock.Anything, taskID, resourceURI).
 		Return(nil)
-	suite.jobCoordinator.On("UpdateTaskProgress", mock.Anything, mock.Anything).
+	suite.jobTaskSvc.On("UpdateTaskProgress", mock.Anything, mock.Anything).
 		Return(new(scanning.Task), nil).Times(3)
-	suite.jobCoordinator.On("CompleteTask", mock.Anything, taskID).
+	suite.jobTaskSvc.On("CompleteTask", mock.Anything, taskID).
 		Return(new(scanning.Task), nil)
 
 	ctx := context.Background()
@@ -510,7 +537,7 @@ func TestExecutionTracker_FullScanningLifecycle(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	suite.jobCoordinator.AssertExpectations(t)
+	suite.jobTaskSvc.AssertExpectations(t)
 }
 
 func TestExecutionTracker_StopTracking(t *testing.T) {
@@ -549,7 +576,7 @@ func TestExecutionTracker_StopTracking(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			suite := newTrackerTestSuite(t)
-			tt.setup(suite.jobCoordinator)
+			tt.setup(suite.jobTaskSvc)
 
 			err := suite.tracker.HandleTaskCompletion(context.Background(), tt.event)
 			if tt.wantErr {
@@ -558,7 +585,7 @@ func TestExecutionTracker_StopTracking(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 			}
-			suite.jobCoordinator.AssertExpectations(t)
+			suite.jobTaskSvc.AssertExpectations(t)
 		})
 	}
 }
@@ -599,7 +626,7 @@ func TestExecutionTracker_MarkTaskFailure(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			suite := newTrackerTestSuite(t)
-			tt.setup(suite.jobCoordinator)
+			tt.setup(suite.jobTaskSvc)
 
 			err := suite.tracker.HandleTaskFailure(context.Background(), tt.event)
 			if tt.wantErr {
@@ -608,7 +635,7 @@ func TestExecutionTracker_MarkTaskFailure(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 			}
-			suite.jobCoordinator.AssertExpectations(t)
+			suite.jobTaskSvc.AssertExpectations(t)
 		})
 	}
 }
@@ -684,7 +711,7 @@ func TestExecutionTracker_MarkTaskStale(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			suite := newTrackerTestSuite(t)
-			tt.setup(suite.jobCoordinator, suite.domainPublisher)
+			tt.setup(suite.jobTaskSvc, suite.domainPublisher)
 
 			err := suite.tracker.HandleTaskStale(context.Background(), tt.event)
 			if tt.wantErr {
@@ -692,7 +719,7 @@ func TestExecutionTracker_MarkTaskStale(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 			}
-			suite.jobCoordinator.AssertExpectations(t)
+			suite.jobTaskSvc.AssertExpectations(t)
 			suite.domainPublisher.AssertExpectations(t)
 		})
 	}

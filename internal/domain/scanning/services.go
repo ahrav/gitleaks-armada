@@ -26,6 +26,13 @@ type JobTaskService interface {
 	// of multiple repositories or code bases within a single scanning operation
 	LinkTargets(ctx context.Context, jobID uuid.UUID, targetIDs []uuid.UUID) error
 
+	// IncrementJobTotalTasks increments the total tasks count for a job.
+	// This is used during the enumeration process to track the total number of tasks
+	// that will be processed for a job.
+	// Note: This is handled via increments because enumeration tasks are streamed
+	// in batches and the total is unknown until all batches have been processed.
+	IncrementJobTotalTasks(ctx context.Context, jobID uuid.UUID, amount int) error
+
 	// ---------------------------
 	// Task-level operations
 	// ---------------------------

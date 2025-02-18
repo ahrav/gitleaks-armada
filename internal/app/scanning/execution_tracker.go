@@ -111,10 +111,19 @@ func (t *executionTracker) AssociateEnumeratedTargetsToJob(
 		span.SetStatus(codes.Error, "failed to link targets")
 		return fmt.Errorf("failed to link targets to job %s: %w", jobID, err)
 	}
-
 	span.AddEvent("targets_linked_successfully")
-	span.SetStatus(codes.Ok, "targets linked successfully")
-	t.logger.Info(ctx, "Enumerated targets linked to job",
+
+	if err := t.jobTaskSvc.IncrementJobTotalTasks(ctx, jobID, len(scanTargetIDs)); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to increment job total tasks")
+		return fmt.Errorf("failed to increment job total tasks: %w", err)
+	}
+	span.AddEvent("job_total_tasks_incremented", trace.WithAttributes(
+		attribute.Int("target_count", len(scanTargetIDs)),
+	))
+
+	span.SetStatus(codes.Ok, "all enumerated targets associated with job")
+	t.logger.Info(ctx, "All enumerated targets associated with job",
 		"job_id", jobID,
 		"target_count", len(scanTargetIDs),
 	)

@@ -408,6 +408,26 @@ func (q *Queries) GetTaskSourceType(ctx context.Context, taskID pgtype.UUID) (st
 	return source_type, err
 }
 
+const incrementTotalTasks = `-- name: IncrementTotalTasks :execrows
+UPDATE scan_job_metrics
+SET total_tasks = total_tasks + $2,
+    updated_at = NOW()
+WHERE job_id = $1
+`
+
+type IncrementTotalTasksParams struct {
+	JobID      pgtype.UUID
+	TotalTasks int32
+}
+
+func (q *Queries) IncrementTotalTasks(ctx context.Context, arg IncrementTotalTasksParams) (int64, error) {
+	result, err := q.db.Exec(ctx, incrementTotalTasks, arg.JobID, arg.TotalTasks)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const listScanTasksByJobAndStatus = `-- name: ListScanTasksByJobAndStatus :many
 SELECT
     t.task_id,

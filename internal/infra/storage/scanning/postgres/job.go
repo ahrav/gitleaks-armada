@@ -84,6 +84,31 @@ func (r *jobStore) CreateJob(ctx context.Context, job *scanning.Job) error {
 	})
 }
 
+// IncrementTotalTasks atomically increments the total tasks count for a job.
+// It returns an error if the job metrics record doesn't exist or if the update fails.
+func (r *jobStore) IncrementTotalTasks(ctx context.Context, jobID uuid.UUID, amount int) error {
+	dbAttrs := append(
+		defaultDBAttributes,
+		attribute.String("job_id", jobID.String()),
+		attribute.Int("amount", amount),
+	)
+
+	return storage.ExecuteAndTrace(ctx, r.tracer, "postgres.increment_total_tasks", dbAttrs, func(ctx context.Context) error {
+		rowsAffected, err := r.q.IncrementTotalTasks(ctx, db.IncrementTotalTasksParams{
+			JobID:      pgtype.UUID{Bytes: jobID, Valid: true},
+			TotalTasks: int32(amount),
+		})
+		if err != nil {
+			return fmt.Errorf("increment total tasks error: %w", err)
+		}
+		if rowsAffected == 0 {
+			return scanning.ErrNoJobMetricsFound
+		}
+
+		return nil
+	})
+}
+
 // UpdateJob modifies an existing job's state in the database.
 func (r *jobStore) UpdateJob(ctx context.Context, job *scanning.Job) error {
 	dbAttrs := append(
