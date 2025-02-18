@@ -186,6 +186,32 @@ func (t *executionTracker) HandleEnumeratedScanTask(
 	return nil
 }
 
+func (t *executionTracker) SignalEnumerationComplete(ctx context.Context, jobID uuid.UUID) error {
+	ctx, span := t.tracer.Start(ctx, "execution_tracker.scanning.signal_enumeration_complete",
+		trace.WithAttributes(
+			attribute.String("controller_id", t.controllerID),
+			attribute.String("job_id", jobID.String()),
+		))
+	defer span.End()
+
+	_, err := t.jobTaskSvc.GetJobMetrics(ctx, jobID)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to get job metrics")
+		return fmt.Errorf("failed to get job metrics: %w", err)
+	}
+
+	// enumerationCompleteEvent := scanning.EnumerationCompleteEvent{
+	// 		JobID:             jobID.String(), // Convert UUID to string
+	// 		TotalTasksExpected: jobMetrics.TotalTasks,
+	// }
+	// if err := t.eventProducer.Produce(ctx, "enumeration_complete", enumerationCompleteEvent, jobID.String()); err != nil{
+	// 	 return fmt.Errorf("failed to publish enumeration complete event")
+	// }
+
+	return nil
+}
+
 // HandleTaskStart initializes progress tracking for a new scan task. It coordinates with
 // the coordinator to:
 // 1. Register the task in the job's task collection

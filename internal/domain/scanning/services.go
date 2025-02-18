@@ -33,6 +33,9 @@ type JobTaskService interface {
 	// in batches and the total is unknown until all batches have been processed.
 	IncrementJobTotalTasks(ctx context.Context, jobID uuid.UUID, amount int) error
 
+	// GetJobMetrics retrieves metrics for a specific job.
+	GetJobMetrics(ctx context.Context, jobID uuid.UUID) (*JobMetrics, error)
+
 	// ---------------------------
 	// Task-level operations
 	// ---------------------------

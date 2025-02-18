@@ -120,6 +120,26 @@ func (s *jobTaskService) IncrementJobTotalTasks(ctx context.Context, jobID uuid.
 	return nil
 }
 
+// GetJobMetrics retrieves metrics for a specific job.
+func (s *jobTaskService) GetJobMetrics(ctx context.Context, jobID uuid.UUID) (*domain.JobMetrics, error) {
+	ctx, span := s.tracer.Start(ctx, "job_task_service.get_job_metrics",
+		trace.WithAttributes(
+			attribute.String("job_id", jobID.String()),
+		))
+	defer span.End()
+
+	metrics, err := s.jobRepo.GetJobMetrics(ctx, jobID)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to get job metrics")
+		return nil, fmt.Errorf("failed to get job metrics: %w", err)
+	}
+	span.AddEvent("job_metrics_retrieved")
+	span.SetStatus(codes.Ok, "job metrics retrieved")
+
+	return metrics, nil
+}
+
 // loadTask retrieves a task using a cache-first strategy to minimize database access
 // during high-frequency progress updates.
 func (s *jobTaskService) loadTask(ctx context.Context, taskID uuid.UUID) (*domain.Task, error) {

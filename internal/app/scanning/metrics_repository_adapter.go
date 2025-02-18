@@ -48,6 +48,7 @@ func NewMetricsRepositoryAdapter(
 
 // GetJobMetrics implements MetricsRepository.GetJobMetrics by retrieving metrics
 // from the underlying job repository.
+// TODO: Should we be using the jobTaskSvc to get the job metrics?
 func (r *metricsRepositoryAdapter) GetJobMetrics(ctx context.Context, jobID uuid.UUID) (*domain.JobMetrics, error) {
 	ctx, span := r.tracer.Start(ctx, "metrics_repository.get_job_metrics")
 	defer span.End()

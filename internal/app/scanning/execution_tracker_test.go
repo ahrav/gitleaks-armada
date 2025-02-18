@@ -40,6 +40,10 @@ func (m *mockJobTaskSvc) IncrementTotalTasks(ctx context.Context, jobID uuid.UUI
 	return m.Called(ctx, jobID, amount).Error(0)
 }
 
+func (m *mockJobTaskSvc) GetJobMetrics(ctx context.Context, jobID uuid.UUID) (*scanning.JobMetrics, error) {
+	return m.Called(ctx, jobID).Get(0).(*scanning.JobMetrics), m.Called(ctx, jobID).Error(1)
+}
+
 func (m *mockJobTaskSvc) CreateTask(ctx context.Context, task *scanning.Task) error {
 	return m.Called(ctx, task).Error(0)
 }
