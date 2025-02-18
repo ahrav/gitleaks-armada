@@ -244,12 +244,16 @@ func (ef *EventsFacilitator) HandleScanJobCreated(
 			if result.ScanTargetsCh == nil &&
 				result.TasksCh == nil &&
 				result.ErrCh == nil {
-				if err := ef.executionTracker.SignalEnumerationComplete(ctx, jobID); err != nil {
-					return fmt.Errorf("failed to signal enumeration complete: %w", err)
-				}
 				break
 			}
 		}
+
+		if err := ef.executionTracker.SignalEnumerationComplete(ctx, jobID); err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "failed to signal enumeration complete")
+			return fmt.Errorf("failed to signal enumeration complete: %w", err)
+		}
+		span.AddEvent("enumeration_complete_signal_sent")
 
 		span.AddEvent("enumeration_completed_successfully")
 		span.SetStatus(codes.Ok, "enumeration completed")
