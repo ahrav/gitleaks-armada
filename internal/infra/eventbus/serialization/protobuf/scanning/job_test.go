@@ -15,7 +15,7 @@ import (
 
 func TestJobCreatedEventConversion(t *testing.T) {
 	t.Run("successful conversions", func(t *testing.T) {
-		jobID := uuid.New().String()
+		job := scanning.NewJob()
 		auth := scanning.NewAuth(
 			string(scanning.AuthTypeToken),
 			map[string]any{
@@ -42,12 +42,12 @@ func TestJobCreatedEventConversion(t *testing.T) {
 			},
 		)
 
-		domainEvent := scanning.NewJobCreatedEvent(jobID, targetSpec)
+		domainEvent := scanning.NewJobCreatedEvent(job, targetSpec)
 
 		// Test domain to proto conversion.
 		protoEvent, err := JobCreatedEventToProto(domainEvent)
 		require.NoError(t, err)
-		assert.Equal(t, jobID, protoEvent.JobId)
+		assert.Equal(t, job.JobID().String(), protoEvent.JobId)
 		assert.Equal(t, targetSpec.Name(), protoEvent.TargetSpec.Name)
 		assert.Equal(t, pb.SourceType_SOURCE_TYPE_GITHUB, protoEvent.TargetSpec.SourceType)
 		assert.Equal(t, string(auth.Type()), protoEvent.TargetSpec.Auth.Type)
@@ -63,7 +63,7 @@ func TestJobCreatedEventConversion(t *testing.T) {
 		// Test proto to domain conversion.
 		convertedEvent, err := ProtoToJobCreatedEvent(protoEvent)
 		require.NoError(t, err)
-		assert.Equal(t, jobID, convertedEvent.JobID)
+		assert.Equal(t, job.JobID().String(), convertedEvent.Job.JobID().String())
 		assert.Equal(t, targetSpec.Name(), convertedEvent.Target.Name())
 		assert.Equal(t, targetSpec.SourceType(), convertedEvent.Target.SourceType())
 		assert.Equal(t, metadata, convertedEvent.Target.Metadata())
@@ -78,7 +78,7 @@ func TestJobCreatedEventConversion(t *testing.T) {
 	})
 
 	t.Run("S3 target conversion", func(t *testing.T) {
-		jobID := uuid.New().String()
+		job := scanning.NewJob()
 		metadata := map[string]string{
 			"region":     "us-west-2",
 			"department": "engineering",
@@ -98,7 +98,7 @@ func TestJobCreatedEventConversion(t *testing.T) {
 			},
 		)
 
-		domainEvent := scanning.NewJobCreatedEvent(jobID, targetSpec)
+		domainEvent := scanning.NewJobCreatedEvent(job, targetSpec)
 
 		// Test domain to proto conversion.
 		protoEvent, err := JobCreatedEventToProto(domainEvent)
@@ -124,7 +124,7 @@ func TestJobCreatedEventConversion(t *testing.T) {
 	})
 
 	t.Run("URL target conversion", func(t *testing.T) {
-		jobID := uuid.New().String()
+		job := scanning.NewJob()
 		metadata := map[string]string{
 			"scan_type": "web",
 			"priority":  "high",
@@ -142,7 +142,7 @@ func TestJobCreatedEventConversion(t *testing.T) {
 			},
 		)
 
-		domainEvent := scanning.NewJobCreatedEvent(jobID, targetSpec)
+		domainEvent := scanning.NewJobCreatedEvent(job, targetSpec)
 
 		// Test domain to proto conversion.
 		protoEvent, err := JobCreatedEventToProto(domainEvent)

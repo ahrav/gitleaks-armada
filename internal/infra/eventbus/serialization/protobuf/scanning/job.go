@@ -1,7 +1,6 @@
 package scanning
 
 import (
-	"encoding/json"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -167,41 +166,32 @@ func JobCreatedEventToProto(event scanning.JobCreatedEvent) (*pb.JobCreatedEvent
 	}
 
 	return &pb.JobCreatedEvent{
-		JobId:      event.JobID,
+		JobId:      event.Job.JobID().String(),
 		Timestamp:  event.OccurredAt().UnixNano(),
 		TargetSpec: targetSpec,
+		Status:     jobStatusToProto(event.Job.Status()),
 	}, nil
 }
 
-// AuthToProto converts a domain Auth to its protobuf representation
-func AuthToProto(auth scanning.Auth) (*pb.Auth, error) {
-	configMap := make(map[string]any)
-	for k, v := range auth.Credentials() {
-		switch val := v.(type) {
-		case string:
-			configMap[k] = val
-		case bool:
-			configMap[k] = fmt.Sprintf("%v", val)
-		case int:
-			configMap[k] = fmt.Sprintf("%d", val)
-		case float64:
-			configMap[k] = fmt.Sprintf("%f", val)
-		default:
-			jsonBytes, err := json.Marshal(val)
-			if err != nil {
-				return nil, fmt.Errorf("failed to marshal complex auth config value: %w", err)
-			}
-			configMap[k] = string(jsonBytes)
-		}
+// jobStatusToProto converts a domain JobStatus to its protobuf representation.
+func jobStatusToProto(s scanning.JobStatus) pb.ScanJobStatus {
+	switch s {
+	case scanning.JobStatusQueued:
+		return pb.ScanJobStatus_SCAN_JOB_STATUS_QUEUED
+	case scanning.JobStatusEnumerating:
+		return pb.ScanJobStatus_SCAN_JOB_STATUS_ENUMERATING
+	case scanning.JobStatusRunning:
+		return pb.ScanJobStatus_SCAN_JOB_STATUS_RUNNING
+	case scanning.JobStatusCompleted:
+		return pb.ScanJobStatus_SCAN_JOB_STATUS_COMPLETED
+	case scanning.JobStatusFailed:
+		return pb.ScanJobStatus_SCAN_JOB_STATUS_FAILED
+	default:
+		return pb.ScanJobStatus_SCAN_JOB_STATUS_UNSPECIFIED
 	}
-
-	return &pb.Auth{
-		Type:        string(auth.Type()),
-		Credentials: toProtoAny(configMap),
-	}, nil
 }
 
-// ProtoToJobCreatedEvent converts a protobuf JobCreatedEvent to its domain representation
+// ProtoToJobCreatedEvent converts a protobuf JobCreatedEvent to its domain representation.
 func ProtoToJobCreatedEvent(event *pb.JobCreatedEvent) (scanning.JobCreatedEvent, error) {
 	if event == nil || event.TargetSpec == nil {
 		return scanning.JobCreatedEvent{}, serializationerrors.ErrNilEvent{EventType: "JobCreatedEvent"}
@@ -212,21 +202,8 @@ func ProtoToJobCreatedEvent(event *pb.JobCreatedEvent) (scanning.JobCreatedEvent
 		return scanning.JobCreatedEvent{}, fmt.Errorf("convert proto to target: %w", err)
 	}
 
-	return scanning.NewJobCreatedEvent(event.JobId, target), nil
-}
-
-// ProtoToAuth converts a protobuf Auth to its domain representation
-func ProtoToAuth(pbAuth *pb.Auth) (scanning.Auth, error) {
-	if pbAuth == nil {
-		return scanning.Auth{}, serializationerrors.ErrNilEvent{EventType: "Auth"}
-	}
-
-	configMap := make(map[string]any)
-	for k, v := range pbAuth.Credentials {
-		configMap[k] = v
-	}
-
-	return scanning.NewAuth(pbAuth.Type, configMap), nil
+	job := scanning.NewJobWithStatus(uuid.MustParse(event.JobId), protoToJobStatus(event.Status))
+	return scanning.NewJobCreatedEvent(job, target), nil
 }
 
 // JobEnumerationCompletedEventToProto converts a domain JobEnumerationCompletedEvent to its protobuf representation.
@@ -253,4 +230,22 @@ func ProtoToJobEnumerationCompletedEvent(event *pb.JobEnumerationCompletedEvent)
 		jobID,
 		int(event.TotalTasks),
 	), nil
+}
+
+// protoToJobStatus converts a protobuf ScanJobStatus to its domain representation.
+func protoToJobStatus(s pb.ScanJobStatus) scanning.JobStatus {
+	switch s {
+	case pb.ScanJobStatus_SCAN_JOB_STATUS_QUEUED:
+		return scanning.JobStatusQueued
+	case pb.ScanJobStatus_SCAN_JOB_STATUS_ENUMERATING:
+		return scanning.JobStatusEnumerating
+	case pb.ScanJobStatus_SCAN_JOB_STATUS_RUNNING:
+		return scanning.JobStatusRunning
+	case pb.ScanJobStatus_SCAN_JOB_STATUS_COMPLETED:
+		return scanning.JobStatusCompleted
+	case pb.ScanJobStatus_SCAN_JOB_STATUS_FAILED:
+		return scanning.JobStatusFailed
+	default:
+		return "" // represents unspecified
+	}
 }
