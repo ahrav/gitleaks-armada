@@ -283,18 +283,6 @@ dev-apply-extras:
 	@echo "Verifying Tempo connectivity..."
 	kubectl run -n $(NAMESPACE) tempo-test --rm -i --restart=Never --image=busybox -- nc -zvw 1 tempo 4317 || true
 
-	@echo "Port forwarding PostgreSQL..."
-	kubectl port-forward -n $(NAMESPACE) svc/postgres 5432:5432 &
-	@echo "Postgres available at localhost:5432"
-
-	@echo "Port forwarding Grafana..."
-	kubectl port-forward -n $(NAMESPACE) svc/grafana 3000:3000 &
-	@echo "Grafana available at http://localhost:3000"
-
-	@echo "Port forwarding API Gateway to localhost:8080..."
-	kubectl port-forward -n $(NAMESPACE) svc/api-gateway 8080:80 &
-	@echo "API Gateway available at http://localhost:8080"
-
 
 dev-status:
 	kubectl get pods -n $(NAMESPACE) -o wide
@@ -303,8 +291,8 @@ dev-down:
 	kind delete cluster --name $(KIND_CLUSTER)
 
 # A single shortcut target that sets up everything for a new dev
-dev-all: build-all docker-all dev-up dev-load dev-apply create-config-secret dev-apply-extras postgres-setup kafka-setup
-
+dev-all: build-all docker-all dev-up dev-load create-config-secret \
+         dev-apply-extras kafka-setup postgres-setup dev-apply
 
 ################################################################################
 # 4) Kafka Targets
@@ -557,6 +545,10 @@ create-config-secret:
 		--from-file=config.yaml=$(CONFIG_FILE) \
 		--namespace=$(NAMESPACE) \
 		--dry-run=client -o yaml | kubectl apply -f -
+
+api-gateway-port-forward:
+	@echo "Port forwarding API Gateway to localhost:8080..."
+	kubectl port-forward -n $(NAMESPACE) svc/api-gateway 8080:80 &
 
 ################################################################################
 # Rollout restarts

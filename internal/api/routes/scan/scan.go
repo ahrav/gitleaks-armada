@@ -89,6 +89,7 @@ func (sr startResponse) Encode() ([]byte, string, error) {
 // HTTPStatus implements the httpStatus interface to set the response status code.
 func (sr startResponse) HTTPStatus() int { return http.StatusAccepted } // 202
 
+// TODO: Add tests, I keep breaking this shit..... :(
 func start(cfg Config) web.HandlerFunc {
 	return func(ctx context.Context, r *http.Request) web.Encoder {
 		var req startRequest
@@ -127,8 +128,9 @@ func start(cfg Config) web.HandlerFunc {
 // buildTargetConfig converts a targetRequest into a config.TargetSpec.
 func buildTargetConfig(tr targetRequest) config.TargetSpec {
 	target := config.TargetSpec{
-		Name:     tr.Type,
-		Metadata: tr.Metadata,
+		Name:       tr.Type,
+		SourceType: shared.ParseSourceType(tr.Type),
+		Metadata:   tr.Metadata,
 	}
 
 	// Set source authentication if provided.
