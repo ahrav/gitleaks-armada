@@ -46,9 +46,9 @@ type EventsFacilitator struct {
 
 	// enumService is responsible for handling enumeration events.
 	enumService enumeration.Service
-	// scanToEnumTranslator is responsible for translating scanning domain objects to
+	// scanToEnumACL is responsible for translating scanning domain objects to
 	// enumeration domain objects.
-	scanToEnumTranslator acl.ScanningToEnumerationTranslator
+	scanToEnumACL acl.ScanningToEnumerationTranslator
 	// enumToScanACL is responsible for translating enumeration domain objects to
 	// scanning domain objects.
 	enumToScanACL acl.EnumerationToScanningTranslator
@@ -189,7 +189,7 @@ func (ef *EventsFacilitator) HandleScanJobCreated(
 			attribute.String("job_id", jobEvt.JobID),
 		))
 
-		targetSpec, err := ef.scanToEnumTranslator.ToEnumerationTargetSpec(jobEvt.Target)
+		targetSpec, err := ef.scanToEnumACL.ToEnumerationTargetSpec(jobEvt.Target)
 		if err != nil {
 			return fmt.Errorf("failed to convert scanning target to enumeration spec: %w", err)
 		}
