@@ -20,16 +20,16 @@ const (
 
 // JobRequestedEvent represents the event generated when a scan job is requested.
 type JobRequestedEvent struct {
-	id          string
+	jobID       uuid.UUID
 	occurredAt  time.Time
 	Targets     []Target
 	RequestedBy string
 }
 
 // NewJobRequestedEvent creates a new scan job requested event.
-func NewJobRequestedEvent(targets []Target, requestedBy string) JobRequestedEvent {
+func NewJobRequestedEvent(jobID uuid.UUID, targets []Target, requestedBy string) JobRequestedEvent {
 	return JobRequestedEvent{
-		id:          uuid.New().String(),
+		jobID:       jobID,
 		occurredAt:  time.Now(),
 		Targets:     targets,
 		RequestedBy: requestedBy,
@@ -38,7 +38,7 @@ func NewJobRequestedEvent(targets []Target, requestedBy string) JobRequestedEven
 
 func (e JobRequestedEvent) EventType() events.EventType { return EventTypeJobRequested }
 func (e JobRequestedEvent) OccurredAt() time.Time       { return e.occurredAt }
-func (e JobRequestedEvent) EventID() string             { return e.id }
+func (e JobRequestedEvent) JobID() uuid.UUID            { return e.jobID }
 
 // JobCreatedEvent signals that a new ScanJob was initialized.
 type JobCreatedEvent struct {

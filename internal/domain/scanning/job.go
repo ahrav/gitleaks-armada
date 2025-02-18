@@ -26,6 +26,8 @@ const (
 	JobStatusFailed JobStatus = "FAILED"
 )
 
+func (s JobStatus) String() string { return string(s) }
+
 // Job coordinates and tracks a collection of related scanning tasks.
 // It provides aggregated status and progress tracking across all child tasks.
 type Job struct {

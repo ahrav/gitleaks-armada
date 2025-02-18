@@ -10,6 +10,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/app/commands/scanning"
 	"github.com/ahrav/gitleaks-armada/internal/config"
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
+	scanDomain "github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/web"
@@ -110,14 +111,15 @@ func start(cfg Config) web.HandlerFunc {
 
 		// Create scan configuration with multiple targets.
 		scanCfg := &config.Config{Targets: targets}
-		cmd := scanning.NewStartScanCommand(scanCfg, "system") // TODO: Use JWT user instead of "system" if available.
+		job := scanDomain.NewJob()
+		cmd := scanning.NewStartScanCommand(job.JobID(), scanCfg, "system") // TODO: Use JWT user instead of "system" if available.
 		if err := cfg.CmdHandler.Handle(ctx, cmd); err != nil {
 			return errs.New(errs.Internal, err)
 		}
 
 		return startResponse{
-			// TODO: Retrieve and set the job ID from cmd.
-			Status: "queued",
+			ID:     job.JobID().String(),
+			Status: job.Status().String(),
 		}
 	}
 }
@@ -125,7 +127,7 @@ func start(cfg Config) web.HandlerFunc {
 // buildTargetConfig converts a targetRequest into a config.TargetSpec.
 func buildTargetConfig(tr targetRequest) config.TargetSpec {
 	target := config.TargetSpec{
-		Name:     tr.Type, // You might adjust this to include tr.Organization or other details.
+		Name:     tr.Type,
 		Metadata: tr.Metadata,
 	}
 
@@ -142,10 +144,8 @@ func buildTargetConfig(tr targetRequest) config.TargetSpec {
 	case shared.SourceTypeGitHub:
 		// Map GitHub-specific information.
 		target.GitHub = &config.GitHubTarget{
-			// Depending on how your backend expects the repository information,
-			// you may choose repositories or a regex pattern.
 			RepoList: tr.Repositories,
-			// You might store the repository pattern as well if needed:
+			// TODO: Support repository regex pattern.
 			// RepositoryPattern: tr.RepositoryPattern,
 		}
 	case shared.SourceTypeURL:

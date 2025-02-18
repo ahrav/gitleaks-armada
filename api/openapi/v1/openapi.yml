@@ -146,12 +146,12 @@ components:
           example: "123e4567-e89b-12d3-a456-426614174000"
         status:
           type: string
-          enum: [queued]
+          enum: [QUEUED]
           description: Current status of the scan job
-          example: "queued"
+          example: "QUEUED"
       example:
         id: "123e4567-e89b-12d3-a456-426614174000"
-        status: "queued"
+        status: "QUEUED"
     ErrorResponse:
       type: object
       required:

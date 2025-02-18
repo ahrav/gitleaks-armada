@@ -16,16 +16,16 @@ const CommandTypeStartScan events.EventType = "CommandScanStart"
 
 // StartScanCommand encapsulates the parameters for starting a scan
 type StartScanCommand struct {
-	id          string
+	jobID       uuid.UUID
 	occurredAt  time.Time
 	Config      *config.Config
 	RequestedBy string
 }
 
 // NewStartScanCommand creates a new scan command.
-func NewStartScanCommand(cfg *config.Config, requestedBy string) StartScanCommand {
+func NewStartScanCommand(jobID uuid.UUID, cfg *config.Config, requestedBy string) StartScanCommand {
 	return StartScanCommand{
-		id:          uuid.New().String(),
+		jobID:       jobID,
 		occurredAt:  time.Now(),
 		Config:      cfg,
 		RequestedBy: requestedBy,
@@ -39,7 +39,7 @@ func (c StartScanCommand) EventType() events.EventType { return CommandTypeStart
 func (c StartScanCommand) OccurredAt() time.Time { return c.occurredAt }
 
 // CommandID returns the unique identifier for this command.
-func (c StartScanCommand) CommandID() string { return c.id }
+func (c StartScanCommand) CommandID() string { return c.jobID.String() }
 
 // ValidateCommand ensures all required fields are properly set.
 func (c StartScanCommand) ValidateCommand() error {

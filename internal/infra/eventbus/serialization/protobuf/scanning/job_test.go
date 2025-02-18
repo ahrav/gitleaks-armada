@@ -214,6 +214,7 @@ func TestJobRequestedEventConversion(t *testing.T) {
 		)
 
 		domainEvent := scanning.NewJobRequestedEvent(
+			uuid.New(),
 			[]scanning.Target{target},
 			"test-user",
 		)
@@ -252,7 +253,7 @@ func TestJobRequestedEventConversion(t *testing.T) {
 			{
 				name: "empty targets",
 				event: &pb.JobRequestedEvent{
-					EventId:     uuid.New().String(),
+					JobId:       uuid.New().String(),
 					Targets:     nil,
 					RequestedBy: "test-user",
 				},

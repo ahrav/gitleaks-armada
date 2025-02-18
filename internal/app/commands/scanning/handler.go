@@ -68,7 +68,7 @@ func (h *CommandHandler) handleStartScan(ctx context.Context, cmd StartScanComma
 		targets = append(targets, configToDomainTarget(targetCfg))
 	}
 
-	evt := scanning.NewJobRequestedEvent(targets, cmd.RequestedBy)
+	evt := scanning.NewJobRequestedEvent(cmd.jobID, targets, cmd.RequestedBy)
 	if err := h.eventBus.PublishDomainEvent(ctx, evt); err != nil {
 		h.logger.Error(ctx, "failed to publish job requested event",
 			"error", err,

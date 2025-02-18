@@ -56,7 +56,7 @@ enum TaskStatus {
 
 // JobRequestedEvent represents a request to create a new scan job.
 message JobRequestedEvent {
-  string event_id = 1;
+  string job_id = 1;
   int64 occurred_at = 2;
   repeated shared.TargetSpec targets = 3;
   string requested_by = 4;

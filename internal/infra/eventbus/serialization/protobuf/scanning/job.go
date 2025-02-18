@@ -8,6 +8,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	serializationerrors "github.com/ahrav/gitleaks-armada/internal/infra/eventbus/serialization/errors"
 	pb "github.com/ahrav/gitleaks-armada/proto"
+	"github.com/google/uuid"
 )
 
 // JobRequestedEventToProto converts a domain JobRequestedEvent to its protobuf representation
@@ -24,7 +25,7 @@ func JobRequestedEventToProto(event scanning.JobRequestedEvent) (*pb.JobRequeste
 	}
 
 	return &pb.JobRequestedEvent{
-		EventId:     event.EventID(),
+		JobId:       event.JobID().String(),
 		OccurredAt:  event.OccurredAt().UnixNano(),
 		Targets:     pbTargets,
 		RequestedBy: event.RequestedBy,
@@ -100,6 +101,7 @@ func ProtoToJobRequestedEvent(event *pb.JobRequestedEvent) (scanning.JobRequeste
 	}
 
 	return scanning.NewJobRequestedEvent(
+		uuid.MustParse(event.JobId),
 		targets,
 		event.RequestedBy,
 	), nil
