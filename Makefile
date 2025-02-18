@@ -311,6 +311,10 @@ dev-all: build-all docker-all dev-up dev-load dev-apply create-config-secret dev
 ################################################################################
 
 kafka-setup:
+	@echo "Waiting for Zookeeper to be ready..."
+	kubectl wait --for=condition=ready pod -l app=zookeeper --timeout=120s -n $(NAMESPACE)
+	@echo "Waiting for Kafka to be ready..."
+	kubectl wait --for=condition=ready pod -l app=kafka --timeout=120s -n $(NAMESPACE)
 	@echo "Creating Kafka topics..."
 	# Controller -> Scanner topics (use SCANNER_PARTITIONS)
 	kubectl exec -it -n $(NAMESPACE) deployment/kafka -- \
