@@ -329,6 +329,7 @@ func (t *jobMetricsTracker) HandleJobMetrics(ctx context.Context, evt events.Eve
 		span.AddEvent("no_job_metrics_found_in_memory")
 		metrics, err := t.repository.GetJobMetrics(ctx, metricEvt.JobID)
 		if err != nil {
+			// TODO: This should get removed once job metrics creation is fully handled post enumeration.
 			if errors.Is(err, domain.ErrNoJobMetricsFound) {
 				span.AddEvent("no_metrics_found", trace.WithAttributes(
 					attribute.String("job_id", metricEvt.JobID.String()),
