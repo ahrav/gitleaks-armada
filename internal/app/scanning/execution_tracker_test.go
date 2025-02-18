@@ -228,6 +228,74 @@ func TestExecutionTracker_CreateJobForTarget(t *testing.T) {
 	}
 }
 
+func TestExecutionTracker_LinkEnumeratedTargets(t *testing.T) {
+	tests := []struct {
+		name        string
+		setup       func(*mockJobTaskSvc)
+		jobID       uuid.UUID
+		targetIDs   []uuid.UUID
+		wantErr     bool
+		expectedErr string
+	}{
+		{
+			name: "successful target linking",
+			setup: func(m *mockJobTaskSvc) {
+				m.On("LinkTargets", mock.Anything, mock.Anything, mock.Anything).
+					Return(nil)
+			},
+			jobID: uuid.New(),
+			targetIDs: []uuid.UUID{
+				uuid.New(),
+				uuid.New(),
+			},
+			wantErr: false,
+		},
+		{
+			name: "linking failure",
+			setup: func(m *mockJobTaskSvc) {
+				m.On("LinkTargets", mock.Anything, mock.Anything, mock.Anything).
+					Return(errors.New("failed to link targets"))
+			},
+			jobID: uuid.New(),
+			targetIDs: []uuid.UUID{
+				uuid.New(),
+				uuid.New(),
+			},
+			wantErr:     true,
+			expectedErr: "failed to link targets to job",
+		},
+		{
+			name: "empty target list",
+			setup: func(m *mockJobTaskSvc) {
+				m.On("LinkTargets", mock.Anything, mock.Anything, mock.MatchedBy(func(targets []uuid.UUID) bool {
+					return len(targets) == 0
+				})).Return(nil)
+			},
+			jobID:     uuid.New(),
+			targetIDs: []uuid.UUID{},
+			wantErr:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			suite := newTrackerTestSuite(t)
+			tt.setup(suite.jobCoordinator)
+
+			err := suite.tracker.LinkEnumeratedTargets(context.Background(), tt.jobID, tt.targetIDs)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.expectedErr)
+			} else {
+				require.NoError(t, err)
+			}
+
+			suite.jobCoordinator.AssertExpectations(t)
+		})
+	}
+}
+
 func TestExecutionTracker_HandleEnumeratedScanTask(t *testing.T) {
 	tests := []struct {
 		name    string
