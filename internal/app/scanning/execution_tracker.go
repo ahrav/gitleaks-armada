@@ -17,23 +17,19 @@ import (
 
 var _ scanning.ExecutionTracker = (*executionTracker)(nil)
 
-// executionTracker coordinates task lifecycle events between the job service
-// and progress tracking subsystems.
-// It ensures consistent state transitions and maintains accurate progress metrics
-// across the distributed system.
+// executionTracker coordinates job and task state transitions across the system.
+// It ensures consistent state transitions across the system.
 type executionTracker struct {
 	controllerID string
 
 	jobTaskSvc scanning.JobTaskService // Manages job and task state transitions
 	publisher  events.DomainEventPublisher
 
-	logger *logger.Logger // Structured logging for operational visibility
-	tracer trace.Tracer   // OpenTelemetry tracing for request flows
+	logger *logger.Logger
+	tracer trace.Tracer
 }
 
 // NewExecutionTracker constructs a new ExecutionTracker with required dependencies.
-// The jobTaskSvc handles state persistence and transitions, while logger and tracer
-// provide operational visibility into the progress tracking subsystem.
 func NewExecutionTracker(
 	controllerID string,
 	jobTaskSvc scanning.JobTaskService,
@@ -197,20 +193,20 @@ func (t *executionTracker) SignalEnumerationComplete(ctx context.Context, jobID 
 		))
 	defer span.End()
 
-	_, err := t.jobTaskSvc.GetJobMetrics(ctx, jobID)
+	jobMetrics, err := t.jobTaskSvc.GetJobMetrics(ctx, jobID)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to get job metrics")
 		return fmt.Errorf("failed to get job metrics: %w", err)
 	}
 
-	// enumerationCompleteEvent := scanning.EnumerationCompleteEvent{
-	// 		JobID:             jobID.String(), // Convert UUID to string
-	// 		TotalTasksExpected: jobMetrics.TotalTasks,
-	// }
-	// if err := t.eventProducer.Produce(ctx, "enumeration_complete", enumerationCompleteEvent, jobID.String()); err != nil{
-	// 	 return fmt.Errorf("failed to publish enumeration complete event")
-	// }
+	evt := scanning.NewJobEnumerationCompletedEvent(jobID, jobMetrics.TotalTasks())
+	if err := t.publisher.PublishDomainEvent(ctx, evt, events.WithKey(jobID.String())); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to publish job enumeration completed event")
+		return fmt.Errorf("failed to publish job enumeration completed event: %w", err)
+	}
+	span.AddEvent("job_enumeration_completed_event_published")
 
 	return nil
 }
