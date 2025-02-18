@@ -87,7 +87,6 @@ func NewEnumService(
 // in the configuration. It creates scan jobs, processes targets concurrently, and
 // handles the publishing of task events. The method ensures proper error handling
 // and metric tracking throughout the enumeration lifecycle.
-
 func (es *EnumService) StartEnumeration(ctx context.Context, targetSpec *enumeration.TargetSpec) enumeration.EnumerationResult {
 	logger := es.logger.With(
 		"operation", "start_enumeration",

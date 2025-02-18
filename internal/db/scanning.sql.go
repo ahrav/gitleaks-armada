@@ -524,7 +524,6 @@ WITH checkpoint_update AS (
 metrics_upsert AS (
     INSERT INTO scan_job_metrics (
         job_id,
-        total_tasks,
         pending_tasks,
         in_progress_tasks,
         completed_tasks,
@@ -533,11 +532,10 @@ metrics_upsert AS (
         created_at,
         updated_at
     ) VALUES (
-        $1, $4, $5, $6, $7, $8, $9, NOW(), NOW()
+        $1, $4, $5, $6, $7, $8, NOW(), NOW()
     )
     ON CONFLICT (job_id)
     DO UPDATE SET
-        total_tasks = EXCLUDED.total_tasks,
         pending_tasks = EXCLUDED.pending_tasks,
         in_progress_tasks = EXCLUDED.in_progress_tasks,
         completed_tasks = EXCLUDED.completed_tasks,
@@ -553,7 +551,6 @@ type UpdateJobMetricsAndCheckpointParams struct {
 	JobID           pgtype.UUID
 	PartitionID     int32
 	PartitionOffset int64
-	TotalTasks      int32
 	PendingTasks    int32
 	InProgressTasks int32
 	CompletedTasks  int32
@@ -561,12 +558,13 @@ type UpdateJobMetricsAndCheckpointParams struct {
 	StaleTasks      int32
 }
 
+// Explicitly ignore total_tasks as it should not be updated
+// outside the enumeration process.
 func (q *Queries) UpdateJobMetricsAndCheckpoint(ctx context.Context, arg UpdateJobMetricsAndCheckpointParams) error {
 	_, err := q.db.Exec(ctx, updateJobMetricsAndCheckpoint,
 		arg.JobID,
 		arg.PartitionID,
 		arg.PartitionOffset,
-		arg.TotalTasks,
 		arg.PendingTasks,
 		arg.InProgressTasks,
 		arg.CompletedTasks,

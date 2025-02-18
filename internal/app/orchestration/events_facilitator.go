@@ -376,6 +376,25 @@ func (ef *EventsFacilitator) HandleTaskFailed(
 	}, ack)
 }
 
+// HandleTaskJobMetric processes a TaskJobMetricEvent.
+// Note: This handler does not ack messages as the JobMetricsTracker handles offset
+// management internally after ensuring persistence.
+func (ef *EventsFacilitator) HandleTaskJobMetric(
+	ctx context.Context,
+	evt events.EventEnvelope,
+	ack events.AckFunc,
+) error {
+	return ef.withSpanNoAck(ctx, "events_facilitator.handle_task_job_metric", func(ctx context.Context, span trace.Span) error {
+		if err := ef.metricsTracker.HandleJobMetrics(ctx, evt, ack); err != nil {
+			return fmt.Errorf("failed to handle job metrics (partition: %d, offset: %d): %w",
+				evt.Metadata.Partition, evt.Metadata.Offset, err)
+		}
+
+		span.SetStatus(codes.Ok, "job metrics handled")
+		return nil
+	})
+}
+
 // HandleTaskHeartbeat processes a TaskHeartbeatEvent.
 func (ef *EventsFacilitator) HandleTaskHeartbeat(
 	ctx context.Context,
@@ -400,25 +419,6 @@ func (ef *EventsFacilitator) HandleTaskHeartbeat(
 		span.SetStatus(codes.Ok, "task heartbeat processed")
 		return nil
 	}, ack)
-}
-
-// HandleTaskJobMetric processes a TaskJobMetricEvent.
-// Note: This handler does not ack messages as the JobMetricsTracker handles offset
-// management internally after ensuring persistence.
-func (ef *EventsFacilitator) HandleTaskJobMetric(
-	ctx context.Context,
-	evt events.EventEnvelope,
-	ack events.AckFunc,
-) error {
-	return ef.withSpanNoAck(ctx, "events_facilitator.handle_task_job_metric", func(ctx context.Context, span trace.Span) error {
-		if err := ef.metricsTracker.HandleJobMetrics(ctx, evt, ack); err != nil {
-			return fmt.Errorf("failed to handle job metrics (partition: %d, offset: %d): %w",
-				evt.Metadata.Partition, evt.Metadata.Offset, err)
-		}
-
-		span.SetStatus(codes.Ok, "job metrics handled")
-		return nil
-	})
 }
 
 // -------------------------------------------------------------------------------------------------

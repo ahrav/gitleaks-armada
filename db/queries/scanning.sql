@@ -169,6 +169,8 @@ FROM job_metrics_checkpoints
 WHERE job_id = $1;
 
 -- name: UpdateJobMetricsAndCheckpoint :exec
+-- Explicitly ignore total_tasks as it should not be updated
+-- outside the enumeration process.
 WITH checkpoint_update AS (
     INSERT INTO job_metrics_checkpoints (
         job_id,
@@ -187,7 +189,6 @@ WITH checkpoint_update AS (
 metrics_upsert AS (
     INSERT INTO scan_job_metrics (
         job_id,
-        total_tasks,
         pending_tasks,
         in_progress_tasks,
         completed_tasks,
@@ -196,11 +197,10 @@ metrics_upsert AS (
         created_at,
         updated_at
     ) VALUES (
-        $1, $4, $5, $6, $7, $8, $9, NOW(), NOW()
+        $1, $4, $5, $6, $7, $8, NOW(), NOW()
     )
     ON CONFLICT (job_id)
     DO UPDATE SET
-        total_tasks = EXCLUDED.total_tasks,
         pending_tasks = EXCLUDED.pending_tasks,
         in_progress_tasks = EXCLUDED.in_progress_tasks,
         completed_tasks = EXCLUDED.completed_tasks,

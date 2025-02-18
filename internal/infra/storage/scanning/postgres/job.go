@@ -473,7 +473,6 @@ func (r *jobStore) UpdateMetricsAndCheckpoint(
 			JobID:           pgtype.UUID{Bytes: jobID, Valid: true},
 			PartitionID:     partitionID,
 			PartitionOffset: offset,
-			TotalTasks:      int32(metrics.TotalTasks()),
 			PendingTasks:    int32(metrics.PendingTasks()),
 			InProgressTasks: int32(metrics.InProgressTasks()),
 			CompletedTasks:  int32(metrics.CompletedTasks()),
