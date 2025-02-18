@@ -6,6 +6,7 @@ metadata:
 data:
   KAFKA_TASK_CREATED_TOPIC: "task-created"
   KAFKA_JOB_CREATED_TOPIC: "job-created"
+  KAFKA_JOB_ENUMERATION_COMPLETED_TOPIC: "job-enumeration-completed"
   KAFKA_SCANNING_TASK_TOPIC: "scanning-tasks"
   KAFKA_HIGH_PRIORITY_TASK_TOPIC: "high-priority-tasks"
   KAFKA_JOB_METRICS_TOPIC: "job-metrics"

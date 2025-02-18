@@ -37,9 +37,10 @@ type EventBusConfig struct {
 
 	// TaskCreatedTopic is the topic name for publishing task created events.
 	TaskCreatedTopic string
-
 	// JobCreatedTopic is the topic name for publishing job created events.
 	JobCreatedTopic string
+	// JobEnumerationCompletedTopic is the topic name for publishing job enumeration completed events.
+	JobEnumerationCompletedTopic string
 	// ScanningTaskTopic is the topic name for publishing scanning tasks.
 	ScanningTaskTopic string
 	// ProgressTopic is the topic name for publishing scan progress updates.
@@ -106,19 +107,20 @@ func NewEventBus(
 	// Map domain events to their corresponding Kafka topics.
 	// TODO: Maybe use a more performant data structure for this?
 	topicMap := map[events.EventType]string{
-		rules.EventTypeRulesRequested:    cfg.RulesRequestTopic,     // controller -> scanner
-		rules.EventTypeRulesUpdated:      cfg.RulesResponseTopic,    // scanner -> controller
-		rules.EventTypeRulesPublished:    cfg.RulesResponseTopic,    // scanner -> controller
-		scanning.EventTypeJobRequested:   cfg.ScanningTaskTopic,     // api -> controller
-		scanning.EventTypeJobCreated:     cfg.JobCreatedTopic,       // controller -> controller
-		scanning.EventTypeTaskCreated:    cfg.TaskCreatedTopic,      // controller -> scanner
-		scanning.EventTypeTaskStarted:    cfg.ScanningTaskTopic,     // scanner -> controller
-		scanning.EventTypeTaskProgressed: cfg.ScanningTaskTopic,     // scanner -> controller
-		scanning.EventTypeTaskCompleted:  cfg.ScanningTaskTopic,     // scanner -> controller
-		scanning.EventTypeTaskFailed:     cfg.ScanningTaskTopic,     // scanner -> controller
-		scanning.EventTypeTaskHeartbeat:  cfg.ScanningTaskTopic,     // scanner -> controller
-		scanning.EventTypeTaskResume:     cfg.HighPriorityTaskTopic, // controller -> scanner
-		scanning.EventTypeTaskJobMetric:  cfg.JobMetricsTopic,       // scanner -> controller && controller -> controller
+		rules.EventTypeRulesRequested:             cfg.RulesRequestTopic,            // controller -> scanner
+		rules.EventTypeRulesUpdated:               cfg.RulesResponseTopic,           // scanner -> controller
+		rules.EventTypeRulesPublished:             cfg.RulesResponseTopic,           // scanner -> controller
+		scanning.EventTypeJobRequested:            cfg.ScanningTaskTopic,            // api -> controller
+		scanning.EventTypeJobCreated:              cfg.JobCreatedTopic,              // controller -> controller
+		scanning.EventTypeTaskCreated:             cfg.TaskCreatedTopic,             // controller -> scanner
+		scanning.EventTypeJobEnumerationCompleted: cfg.JobEnumerationCompletedTopic, // controller -> controller
+		scanning.EventTypeTaskStarted:             cfg.ScanningTaskTopic,            // scanner -> controller
+		scanning.EventTypeTaskProgressed:          cfg.ScanningTaskTopic,            // scanner -> controller
+		scanning.EventTypeTaskCompleted:           cfg.ScanningTaskTopic,            // scanner -> controller
+		scanning.EventTypeTaskFailed:              cfg.ScanningTaskTopic,            // scanner -> controller
+		scanning.EventTypeTaskHeartbeat:           cfg.ScanningTaskTopic,            // scanner -> controller
+		scanning.EventTypeTaskResume:              cfg.HighPriorityTaskTopic,        // controller -> scanner
+		scanning.EventTypeTaskJobMetric:           cfg.JobMetricsTopic,              // scanner -> controller && controller -> controller
 	}
 
 	bus := &EventBus{

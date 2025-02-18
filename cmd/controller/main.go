@@ -220,19 +220,20 @@ func main() {
 	}
 
 	kafkaCfg := &kafka.EventBusConfig{
-		Brokers:               strings.Split(os.Getenv("KAFKA_BROKERS"), ","),
-		TaskCreatedTopic:      os.Getenv("KAFKA_TASK_CREATED_TOPIC"),
-		ScanningTaskTopic:     os.Getenv("KAFKA_SCANNING_TASK_TOPIC"),
-		ResultsTopic:          os.Getenv("KAFKA_RESULTS_TOPIC"),
-		ProgressTopic:         os.Getenv("KAFKA_PROGRESS_TOPIC"),
-		JobMetricsTopic:       os.Getenv("KAFKA_JOB_METRICS_TOPIC"),
-		HighPriorityTaskTopic: os.Getenv("KAFKA_HIGH_PRIORITY_TASK_TOPIC"),
-		RulesRequestTopic:     os.Getenv("KAFKA_RULES_REQUEST_TOPIC"),
-		RulesResponseTopic:    os.Getenv("KAFKA_RULES_RESPONSE_TOPIC"),
-		GroupID:               os.Getenv("KAFKA_GROUP_ID"),
-		ClientID:              svcName,
-		ServiceType:           serviceType,
-		JobCreatedTopic:       os.Getenv("KAFKA_JOB_CREATED_TOPIC"),
+		Brokers:                      strings.Split(os.Getenv("KAFKA_BROKERS"), ","),
+		TaskCreatedTopic:             os.Getenv("KAFKA_TASK_CREATED_TOPIC"),
+		ScanningTaskTopic:            os.Getenv("KAFKA_SCANNING_TASK_TOPIC"),
+		ResultsTopic:                 os.Getenv("KAFKA_RESULTS_TOPIC"),
+		ProgressTopic:                os.Getenv("KAFKA_PROGRESS_TOPIC"),
+		JobMetricsTopic:              os.Getenv("KAFKA_JOB_METRICS_TOPIC"),
+		HighPriorityTaskTopic:        os.Getenv("KAFKA_HIGH_PRIORITY_TASK_TOPIC"),
+		RulesRequestTopic:            os.Getenv("KAFKA_RULES_REQUEST_TOPIC"),
+		RulesResponseTopic:           os.Getenv("KAFKA_RULES_RESPONSE_TOPIC"),
+		JobCreatedTopic:              os.Getenv("KAFKA_JOB_CREATED_TOPIC"),
+		JobEnumerationCompletedTopic: os.Getenv("KAFKA_JOB_ENUMERATION_COMPLETED_TOPIC"),
+		GroupID:                      os.Getenv("KAFKA_GROUP_ID"),
+		ClientID:                     svcName,
+		ServiceType:                  serviceType,
 	}
 
 	// Create the shared Kafka client
