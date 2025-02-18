@@ -152,6 +152,17 @@ WHERE t.owner_controller_id = $1
   AND t.status = 'IN_PROGRESS'
   AND t.last_heartbeat_at < $2;
 
+-- name: CreateJobMetrics :exec
+INSERT INTO scan_job_metrics (
+    job_id,
+    created_at,
+    updated_at
+) VALUES (
+    $1,
+    NOW(),
+    NOW()
+);
+
 -- name: GetJobMetrics :one
 SELECT
     total_tasks,

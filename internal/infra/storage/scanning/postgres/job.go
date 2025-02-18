@@ -45,7 +45,7 @@ var defaultDBAttributes = []attribute.KeyValue{
 	attribute.String("db.system", "postgresql"),
 }
 
-// CreateJob persists a new scan job to the database.
+// CreateJob persists a new scan job and initializes its metrics record.
 func (r *jobStore) CreateJob(ctx context.Context, job *scanning.Job) error {
 	dbAttrs := append(
 		defaultDBAttributes,
@@ -55,14 +55,32 @@ func (r *jobStore) CreateJob(ctx context.Context, job *scanning.Job) error {
 	)
 
 	return storage.ExecuteAndTrace(ctx, r.tracer, "postgres.create_job", dbAttrs, func(ctx context.Context) error {
-		err := r.q.CreateJob(ctx, db.CreateJobParams{
+		// Initial job metrics should get created alongisde the job.
+		ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		defer cancel()
+
+		tx, err := r.db.Begin(ctx)
+		if err != nil {
+			return fmt.Errorf("begin transaction error: %w", err)
+		}
+		defer tx.Rollback(ctx)
+
+		qtx := r.q.WithTx(tx)
+
+		err = qtx.CreateJob(ctx, db.CreateJobParams{
 			JobID:  pgtype.UUID{Bytes: job.JobID(), Valid: true},
 			Status: db.ScanJobStatus(job.Status()),
 		})
 		if err != nil {
 			return fmt.Errorf("CreateJob insert error: %w", err)
 		}
-		return nil
+
+		err = qtx.CreateJobMetrics(ctx, pgtype.UUID{Bytes: job.JobID(), Valid: true})
+		if err != nil {
+			return fmt.Errorf("CreateJobMetrics insert error: %w", err)
+		}
+
+		return tx.Commit(ctx)
 	})
 }
 

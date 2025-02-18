@@ -73,6 +73,23 @@ func (q *Queries) CreateJob(ctx context.Context, arg CreateJobParams) error {
 	return err
 }
 
+const createJobMetrics = `-- name: CreateJobMetrics :exec
+INSERT INTO scan_job_metrics (
+    job_id,
+    created_at,
+    updated_at
+) VALUES (
+    $1,
+    NOW(),
+    NOW()
+)
+`
+
+func (q *Queries) CreateJobMetrics(ctx context.Context, jobID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, createJobMetrics, jobID)
+	return err
+}
+
 const createScanTask = `-- name: CreateScanTask :exec
 INSERT INTO scan_tasks (
     task_id,

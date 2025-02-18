@@ -58,6 +58,35 @@ func TestJobStore_CreateAndGet(t *testing.T) {
 	assert.True(t, loaded.StartTime().IsZero(), "New jobs should not have a start time")
 }
 
+func TestJobStore_CreateAndGet_WithMetrics(t *testing.T) {
+	t.Parallel()
+	ctx, _, store, cleanup := setupJobTest(t)
+	defer cleanup()
+
+	job := createTestJob(t, scanning.JobStatusQueued)
+	err := store.CreateJob(ctx, job)
+	require.NoError(t, err)
+
+	loaded, err := store.GetJob(ctx, job.JobID())
+	require.NoError(t, err)
+	require.NotNil(t, loaded)
+
+	assert.Equal(t, job.JobID(), loaded.JobID())
+	assert.Equal(t, job.Status(), loaded.Status())
+
+	metrics, err := store.GetJobMetrics(ctx, job.JobID())
+	require.NoError(t, err)
+	require.NotNil(t, metrics)
+
+	// All metrics should be zero initially.
+	assert.Equal(t, 0, metrics.TotalTasks())
+	assert.Equal(t, 0, metrics.PendingTasks())
+	assert.Equal(t, 0, metrics.InProgressTasks())
+	assert.Equal(t, 0, metrics.CompletedTasks())
+	assert.Equal(t, 0, metrics.FailedTasks())
+	assert.Equal(t, 0, metrics.StaleTasks())
+}
+
 type mockTimeProvider struct {
 	current time.Time
 }
