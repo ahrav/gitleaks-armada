@@ -37,6 +37,11 @@ func (m *mockExecutionTracker) AssociateEnumeratedTargetsToJob(ctx context.Conte
 	return args.Error(0)
 }
 
+func (m *mockExecutionTracker) SignalEnumerationComplete(ctx context.Context, jobID uuid.UUID) error {
+	args := m.Called(ctx, jobID)
+	return args.Error(0)
+}
+
 func (m *mockExecutionTracker) HandleTaskStart(ctx context.Context, evt scanning.TaskStartedEvent) error {
 	args := m.Called(ctx, evt)
 	return args.Error(0)

@@ -40,6 +40,11 @@ type ExecutionTracker interface {
 	// that will be scanned as part of a scan job.
 	AssociateEnumeratedTargetsToJob(ctx context.Context, jobID uuid.UUID, scanTargetIDs []uuid.UUID) error
 
+	// SignalEnumerationComplete signals that the enumeration phase is complete for a job.
+	// It retrieves the job metrics and publishes an EnumerationCompleteEvent.
+	// This allows for accurate job metrics tracking.
+	SignalEnumerationComplete(ctx context.Context, jobID uuid.UUID) error
+
 	// HandleTaskStart initializes tracking for a new task by registering it with the job service
 	// and setting up initial progress metrics. If this is the first task in a job, it will
 	// transition the job from QUEUED to RUNNING status.

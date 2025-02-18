@@ -193,6 +193,7 @@ func (ef *EventsFacilitator) HandleScanJobCreated(
 		if err != nil {
 			return fmt.Errorf("failed to convert scanning target to enumeration spec: %w", err)
 		}
+		jobID := uuid.MustParse(jobEvt.JobID)
 
 		// Get streaming results from enumeration service and delegate to execution tracker.
 		result := ef.enumService.StartEnumeration(ctx, targetSpec)
@@ -208,7 +209,7 @@ func (ef *EventsFacilitator) HandleScanJobCreated(
 					continue
 				}
 				// Delegate target linking to execution tracker.
-				if err := ef.executionTracker.AssociateEnumeratedTargetsToJob(ctx, uuid.MustParse(jobEvt.JobID), scanTargetIDs); err != nil {
+				if err := ef.executionTracker.AssociateEnumeratedTargetsToJob(ctx, jobID, scanTargetIDs); err != nil {
 					return fmt.Errorf("failed to link enumerated targets: %w", err)
 				}
 
@@ -217,11 +218,11 @@ func (ef *EventsFacilitator) HandleScanJobCreated(
 					result.TasksCh = nil
 					continue
 				}
-				translationResult := ef.enumToScanACL.Translate(uuid.MustParse(jobEvt.JobID), task)
+				translationResult := ef.enumToScanACL.Translate(jobID, task)
 
 				if err := ef.executionTracker.HandleEnumeratedScanTask(
 					ctx,
-					uuid.MustParse(jobEvt.JobID),
+					jobID,
 					translationResult.Task,
 					translationResult.Auth,
 					translationResult.Metadata,
@@ -243,6 +244,9 @@ func (ef *EventsFacilitator) HandleScanJobCreated(
 			if result.ScanTargetsCh == nil &&
 				result.TasksCh == nil &&
 				result.ErrCh == nil {
+				if err := ef.executionTracker.SignalEnumerationComplete(ctx, jobID); err != nil {
+					return fmt.Errorf("failed to signal enumeration complete: %w", err)
+				}
 				break
 			}
 		}
