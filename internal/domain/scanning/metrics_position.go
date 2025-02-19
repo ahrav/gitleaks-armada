@@ -22,7 +22,7 @@ func NewJobMetricsPosition(jobID uuid.UUID, partition int32, offset int64) JobMe
 }
 
 // StreamType returns the type of entity this position is for.
-func (p JobMetricsPosition) StreamType() events.StreamType { return JobMetricsStreamType }
+func (p JobMetricsPosition) StreamType() events.StreamType { return JobLifecycleStreamType }
 
 // StreamID returns a unique identifier for the position.
 func (p JobMetricsPosition) StreamID() string { return fmt.Sprintf("%d:%d", p.Partition, p.Offset) }

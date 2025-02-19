@@ -44,21 +44,11 @@ spec:
               key: KAFKA_BROKERS
         - name: KAFKA_GROUP_ID
           value: "api-gateway"
-        - name: KAFKA_SCANNING_TASK_TOPIC
+        - name: KAFKA_JOB_LIFECYCLE_TOPIC
           valueFrom:
             configMapKeyRef:
               name: scanner-config
-              key: KAFKA_SCANNING_TASK_TOPIC
-        - name: KAFKA_RESULTS_TOPIC
-          valueFrom:
-            configMapKeyRef:
-              name: scanner-config
-              key: KAFKA_RESULTS_TOPIC
-        - name: KAFKA_JOB_METRICS_TOPIC
-          valueFrom:
-            configMapKeyRef:
-              name: scanner-config
-              key: KAFKA_JOB_METRICS_TOPIC
+              key: KAFKA_JOB_LIFECYCLE_TOPIC
         # Database configuration
         - name: POSTGRES_USER
           valueFrom:

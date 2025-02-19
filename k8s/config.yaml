@@ -5,11 +5,9 @@ metadata:
   namespace: secret-scanner
 data:
   KAFKA_TASK_CREATED_TOPIC: "task-created"
-  KAFKA_JOB_CREATED_TOPIC: "job-created"
-  KAFKA_JOB_ENUMERATION_COMPLETED_TOPIC: "job-enumeration-completed"
   KAFKA_SCANNING_TASK_TOPIC: "scanning-tasks"
+  KAFKA_JOB_LIFECYCLE_TOPIC: "job-lifecycle"
   KAFKA_HIGH_PRIORITY_TASK_TOPIC: "high-priority-tasks"
-  KAFKA_JOB_METRICS_TOPIC: "job-metrics"
   KAFKA_RESULTS_TOPIC: "results"
   KAFKA_PROGRESS_TOPIC: "progress"
   KAFKA_RULES_REQUEST_TOPIC: "rules-requests"

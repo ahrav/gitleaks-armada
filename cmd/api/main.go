@@ -248,10 +248,7 @@ func run(ctx context.Context, log *logger.Logger, hostname string) error {
 
 	bus, err := kafka.ConnectEventBus(&kafka.EventBusConfig{
 		Brokers:           strings.Split(os.Getenv("KAFKA_BROKERS"), ","),
-		ScanningTaskTopic: os.Getenv("KAFKA_SCANNING_TASK_TOPIC"),
-		ResultsTopic:      os.Getenv("KAFKA_RESULTS_TOPIC"),
-		ProgressTopic:     os.Getenv("KAFKA_PROGRESS_TOPIC"),
-		JobMetricsTopic:   os.Getenv("KAFKA_JOB_METRICS_TOPIC"),
+		JobLifecycleTopic: os.Getenv("KAFKA_JOB_LIFECYCLE_TOPIC"),
 		GroupID:           os.Getenv("KAFKA_GROUP_ID"),
 		ClientID:          os.Getenv("OTEL_SERVICE_NAME"),
 		ServiceType:       serviceType,

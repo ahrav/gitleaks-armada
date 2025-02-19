@@ -81,11 +81,11 @@ spec:
             configMapKeyRef:
               name: scanner-config
               key: KAFKA_HIGH_PRIORITY_TASK_TOPIC
-        - name: KAFKA_JOB_METRICS_TOPIC
+        - name: KAFKA_JOB_LIFECYCLE_TOPIC
           valueFrom:
             configMapKeyRef:
               name: scanner-config
-              key: KAFKA_JOB_METRICS_TOPIC
+              key: KAFKA_JOB_LIFECYCLE_TOPIC
         resources:
           requests:
             memory: "256Mi"

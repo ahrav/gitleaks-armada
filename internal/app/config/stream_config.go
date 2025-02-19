@@ -10,7 +10,7 @@ import (
 // It is used to map stream types to Kafka topics.
 func NewTopicMapper(cfg *kafka.EventBusConfig) kafka.TopicMapper {
 	return kafka.NewStaticTopicMapper(map[events.StreamType]string{
-		scanning.JobMetricsStreamType: cfg.JobMetricsTopic,
+		scanning.JobLifecycleStreamType: cfg.JobLifecycleTopic,
 		// TODO: Add all the other topics which we need to replay events from or
 		// commit offsets for.
 	})

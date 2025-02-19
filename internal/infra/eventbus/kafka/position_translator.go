@@ -87,7 +87,7 @@ type JobMetricsTranslationRule struct{}
 
 // EntityType returns the type of entity this rule handles.
 func (r JobMetricsTranslationRule) EntityType() events.StreamType {
-	return scanning.JobMetricsStreamType
+	return scanning.JobLifecycleStreamType
 }
 
 // Translate translates a job metrics entity ID into a Kafka position.

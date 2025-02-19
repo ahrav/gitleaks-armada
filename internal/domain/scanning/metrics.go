@@ -12,7 +12,7 @@ import (
 
 // TODO: Figure out how to make sure this maps to the correct topic.
 const (
-	JobMetricsStreamType events.StreamType = "job-metrics"
+	JobLifecycleStreamType events.StreamType = "job-lifecycle"
 )
 
 // Metrics tracking provides real-time visibility into scanning operations across

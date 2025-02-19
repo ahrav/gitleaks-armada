@@ -96,21 +96,11 @@ spec:
             configMapKeyRef:
               name: scanner-config
               key: KAFKA_HIGH_PRIORITY_TASK_TOPIC
-        - name: KAFKA_JOB_METRICS_TOPIC
+        - name: KAFKA_JOB_LIFECYCLE_TOPIC
           valueFrom:
             configMapKeyRef:
               name: scanner-config
-              key: KAFKA_JOB_METRICS_TOPIC
-        - name: KAFKA_JOB_CREATED_TOPIC
-          valueFrom:
-            configMapKeyRef:
-              name: scanner-config
-              key: KAFKA_JOB_CREATED_TOPIC
-        - name: KAFKA_JOB_ENUMERATION_COMPLETED_TOPIC
-          valueFrom:
-            configMapKeyRef:
-              name: scanner-config
-              key: KAFKA_JOB_ENUMERATION_COMPLETED_TOPIC
+              key: KAFKA_JOB_LIFECYCLE_TOPIC
         resources:
           requests:
             memory: "512Mi"
