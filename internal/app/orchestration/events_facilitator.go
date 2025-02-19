@@ -247,7 +247,7 @@ func (ef *EventsFacilitator) HandleScanJobCreated(
 			}
 		}
 
-		if err := ef.executionTracker.SignalEnumerationComplete(ctx, jobID); err != nil {
+		if err := ef.executionTracker.SignalEnumerationComplete(ctx, jobEvt.Job); err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "failed to signal enumeration complete")
 			return fmt.Errorf("failed to signal enumeration complete: %w", err)
