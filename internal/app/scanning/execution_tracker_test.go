@@ -36,12 +36,12 @@ func (m *mockJobTaskSvc) AssociateEnumeratedTargets(ctx context.Context, jobID u
 	return m.Called(ctx, jobID, targetIDs).Error(0)
 }
 
-func (m *mockJobTaskSvc) UpdateJobStatus(ctx context.Context, job *scanning.Job, status scanning.JobStatus) error {
-	return m.Called(ctx, job, status).Error(0)
+func (m *mockJobTaskSvc) UpdateJobStatus(ctx context.Context, jobID uuid.UUID, status scanning.JobStatus) error {
+	return m.Called(ctx, jobID, status).Error(0)
 }
 
-func (m *mockJobTaskSvc) CompleteEnumeration(ctx context.Context, job *scanning.Job) (*scanning.JobMetrics, error) {
-	return m.Called(ctx, job).Get(0).(*scanning.JobMetrics), m.Called(ctx, job).Error(1)
+func (m *mockJobTaskSvc) CompleteEnumeration(ctx context.Context, jobID uuid.UUID) (*scanning.JobMetrics, error) {
+	return m.Called(ctx, jobID).Get(0).(*scanning.JobMetrics), m.Called(ctx, jobID).Error(1)
 }
 
 func (m *mockJobTaskSvc) CreateTask(ctx context.Context, task *scanning.Task) error {

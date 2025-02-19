@@ -66,7 +66,7 @@ type ExecutionTracker interface {
 	// lifecycle is accurately updated.
 	ProcessEnumerationStream(
 		ctx context.Context,
-		job *Job,
+		jobID uuid.UUID,
 		result *ScanningResult,
 	) error
 

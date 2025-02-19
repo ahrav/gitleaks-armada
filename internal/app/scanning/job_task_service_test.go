@@ -360,7 +360,7 @@ func TestUpdateJobStatus(t *testing.T) {
 			tt.setup(suite)
 
 			job := domain.NewJobWithStatus(uuid.New(), tt.initialStatus)
-			err := suite.coord.UpdateJobStatus(context.Background(), job, tt.targetStatus)
+			err := suite.coord.UpdateJobStatus(context.Background(), job.JobID(), tt.targetStatus)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -916,6 +916,147 @@ func TestGetTaskSourceType(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantSourceType, sourceType)
 			suite.taskRepo.AssertExpectations(t)
+		})
+	}
+}
+
+func TestGetJobMetrics(t *testing.T) {
+	jobID := uuid.MustParse("429735d7-ec1b-4d96-8749-938ca0a744be")
+
+	tests := []struct {
+		name    string
+		setup   func(*coordinatorTestSuite)
+		wantErr bool
+	}{
+		{
+			name: "successfully get job metrics",
+			setup: func(s *coordinatorTestSuite) {
+				metrics := domain.NewJobMetrics()
+				s.jobRepo.On("GetJobMetrics", mock.Anything, jobID).
+					Return(metrics, nil)
+			},
+			wantErr: false,
+		},
+		{
+			name: "repository error",
+			setup: func(s *coordinatorTestSuite) {
+				s.jobRepo.On("GetJobMetrics", mock.Anything, jobID).
+					Return(nil, assert.AnError)
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			suite := newCoordinatorTestSuite(t)
+			tt.setup(suite)
+
+			metrics, err := suite.coord.GetJobMetrics(context.Background(), jobID)
+			if tt.wantErr {
+				require.Error(t, err)
+				require.Nil(t, metrics)
+				return
+			}
+
+			require.NoError(t, err)
+			require.NotNil(t, metrics)
+			suite.jobRepo.AssertExpectations(t)
+		})
+	}
+}
+
+func TestGetCheckpoints(t *testing.T) {
+	jobID := uuid.MustParse("429735d7-ec1b-4d96-8749-938ca0a744be")
+
+	tests := []struct {
+		name    string
+		setup   func(*coordinatorTestSuite)
+		wantErr bool
+	}{
+		{
+			name: "successfully get checkpoints",
+			setup: func(s *coordinatorTestSuite) {
+				checkpoints := map[int32]int64{
+					0: 100,
+					1: 200,
+				}
+				s.jobRepo.On("GetCheckpoints", mock.Anything, jobID).
+					Return(checkpoints, nil)
+			},
+			wantErr: false,
+		},
+		{
+			name: "repository error",
+			setup: func(s *coordinatorTestSuite) {
+				s.jobRepo.On("GetCheckpoints", mock.Anything, jobID).
+					Return(nil, assert.AnError)
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			suite := newCoordinatorTestSuite(t)
+			tt.setup(suite)
+
+			checkpoints, err := suite.coord.GetCheckpoints(context.Background(), jobID)
+			if tt.wantErr {
+				require.Error(t, err)
+				require.Nil(t, checkpoints)
+				return
+			}
+
+			require.NoError(t, err)
+			require.NotNil(t, checkpoints)
+			suite.jobRepo.AssertExpectations(t)
+		})
+	}
+}
+
+func TestUpdateMetricsAndCheckpoint(t *testing.T) {
+	jobID := uuid.MustParse("429735d7-ec1b-4d96-8749-938ca0a744be")
+	metrics := domain.NewJobMetrics()
+	partition := int32(0)
+	offset := int64(100)
+
+	tests := []struct {
+		name    string
+		setup   func(*coordinatorTestSuite)
+		wantErr bool
+	}{
+		{
+			name: "successfully update metrics and checkpoint",
+			setup: func(s *coordinatorTestSuite) {
+				s.jobRepo.On("UpdateMetricsAndCheckpoint", mock.Anything, jobID, metrics, partition, offset).
+					Return(nil)
+			},
+			wantErr: false,
+		},
+		{
+			name: "repository error",
+			setup: func(s *coordinatorTestSuite) {
+				s.jobRepo.On("UpdateMetricsAndCheckpoint", mock.Anything, jobID, metrics, partition, offset).
+					Return(assert.AnError)
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			suite := newCoordinatorTestSuite(t)
+			tt.setup(suite)
+
+			err := suite.coord.UpdateMetricsAndCheckpoint(context.Background(), jobID, metrics, partition, offset)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+			suite.jobRepo.AssertExpectations(t)
 		})
 	}
 }

@@ -61,6 +61,9 @@ type MetricsRepository interface {
 	// GetCheckpoints retrieves all checkpoints for a job's metrics.
 	GetCheckpoints(ctx context.Context, jobID uuid.UUID) (map[int32]int64, error)
 
+	// UpdateJobStatus updates the status of a job.
+	UpdateJobStatus(ctx context.Context, jobID uuid.UUID, status JobStatus) error
+
 	// UpdateMetricsAndCheckpoint updates the metrics and checkpoint for a job.
 	UpdateMetricsAndCheckpoint(
 		ctx context.Context,

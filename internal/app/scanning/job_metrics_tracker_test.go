@@ -23,6 +23,7 @@ type mockMetricsRepository struct {
 	getJobMetricsFn              func(ctx context.Context, jobID uuid.UUID) (*domain.JobMetrics, error)
 	getTaskFn                    func(ctx context.Context, taskID uuid.UUID) (*domain.Task, error)
 	getCheckpointsFn             func(ctx context.Context, jobID uuid.UUID) (map[int32]int64, error)
+	updateJobStatusFn            func(ctx context.Context, jobID uuid.UUID, status domain.JobStatus) error
 	updateMetricsAndCheckpointFn func(
 		ctx context.Context,
 		jobID uuid.UUID,
@@ -57,6 +58,15 @@ func (m *mockMetricsRepository) GetCheckpoints(ctx context.Context, jobID uuid.U
 		return m.getCheckpointsFn(ctx, jobID)
 	}
 	return nil, nil
+}
+
+func (m *mockMetricsRepository) UpdateJobStatus(ctx context.Context, jobID uuid.UUID, status domain.JobStatus) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.updateJobStatusFn != nil {
+		return m.updateJobStatusFn(ctx, jobID, status)
+	}
+	return nil
 }
 
 func (m *mockMetricsRepository) UpdateMetricsAndCheckpoint(

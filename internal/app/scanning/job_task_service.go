@@ -16,6 +16,7 @@ import (
 )
 
 var _ domain.JobTaskService = (*jobTaskService)(nil)
+var _ domain.MetricsRepository = (*jobTaskService)(nil)
 
 // jobTaskService is responsible for managing the lifecycle of jobs and tasks.
 type jobTaskService struct {
@@ -81,7 +82,7 @@ func (s *jobTaskService) CreateJob(ctx context.Context) (*domain.Job, error) {
 // prevents partially associated targets or out-of-sync task counts.
 //
 //  1. jobRepo.AssociateTargets: Persists the relationship between the job and the targetIDs.
-//  2. jobRepo.IncrementTotalTasks: Adjusts the job’s total tasks count to account for the new targets.
+//  2. jobRepo.IncrementTotalTasks: Adjusts the job's total tasks count to account for the new targets.
 func (s *jobTaskService) AssociateEnumeratedTargets(
 	ctx context.Context,
 	jobID uuid.UUID,
@@ -117,15 +118,45 @@ func (s *jobTaskService) AssociateEnumeratedTargets(
 	return nil
 }
 
+// loadJob retrieves a job from the repository.
+func (s *jobTaskService) loadJob(ctx context.Context, jobID uuid.UUID) (*domain.Job, error) {
+	ctx, span := s.tracer.Start(ctx, "job_task_service.scanning.load_job",
+		trace.WithAttributes(
+			attribute.String("controller_id", s.controllerID),
+			attribute.String("job_id", jobID.String()),
+		),
+	)
+	defer span.End()
+
+	job, err := s.jobRepo.GetJob(ctx, jobID)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to get job")
+		return nil, fmt.Errorf("failed to get job: %w", err)
+	}
+
+	span.AddEvent("job_loaded")
+	span.SetStatus(codes.Ok, "job loaded successfully")
+
+	return job, nil
+}
+
 // UpdateJobStatus updates the status of a job after validating the state transition.
-func (s *jobTaskService) UpdateJobStatus(ctx context.Context, job *domain.Job, status domain.JobStatus) error {
+func (s *jobTaskService) UpdateJobStatus(ctx context.Context, jobID uuid.UUID, status domain.JobStatus) error {
 	ctx, span := s.tracer.Start(ctx, "job_task_service.scanning.update_job_status",
 		trace.WithAttributes(
-			attribute.String("job_id", job.JobID().String()),
-			attribute.String("current_status", string(job.Status())),
+			attribute.String("job_id", jobID.String()),
+			attribute.String("current_status", string(status)),
 			attribute.String("target_status", string(status)),
 		))
 	defer span.End()
+
+	job, err := s.loadJob(ctx, jobID)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to load job")
+		return fmt.Errorf("failed to load job: %w", err)
+	}
 
 	if err := job.UpdateStatus(status); err != nil {
 		span.RecordError(err)
@@ -153,15 +184,21 @@ func (s *jobTaskService) UpdateJobStatus(ctx context.Context, job *domain.Job, s
 // CompleteEnumeration finalizes the enumeration phase of a job and transitions it
 // to the appropriate next state based on whether any tasks were created.
 // It returns the job metrics needed for event publishing.
-func (s *jobTaskService) CompleteEnumeration(ctx context.Context, job *domain.Job) (*domain.JobMetrics, error) {
+func (s *jobTaskService) CompleteEnumeration(ctx context.Context, jobID uuid.UUID) (*domain.JobMetrics, error) {
 	ctx, span := s.tracer.Start(ctx, "job_task_service.scanning.complete_enumeration",
 		trace.WithAttributes(
-			attribute.String("job_id", job.JobID().String()),
-			attribute.String("current_status", string(job.Status())),
+			attribute.String("job_id", jobID.String()),
 		))
 	defer span.End()
 
-	metrics, err := s.jobRepo.GetJobMetrics(ctx, job.JobID())
+	job, err := s.loadJob(ctx, jobID)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to load job")
+		return nil, fmt.Errorf("failed to load job: %w", err)
+	}
+
+	metrics, err := s.GetJobMetrics(ctx, jobID)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to get job metrics")
@@ -517,4 +554,81 @@ func (s *jobTaskService) FindStaleTasks(
 	span.SetStatus(codes.Ok, "stale tasks found successfully")
 
 	return staleTasks, nil
+}
+
+// GetJobMetrics retrieves the metrics for a specific job.
+// Returns ErrJobNotFound if the job doesn't exist.
+func (s *jobTaskService) GetJobMetrics(ctx context.Context, jobID uuid.UUID) (*domain.JobMetrics, error) {
+	ctx, span := s.tracer.Start(ctx, "job_task_service.scanning.get_job_metrics",
+		trace.WithAttributes(
+			attribute.String("controller_id", s.controllerID),
+			attribute.String("job_id", jobID.String()),
+		),
+	)
+	defer span.End()
+
+	metrics, err := s.jobRepo.GetJobMetrics(ctx, jobID)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to get job metrics")
+		return nil, fmt.Errorf("failed to get job metrics: %w", err)
+	}
+
+	span.AddEvent("job_metrics_retrieved")
+	span.SetStatus(codes.Ok, "job metrics retrieved successfully")
+
+	return metrics, nil
+}
+
+// GetCheckpoints retrieves all checkpoints for a job's metrics.
+func (s *jobTaskService) GetCheckpoints(ctx context.Context, jobID uuid.UUID) (map[int32]int64, error) {
+	ctx, span := s.tracer.Start(ctx, "job_task_service.scanning.get_checkpoints",
+		trace.WithAttributes(
+			attribute.String("controller_id", s.controllerID),
+			attribute.String("job_id", jobID.String()),
+		),
+	)
+	defer span.End()
+
+	checkpoints, err := s.jobRepo.GetCheckpoints(ctx, jobID)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to get checkpoints")
+		return nil, fmt.Errorf("failed to get checkpoints: %w", err)
+	}
+
+	span.AddEvent("checkpoints_retrieved")
+	span.SetStatus(codes.Ok, "checkpoints retrieved successfully")
+
+	return checkpoints, nil
+}
+
+// UpdateMetricsAndCheckpoint updates the metrics and checkpoint for a job.
+func (s *jobTaskService) UpdateMetricsAndCheckpoint(
+	ctx context.Context,
+	jobID uuid.UUID,
+	metrics *domain.JobMetrics,
+	partition int32,
+	offset int64,
+) error {
+	ctx, span := s.tracer.Start(ctx, "job_task_service.scanning.update_metrics_and_checkpoint",
+		trace.WithAttributes(
+			attribute.String("controller_id", s.controllerID),
+			attribute.String("job_id", jobID.String()),
+			attribute.Int("partition", int(partition)),
+			attribute.Int64("offset", offset),
+		),
+	)
+	defer span.End()
+
+	if err := s.jobRepo.UpdateMetricsAndCheckpoint(ctx, jobID, metrics, partition, offset); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to update metrics and checkpoint")
+		return fmt.Errorf("failed to update metrics and checkpoint: %w", err)
+	}
+
+	span.AddEvent("metrics_and_checkpoint_updated")
+	span.SetStatus(codes.Ok, "metrics and checkpoint updated successfully")
+
+	return nil
 }

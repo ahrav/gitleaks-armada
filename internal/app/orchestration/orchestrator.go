@@ -139,8 +139,7 @@ func NewOrchestrator(
 		logger,
 	)
 
-	metricsRepo := scan.NewMetricsRepositoryAdapter(id, jobRepo, taskRepo, tracer)
-	o.metricsTracker = scan.NewJobMetricsTracker(id, metricsRepo, eventReplayer, logger, tracer)
+	o.metricsTracker = scan.NewJobMetricsTracker(id, jobTaskSvc, eventReplayer, logger, tracer)
 	go o.metricsTracker.LaunchMetricsFlusher(30 * time.Second)
 
 	o.enumService = enumCoordinator.NewEnumService(

@@ -29,11 +29,11 @@ type JobTaskService interface {
 	AssociateEnumeratedTargets(ctx context.Context, jobID uuid.UUID, targetIDs []uuid.UUID) error
 
 	// UpdateJobStatus updates the status of a job.
-	UpdateJobStatus(ctx context.Context, job *Job, status JobStatus) error
+	UpdateJobStatus(ctx context.Context, jobID uuid.UUID, status JobStatus) error
 
 	// CompleteEnumeration finalizes the enumeration phase of a job and transitions it
 	// to the appropriate next state based on whether any tasks were created.
-	CompleteEnumeration(ctx context.Context, job *Job) (*JobMetrics, error)
+	CompleteEnumeration(ctx context.Context, jobID uuid.UUID) (*JobMetrics, error)
 
 	// ---------------------------
 	// Task-level operations

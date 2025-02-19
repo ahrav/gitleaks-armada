@@ -93,18 +93,18 @@ func (t *executionTracker) CreateJobForTarget(ctx context.Context, target scanni
 // job, and publishing the necessary domain events. Specifically, it:
 func (t *executionTracker) ProcessEnumerationStream(
 	ctx context.Context,
-	job *domain.Job,
+	jobID uuid.UUID,
 	result *scanning.ScanningResult,
 ) error {
 	ctx, span := t.tracer.Start(ctx, "execution_tracker.process_enumeration_stream",
 		trace.WithAttributes(
 			attribute.String("controller_id", t.controllerID),
-			attribute.String("job_id", job.JobID().String()),
+			attribute.String("job_id", jobID.String()),
 		),
 	)
 	defer span.End()
 
-	if err := t.signalEnumerationStarted(ctx, job); err != nil {
+	if err := t.signalEnumerationStarted(ctx, jobID); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to signal enumeration started")
 		return fmt.Errorf("failed to signal enumeration started: %w", err)
@@ -121,7 +121,7 @@ func (t *executionTracker) ProcessEnumerationStream(
 				result.ScanTargetsCh = nil
 				continue
 			}
-			if err := t.associateEnumeratedTargetsToJob(ctx, job.JobID(), scanTargetIDs); err != nil {
+			if err := t.associateEnumeratedTargetsToJob(ctx, jobID, scanTargetIDs); err != nil {
 				span.RecordError(err)
 				span.SetStatus(codes.Error, "failed to link enumerated targets")
 				return fmt.Errorf("failed to link enumerated targets: %w", err)
@@ -134,7 +134,7 @@ func (t *executionTracker) ProcessEnumerationStream(
 			}
 			if err := t.handleEnumeratedScanTask(
 				ctx,
-				job.JobID(),
+				jobID,
 				translationRes.Task,
 				translationRes.Auth,
 				translationRes.Metadata,
@@ -163,7 +163,7 @@ func (t *executionTracker) ProcessEnumerationStream(
 	}
 
 	// End-of-stream logic.
-	if err := t.signalEnumerationComplete(ctx, job); err != nil {
+	if err := t.signalEnumerationComplete(ctx, jobID); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to signal enumeration complete")
 		return fmt.Errorf("failed to signal enumeration complete: %w", err)
@@ -177,15 +177,15 @@ func (t *executionTracker) ProcessEnumerationStream(
 	return nil
 }
 
-func (t *executionTracker) signalEnumerationStarted(ctx context.Context, job *domain.Job) error {
+func (t *executionTracker) signalEnumerationStarted(ctx context.Context, jobID uuid.UUID) error {
 	ctx, span := t.tracer.Start(ctx, "execution_tracker.scanning.signal_enumeration_started",
 		trace.WithAttributes(
 			attribute.String("controller_id", t.controllerID),
-			attribute.String("job_id", job.JobID().String()),
+			attribute.String("job_id", jobID.String()),
 		))
 	defer span.End()
 
-	if err := t.jobTaskSvc.UpdateJobStatus(ctx, job, domain.JobStatusEnumerating); err != nil {
+	if err := t.jobTaskSvc.UpdateJobStatus(ctx, jobID, domain.JobStatusEnumerating); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to update job status")
 		return fmt.Errorf("failed to update job status: %w", err)
@@ -288,15 +288,15 @@ func (t *executionTracker) handleEnumeratedScanTask(
 // signalEnumerationComplete signals that the enumeration phase is complete for a job.
 // It retrieves the job metrics and publishes an EnumerationCompleteEvent.
 // This allows for accurate job metrics tracking.
-func (t *executionTracker) signalEnumerationComplete(ctx context.Context, job *domain.Job) error {
+func (t *executionTracker) signalEnumerationComplete(ctx context.Context, jobID uuid.UUID) error {
 	ctx, span := t.tracer.Start(ctx, "execution_tracker.scanning.signal_enumeration_complete",
 		trace.WithAttributes(
 			attribute.String("controller_id", t.controllerID),
-			attribute.String("job_id", job.JobID().String()),
+			attribute.String("job_id", jobID.String()),
 		))
 	defer span.End()
 
-	jobMetrics, err := t.jobTaskSvc.CompleteEnumeration(ctx, job)
+	jobMetrics, err := t.jobTaskSvc.CompleteEnumeration(ctx, jobID)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to complete enumeration")
@@ -304,8 +304,8 @@ func (t *executionTracker) signalEnumerationComplete(ctx context.Context, job *d
 	}
 	span.AddEvent("enumeration_completed_successfully")
 
-	evt := scanning.NewJobEnumerationCompletedEvent(job.JobID(), jobMetrics.TotalTasks())
-	if err := t.publisher.PublishDomainEvent(ctx, evt, events.WithKey(job.JobID().String())); err != nil {
+	evt := scanning.NewJobEnumerationCompletedEvent(jobID, jobMetrics.TotalTasks())
+	if err := t.publisher.PublishDomainEvent(ctx, evt, events.WithKey(jobID.String())); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to publish job enumeration completed event")
 		return fmt.Errorf("failed to publish job enumeration completed event: %w", err)

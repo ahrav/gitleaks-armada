@@ -42,6 +42,7 @@ func (e JobRequestedEvent) OccurredAt() time.Time       { return e.occurredAt }
 func (e JobRequestedEvent) JobID() uuid.UUID            { return e.jobID }
 
 // JobCreatedEvent signals that a new ScanJob was initialized.
+// TODO: Remove the domain object from the event and only use the jobID.
 type JobCreatedEvent struct {
 	occurredAt time.Time
 	Job        *Job

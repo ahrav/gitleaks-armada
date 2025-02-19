@@ -206,7 +206,7 @@ func (ef *EventsFacilitator) HandleScanJobCreated(
 			jobEvt.Job.JobID(),
 		)
 
-		err = ef.executionTracker.ProcessEnumerationStream(ctx, jobEvt.Job, scanningResult)
+		err = ef.executionTracker.ProcessEnumerationStream(ctx, jobEvt.Job.JobID(), scanningResult)
 		if err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "enumeration stream processing failed")

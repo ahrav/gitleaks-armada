@@ -27,8 +27,8 @@ func (m *mockExecutionTracker) CreateJobForTarget(ctx context.Context, target sc
 	return args.Error(0)
 }
 
-func (m *mockExecutionTracker) ProcessEnumerationStream(ctx context.Context, job *scanning.Job, result *scanning.ScanningResult) error {
-	args := m.Called(ctx, job, result)
+func (m *mockExecutionTracker) ProcessEnumerationStream(ctx context.Context, jobID uuid.UUID, result *scanning.ScanningResult) error {
+	args := m.Called(ctx, jobID, result)
 	return args.Error(0)
 }
 
