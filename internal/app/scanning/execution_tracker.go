@@ -198,7 +198,10 @@ func (t *executionTracker) signalEnumerationStarted(ctx context.Context, job *do
 	return nil
 }
 
-// associateEnumeratedTargetsToJob links discovered scan targets to a job.
+// associateEnumeratedTargetsToJob wraps jobTaskSvc.AssociateEnumeratedTargets with
+// the tracing and logging instrumentation. It ensures newly enumerated target IDs
+// are atomically linked to the specified job and that the job’s total task count is
+// updated, maintaining consistency across job state and discovered targets.
 func (t *executionTracker) associateEnumeratedTargetsToJob(
 	ctx context.Context,
 	jobID uuid.UUID,
