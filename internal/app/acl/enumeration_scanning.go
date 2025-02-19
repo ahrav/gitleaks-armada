@@ -2,6 +2,8 @@
 package acl
 
 import (
+	"context"
+
 	"github.com/google/uuid"
 
 	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
@@ -11,16 +13,9 @@ import (
 // EnumerationToScanningTranslator converts enumeration domain objects to scanning domain objects.
 type EnumerationToScanningTranslator struct{}
 
-// TranslationResult contains both the scanning task and its associated metadata.
-type TranslationResult struct {
-	Task     *scanning.Task
-	Auth     scanning.Auth
-	Metadata map[string]string
-}
-
-// Translate converts an enumeration Task to a translation result.
+// Translate converts an enumeration Task to a scanning result.
 // The translation result contains the scanning task, auth configuration, and metadata.
-func (EnumerationToScanningTranslator) Translate(jobID uuid.UUID, enumTask *enumeration.Task) TranslationResult {
+func (EnumerationToScanningTranslator) Translate(jobID uuid.UUID, enumTask *enumeration.Task) scanning.TranslationResult {
 	// Convert auth if present.
 	var auth scanning.Auth
 	if enumCreds := enumTask.Credentials(); enumCreds != nil {
@@ -39,7 +34,7 @@ func (EnumerationToScanningTranslator) Translate(jobID uuid.UUID, enumTask *enum
 		enumTask.ResourceURI(),
 	)
 
-	return TranslationResult{
+	return scanning.TranslationResult{
 		Task:     task,
 		Auth:     auth,
 		Metadata: enumTask.Metadata(),
@@ -62,4 +57,69 @@ func toScanningAuthType(ec enumeration.CredentialType) scanning.AuthType {
 	default:
 		return scanning.AuthTypeUnknown
 	}
+}
+
+func (e EnumerationToScanningTranslator) TranslateEnumerationResultToScanning(
+	ctx context.Context,
+	enumResult enumeration.EnumerationResult,
+	jobID uuid.UUID,
+) *scanning.ScanningResult {
+	scanTargetsCh := make(chan []uuid.UUID, 1)
+	tasksCh := make(chan scanning.TranslationResult, 1)
+	errCh := make(chan error, 1)
+
+	go func() {
+		defer close(scanTargetsCh)
+		defer close(tasksCh)
+		defer close(errCh)
+
+		for {
+			select {
+			case <-ctx.Done():
+				errCh <- ctx.Err()
+				return
+
+			case targets, ok := <-enumResult.ScanTargetsCh:
+				if !ok {
+					enumResult.ScanTargetsCh = nil
+					if allChannelsClosed(enumResult) {
+						return
+					}
+					continue
+				}
+				scanTargetsCh <- targets // No translation needed on uuid.UUID
+
+			case enumTask, ok := <-enumResult.TasksCh:
+				if !ok {
+					enumResult.TasksCh = nil
+					if allChannelsClosed(enumResult) {
+						return
+					}
+					continue
+				}
+				// Translate from enumeration.Task → scanning.Task.
+				tasksCh <- e.Translate(jobID, enumTask)
+
+			case errVal, ok := <-enumResult.ErrCh:
+				if !ok {
+					enumResult.ErrCh = nil
+					if allChannelsClosed(enumResult) {
+						return
+					}
+					continue
+				}
+				errCh <- errVal
+			}
+		}
+	}()
+
+	return &scanning.ScanningResult{
+		ScanTargetsCh: scanTargetsCh,
+		TasksCh:       tasksCh,
+		ErrCh:         errCh,
+	}
+}
+
+func allChannelsClosed(r enumeration.EnumerationResult) bool {
+	return r.ScanTargetsCh == nil && r.TasksCh == nil && r.ErrCh == nil
 }

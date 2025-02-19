@@ -13,6 +13,33 @@ import (
 // This component ensures reliable task execution and provides visibility into
 // scanning operations across the distributed system.
 
+// TranslationResult represents a single translated enumeration task in scanning-domain form.
+// It contains the resulting scanning Task, any associated authentication configuration (Auth),
+// and a set of metadata key/value pairs. This structure is typically produced by an ACL
+// translator that bridges the enumeration and scanning domains.
+type TranslationResult struct {
+	Task     *Task
+	Auth     Auth
+	Metadata map[string]string
+}
+
+// ScanningResult encapsulates the scanning-domain equivalents of enumerated data, exposing
+// channels of scanning-oriented objects. These channels emit:
+//
+//   - ScanTargetsCh: Discovered scan target IDs (UUIDs) that need to be linked to a job.
+//   - TasksCh:       TranslationResult objects, which include the scanning Task, credentials,
+//     and metadata derived from enumeration tasks.
+//   - ErrCh:         Errors encountered during enumeration or translation.
+//
+// By providing scanning-domain channels (instead of enumeration-domain types), this structure
+// avoids cross-domain dependencies and allows the scanning domain to consume data in its
+// native format without referencing enumeration logic.
+type ScanningResult struct {
+	ScanTargetsCh <-chan []uuid.UUID
+	TasksCh       <-chan TranslationResult
+	ErrCh         <-chan error
+}
+
 // ExecutionTracker manages the lifecycle and progress monitoring of scanning tasks
 // within jobs. It processes task-related domain events and coordinates with the
 // job service to maintain accurate system state and progress information.
@@ -21,29 +48,27 @@ type ExecutionTracker interface {
 	// This serves as the entry point for a new scan job and all tasks associated with the target.
 	CreateJobForTarget(ctx context.Context, target Target) error
 
-	// HandleEnumeratedScanTask processes a task discovered during enumeration and publishes a
-	// TaskCreatedEvent to initiate scanning. The event contains essential task details including:
-	// - Task identity and resource location
-	// - Authentication credentials for accessing the target
-	// - Contextual metadata to guide scanning behavior
-	// This serves as the bridge between enumeration and scanning phases, enabling distributed task execution.
-	HandleEnumeratedScanTask(
+	// ProcessEnumerationStream consumes a stream of enumerated scan targets and tasks,
+	// converting them into scanning-domain entities, associating them with the specified
+	// job, and publishing the necessary domain events. Specifically, it:
+	//
+	//   • Reads discovered target IDs and links them to the job while tracking the total
+	//     number of tasks for progress monitoring.
+	//   • Translates enumerated tasks into scanning tasks (including any authorization or
+	//     metadata) and persists them in the scanning domain.
+	//   • Continuously listens for errors in the enumeration process, surfacing them as
+	//     appropriate.
+	//   • Signals the end of enumeration once all channels are exhausted, updating job
+	//     status and publishing a completion event.
+	//
+	// This method blocks until the incoming channels are closed (or until the context is
+	// canceled), ensuring all enumerated items are processed and the scanning domain’s job
+	// lifecycle is accurately updated.
+	ProcessEnumerationStream(
 		ctx context.Context,
-		jobID uuid.UUID,
-		task *Task,
-		auth Auth,
-		metadata map[string]string,
+		job *Job,
+		result *ScanningResult,
 	) error
-
-	// AssociateEnumeratedTargetsToJob links discovered scan targets to a job.
-	// This provides the scanning domain a way to track all the enumerated targets
-	// that will be scanned as part of a scan job.
-	AssociateEnumeratedTargetsToJob(ctx context.Context, jobID uuid.UUID, scanTargetIDs []uuid.UUID) error
-
-	// SignalEnumerationComplete signals that the enumeration phase is complete for a job.
-	// It retrieves the job metrics and publishes an EnumerationCompleteEvent.
-	// This allows for accurate job metrics tracking.
-	SignalEnumerationComplete(ctx context.Context, job *Job) error
 
 	// HandleTaskStart initializes tracking for a new task by registering it with the job service
 	// and setting up initial progress metrics. If this is the first task in a job, it will

@@ -88,8 +88,118 @@ func (t *executionTracker) CreateJobForTarget(ctx context.Context, target scanni
 	return nil
 }
 
-// AssociateEnumeratedTargetsToJob links discovered scan targets to a job.
-func (t *executionTracker) AssociateEnumeratedTargetsToJob(
+// ProcessEnumerationStream consumes a stream of enumerated scan targets and tasks,
+// converting them into scanning-domain entities, associating them with the specified
+// job, and publishing the necessary domain events. Specifically, it:
+func (t *executionTracker) ProcessEnumerationStream(
+	ctx context.Context,
+	job *domain.Job,
+	result *scanning.ScanningResult,
+) error {
+	ctx, span := t.tracer.Start(ctx, "execution_tracker.process_enumeration_stream",
+		trace.WithAttributes(
+			attribute.String("controller_id", t.controllerID),
+			attribute.String("job_id", job.JobID().String()),
+		),
+	)
+	defer span.End()
+
+	if err := t.signalEnumerationStarted(ctx, job); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to signal enumeration started")
+		return fmt.Errorf("failed to signal enumeration started: %w", err)
+	}
+	span.AddEvent("enumeration_started_signal_sent")
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+
+		case scanTargetIDs, ok := <-result.ScanTargetsCh:
+			if !ok {
+				result.ScanTargetsCh = nil
+				continue
+			}
+			if err := t.associateEnumeratedTargetsToJob(ctx, job.JobID(), scanTargetIDs); err != nil {
+				span.RecordError(err)
+				span.SetStatus(codes.Error, "failed to link enumerated targets")
+				return fmt.Errorf("failed to link enumerated targets: %w", err)
+			}
+
+		case translationRes, ok := <-result.TasksCh:
+			if !ok {
+				result.TasksCh = nil
+				continue
+			}
+			if err := t.handleEnumeratedScanTask(
+				ctx,
+				job.JobID(),
+				translationRes.Task,
+				translationRes.Auth,
+				translationRes.Metadata,
+			); err != nil {
+				span.RecordError(err)
+				span.SetStatus(codes.Error, "failed to handle enumerated scan task")
+				return fmt.Errorf("failed to handle enumerated scan task: %w", err)
+			}
+
+		case errVal, ok := <-result.ErrCh:
+			if !ok {
+				result.ErrCh = nil
+				continue
+			}
+			if errVal != nil {
+				span.RecordError(errVal)
+				span.SetStatus(codes.Error, "enumeration error")
+				return fmt.Errorf("enumeration error: %w", errVal)
+			}
+		}
+
+		// All channels exhausted?
+		if result.ScanTargetsCh == nil && result.TasksCh == nil && result.ErrCh == nil {
+			break
+		}
+	}
+
+	// End-of-stream logic.
+	if err := t.signalEnumerationComplete(ctx, job); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to signal enumeration complete")
+		return fmt.Errorf("failed to signal enumeration complete: %w", err)
+	}
+	span.AddEvent("enumeration_complete_signal_sent")
+	span.SetStatus(codes.Ok, "enumeration completed")
+
+	span.AddEvent("enumeration_started_signal_sent")
+	span.SetStatus(codes.Ok, "finished processing enumeration stream")
+
+	return nil
+}
+
+func (t *executionTracker) signalEnumerationStarted(ctx context.Context, job *domain.Job) error {
+	ctx, span := t.tracer.Start(ctx, "execution_tracker.scanning.signal_enumeration_started",
+		trace.WithAttributes(
+			attribute.String("controller_id", t.controllerID),
+			attribute.String("job_id", job.JobID().String()),
+		))
+	defer span.End()
+
+	if err := t.jobTaskSvc.UpdateJobStatus(ctx, job, domain.JobStatusEnumerating); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to update job status")
+		return fmt.Errorf("failed to update job status: %w", err)
+	}
+	span.AddEvent("job_status_updated", trace.WithAttributes(
+		attribute.String("status", string(domain.JobStatusEnumerating)),
+	))
+	span.SetStatus(codes.Ok, "enumeration started")
+
+	return nil
+}
+
+// associateEnumeratedTargetsToJob links discovered scan targets to a job.
+func (t *executionTracker) associateEnumeratedTargetsToJob(
 	ctx context.Context,
 	jobID uuid.UUID,
 	scanTargetIDs []uuid.UUID,
@@ -127,9 +237,9 @@ func (t *executionTracker) AssociateEnumeratedTargetsToJob(
 	return nil
 }
 
-// HandleEnumeratedScanTask processes a scanning task discovered during enumeration
+// handleEnumeratedScanTask processes a scanning task discovered during enumeration
 // and publishes a TaskCreatedEvent with the task info, credentials, and metadata.
-func (t *executionTracker) HandleEnumeratedScanTask(
+func (t *executionTracker) handleEnumeratedScanTask(
 	ctx context.Context,
 	jobID uuid.UUID,
 	task *scanning.Task,
@@ -182,10 +292,10 @@ func (t *executionTracker) HandleEnumeratedScanTask(
 	return nil
 }
 
-// SignalEnumerationComplete signals that the enumeration phase is complete for a job.
+// signalEnumerationComplete signals that the enumeration phase is complete for a job.
 // It retrieves the job metrics and publishes an EnumerationCompleteEvent.
 // This allows for accurate job metrics tracking.
-func (t *executionTracker) SignalEnumerationComplete(ctx context.Context, job *domain.Job) error {
+func (t *executionTracker) signalEnumerationComplete(ctx context.Context, job *domain.Job) error {
 	ctx, span := t.tracer.Start(ctx, "execution_tracker.scanning.signal_enumeration_complete",
 		trace.WithAttributes(
 			attribute.String("controller_id", t.controllerID),

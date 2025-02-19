@@ -318,7 +318,7 @@ func TestExecutionTracker_AssociateEnumeratedTargetsToJob(t *testing.T) {
 			suite := newTrackerTestSuite(t)
 			tt.setup(suite.jobTaskSvc)
 
-			err := suite.tracker.AssociateEnumeratedTargetsToJob(context.Background(), tt.jobID, tt.targetIDs)
+			err := suite.tracker.associateEnumeratedTargetsToJob(context.Background(), tt.jobID, tt.targetIDs)
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.expectedErr)
@@ -388,7 +388,7 @@ func TestExecutionTracker_HandleEnumeratedScanTask(t *testing.T) {
 			suite := newTrackerTestSuite(t)
 			tt.setup(suite.jobTaskSvc, suite.domainPublisher)
 
-			err := suite.tracker.HandleEnumeratedScanTask(
+			err := suite.tracker.handleEnumeratedScanTask(
 				context.Background(),
 				tt.jobID,
 				tt.task,

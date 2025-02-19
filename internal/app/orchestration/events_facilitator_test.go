@@ -27,18 +27,8 @@ func (m *mockExecutionTracker) CreateJobForTarget(ctx context.Context, target sc
 	return args.Error(0)
 }
 
-func (m *mockExecutionTracker) HandleEnumeratedScanTask(ctx context.Context, jobID uuid.UUID, task *scanning.Task, auth scanning.Auth, metadata map[string]string) error {
-	args := m.Called(ctx, jobID, task, auth, metadata)
-	return args.Error(0)
-}
-
-func (m *mockExecutionTracker) AssociateEnumeratedTargetsToJob(ctx context.Context, jobID uuid.UUID, scanTargetIDs []uuid.UUID) error {
-	args := m.Called(ctx, jobID, scanTargetIDs)
-	return args.Error(0)
-}
-
-func (m *mockExecutionTracker) SignalEnumerationComplete(ctx context.Context, job *scanning.Job) error {
-	args := m.Called(ctx, job)
+func (m *mockExecutionTracker) ProcessEnumerationStream(ctx context.Context, job *scanning.Job, result *scanning.ScanningResult) error {
+	args := m.Called(ctx, job, result)
 	return args.Error(0)
 }
 

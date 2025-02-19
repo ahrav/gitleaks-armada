@@ -188,72 +188,30 @@ func (ef *EventsFacilitator) HandleScanJobCreated(
 			attribute.String("job_id", jobEvt.Job.JobID().String()),
 		))
 
+		// ACL check: convert scanning target to enumeration target.
 		targetSpec, err := ef.scanToEnumACL.ToEnumerationTargetSpec(jobEvt.Target)
 		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "failed to convert scanning target to enumeration spec")
 			return fmt.Errorf("failed to convert scanning target to enumeration spec: %w", err)
 		}
-		jobID := jobEvt.Job.JobID()
 
-		// Get streaming results from enumeration service and delegate to execution tracker.
-		result := ef.enumService.StartEnumeration(ctx, targetSpec)
+		// Start enumeration (returns enumeration domain channels).
+		enumResult := ef.enumService.StartEnumeration(ctx, targetSpec)
 
-		for {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
+		// Translate enumeration domain channels -> scanning domain channels.
+		scanningResult := ef.enumToScanACL.TranslateEnumerationResultToScanning(
+			ctx,
+			enumResult,
+			jobEvt.Job.JobID(),
+		)
 
-			case scanTargetIDs, ok := <-result.ScanTargetsCh:
-				if !ok {
-					result.ScanTargetsCh = nil
-					continue
-				}
-				// Delegate target linking to execution tracker.
-				if err := ef.executionTracker.AssociateEnumeratedTargetsToJob(ctx, jobID, scanTargetIDs); err != nil {
-					return fmt.Errorf("failed to link enumerated targets: %w", err)
-				}
-
-			case task, ok := <-result.TasksCh:
-				if !ok {
-					result.TasksCh = nil
-					continue
-				}
-				translationResult := ef.enumToScanACL.Translate(jobID, task)
-
-				if err := ef.executionTracker.HandleEnumeratedScanTask(
-					ctx,
-					jobID,
-					translationResult.Task,
-					translationResult.Auth,
-					translationResult.Metadata,
-				); err != nil {
-					return fmt.Errorf("failed to handle enumerated scan task: %w", err)
-				}
-
-			case err, ok := <-result.ErrCh:
-				if !ok {
-					result.ErrCh = nil
-					continue
-				}
-				// TODO: Consider if we really want to bail here.
-				if err != nil {
-					span.RecordError(err)
-					return fmt.Errorf("enumeration error: %w", err)
-				}
-			}
-
-			if result.ScanTargetsCh == nil &&
-				result.TasksCh == nil &&
-				result.ErrCh == nil {
-				break
-			}
-		}
-
-		if err := ef.executionTracker.SignalEnumerationComplete(ctx, jobEvt.Job); err != nil {
+		err = ef.executionTracker.ProcessEnumerationStream(ctx, jobEvt.Job, scanningResult)
+		if err != nil {
 			span.RecordError(err)
-			span.SetStatus(codes.Error, "failed to signal enumeration complete")
-			return fmt.Errorf("failed to signal enumeration complete: %w", err)
+			span.SetStatus(codes.Error, "enumeration stream processing failed")
+			return err
 		}
-		span.AddEvent("enumeration_complete_signal_sent")
 
 		span.AddEvent("enumeration_completed_successfully")
 		span.SetStatus(codes.Ok, "enumeration completed")
