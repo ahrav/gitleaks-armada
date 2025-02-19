@@ -510,16 +510,6 @@ func TestUpdateTaskProgress(t *testing.T) {
 					0,
 				)
 
-				job := scanning.ReconstructJob(
-					jobID,
-					scanning.JobStatusRunning,
-					scanning.NewTimeline(&mockTimeProvider{}),
-					[]uuid.UUID{},
-					scanning.NewJobMetrics(),
-				)
-				err := job.AddTask(task)
-				require.NoError(t, err)
-
 				s.taskRepo.On("GetTask", mock.Anything, taskID).
 					Return(task, nil)
 

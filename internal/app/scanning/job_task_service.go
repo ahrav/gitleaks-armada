@@ -140,21 +140,34 @@ func (s *jobTaskService) GetJobMetrics(ctx context.Context, jobID uuid.UUID) (*d
 	return metrics, nil
 }
 
-// UpdateJobStatus updates the status of a job.
+// UpdateJobStatus updates the status of a job after validating the state transition.
 func (s *jobTaskService) UpdateJobStatus(ctx context.Context, job *domain.Job, status domain.JobStatus) error {
 	ctx, span := s.tracer.Start(ctx, "job_task_service.scanning.update_job_status",
 		trace.WithAttributes(
 			attribute.String("job_id", job.JobID().String()),
-			attribute.String("status", string(status)),
+			attribute.String("current_status", string(job.Status())),
+			attribute.String("target_status", string(status)),
 		))
 	defer span.End()
+
+	if err := job.Status().ValidateTransition(status); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "invalid status transition")
+		return fmt.Errorf("invalid job status transition: %w", err)
+	}
+	span.AddEvent("job_status_transition_validated")
 
 	if err := s.jobRepo.UpdateJob(ctx, job); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to update job status")
 		return fmt.Errorf("failed to update job status: %w", err)
 	}
-	span.AddEvent("job_status_updated")
+	span.AddEvent("job_status_updated_in_repo")
+
+	span.AddEvent("job_status_updated", trace.WithAttributes(
+		attribute.String("previous_status", string(job.Status())),
+		attribute.String("new_status", string(status)),
+	))
 	span.SetStatus(codes.Ok, "job status updated successfully")
 
 	return nil

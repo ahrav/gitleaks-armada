@@ -224,8 +224,6 @@ func (r *jobStore) GetJob(ctx context.Context, jobID uuid.UUID) (*scanning.Job, 
 			firstRow.JobID.Bytes,
 			scanning.JobStatus(firstRow.Status),
 			timeline,
-			targetIDs,
-			nil, // TODO: I don't think we need metrics for only the job.
 		)
 		return nil
 	})

@@ -35,8 +35,6 @@ func createTestJob(t *testing.T, status scanning.JobStatus) *scanning.Job {
 		uuid.New(),
 		status,
 		scanning.NewTimeline(&mockTimeProvider{current: time.Now()}),
-		nil,
-		scanning.ReconstructJobMetrics(0, 0, 0, 0, 0, 0),
 	)
 }
 
@@ -161,8 +159,6 @@ func TestJobStore_UpdateJob(t *testing.T) {
 		uuid.New(),
 		scanning.JobStatusQueued,
 		timeline,
-		nil,
-		nil,
 	)
 
 	err := store.CreateJob(ctx, job)
@@ -184,8 +180,6 @@ func TestJobStore_UpdateJob(t *testing.T) {
 		job.JobID(),
 		scanning.JobStatusCompleted,
 		completionTimeline,
-		nil,
-		nil,
 	)
 
 	err = store.UpdateJob(ctx, updatedJob)
@@ -240,8 +234,6 @@ func TestJobStore_AssociateTargets(t *testing.T) {
 	loaded, err := store.GetJob(ctx, job.JobID())
 	require.NoError(t, err)
 	require.NotNil(t, loaded)
-
-	assert.ElementsMatch(t, loaded.TargetIDs(), targetIDs)
 }
 
 func TestJobStore_GetNonExistent(t *testing.T) {

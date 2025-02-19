@@ -1,5 +1,9 @@
 package scanning
 
+import (
+	"fmt"
+)
+
 // JobStatus represents the current state of a scan job. It enables tracking of
 // job lifecycle from initialization through completion or failure.
 type JobStatus string
@@ -93,5 +97,34 @@ func ParseJobStatus(s string) JobStatus {
 		return JobStatusFailed
 	default:
 		return "" // represents unspecified
+	}
+}
+
+// ValidateTransition checks if a status transition is valid and returns an error if not.
+func (s JobStatus) ValidateTransition(target JobStatus) error {
+	if !s.isValidTransition(target) {
+		return fmt.Errorf("invalid job status transition from %s to %s", s, target)
+	}
+	return nil
+}
+
+// isValidTransition checks if the current status can transition to the target status.
+// It enforces the job lifecycle rules to prevent invalid state changes.
+func (s JobStatus) isValidTransition(target JobStatus) bool {
+	switch s {
+	case JobStatusQueued:
+		// From Queued, can only move to Enumerating.
+		return target == JobStatusEnumerating
+	case JobStatusEnumerating:
+		// From Enumerating, can move to Running or Failed.
+		return target == JobStatusRunning || target == JobStatusFailed
+	case JobStatusRunning:
+		// From Running, can move to Completed or Failed.
+		return target == JobStatusCompleted || target == JobStatusFailed
+	case JobStatusCompleted, JobStatusFailed:
+		// Terminal states - no further transitions allowed.
+		return false
+	default:
+		return false
 	}
 }
