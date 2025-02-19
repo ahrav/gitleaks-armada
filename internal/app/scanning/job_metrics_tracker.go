@@ -41,8 +41,6 @@ type pendingMetric struct {
 var _ domain.JobMetricsTracker = (*jobMetricsTracker)(nil)
 
 // jobMetricsTracker implements JobMetricsTracker with in-memory state and periodic persistence.
-// TODO: We need a way to record the overall status of the job. We will want to use
-// the metrics to determine this.
 type jobMetricsTracker struct {
 	controllerID string
 
