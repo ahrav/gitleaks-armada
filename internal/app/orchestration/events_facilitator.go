@@ -234,6 +234,7 @@ func (ef *EventsFacilitator) HandleScanJobCreated(
 					result.ErrCh = nil
 					continue
 				}
+				// TODO: Consider if we really want to bail here.
 				if err != nil {
 					span.RecordError(err)
 					return fmt.Errorf("enumeration error: %w", err)
