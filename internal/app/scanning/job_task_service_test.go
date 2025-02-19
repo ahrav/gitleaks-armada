@@ -185,195 +185,68 @@ func TestCreateJob(t *testing.T) {
 	}
 }
 
-func TestLinkTargets(t *testing.T) {
-	tests := []struct {
-		name      string
-		jobID     uuid.UUID
-		targetIDs []uuid.UUID
-		setup     func(*mockJobRepository)
-		wantErr   bool
-	}{
-		{
-			name:      "successful target linking",
-			jobID:     uuid.New(),
-			targetIDs: []uuid.UUID{uuid.New(), uuid.New()},
-			setup: func(repo *mockJobRepository) {
-				repo.On("AssociateTargets", mock.Anything, mock.Anything, mock.MatchedBy(func(targets []uuid.UUID) bool {
-					return len(targets) == 2
-				})).Return(nil)
-			},
-			wantErr: false,
-		},
-		{
-			name:      "empty target list",
-			jobID:     uuid.New(),
-			targetIDs: []uuid.UUID{},
-			setup: func(repo *mockJobRepository) {
-				repo.On("AssociateTargets", mock.Anything, mock.Anything, mock.MatchedBy(func(targets []uuid.UUID) bool {
-					return len(targets) == 0
-				})).Return(nil)
-			},
-			wantErr: false,
-		},
-		{
-			name:      "repository error",
-			jobID:     uuid.New(),
-			targetIDs: []uuid.UUID{uuid.New()},
-			setup: func(repo *mockJobRepository) {
-				repo.On("AssociateTargets", mock.Anything, mock.Anything, mock.Anything).
-					Return(assert.AnError)
-			},
-			wantErr: true,
-		},
-		{
-			name:      "nil target list",
-			jobID:     uuid.New(),
-			targetIDs: nil,
-			setup: func(repo *mockJobRepository) {
-				repo.On("AssociateTargets", mock.Anything, mock.Anything, mock.MatchedBy(func(targets []uuid.UUID) bool {
-					return targets == nil
-				})).Return(nil)
-			},
-			wantErr: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			suite := newCoordinatorTestSuite(t)
-			tt.setup(suite.jobRepo)
-
-			err := suite.coord.LinkTargets(context.Background(), tt.jobID, tt.targetIDs)
-			if tt.wantErr {
-				require.Error(t, err)
-				return
-			}
-
-			require.NoError(t, err)
-			suite.jobRepo.AssertExpectations(t)
-		})
-	}
-}
-
-func TestJobTaskService_IncrementJobTotalTasks(t *testing.T) {
-	tests := []struct {
-		name    string
-		jobID   uuid.UUID
-		amount  int
-		setup   func(*mockJobRepository)
-		wantErr bool
-	}{
-		{
-			name:   "successful increment",
-			jobID:  uuid.New(),
-			amount: 5,
-			setup: func(repo *mockJobRepository) {
-				repo.On("IncrementTotalTasks", mock.Anything, mock.Anything, 5).
-					Return(nil)
-			},
-			wantErr: false,
-		},
-		{
-			name:   "repository error",
-			jobID:  uuid.New(),
-			amount: 3,
-			setup: func(repo *mockJobRepository) {
-				repo.On("IncrementTotalTasks", mock.Anything, mock.Anything, 3).
-					Return(assert.AnError)
-			},
-			wantErr: true,
-		},
-		{
-			name:   "zero amount",
-			jobID:  uuid.New(),
-			amount: 0,
-			setup: func(repo *mockJobRepository) {
-				repo.On("IncrementTotalTasks", mock.Anything, mock.Anything, 0).
-					Return(nil)
-			},
-			wantErr: false,
-		},
-		{
-			name:   "negative amount",
-			jobID:  uuid.New(),
-			amount: -2,
-			setup: func(repo *mockJobRepository) {
-				repo.On("IncrementTotalTasks", mock.Anything, mock.Anything, -2).
-					Return(nil)
-			},
-			wantErr: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			suite := newCoordinatorTestSuite(t)
-			tt.setup(suite.jobRepo)
-
-			err := suite.coord.IncrementJobTotalTasks(context.Background(), tt.jobID, tt.amount)
-			if tt.wantErr {
-				require.Error(t, err)
-			} else {
-				require.NoError(t, err)
-			}
-			suite.jobRepo.AssertExpectations(t)
-		})
-	}
-}
-
-func TestGetJobMetrics(t *testing.T) {
+func TestAssociateEnumeratedTargets(t *testing.T) {
 	jobID := uuid.MustParse("429735d7-ec1b-4d96-8749-938ca0a744be")
+	targetIDs := []uuid.UUID{
+		uuid.MustParse("b1f7eff4-2921-4e6c-9d88-da2de5707a2b"),
+		uuid.MustParse("c2f8eff4-3922-4e6c-9d88-da2de5707a2c"),
+	}
 
 	tests := []struct {
 		name    string
-		setup   func(*mockJobRepository)
+		setup   func(*coordinatorTestSuite)
 		wantErr bool
+		errMsg  string
 	}{
 		{
-			name: "successful metrics retrieval",
-			setup: func(repo *mockJobRepository) {
-				metrics := domain.NewJobMetrics()
-				metrics.OnTaskAdded(scanning.TaskStatusInProgress)
+			name: "successful target association and task count increment",
+			setup: func(s *coordinatorTestSuite) {
+				// Expect target association.
+				s.jobRepo.On("AssociateTargets", mock.Anything, jobID, targetIDs).
+					Return(nil)
 
-				repo.On("GetJobMetrics", mock.Anything, jobID).
-					Return(metrics, nil)
+				// Expect task count increment.
+				s.jobRepo.On("IncrementTotalTasks", mock.Anything, jobID, len(targetIDs)).
+					Return(nil)
 			},
 			wantErr: false,
 		},
 		{
-			name: "metrics not found",
-			setup: func(repo *mockJobRepository) {
-				repo.On("GetJobMetrics", mock.Anything, jobID).
-					Return(nil, domain.ErrNoJobMetricsFound)
+			name: "target association fails",
+			setup: func(s *coordinatorTestSuite) {
+				s.jobRepo.On("AssociateTargets", mock.Anything, jobID, targetIDs).
+					Return(assert.AnError)
 			},
 			wantErr: true,
+			errMsg:  "failed to associate targets with job",
 		},
 		{
-			name: "repository error",
-			setup: func(repo *mockJobRepository) {
-				repo.On("GetJobMetrics", mock.Anything, jobID).
-					Return(nil, assert.AnError)
+			name: "task count increment fails",
+			setup: func(s *coordinatorTestSuite) {
+				s.jobRepo.On("AssociateTargets", mock.Anything, jobID, targetIDs).
+					Return(nil)
+
+				s.jobRepo.On("IncrementTotalTasks", mock.Anything, jobID, len(targetIDs)).
+					Return(assert.AnError)
 			},
 			wantErr: true,
+			errMsg:  "failed to increment total tasks for job",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
 			suite := newCoordinatorTestSuite(t)
-			tt.setup(suite.jobRepo)
+			tt.setup(suite)
 
-			metrics, err := suite.coord.GetJobMetrics(context.Background(), jobID)
+			err := suite.coord.AssociateEnumeratedTargets(context.Background(), jobID, targetIDs)
 			if tt.wantErr {
 				require.Error(t, err)
-				require.Nil(t, metrics)
+				assert.Contains(t, err.Error(), tt.errMsg)
 				return
 			}
 
 			require.NoError(t, err)
-			require.NotNil(t, metrics)
 			suite.jobRepo.AssertExpectations(t)
 		})
 	}

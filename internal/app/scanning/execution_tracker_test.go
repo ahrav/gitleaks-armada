@@ -32,20 +32,16 @@ func (m *mockJobTaskSvc) CreateJob(ctx context.Context) (*scanning.Job, error) {
 	return nil, args.Error(1)
 }
 
-func (m *mockJobTaskSvc) LinkTargets(ctx context.Context, jobID uuid.UUID, targets []uuid.UUID) error {
-	return m.Called(ctx, jobID, targets).Error(0)
-}
-
-func (m *mockJobTaskSvc) IncrementTotalTasks(ctx context.Context, jobID uuid.UUID, amount int) error {
-	return m.Called(ctx, jobID, amount).Error(0)
-}
-
-func (m *mockJobTaskSvc) GetJobMetrics(ctx context.Context, jobID uuid.UUID) (*scanning.JobMetrics, error) {
-	return m.Called(ctx, jobID).Get(0).(*scanning.JobMetrics), m.Called(ctx, jobID).Error(1)
+func (m *mockJobTaskSvc) AssociateEnumeratedTargets(ctx context.Context, jobID uuid.UUID, targetIDs []uuid.UUID) error {
+	return m.Called(ctx, jobID, targetIDs).Error(0)
 }
 
 func (m *mockJobTaskSvc) UpdateJobStatus(ctx context.Context, job *scanning.Job, status scanning.JobStatus) error {
 	return m.Called(ctx, job, status).Error(0)
+}
+
+func (m *mockJobTaskSvc) CompleteEnumeration(ctx context.Context, job *scanning.Job) (*scanning.JobMetrics, error) {
+	return m.Called(ctx, job).Get(0).(*scanning.JobMetrics), m.Called(ctx, job).Error(1)
 }
 
 func (m *mockJobTaskSvc) CreateTask(ctx context.Context, task *scanning.Task) error {

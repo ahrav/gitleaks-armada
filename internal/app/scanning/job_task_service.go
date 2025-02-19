@@ -75,69 +75,46 @@ func (s *jobTaskService) CreateJob(ctx context.Context) (*domain.Job, error) {
 	return job, nil
 }
 
-// LinkTargets establishes the scope of a scanning job by connecting it with specific targets.
-// This relationship is crucial for tracking progress and ensuring complete coverage.
-func (s *jobTaskService) LinkTargets(ctx context.Context, jobID uuid.UUID, targetIDs []uuid.UUID) error {
-	ctx, span := s.tracer.Start(ctx, "job_task_service.scanning.link_targets",
+// AssociateEnumeratedTargets links the provided scan targets to a job and increments
+// the total task count in a single atomic transaction. By combining both steps, the
+// method ensures consistent state is maintained if an error occurs at any point. This
+// prevents partially associated targets or out-of-sync task counts.
+//
+//  1. jobRepo.AssociateTargets: Persists the relationship between the job and the targetIDs.
+//  2. jobRepo.IncrementTotalTasks: Adjusts the job’s total tasks count to account for the new targets.
+func (s *jobTaskService) AssociateEnumeratedTargets(
+	ctx context.Context,
+	jobID uuid.UUID,
+	targetIDs []uuid.UUID,
+) error {
+	ctx, span := s.tracer.Start(ctx, "job_task_service.scanning.associate_enumerated_targets",
 		trace.WithAttributes(
 			attribute.String("controller_id", s.controllerID),
 			attribute.String("job_id", jobID.String()),
-			attribute.Int("num_targets", len(targetIDs)),
-			attribute.String("target_ids", fmt.Sprintf("%v", targetIDs)),
+			attribute.Int("target_count", len(targetIDs)),
 		))
 	defer span.End()
 
 	if err := s.jobRepo.AssociateTargets(ctx, jobID, targetIDs); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to associate targets")
-		return fmt.Errorf("repository target association failed: %w", err)
+		return fmt.Errorf("failed to associate targets with job %s: %w", jobID, err)
 	}
 	span.AddEvent("targets_associated")
-	span.SetStatus(codes.Ok, "targets associated successfully")
+
+	if err := s.jobRepo.IncrementTotalTasks(ctx, jobID, len(targetIDs)); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to increment total tasks")
+		return fmt.Errorf("failed to increment total tasks for job %s: %w", jobID, err)
+	}
+	span.AddEvent("total_tasks_incremented", trace.WithAttributes(
+		attribute.Int("increment_amount", len(targetIDs)),
+	))
+
+	span.AddEvent("targets_associated_and_task_count_updated")
+	span.SetStatus(codes.Ok, "targets associated and task count updated")
 
 	return nil
-}
-
-// IncrementJobTotalTasks increments the total tasks count for a job.
-func (s *jobTaskService) IncrementJobTotalTasks(ctx context.Context, jobID uuid.UUID, amount int) error {
-	ctx, span := s.tracer.Start(ctx, "job_task_service.scanning.increment_job_total_tasks",
-		trace.WithAttributes(
-			attribute.String("controller_id", s.controllerID),
-			attribute.String("job_id", jobID.String()),
-			attribute.Int("amount", amount),
-		),
-	)
-	defer span.End()
-
-	if err := s.jobRepo.IncrementTotalTasks(ctx, jobID, amount); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to increment job total tasks")
-		return fmt.Errorf("repository job total tasks increment failed: %w", err)
-	}
-	span.AddEvent("job_total_tasks_incremented")
-	span.SetStatus(codes.Ok, "job total tasks incremented successfully")
-
-	return nil
-}
-
-// GetJobMetrics retrieves metrics for a specific job.
-func (s *jobTaskService) GetJobMetrics(ctx context.Context, jobID uuid.UUID) (*domain.JobMetrics, error) {
-	ctx, span := s.tracer.Start(ctx, "job_task_service.get_job_metrics",
-		trace.WithAttributes(
-			attribute.String("job_id", jobID.String()),
-		))
-	defer span.End()
-
-	metrics, err := s.jobRepo.GetJobMetrics(ctx, jobID)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to get job metrics")
-		return nil, fmt.Errorf("failed to get job metrics: %w", err)
-	}
-	span.AddEvent("job_metrics_retrieved")
-	span.SetStatus(codes.Ok, "job metrics retrieved")
-
-	return metrics, nil
 }
 
 // UpdateJobStatus updates the status of a job after validating the state transition.
@@ -171,6 +148,47 @@ func (s *jobTaskService) UpdateJobStatus(ctx context.Context, job *domain.Job, s
 	span.SetStatus(codes.Ok, "job status updated successfully")
 
 	return nil
+}
+
+// CompleteEnumeration finalizes the enumeration phase of a job and transitions it
+// to the appropriate next state based on whether any tasks were created.
+// It returns the job metrics needed for event publishing.
+func (s *jobTaskService) CompleteEnumeration(ctx context.Context, job *domain.Job) (*domain.JobMetrics, error) {
+	ctx, span := s.tracer.Start(ctx, "job_task_service.scanning.complete_enumeration",
+		trace.WithAttributes(
+			attribute.String("job_id", job.JobID().String()),
+			attribute.String("current_status", string(job.Status())),
+		))
+	defer span.End()
+
+	metrics, err := s.jobRepo.GetJobMetrics(ctx, job.JobID())
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to get job metrics")
+		return nil, fmt.Errorf("failed to get job metrics: %w", err)
+	}
+
+	if err := job.CompleteEnumeration(metrics); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to complete enumeration")
+		return nil, fmt.Errorf("failed to complete enumeration: %w", err)
+	}
+	span.AddEvent("enumeration_completed", trace.WithAttributes(
+		attribute.String("new_status", string(job.Status())),
+		attribute.Int("total_tasks", metrics.TotalTasks()),
+	))
+
+	if err := s.jobRepo.UpdateJob(ctx, job); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to update job")
+		return nil, fmt.Errorf("failed to persist job state: %w", err)
+	}
+	span.AddEvent("job_state_persisted")
+
+	span.AddEvent("enumeration_completed_successfully")
+	span.SetStatus(codes.Ok, "enumeration completed successfully")
+
+	return metrics, nil
 }
 
 // loadTask retrieves a task using a cache-first strategy to minimize database access

@@ -1,6 +1,7 @@
 package scanning
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -74,6 +75,26 @@ func (j *Job) EndTime() (time.Time, bool) {
 // LastUpdateTime returns when this job's state was last modified.
 // Access is synchronized to ensure thread-safe reads.
 func (j *Job) LastUpdateTime() time.Time { return j.timeline.LastUpdate() }
+
+// CompleteEnumeration transitions the job from Enumerating state based on task count.
+// If there are tasks to process, it moves to Running state.
+// If there are no tasks, it moves directly to Completed state.
+func (j *Job) CompleteEnumeration(metrics *JobMetrics) error {
+	if j.Status() != JobStatusEnumerating {
+		return fmt.Errorf("cannot complete enumeration: job is not in enumerating state (current: %s)", j.Status())
+	}
+
+	targetStatus := JobStatusCompleted
+	if metrics.TotalTasks() > 0 {
+		targetStatus = JobStatusRunning
+	}
+
+	if err := j.UpdateStatus(targetStatus); err != nil {
+		return fmt.Errorf("failed to update job status after enumeration: %w", err)
+	}
+
+	return nil
+}
 
 // UpdateStatus changes the job's status after validating the transition.
 // It returns an error if the transition is not valid.

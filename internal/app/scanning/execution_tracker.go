@@ -212,24 +212,14 @@ func (t *executionTracker) associateEnumeratedTargetsToJob(
 		))
 	defer span.End()
 
-	if err := t.jobTaskSvc.LinkTargets(ctx, jobID, scanTargetIDs); err != nil {
+	if err := t.jobTaskSvc.AssociateEnumeratedTargets(ctx, jobID, scanTargetIDs); err != nil {
 		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to link targets")
-		return fmt.Errorf("failed to link targets to job %s: %w", jobID, err)
+		span.SetStatus(codes.Error, "failed to associate enumerated targets")
+		return fmt.Errorf("failed to associate enumerated targets: %w", err)
 	}
-	span.AddEvent("targets_linked_successfully")
 
-	if err := t.jobTaskSvc.IncrementJobTotalTasks(ctx, jobID, len(scanTargetIDs)); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to increment job total tasks")
-		return fmt.Errorf("failed to increment job total tasks: %w", err)
-	}
-	span.AddEvent("job_total_tasks_incremented", trace.WithAttributes(
-		attribute.Int("target_count", len(scanTargetIDs)),
-	))
-
-	span.SetStatus(codes.Ok, "all enumerated targets associated with job")
-	t.logger.Info(ctx, "All enumerated targets associated with job",
+	span.SetStatus(codes.Ok, "enumerated targets associated with job")
+	t.logger.Info(ctx, "Enumerated targets associated with job",
 		"job_id", jobID,
 		"target_count", len(scanTargetIDs),
 	)
@@ -303,18 +293,13 @@ func (t *executionTracker) signalEnumerationComplete(ctx context.Context, job *d
 		))
 	defer span.End()
 
-	jobMetrics, err := t.jobTaskSvc.GetJobMetrics(ctx, job.JobID())
+	jobMetrics, err := t.jobTaskSvc.CompleteEnumeration(ctx, job)
 	if err != nil {
 		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to get job metrics")
-		return fmt.Errorf("failed to get job metrics: %w", err)
+		span.SetStatus(codes.Error, "failed to complete enumeration")
+		return fmt.Errorf("failed to complete enumeration: %w", err)
 	}
-
-	if err := t.jobTaskSvc.UpdateJobStatus(ctx, job, domain.JobStatusRunning); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to update job status")
-		return fmt.Errorf("failed to update job status: %w", err)
-	}
+	span.AddEvent("enumeration_completed_successfully")
 
 	evt := scanning.NewJobEnumerationCompletedEvent(job.JobID(), jobMetrics.TotalTasks())
 	if err := t.publisher.PublishDomainEvent(ctx, evt, events.WithKey(job.JobID().String())); err != nil {

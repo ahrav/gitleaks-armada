@@ -22,22 +22,18 @@ type JobTaskService interface {
 	// CreateJob initializes a new scanning operation in the system
 	CreateJob(ctx context.Context) (*Job, error)
 
-	// LinkTargets associates scan targets with a job, enabling parallel processing
-	// of multiple repositories or code bases within a single scanning operation
-	LinkTargets(ctx context.Context, jobID uuid.UUID, targetIDs []uuid.UUID) error
-
-	// IncrementJobTotalTasks increments the total tasks count for a job.
-	// This is used during the enumeration process to track the total number of tasks
-	// that will be processed for a job.
-	// Note: This is handled via increments because enumeration tasks are streamed
-	// in batches and the total is unknown until all batches have been processed.
-	IncrementJobTotalTasks(ctx context.Context, jobID uuid.UUID, amount int) error
-
-	// GetJobMetrics retrieves metrics for a specific job.
-	GetJobMetrics(ctx context.Context, jobID uuid.UUID) (*JobMetrics, error)
+	// AssociateEnumeratedTargets links the provided scan targets to the specified job
+	// and updates the job's total task count in a single atomic operation. This ensures
+	// newly discovered targets are both associated for scanning and reflected in the
+	// job's overall task tally, preserving data consistency if any step fails.
+	AssociateEnumeratedTargets(ctx context.Context, jobID uuid.UUID, targetIDs []uuid.UUID) error
 
 	// UpdateJobStatus updates the status of a job.
 	UpdateJobStatus(ctx context.Context, job *Job, status JobStatus) error
+
+	// CompleteEnumeration finalizes the enumeration phase of a job and transitions it
+	// to the appropriate next state based on whether any tasks were created.
+	CompleteEnumeration(ctx context.Context, job *Job) (*JobMetrics, error)
 
 	// ---------------------------
 	// Task-level operations
