@@ -116,8 +116,8 @@ func (s JobStatus) isValidTransition(target JobStatus) bool {
 		// From Queued, can only move to Enumerating.
 		return target == JobStatusEnumerating
 	case JobStatusEnumerating:
-		// From Enumerating, can move to Running or Failed.
-		return target == JobStatusRunning || target == JobStatusFailed
+		// From Enumerating, can move to Running, Failed or Completed.
+		return target == JobStatusRunning || target == JobStatusFailed || target == JobStatusCompleted
 	case JobStatusRunning:
 		// From Running, can move to Completed or Failed.
 		return target == JobStatusCompleted || target == JobStatusFailed
