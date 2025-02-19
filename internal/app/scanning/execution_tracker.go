@@ -171,7 +171,7 @@ func (t *executionTracker) ProcessEnumerationStream(
 	span.AddEvent("enumeration_complete_signal_sent")
 	span.SetStatus(codes.Ok, "enumeration completed")
 
-	span.AddEvent("enumeration_started_signal_sent")
+	span.AddEvent("finished_processing_enumeration_stream")
 	span.SetStatus(codes.Ok, "finished processing enumeration stream")
 
 	return nil
