@@ -100,8 +100,8 @@ func ParseJobStatus(s string) JobStatus {
 	}
 }
 
-// ValidateTransition checks if a status transition is valid and returns an error if not.
-func (s JobStatus) ValidateTransition(target JobStatus) error {
+// validateTransition checks if a status transition is valid and returns an error if not.
+func (s JobStatus) validateTransition(target JobStatus) error {
 	if !s.isValidTransition(target) {
 		return fmt.Errorf("invalid job status transition from %s to %s", s, target)
 	}

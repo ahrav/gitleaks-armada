@@ -379,6 +379,129 @@ func TestGetJobMetrics(t *testing.T) {
 	}
 }
 
+func TestUpdateJobStatus(t *testing.T) {
+	tests := []struct {
+		name          string
+		setup         func(*coordinatorTestSuite)
+		initialStatus domain.JobStatus
+		targetStatus  domain.JobStatus
+		wantErr       bool
+		errMsg        string
+	}{
+		{
+			name: "valid transition from queued to enumerating",
+			setup: func(s *coordinatorTestSuite) {
+				s.jobRepo.On("UpdateJob", mock.Anything, mock.MatchedBy(func(j *domain.Job) bool {
+					return j.Status() == domain.JobStatusEnumerating
+				})).Return(nil)
+			},
+			initialStatus: domain.JobStatusQueued,
+			targetStatus:  domain.JobStatusEnumerating,
+			wantErr:       false,
+		},
+		{
+			name: "valid transition from enumerating to running",
+			setup: func(s *coordinatorTestSuite) {
+				s.jobRepo.On("UpdateJob", mock.Anything, mock.MatchedBy(func(j *domain.Job) bool {
+					return j.Status() == domain.JobStatusRunning
+				})).Return(nil)
+			},
+			initialStatus: domain.JobStatusEnumerating,
+			targetStatus:  domain.JobStatusRunning,
+			wantErr:       false,
+		},
+		{
+			name: "valid transition from enumerating to failed",
+			setup: func(s *coordinatorTestSuite) {
+				s.jobRepo.On("UpdateJob", mock.Anything, mock.MatchedBy(func(j *domain.Job) bool {
+					return j.Status() == domain.JobStatusFailed
+				})).Return(nil)
+			},
+			initialStatus: domain.JobStatusEnumerating,
+			targetStatus:  domain.JobStatusFailed,
+			wantErr:       false,
+		},
+		{
+			name: "valid transition from running to completed",
+			setup: func(s *coordinatorTestSuite) {
+				s.jobRepo.On("UpdateJob", mock.Anything, mock.MatchedBy(func(j *domain.Job) bool {
+					return j.Status() == domain.JobStatusCompleted
+				})).Return(nil)
+			},
+			initialStatus: domain.JobStatusRunning,
+			targetStatus:  domain.JobStatusCompleted,
+			wantErr:       false,
+		},
+		{
+			name: "valid transition from running to failed",
+			setup: func(s *coordinatorTestSuite) {
+				s.jobRepo.On("UpdateJob", mock.Anything, mock.MatchedBy(func(j *domain.Job) bool {
+					return j.Status() == domain.JobStatusFailed
+				})).Return(nil)
+			},
+			initialStatus: domain.JobStatusRunning,
+			targetStatus:  domain.JobStatusFailed,
+			wantErr:       false,
+		},
+		{
+			name:          "invalid transition from completed to running",
+			setup:         func(s *coordinatorTestSuite) {},
+			initialStatus: domain.JobStatusCompleted,
+			targetStatus:  domain.JobStatusRunning,
+			wantErr:       true,
+			errMsg:        "invalid job status transition from COMPLETED to RUNNING",
+		},
+		{
+			name:          "invalid transition from failed to completed",
+			setup:         func(s *coordinatorTestSuite) {},
+			initialStatus: domain.JobStatusFailed,
+			targetStatus:  domain.JobStatusCompleted,
+			wantErr:       true,
+			errMsg:        "invalid job status transition from FAILED to COMPLETED",
+		},
+		{
+			name:          "invalid transition from queued to running",
+			setup:         func(s *coordinatorTestSuite) {},
+			initialStatus: domain.JobStatusQueued,
+			targetStatus:  domain.JobStatusRunning,
+			wantErr:       true,
+			errMsg:        "invalid job status transition from QUEUED to RUNNING",
+		},
+		{
+			name: "repository update failure",
+			setup: func(s *coordinatorTestSuite) {
+				s.jobRepo.On("UpdateJob", mock.Anything, mock.MatchedBy(func(j *domain.Job) bool {
+					return j.Status() == domain.JobStatusRunning
+				})).Return(assert.AnError)
+			},
+			initialStatus: domain.JobStatusEnumerating,
+			targetStatus:  domain.JobStatusRunning,
+			wantErr:       true,
+			errMsg:        "failed to update job status",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			suite := newCoordinatorTestSuite(t)
+			tt.setup(suite)
+
+			job := domain.NewJobWithStatus(uuid.New(), tt.initialStatus)
+			err := suite.coord.UpdateJobStatus(context.Background(), job, tt.targetStatus)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errMsg)
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.targetStatus, job.Status())
+			suite.jobRepo.AssertExpectations(t)
+		})
+	}
+}
+
 type mockTimeProvider struct {
 	mu  sync.RWMutex
 	now time.Time

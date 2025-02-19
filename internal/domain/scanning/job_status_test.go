@@ -41,7 +41,7 @@ func TestValidateTransition_ValidTransitions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.current.ValidateTransition(tt.target)
+			err := tt.current.validateTransition(tt.target)
 			assert.NoError(t, err, "expected valid transition from %s to %s", tt.current, tt.target)
 		})
 	}
@@ -127,7 +127,7 @@ func TestValidateTransition_InvalidTransitions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.current.ValidateTransition(tt.target)
+			err := tt.current.validateTransition(tt.target)
 			assert.Error(t, err, "expected error for invalid transition from %s to %s", tt.current, tt.target)
 		})
 	}

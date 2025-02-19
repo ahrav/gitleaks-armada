@@ -150,7 +150,7 @@ func (s *jobTaskService) UpdateJobStatus(ctx context.Context, job *domain.Job, s
 		))
 	defer span.End()
 
-	if err := job.Status().ValidateTransition(status); err != nil {
+	if err := job.UpdateStatus(status); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "invalid status transition")
 		return fmt.Errorf("invalid job status transition: %w", err)

@@ -75,6 +75,16 @@ func (j *Job) EndTime() (time.Time, bool) {
 // Access is synchronized to ensure thread-safe reads.
 func (j *Job) LastUpdateTime() time.Time { return j.timeline.LastUpdate() }
 
+// UpdateStatus changes the job's status after validating the transition.
+// It returns an error if the transition is not valid.
+func (j *Job) UpdateStatus(newStatus JobStatus) error {
+	if err := j.status.validateTransition(newStatus); err != nil {
+		return err
+	}
+	j.status = newStatus
+	return nil
+}
+
 // JobSummary provides an aggregated overview of job execution progress.
 // It combines overall job status with task-level metrics to enable job monitoring.
 // TODO: Do something with this eventually..
