@@ -122,7 +122,7 @@ func TestHandleJobMetrics_NewJob(t *testing.T) {
 	}
 	replayer := new(mockDomainEventReplayer)
 
-	tracker := NewJobMetricsTracker(
+	tracker := NewJobMetricsAggregator(
 		"controller-id",
 		repo,
 		replayer,
@@ -180,7 +180,7 @@ func TestHandleJobMetrics_TaskNotFound(t *testing.T) {
 	}
 	replayer := new(mockDomainEventReplayer)
 
-	tracker := NewJobMetricsTracker(
+	tracker := NewJobMetricsAggregator(
 		"controller-id",
 		repo,
 		replayer,
@@ -242,7 +242,7 @@ func TestProcessPendingMetrics_SucceedsOnSecondTry(t *testing.T) {
 		},
 	}
 
-	tracker := NewJobMetricsTracker(
+	tracker := NewJobMetricsAggregator(
 		"controller-id",
 		repo,
 		nil,
@@ -309,7 +309,7 @@ func TestFlushMetrics_CallsUpdateAndAck(t *testing.T) {
 		},
 	}
 
-	tracker := NewJobMetricsTracker("controller-id", repo, nil, logger.Noop(), noop.NewTracerProvider().Tracer(""))
+	tracker := NewJobMetricsAggregator("controller-id", repo, nil, logger.Noop(), noop.NewTracerProvider().Tracer(""))
 
 	var ackCalledOffset int64
 	ackFunc := func(err error) {
@@ -346,7 +346,7 @@ func TestCleanupTaskStatus_RemovesOldTerminalStatus(t *testing.T) {
 	repo := new(mockMetricsRepository)
 	replayer := new(mockDomainEventReplayer)
 
-	tracker := NewJobMetricsTracker("controller-id", repo, replayer, logger.Noop(), noop.NewTracerProvider().Tracer(""))
+	tracker := NewJobMetricsAggregator("controller-id", repo, replayer, logger.Noop(), noop.NewTracerProvider().Tracer(""))
 
 	baseTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	mockTime := &mockTimeProvider{now: baseTime}

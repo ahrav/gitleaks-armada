@@ -41,7 +41,7 @@ type EventsFacilitator struct {
 	taskHealthSupervisor scanning.TaskHealthMonitor
 
 	// metricsTracker is responsible for handling job metrics events.
-	metricsTracker scanning.JobMetricsTracker
+	metricsTracker scanning.JobMetricsAggregator
 
 	// enumService is responsible for handling enumeration events.
 	enumService enumeration.Service
@@ -67,7 +67,7 @@ func NewEventsFacilitator(
 	controllerID string,
 	tracker scanning.ExecutionTracker,
 	taskHealthSupervisor scanning.TaskHealthMonitor,
-	metricsTracker scanning.JobMetricsTracker,
+	metricsTracker scanning.JobMetricsAggregator,
 	enumSvc enumeration.Service,
 	rulesSvc rulessvc.Service,
 	tracer trace.Tracer,

@@ -21,10 +21,10 @@ const (
 // balances the need for real-time updates with storage efficiency through periodic
 // persistence and in-memory caching.
 
-// JobMetricsTracker handles aggregation and persistence of job-level metrics
+// JobMetricsAggregator handles aggregation and persistence of job-level metrics
 // across distributed task processing. It maintains in-memory state for real-time
 // updates while ensuring durability through periodic persistence.
-type JobMetricsTracker interface {
+type JobMetricsAggregator interface {
 	// LaunchMetricsFlusher runs a metrics flushing loop that periodically persists
 	// metrics to storage. It blocks until the context is canceled or an error occurs.
 	// Callers typically run this in a separate goroutine:

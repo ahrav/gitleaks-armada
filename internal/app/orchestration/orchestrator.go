@@ -40,7 +40,7 @@ type Orchestrator struct {
 	cfgLoader loaders.Loader
 
 	taskHealthSupervisor scanning.TaskHealthMonitor
-	metricsTracker       scanning.JobMetricsTracker
+	metricsAggregator    scanning.JobMetricsAggregator
 	enumService          enumeration.Service
 	rulesService         rulessvc.Service
 	stateRepo            enumeration.StateRepository
@@ -139,8 +139,8 @@ func NewOrchestrator(
 		logger,
 	)
 
-	o.metricsTracker = scan.NewJobMetricsTracker(id, jobTaskSvc, eventReplayer, logger, tracer)
-	go o.metricsTracker.LaunchMetricsFlusher(30 * time.Second)
+	o.metricsAggregator = scan.NewJobMetricsAggregator(id, jobTaskSvc, eventReplayer, logger, tracer)
+	go o.metricsAggregator.LaunchMetricsFlusher(30 * time.Second)
 
 	o.enumService = enumCoordinator.NewEnumService(
 		id,
@@ -155,7 +155,7 @@ func NewOrchestrator(
 		id,
 		executionTracker,
 		o.taskHealthSupervisor,
-		o.metricsTracker,
+		o.metricsAggregator,
 		o.enumService,
 		rulesService,
 		tracer,
@@ -532,7 +532,7 @@ func (o *Orchestrator) shutdown(ctx context.Context) error {
 	defer shutdownSpan.End()
 
 	o.taskHealthSupervisor.Stop()
-	o.metricsTracker.Stop(shutdownCtx)
+	o.metricsAggregator.Stop(shutdownCtx)
 	shutdownSpan.AddEvent("component_shutdown_complete")
 	logger.Info(shutdownCtx, "Orchestrator shutdown complete")
 
