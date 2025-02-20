@@ -15,11 +15,10 @@ type Job struct {
 	timeline *Timeline
 }
 
-// NewJob creates a new ScanJob instance with initialized state tracking.
-// It ensures proper initialization of internal maps and timestamps for job monitoring.
-func NewJob() *Job {
+// NewJob creates a new ScanJob instance with the provided job ID.
+func NewJob(jobID uuid.UUID) *Job {
 	return &Job{
-		jobID:    uuid.New(),
+		jobID:    jobID,
 		status:   JobStatusQueued,
 		timeline: NewTimeline(new(realTimeProvider)),
 	}

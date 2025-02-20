@@ -44,9 +44,9 @@ type ScanningResult struct {
 // within jobs. It processes task-related domain events and coordinates with the
 // job service to maintain accurate system state and progress information.
 type ExecutionTracker interface {
-	// CreateJobForTarget creates a new job for the given target and publishes a JobCreatedEvent.
+	// CreateJobForTarget creates a new job with the given job ID and target, and publishes a JobCreatedEvent.
 	// This serves as the entry point for a new scan job and all tasks associated with the target.
-	CreateJobForTarget(ctx context.Context, target Target) error
+	CreateJobForTarget(ctx context.Context, jobID uuid.UUID, target Target) error
 
 	// ProcessEnumerationStream consumes a stream of enumerated scan targets and tasks,
 	// converting them into scanning-domain entities, associating them with the specified

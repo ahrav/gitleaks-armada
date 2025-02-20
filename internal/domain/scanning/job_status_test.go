@@ -23,6 +23,11 @@ func TestValidateTransition_ValidTransitions(t *testing.T) {
 			target:  JobStatusRunning,
 		},
 		{
+			name:    "Enumerating to Completed is valid",
+			current: JobStatusEnumerating,
+			target:  JobStatusCompleted,
+		},
+		{
 			name:    "Enumerating to Failed is valid",
 			current: JobStatusEnumerating,
 			target:  JobStatusFailed,
@@ -82,11 +87,6 @@ func TestValidateTransition_InvalidTransitions(t *testing.T) {
 			name:    "Enumerating to Queued is invalid",
 			current: JobStatusEnumerating,
 			target:  JobStatusQueued,
-		},
-		{
-			name:    "Enumerating to Completed is invalid",
-			current: JobStatusEnumerating,
-			target:  JobStatusCompleted,
 		},
 		{
 			name:    "Running to Running is invalid",
