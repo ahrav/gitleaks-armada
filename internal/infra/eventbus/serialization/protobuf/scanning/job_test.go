@@ -15,7 +15,7 @@ import (
 
 func TestJobCreatedEventConversion(t *testing.T) {
 	t.Run("successful conversions", func(t *testing.T) {
-		job := scanning.NewJob()
+		job := scanning.NewJob(uuid.New())
 		auth := scanning.NewAuth(
 			string(scanning.AuthTypeToken),
 			map[string]any{
@@ -78,7 +78,7 @@ func TestJobCreatedEventConversion(t *testing.T) {
 	})
 
 	t.Run("S3 target conversion", func(t *testing.T) {
-		job := scanning.NewJob()
+		job := scanning.NewJob(uuid.New())
 		metadata := map[string]string{
 			"region":     "us-west-2",
 			"department": "engineering",
@@ -124,7 +124,7 @@ func TestJobCreatedEventConversion(t *testing.T) {
 	})
 
 	t.Run("URL target conversion", func(t *testing.T) {
-		job := scanning.NewJob()
+		job := scanning.NewJob(uuid.New())
 		metadata := map[string]string{
 			"scan_type": "web",
 			"priority":  "high",
