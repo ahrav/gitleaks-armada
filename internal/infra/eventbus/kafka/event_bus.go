@@ -451,7 +451,7 @@ func (h *domainEventHandler) ConsumeClaim(
 				// TODO: consider a map if the number of events or strategies grows.
 				var offsetStrategy OffsetStrategy
 				switch evtType {
-				case scanning.EventTypeTaskJobMetric:
+				case scanning.EventTypeTaskJobMetric, scanning.EventTypeJobEnumerationCompleted:
 					offsetStrategy = BatchOffsetStrategy{}
 				default:
 					offsetStrategy = DefaultOffsetStrategy{}
