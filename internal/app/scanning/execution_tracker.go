@@ -17,19 +17,25 @@ import (
 
 var _ scanning.ExecutionTracker = (*executionTracker)(nil)
 
-// executionTracker coordinates job and task state transitions across the system.
-// It ensures consistent state transitions across the system.
+// executionTracker implements scanning.ExecutionTracker, coordinating job and task
+// state transitions across the system. It centralizes updates and publishes domain
+// events to keep external components informed.
 type executionTracker struct {
 	controllerID string
 
-	jobTaskSvc scanning.JobTaskService // Manages job and task state transitions
-	publisher  events.DomainEventPublisher
+	// jobTaskSvc handles lower-level job and task persistence and state transitions.
+	jobTaskSvc scanning.JobTaskService
+
+	// publisher publishes domain events (e.g., job created, enumeration completed).
+	publisher events.DomainEventPublisher
 
 	logger *logger.Logger
 	tracer trace.Tracer
 }
 
-// NewExecutionTracker constructs a new ExecutionTracker with required dependencies.
+// NewExecutionTracker returns a scanning.ExecutionTracker that coordinates job and task
+// state transitions. It requires a job-task service, a domain event publisher, and
+// logger/tracer instances for instrumentation.
 func NewExecutionTracker(
 	controllerID string,
 	jobTaskSvc scanning.JobTaskService,
@@ -47,7 +53,9 @@ func NewExecutionTracker(
 	}
 }
 
-// CreateJobForTarget creates a new scan job for the given target and publishes a JobCreatedEvent.
+// CreateJobForTarget uses the provided jobID to create a new scan job for the given
+// target and publishes a JobCreatedEvent. This links the target’s domain context
+// to the newly created job, enabling downstream consumers to process the scan.
 func (t *executionTracker) CreateJobForTarget(ctx context.Context, jobID uuid.UUID, target scanning.Target) error {
 	ctx, span := t.tracer.Start(ctx, "execution_tracker.scanning.create_job",
 		trace.WithAttributes(
@@ -88,9 +96,9 @@ func (t *executionTracker) CreateJobForTarget(ctx context.Context, jobID uuid.UU
 	return nil
 }
 
-// ProcessEnumerationStream consumes a stream of enumerated scan targets and tasks,
-// converting them into scanning-domain entities, associating them with the specified
-// job, and publishing the necessary domain events. Specifically, it:
+// ProcessEnumerationStream consumes channels from a scanning.ScanningResult, updating the
+// job in stages (e.g., enumerating, linking enumerated targets, creating tasks). It
+// signals when enumeration starts and completes, ensuring the job transitions properly.
 func (t *executionTracker) ProcessEnumerationStream(
 	ctx context.Context,
 	jobID uuid.UUID,
@@ -177,6 +185,8 @@ func (t *executionTracker) ProcessEnumerationStream(
 	return nil
 }
 
+// signalEnumerationStarted updates the job status to Enumerating to indicate that the
+// enumeration phase has begun for the given job.
 func (t *executionTracker) signalEnumerationStarted(ctx context.Context, jobID uuid.UUID) error {
 	ctx, span := t.tracer.Start(ctx, "execution_tracker.scanning.signal_enumeration_started",
 		trace.WithAttributes(
@@ -198,10 +208,9 @@ func (t *executionTracker) signalEnumerationStarted(ctx context.Context, jobID u
 	return nil
 }
 
-// associateEnumeratedTargetsToJob wraps jobTaskSvc.AssociateEnumeratedTargets with
-// the tracing and logging instrumentation. It ensures newly enumerated target IDs
-// are atomically linked to the specified job and that the job’s total task count is
-// updated, maintaining consistency across job state and discovered targets.
+// associateEnumeratedTargetsToJob links newly discovered targets to the specified job
+// and updates aggregate counts. This is invoked when enumerated targets are received
+// from the ScanningResult channel.
 func (t *executionTracker) associateEnumeratedTargetsToJob(
 	ctx context.Context,
 	jobID uuid.UUID,
@@ -230,8 +239,9 @@ func (t *executionTracker) associateEnumeratedTargetsToJob(
 	return nil
 }
 
-// handleEnumeratedScanTask processes a scanning task discovered during enumeration
-// and publishes a TaskCreatedEvent with the task info, credentials, and metadata.
+// handleEnumeratedScanTask processes a task discovered during enumeration and publishes
+// a TaskCreatedEvent with relevant task info. This ensures downstream consumers can
+// pick up the newly created task for further execution.
 func (t *executionTracker) handleEnumeratedScanTask(
 	ctx context.Context,
 	jobID uuid.UUID,
@@ -285,9 +295,9 @@ func (t *executionTracker) handleEnumeratedScanTask(
 	return nil
 }
 
-// signalEnumerationComplete signals that the enumeration phase is complete for a job.
-// It retrieves the job metrics and publishes an EnumerationCompleteEvent.
-// This allows for accurate job metrics tracking.
+// signalEnumerationComplete marks enumeration as complete for the job, retrieves job
+// metrics, and publishes a JobEnumerationCompletedEvent to indicate that all tasks
+// have been discovered.
 func (t *executionTracker) signalEnumerationComplete(ctx context.Context, jobID uuid.UUID) error {
 	ctx, span := t.tracer.Start(ctx, "execution_tracker.scanning.signal_enumeration_complete",
 		trace.WithAttributes(
@@ -315,12 +325,8 @@ func (t *executionTracker) signalEnumerationComplete(ctx context.Context, jobID 
 	return nil
 }
 
-// HandleTaskStart initializes progress tracking for a new scan task. It coordinates with
-// the coordinator to:
-// 1. Register the task in the job's task collection
-// 2. Transition the job to RUNNING state if this is the first task
-// 3. Initialize progress metrics for the task
-// The operation is traced to maintain visibility into task startup sequences.
+// HandleTaskStart registers and initializes progress tracking for a newly started task.
+// This may transition the job’s overall status to RUNNING if this is the first active task.
 func (t *executionTracker) HandleTaskStart(ctx context.Context, evt scanning.TaskStartedEvent) error {
 	taskID, jobID, resourceURI := evt.TaskID, evt.JobID, evt.ResourceURI
 	ctx, span := t.tracer.Start(ctx, "execution_tracker.scanning.start_tracking",
@@ -349,11 +355,9 @@ func (t *executionTracker) HandleTaskStart(ctx context.Context, evt scanning.Tas
 	return nil
 }
 
-// HandleTaskProgress processes incremental task progress events by:
-// 1. Validating the progress metrics
-// 2. Updating task-level progress state
-// 3. Recalculating aggregated job progress
-// This maintains accurate, real-time visibility into scan execution across the system.
+// HandleTaskProgress updates the task progress in the job’s aggregate view,
+// recalculating any aggregated metrics if needed. It ensures real-time visibility
+// into scan progress at both the task and job levels.
 func (t *executionTracker) HandleTaskProgress(ctx context.Context, evt scanning.TaskProgressedEvent) error {
 	taskID := evt.Progress.TaskID()
 	ctx, span := t.tracer.Start(ctx, "execution_tracker.scanning.update_progress",
@@ -379,11 +383,8 @@ func (t *executionTracker) HandleTaskProgress(ctx context.Context, evt scanning.
 	return nil
 }
 
-// HandleTaskCompletion handles normal task completion by:
-// 1. Marking the task as COMPLETED in the job aggregate
-// 2. Updating job status if all tasks are now complete
-// 3. Recording final task metrics
-// This ensures proper cleanup and maintains accurate job state.
+// HandleTaskCompletion marks a task as COMPLETED, updates aggregate job status if
+// all tasks are done, and performs any final cleanup.
 func (t *executionTracker) HandleTaskCompletion(ctx context.Context, evt scanning.TaskCompletedEvent) error {
 	taskID := evt.TaskID
 	ctx, span := t.tracer.Start(ctx, "execution_tracker.scanning.stop_tracking",
@@ -406,7 +407,9 @@ func (t *executionTracker) HandleTaskCompletion(ctx context.Context, evt scannin
 	return nil
 }
 
-// HandleTaskFailure handles task failure.
+// HandleTaskFailure marks a task as FAILED, updating the job’s aggregate state if needed
+// and logging the error. Downstream consumers may respond to the event for remediation
+// or re-try logic.
 func (t *executionTracker) HandleTaskFailure(ctx context.Context, evt scanning.TaskFailedEvent) error {
 	taskID := evt.TaskID
 	ctx, span := t.tracer.Start(ctx, "execution_tracker.scanning.fail_task",
@@ -429,10 +432,9 @@ func (t *executionTracker) HandleTaskFailure(ctx context.Context, evt scanning.T
 	return nil
 }
 
-// HandleTaskStale handles task staleness by:
-// 1. Marking the task as STALE in the job aggregate
-// 2. Publishing a domain event to notify other components
-// 3. Recording the event for system observability
+// HandleTaskStale marks a task as STALE, publishes a TaskResumeEvent for possible
+// continuation, and logs relevant telemetry. This is used when a task appears
+// unresponsive or stalled.
 func (t *executionTracker) HandleTaskStale(ctx context.Context, evt scanning.TaskStaleEvent) error {
 	ctx, span := t.tracer.Start(ctx, "execution_tracker.markTaskStale",
 		trace.WithAttributes(
