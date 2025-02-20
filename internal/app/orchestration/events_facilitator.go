@@ -16,53 +16,45 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 )
 
-// EventsFacilitator orchestrates the handling of domain events that span multiple
-// bounded contexts (e.g., scanning tasks and rules). It performs minimal domain logic
-// itself, delegating to dedicated services like ExecutionTracker and RulesService to
-// carry out actual business operations.
-//
-// It centralizes event handling for scanning tasks (start, progress, complete) and
-// rule updates/publish events, ensuring consistent tracing and error handling across
-// all events. This avoids duplicating telemetry logic and provides a unified interface
-// for event processing.
-//
-// The facilitator acts as a single point of integration for events from different
-// bounded contexts while keeping domain-service responsibilities properly separated
-// (e.g., progress tracking in scanning package, rule logic in rules package).
+// EventsFacilitator orchestrates domain event handling across multiple bounded contexts
+// (e.g., scanning tasks and rules). It offloads domain logic to dedicated services like
+// scanning.ExecutionTracker and rulessvc.Service while centralizing telemetry (tracing),
+// error handling, and event acknowledgment.
 type EventsFacilitator struct {
+	// controllerID uniquely identifies the controller running this event facilitator.
 	controllerID string
 
-	// executionTracker is responsible for starting, updating, and stopping tracking of
-	// scanning tasks. The EventsFacilitator delegates task-related domain operations here.
+	// executionTracker manages the lifecycle of scanning tasks (e.g., start, update, stop).
+	// EventsFacilitator delegates most task-related operations here.
 	executionTracker scanning.ExecutionTracker
 
-	// taskHealthSupervisor is responsible for monitoring task heartbeats and failing
-	// tasks that have not sent a heartbeat within a given threshold.
+	// taskHealthSupervisor monitors heartbeats for ongoing tasks, failing them if they
+	// do not report within the configured threshold.
 	taskHealthSupervisor scanning.TaskHealthMonitor
 
-	// metricsTracker is responsible for handling job metrics events.
-	metricsTracker scanning.JobMetricsAggregator
+	// jobMetricsAggregator handles incoming job metrics and updates associated telemetry.
+	jobMetricsAggregator scanning.JobMetricsAggregator
 
-	// enumService is responsible for handling enumeration events.
+	// enumService starts enumeration and produces domain-specific channels for results,
+	// which are then translated and passed to the scanning context.
 	enumService enumeration.Service
-	// scanToEnumACL is responsible for translating scanning domain objects to
-	// enumeration domain objects.
+
+	// scanToEnumACL translates scanning domain objects into enumeration domain objects.
 	scanToEnumACL acl.ScanningToEnumerationTranslator
-	// enumToScanACL is responsible for translating enumeration domain objects to
-	// scanning domain objects.
+
+	// enumToScanACL translates enumeration domain objects back into scanning domain objects.
 	enumToScanACL acl.EnumerationToScanningTranslator
 
-	// rulesService is responsible for persisting rules, updating rule states, etc.
-	// The EventsFacilitator calls into it when handling rule-related events.
+	// rulesService persists and updates rules (e.g., for security scanning).
 	rulesService rulessvc.Service
 
+	// tracer instruments method calls with OpenTelemetry spans for distributed tracing.
 	tracer trace.Tracer
 }
 
-// NewEventsFacilitator constructs an EventsFacilitator that can process both
-// scanning task events and rule-related events. It receives a executionTracker,
-// rulesService, taskHealthSupervisor, metricsTracker, and tracer so it can delegate domain-specific logic
-// to the correct bounded context service and instrument event handling with traces.
+// NewEventsFacilitator returns a new EventsFacilitator configured to process
+// both scanning- and rules-related events. It requires all necessary services
+// and a tracer for delegating domain-specific logic and instrumenting events.
 func NewEventsFacilitator(
 	controllerID string,
 	tracker scanning.ExecutionTracker,
@@ -76,14 +68,15 @@ func NewEventsFacilitator(
 		controllerID:         controllerID,
 		executionTracker:     tracker,
 		taskHealthSupervisor: taskHealthSupervisor,
-		metricsTracker:       metricsTracker,
+		jobMetricsAggregator: metricsTracker,
 		enumService:          enumSvc,
 		rulesService:         rulesSvc,
 		tracer:               tracer,
 	}
 }
 
-// withSpan is a helper that centralizes trace creation and error recording.
+// withSpan creates a new trace span, executes the given function, records any errors,
+// and ends the span. If no error occurs, it automatically acks the event.
 func (ef *EventsFacilitator) withSpan(
 	ctx context.Context,
 	operationName string,
@@ -107,8 +100,8 @@ func (ef *EventsFacilitator) withSpan(
 	return nil
 }
 
-// withSpanNoAck is similar to withSpan but doesn't automatically call ack.
-// This is used for handlers that manage their own offset commits, like HandleTaskJobMetric.
+// withSpanNoAck behaves like withSpan but does not automatically call ack.
+// This is useful for handlers that manage offsets or acknowledgments themselves.
 func (ef *EventsFacilitator) withSpanNoAck(
 	ctx context.Context,
 	operationName string,
@@ -126,8 +119,7 @@ func (ef *EventsFacilitator) withSpanNoAck(
 	return nil
 }
 
-// recordPayloadTypeError standardizes error creation and recording
-// for invalid event payload types.
+// recordPayloadTypeError standardizes error creation and recording for invalid payload types.
 func recordPayloadTypeError(span trace.Span, payload any) error {
 	err := fmt.Errorf("invalid event payload type: %T", payload)
 	span.RecordError(err)
@@ -142,8 +134,8 @@ func recordPayloadTypeError(span trace.Span, payload any) error {
 // -------------------------------------------------------------------------------------------------
 // Scanning
 
-// HandleScanJobRequested processes a JobRequestedEvent by creating jobs for each target
-// in the configuration.
+// HandleScanJobRequested processes a scanning.JobRequestedEvent by creating scanning jobs
+// for each target. Once complete, it acks the event.
 func (ef *EventsFacilitator) HandleScanJobRequested(
 	ctx context.Context,
 	evt events.EventEnvelope,
@@ -157,11 +149,12 @@ func (ef *EventsFacilitator) HandleScanJobRequested(
 
 		span.AddEvent("processing_job_requested", trace.WithAttributes(
 			attribute.String("requested_by", jobEvt.RequestedBy),
+			attribute.String("job_id", jobEvt.JobID().String()),
 		))
 
 		// Create a job for each target.
 		for _, target := range jobEvt.Targets {
-			if err := ef.executionTracker.CreateJobForTarget(ctx, target); err != nil {
+			if err := ef.executionTracker.CreateJobForTarget(ctx, jobEvt.JobID(), target); err != nil {
 				return fmt.Errorf("failed to create job for target %s: %w", target.Name(), err)
 			}
 		}
@@ -172,7 +165,9 @@ func (ef *EventsFacilitator) HandleScanJobRequested(
 	}, ack)
 }
 
-// HandleScanJobCreated processes a JobCreatedEvent by starting enumeration for the target.
+// HandleScanJobCreated processes a scanning.JobCreatedEvent by converting
+// the scanning target to an enumeration spec, starting enumeration, and then
+// routing its results back into the scanning domain. Acks on success or error.
 func (ef *EventsFacilitator) HandleScanJobCreated(
 	ctx context.Context,
 	evt events.EventEnvelope,
@@ -219,7 +214,8 @@ func (ef *EventsFacilitator) HandleScanJobCreated(
 	}, ack)
 }
 
-// HandleTaskStarted processes a TaskStartedEvent.
+// HandleTaskStarted processes a scanning.TaskStartedEvent and delegates
+// the start-tracking operation to the executionTracker. Acks on success or error.
 func (ef *EventsFacilitator) HandleTaskStarted(
 	ctx context.Context,
 	evt events.EventEnvelope,
@@ -250,7 +246,8 @@ func (ef *EventsFacilitator) HandleTaskStarted(
 	}, ack)
 }
 
-// HandleTaskProgressed processes a TaskProgressedEvent.
+// HandleTaskProgressed processes a scanning.TaskProgressedEvent and updates
+// the task progress in executionTracker.
 func (ef *EventsFacilitator) HandleTaskProgressed(
 	ctx context.Context,
 	evt events.EventEnvelope,
@@ -281,7 +278,8 @@ func (ef *EventsFacilitator) HandleTaskProgressed(
 	}, ack)
 }
 
-// HandleTaskCompleted processes a TaskCompletedEvent.
+// HandleTaskCompleted processes a scanning.TaskCompletedEvent and finalizes
+// tracking for the completed task.
 func (ef *EventsFacilitator) HandleTaskCompleted(
 	ctx context.Context,
 	evt events.EventEnvelope,
@@ -311,7 +309,8 @@ func (ef *EventsFacilitator) HandleTaskCompleted(
 	}, ack)
 }
 
-// HandleTaskFailed processes a TaskFailedEvent.
+// HandleTaskFailed processes a scanning.TaskFailedEvent and updates the
+// executionTracker with the failure reason.
 func (ef *EventsFacilitator) HandleTaskFailed(
 	ctx context.Context,
 	evt events.EventEnvelope,
@@ -342,16 +341,16 @@ func (ef *EventsFacilitator) HandleTaskFailed(
 	}, ack)
 }
 
-// HandleTaskJobMetric processes a TaskJobMetricEvent.
-// Note: This handler does not ack messages as the JobMetricsTracker handles offset
-// management internally after ensuring persistence.
+// HandleTaskJobMetric processes scanning.TaskJobMetricEvent by delegating metric
+// handling to jobMetricsAggregator. Note that this handler does NOT call ack
+// automatically, since offset commits are managed in jobMetricsAggregator.
 func (ef *EventsFacilitator) HandleTaskJobMetric(
 	ctx context.Context,
 	evt events.EventEnvelope,
 	ack events.AckFunc,
 ) error {
 	return ef.withSpanNoAck(ctx, "events_facilitator.handle_task_job_metric", func(ctx context.Context, span trace.Span) error {
-		if err := ef.metricsTracker.HandleJobMetrics(ctx, evt, ack); err != nil {
+		if err := ef.jobMetricsAggregator.HandleJobMetrics(ctx, evt, ack); err != nil {
 			return fmt.Errorf("failed to handle job metrics (partition: %d, offset: %d): %w",
 				evt.Metadata.Partition, evt.Metadata.Offset, err)
 		}
@@ -361,7 +360,8 @@ func (ef *EventsFacilitator) HandleTaskJobMetric(
 	})
 }
 
-// HandleTaskHeartbeat processes a TaskHeartbeatEvent.
+// HandleTaskHeartbeat processes a scanning.TaskHeartbeatEvent, using the
+// taskHealthSupervisor to track heartbeats.
 func (ef *EventsFacilitator) HandleTaskHeartbeat(
 	ctx context.Context,
 	evt events.EventEnvelope,
@@ -391,7 +391,8 @@ func (ef *EventsFacilitator) HandleTaskHeartbeat(
 // -------------------------------------------------------------------------------------------------
 // Rules
 
-// HandleRule processes a RuleUpdatedEvent.
+// HandleRule processes a rules.RuleUpdatedEvent, calling rulesService.SaveRule
+// to persist the updated rule.
 func (ef *EventsFacilitator) HandleRule(
 	ctx context.Context,
 	evt events.EventEnvelope,
@@ -420,7 +421,8 @@ func (ef *EventsFacilitator) HandleRule(
 	}, ack)
 }
 
-// HandleRulesPublished processes a RulePublishingCompletedEvent.
+// HandleRulesPublished processes a rules.RulePublishingCompletedEvent
+// indicating that all rules have been published.
 func (ef *EventsFacilitator) HandleRulesPublished(
 	ctx context.Context,
 	evt events.EventEnvelope,

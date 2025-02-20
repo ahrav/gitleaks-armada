@@ -22,8 +22,8 @@ import (
 // Mock implementations.
 type mockExecutionTracker struct{ mock.Mock }
 
-func (m *mockExecutionTracker) CreateJobForTarget(ctx context.Context, target scanning.Target) error {
-	args := m.Called(ctx, target)
+func (m *mockExecutionTracker) CreateJobForTarget(ctx context.Context, jobID uuid.UUID, target scanning.Target) error {
+	args := m.Called(ctx, jobID, target)
 	return args.Error(0)
 }
 
@@ -67,18 +67,18 @@ func (m *mockTaskHealthMonitor) HandleHeartbeat(ctx context.Context, evt scannin
 
 func (m *mockTaskHealthMonitor) Stop() { m.Called() }
 
-type mockJobMetricsTracker struct{ mock.Mock }
+type mockJobMetricsAggregator struct{ mock.Mock }
 
-func (m *mockJobMetricsTracker) LaunchMetricsFlusher(interval time.Duration) { m.Called(interval) }
+func (m *mockJobMetricsAggregator) LaunchMetricsFlusher(interval time.Duration) { m.Called(interval) }
 
-func (m *mockJobMetricsTracker) FlushMetrics(ctx context.Context) error {
+func (m *mockJobMetricsAggregator) FlushMetrics(ctx context.Context) error {
 	args := m.Called(ctx)
 	return args.Error(0)
 }
 
-func (m *mockJobMetricsTracker) Stop(ctx context.Context) { m.Called(ctx) }
+func (m *mockJobMetricsAggregator) Stop(ctx context.Context) { m.Called(ctx) }
 
-func (m *mockJobMetricsTracker) HandleJobMetrics(ctx context.Context, evt events.EventEnvelope, ack events.AckFunc) error {
+func (m *mockJobMetricsAggregator) HandleJobMetrics(ctx context.Context, evt events.EventEnvelope, ack events.AckFunc) error {
 	args := m.Called(ctx, evt, ack)
 	return args.Error(0)
 }
@@ -101,27 +101,26 @@ func setupEventsFacilitatorTestSuite() (
 	*EventsFacilitator,
 	*mockExecutionTracker,
 	*mockTaskHealthMonitor,
-	*mockJobMetricsTracker,
+	*mockJobMetricsAggregator,
 	*mockEnumerationService,
 	*mockRulesService,
 ) {
 	mockTracker := new(mockExecutionTracker)
 	mockHealthMonitor := new(mockTaskHealthMonitor)
-	mockMetricsTracker := new(mockJobMetricsTracker)
+	mockMetricsAggregator := new(mockJobMetricsAggregator)
 	mockEnumService := new(mockEnumerationService)
 	mockRulesService := new(mockRulesService)
 
 	facilitator := NewEventsFacilitator(
 		"test-controller",
 		mockTracker,
-		mockHealthMonitor,
-		mockMetricsTracker,
+		mockHealthMonitor, mockMetricsAggregator,
 		mockEnumService,
 		mockRulesService,
 		noop.NewTracerProvider().Tracer("test"),
 	)
 
-	return facilitator, mockTracker, mockHealthMonitor, mockMetricsTracker,
+	return facilitator, mockTracker, mockHealthMonitor, mockMetricsAggregator,
 		mockEnumService, mockRulesService
 }
 
@@ -137,7 +136,7 @@ func TestHandleScanJobRequested(t *testing.T) {
 			name: "success - two targets",
 			setupMock: func(m *mockExecutionTracker) {
 				// Expect exactly two calls (one per target)
-				m.On("CreateJobForTarget", mock.Anything, mock.Anything).Return(nil).Times(2)
+				m.On("CreateJobForTarget", mock.Anything, mock.Anything, mock.Anything).Return(nil).Times(2)
 			},
 			targets: []scanning.Target{
 				scanning.NewTarget("test-target", shared.SourceTypeGitHub, &scanning.Auth{}, map[string]string{}, scanning.TargetConfig{}),
@@ -441,12 +440,12 @@ func TestHandleTaskJobMetric(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		setupMock func(m *mockJobMetricsTracker)
+		setupMock func(m *mockJobMetricsAggregator)
 		expectErr bool
 	}{
 		{
 			name: "success",
-			setupMock: func(m *mockJobMetricsTracker) {
+			setupMock: func(m *mockJobMetricsAggregator) {
 				m.On("HandleJobMetrics",
 					mock.Anything,
 					mock.MatchedBy(func(e events.EventEnvelope) bool {
@@ -463,7 +462,7 @@ func TestHandleTaskJobMetric(t *testing.T) {
 		},
 		{
 			name: "error",
-			setupMock: func(m *mockJobMetricsTracker) {
+			setupMock: func(m *mockJobMetricsAggregator) {
 				m.On("HandleJobMetrics", mock.Anything, mock.Anything, mock.Anything).Return(errors.New("handler error"))
 			},
 			expectErr: true,
