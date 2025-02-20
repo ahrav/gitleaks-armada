@@ -104,10 +104,11 @@ func (ns NullEnumerationStatus) Value() (driver.Value, error) {
 type ScanJobStatus string
 
 const (
-	ScanJobStatusQUEUED    ScanJobStatus = "QUEUED"
-	ScanJobStatusRUNNING   ScanJobStatus = "RUNNING"
-	ScanJobStatusCOMPLETED ScanJobStatus = "COMPLETED"
-	ScanJobStatusFAILED    ScanJobStatus = "FAILED"
+	ScanJobStatusQUEUED      ScanJobStatus = "QUEUED"
+	ScanJobStatusENUMERATING ScanJobStatus = "ENUMERATING"
+	ScanJobStatusRUNNING     ScanJobStatus = "RUNNING"
+	ScanJobStatusCOMPLETED   ScanJobStatus = "COMPLETED"
+	ScanJobStatusFAILED      ScanJobStatus = "FAILED"
 )
 
 func (e *ScanJobStatus) Scan(src interface{}) error {
