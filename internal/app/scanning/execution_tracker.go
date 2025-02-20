@@ -121,7 +121,15 @@ func (t *executionTracker) ProcessEnumerationStream(
 	span.AddEvent("enumeration_started_signal_sent")
 	logger.Debug(ctx, "Enumeration started signal sent")
 
+	allChannelsClosed := func() bool {
+		return result.ScanTargetsCh == nil && result.TasksCh == nil && result.ErrCh == nil
+	}
+
 	for {
+		if allChannelsClosed() {
+			break
+		}
+
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -129,6 +137,7 @@ func (t *executionTracker) ProcessEnumerationStream(
 		case scanTargetIDs, ok := <-result.ScanTargetsCh:
 			if !ok {
 				result.ScanTargetsCh = nil
+				logger.Debug(ctx, "ScanTargetsCh closed, setting to nil")
 				continue
 			}
 			if err := t.associateEnumeratedTargetsToJob(ctx, jobID, scanTargetIDs); err != nil {
@@ -136,10 +145,12 @@ func (t *executionTracker) ProcessEnumerationStream(
 				span.SetStatus(codes.Error, "failed to link enumerated targets")
 				return fmt.Errorf("failed to link enumerated targets: %w", err)
 			}
+			logger.Debug(ctx, "Enumerated targets linked to job")
 
 		case translationRes, ok := <-result.TasksCh:
 			if !ok {
 				result.TasksCh = nil
+				logger.Debug(ctx, "TasksCh closed, setting to nil")
 				continue
 			}
 			if err := t.handleEnumeratedScanTask(
@@ -153,10 +164,12 @@ func (t *executionTracker) ProcessEnumerationStream(
 				span.SetStatus(codes.Error, "failed to handle enumerated scan task")
 				return fmt.Errorf("failed to handle enumerated scan task: %w", err)
 			}
+			logger.Debug(ctx, "Enumerated scan task handled")
 
 		case errVal, ok := <-result.ErrCh:
 			if !ok {
 				result.ErrCh = nil
+				logger.Debug(ctx, "ErrCh closed, setting to nil")
 				continue
 			}
 			if errVal != nil {

@@ -151,14 +151,22 @@ func (s *coordinator) failEnumeration(
 //  2. taskCh for newly created tasks
 //  3. errCh for fatal errors
 func (s *coordinator) EnumerateTarget(ctx context.Context, target domain.TargetSpec) domain.EnumerationResult {
+	logger := s.logger.With(
+		"operation", "enumerate_target",
+		"target_name", target.Name(),
+		"target_type", target.SourceType().String(),
+	)
 	numCPU := runtime.NumCPU()
 
 	res, pipes := newEnumerationPipes(numCPU)
 
 	go func() {
-		defer close(pipes.scanTargetWriter)
-		defer close(pipes.taskWriter)
-		defer close(pipes.errorWriter)
+		defer func() {
+			close(pipes.scanTargetWriter)
+			close(pipes.taskWriter)
+			close(pipes.errorWriter)
+			logger.Info(ctx, "Enumeration completed for target")
+		}()
 
 		ctx, span := s.startSpan(ctx, "coordinator.enumeration.enumerate_target",
 			attribute.String("operation", "enumerate_target"),
@@ -168,7 +176,7 @@ func (s *coordinator) EnumerateTarget(ctx context.Context, target domain.TargetS
 		defer span.End()
 
 		start := time.Now()
-		s.logger.Info(ctx, "Starting enumeration for target", "target", target.Name(), "target_type", target.SourceType().String())
+		logger.Info(ctx, "Starting enumeration for target")
 
 		// credStore, err := memory.NewCredentialStore(target.Auth)
 		// if err != nil {
