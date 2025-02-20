@@ -24,8 +24,8 @@ import (
 // with the job task service layer
 type mockJobTaskSvc struct{ mock.Mock }
 
-func (m *mockJobTaskSvc) CreateJob(ctx context.Context) (*scanning.Job, error) {
-	args := m.Called(ctx)
+func (m *mockJobTaskSvc) CreateJobFromID(ctx context.Context, jobID uuid.UUID) (*scanning.Job, error) {
+	args := m.Called(ctx, jobID)
 	if job := args.Get(0); job != nil {
 		return job.(*scanning.Job), args.Error(1)
 	}
@@ -165,8 +165,8 @@ func TestExecutionTracker_CreateJobForTarget(t *testing.T) {
 		{
 			name: "successful job creation and event publish",
 			setup: func(m *mockJobTaskSvc, p *mockDomainEventPublisher) {
-				job := scanning.NewJob()
-				m.On("CreateJob", mock.Anything).
+				job := scanning.NewJob(uuid.New())
+				m.On("CreateJobFromID", mock.Anything, mock.Anything).
 					Return(job, nil)
 				p.On("PublishDomainEvent", mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
@@ -185,7 +185,7 @@ func TestExecutionTracker_CreateJobForTarget(t *testing.T) {
 		{
 			name: "job creation failure",
 			setup: func(m *mockJobTaskSvc, p *mockDomainEventPublisher) {
-				m.On("CreateJob", mock.Anything).
+				m.On("CreateJobFromID", mock.Anything, mock.Anything).
 					Return(nil, errors.New("failed to create job"))
 			},
 			target: scanning.NewTarget(
@@ -202,8 +202,8 @@ func TestExecutionTracker_CreateJobForTarget(t *testing.T) {
 		{
 			name: "event publish failure",
 			setup: func(m *mockJobTaskSvc, p *mockDomainEventPublisher) {
-				job := scanning.NewJob()
-				m.On("CreateJob", mock.Anything).
+				job := scanning.NewJob(uuid.New())
+				m.On("CreateJobFromID", mock.Anything, mock.Anything).
 					Return(job, nil)
 				p.On("PublishDomainEvent", mock.Anything, mock.Anything, mock.Anything).
 					Return(errors.New("failed to publish event"))
@@ -226,7 +226,7 @@ func TestExecutionTracker_CreateJobForTarget(t *testing.T) {
 			suite := newTrackerTestSuite(t)
 			tt.setup(suite.jobTaskSvc, suite.domainPublisher)
 
-			err := suite.tracker.CreateJobForTarget(context.Background(), tt.target)
+			err := suite.tracker.CreateJobForTarget(context.Background(), uuid.New(), tt.target)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -252,9 +252,7 @@ func TestExecutionTracker_AssociateEnumeratedTargetsToJob(t *testing.T) {
 		{
 			name: "successful target linking and task increment",
 			setup: func(m *mockJobTaskSvc) {
-				m.On("LinkTargets", mock.Anything, mock.Anything, mock.Anything).
-					Return(nil)
-				m.On("IncrementJobTotalTasks", mock.Anything, mock.Anything, 2).
+				m.On("AssociateEnumeratedTargets", mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
 			},
 			jobID: uuid.New(),
@@ -267,7 +265,7 @@ func TestExecutionTracker_AssociateEnumeratedTargetsToJob(t *testing.T) {
 		{
 			name: "linking failure",
 			setup: func(m *mockJobTaskSvc) {
-				m.On("LinkTargets", mock.Anything, mock.Anything, mock.Anything).
+				m.On("AssociateEnumeratedTargets", mock.Anything, mock.Anything, mock.Anything).
 					Return(errors.New("failed to link targets"))
 			},
 			jobID: uuid.New(),
@@ -276,32 +274,14 @@ func TestExecutionTracker_AssociateEnumeratedTargetsToJob(t *testing.T) {
 				uuid.New(),
 			},
 			wantErr:     true,
-			expectedErr: "failed to link targets to job",
-		},
-		{
-			name: "increment failure",
-			setup: func(m *mockJobTaskSvc) {
-				m.On("LinkTargets", mock.Anything, mock.Anything, mock.Anything).
-					Return(nil)
-				m.On("IncrementJobTotalTasks", mock.Anything, mock.Anything, 2).
-					Return(errors.New("failed to increment"))
-			},
-			jobID: uuid.New(),
-			targetIDs: []uuid.UUID{
-				uuid.New(),
-				uuid.New(),
-			},
-			wantErr:     true,
-			expectedErr: "failed to increment job total tasks",
+			expectedErr: "failed to associate enumerated targets",
 		},
 		{
 			name: "empty target list",
 			setup: func(m *mockJobTaskSvc) {
-				m.On("LinkTargets", mock.Anything, mock.Anything, mock.MatchedBy(func(targets []uuid.UUID) bool {
+				m.On("AssociateEnumeratedTargets", mock.Anything, mock.Anything, mock.MatchedBy(func(targets []uuid.UUID) bool {
 					return len(targets) == 0
 				})).Return(nil)
-				m.On("IncrementJobTotalTasks", mock.Anything, mock.Anything, 0).
-					Return(nil)
 			},
 			jobID:     uuid.New(),
 			targetIDs: []uuid.UUID{},

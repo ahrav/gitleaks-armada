@@ -56,7 +56,7 @@ func NewJobTaskService(
 
 // CreateJob initializes a new scanning operation and ensures it's immediately
 // available in both the cache and persistent storage.
-func (s *jobTaskService) CreateJob(ctx context.Context) (*domain.Job, error) {
+func (s *jobTaskService) CreateJobFromID(ctx context.Context, jobID uuid.UUID) (*domain.Job, error) {
 	ctx, span := s.tracer.Start(ctx, "job_task_service.scanning.create_job",
 		trace.WithAttributes(
 			attribute.String("controller_id", s.controllerID),
@@ -64,7 +64,7 @@ func (s *jobTaskService) CreateJob(ctx context.Context) (*domain.Job, error) {
 	)
 	defer span.End()
 
-	job := domain.NewJob()
+	job := domain.NewJob(jobID)
 	if err := s.jobRepo.CreateJob(ctx, job); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to create job")

@@ -64,7 +64,11 @@ func (m *mockJobRepository) StoreCheckpoint(ctx context.Context, jobID uuid.UUID
 }
 
 func (m *mockJobRepository) GetCheckpoints(ctx context.Context, jobID uuid.UUID) (map[int32]int64, error) {
-	return nil, nil
+	args := m.Called(ctx, jobID)
+	if checkpoints := args.Get(0); checkpoints != nil {
+		return checkpoints.(map[int32]int64), args.Error(1)
+	}
+	return nil, args.Error(1)
 }
 
 func (m *mockJobRepository) UpdateMetricsAndCheckpoint(ctx context.Context, jobID uuid.UUID, metrics *domain.JobMetrics, partitionID int32, offset int64) error {
@@ -171,7 +175,7 @@ func TestCreateJob(t *testing.T) {
 			suite := newCoordinatorTestSuite(t)
 			tt.setup(suite.jobRepo)
 
-			job, err := suite.coord.CreateJob(context.Background())
+			job, err := suite.coord.CreateJobFromID(context.Background(), uuid.New())
 			if tt.wantErr {
 				require.Error(t, err)
 				return
@@ -264,6 +268,8 @@ func TestUpdateJobStatus(t *testing.T) {
 		{
 			name: "valid transition from queued to enumerating",
 			setup: func(s *coordinatorTestSuite) {
+				job := domain.NewJobWithStatus(uuid.New(), domain.JobStatusQueued)
+				s.jobRepo.On("GetJob", mock.Anything, mock.Anything).Return(job, nil)
 				s.jobRepo.On("UpdateJob", mock.Anything, mock.MatchedBy(func(j *domain.Job) bool {
 					return j.Status() == domain.JobStatusEnumerating
 				})).Return(nil)
@@ -275,6 +281,8 @@ func TestUpdateJobStatus(t *testing.T) {
 		{
 			name: "valid transition from enumerating to running",
 			setup: func(s *coordinatorTestSuite) {
+				job := domain.NewJobWithStatus(uuid.New(), domain.JobStatusEnumerating)
+				s.jobRepo.On("GetJob", mock.Anything, mock.Anything).Return(job, nil)
 				s.jobRepo.On("UpdateJob", mock.Anything, mock.MatchedBy(func(j *domain.Job) bool {
 					return j.Status() == domain.JobStatusRunning
 				})).Return(nil)
@@ -286,6 +294,8 @@ func TestUpdateJobStatus(t *testing.T) {
 		{
 			name: "valid transition from enumerating to failed",
 			setup: func(s *coordinatorTestSuite) {
+				job := domain.NewJobWithStatus(uuid.New(), domain.JobStatusEnumerating)
+				s.jobRepo.On("GetJob", mock.Anything, mock.Anything).Return(job, nil)
 				s.jobRepo.On("UpdateJob", mock.Anything, mock.MatchedBy(func(j *domain.Job) bool {
 					return j.Status() == domain.JobStatusFailed
 				})).Return(nil)
@@ -297,6 +307,8 @@ func TestUpdateJobStatus(t *testing.T) {
 		{
 			name: "valid transition from running to completed",
 			setup: func(s *coordinatorTestSuite) {
+				job := domain.NewJobWithStatus(uuid.New(), domain.JobStatusRunning)
+				s.jobRepo.On("GetJob", mock.Anything, mock.Anything).Return(job, nil)
 				s.jobRepo.On("UpdateJob", mock.Anything, mock.MatchedBy(func(j *domain.Job) bool {
 					return j.Status() == domain.JobStatusCompleted
 				})).Return(nil)
@@ -308,6 +320,8 @@ func TestUpdateJobStatus(t *testing.T) {
 		{
 			name: "valid transition from running to failed",
 			setup: func(s *coordinatorTestSuite) {
+				job := domain.NewJobWithStatus(uuid.New(), domain.JobStatusRunning)
+				s.jobRepo.On("GetJob", mock.Anything, mock.Anything).Return(job, nil)
 				s.jobRepo.On("UpdateJob", mock.Anything, mock.MatchedBy(func(j *domain.Job) bool {
 					return j.Status() == domain.JobStatusFailed
 				})).Return(nil)
@@ -317,24 +331,33 @@ func TestUpdateJobStatus(t *testing.T) {
 			wantErr:       false,
 		},
 		{
-			name:          "invalid transition from completed to running",
-			setup:         func(s *coordinatorTestSuite) {},
+			name: "invalid transition from completed to running",
+			setup: func(s *coordinatorTestSuite) {
+				job := domain.NewJobWithStatus(uuid.New(), domain.JobStatusCompleted)
+				s.jobRepo.On("GetJob", mock.Anything, mock.Anything).Return(job, nil)
+			},
 			initialStatus: domain.JobStatusCompleted,
 			targetStatus:  domain.JobStatusRunning,
 			wantErr:       true,
 			errMsg:        "invalid job status transition from COMPLETED to RUNNING",
 		},
 		{
-			name:          "invalid transition from failed to completed",
-			setup:         func(s *coordinatorTestSuite) {},
+			name: "invalid transition from failed to completed",
+			setup: func(s *coordinatorTestSuite) {
+				job := domain.NewJobWithStatus(uuid.New(), domain.JobStatusFailed)
+				s.jobRepo.On("GetJob", mock.Anything, mock.Anything).Return(job, nil)
+			},
 			initialStatus: domain.JobStatusFailed,
 			targetStatus:  domain.JobStatusCompleted,
 			wantErr:       true,
 			errMsg:        "invalid job status transition from FAILED to COMPLETED",
 		},
 		{
-			name:          "invalid transition from queued to running",
-			setup:         func(s *coordinatorTestSuite) {},
+			name: "invalid transition from queued to running",
+			setup: func(s *coordinatorTestSuite) {
+				job := domain.NewJobWithStatus(uuid.New(), domain.JobStatusQueued)
+				s.jobRepo.On("GetJob", mock.Anything, mock.Anything).Return(job, nil)
+			},
 			initialStatus: domain.JobStatusQueued,
 			targetStatus:  domain.JobStatusRunning,
 			wantErr:       true,
@@ -343,6 +366,8 @@ func TestUpdateJobStatus(t *testing.T) {
 		{
 			name: "repository update failure",
 			setup: func(s *coordinatorTestSuite) {
+				job := domain.NewJobWithStatus(uuid.New(), domain.JobStatusEnumerating)
+				s.jobRepo.On("GetJob", mock.Anything, mock.Anything).Return(job, nil)
 				s.jobRepo.On("UpdateJob", mock.Anything, mock.MatchedBy(func(j *domain.Job) bool {
 					return j.Status() == domain.JobStatusRunning
 				})).Return(assert.AnError)
@@ -351,6 +376,16 @@ func TestUpdateJobStatus(t *testing.T) {
 			targetStatus:  domain.JobStatusRunning,
 			wantErr:       true,
 			errMsg:        "failed to update job status",
+		},
+		{
+			name: "job load failure",
+			setup: func(s *coordinatorTestSuite) {
+				s.jobRepo.On("GetJob", mock.Anything, mock.Anything).Return(nil, assert.AnError)
+			},
+			initialStatus: domain.JobStatusEnumerating,
+			targetStatus:  domain.JobStatusRunning,
+			wantErr:       true,
+			errMsg:        "failed to load job",
 		},
 	}
 
@@ -369,7 +404,6 @@ func TestUpdateJobStatus(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-			assert.Equal(t, tt.targetStatus, job.Status())
 			suite.jobRepo.AssertExpectations(t)
 		})
 	}
@@ -971,35 +1005,41 @@ func TestGetCheckpoints(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		setup   func(*coordinatorTestSuite)
+		setup   func(*mockJobRepository)
 		wantErr bool
+		want    map[int32]int64
 	}{
 		{
 			name: "successfully get checkpoints",
-			setup: func(s *coordinatorTestSuite) {
+			setup: func(repo *mockJobRepository) {
 				checkpoints := map[int32]int64{
 					0: 100,
 					1: 200,
 				}
-				s.jobRepo.On("GetCheckpoints", mock.Anything, jobID).
+				repo.On("GetCheckpoints", mock.Anything, jobID).
 					Return(checkpoints, nil)
 			},
 			wantErr: false,
+			want: map[int32]int64{
+				0: 100,
+				1: 200,
+			},
 		},
 		{
 			name: "repository error",
-			setup: func(s *coordinatorTestSuite) {
-				s.jobRepo.On("GetCheckpoints", mock.Anything, jobID).
+			setup: func(repo *mockJobRepository) {
+				repo.On("GetCheckpoints", mock.Anything, jobID).
 					Return(nil, assert.AnError)
 			},
 			wantErr: true,
+			want:    nil,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			suite := newCoordinatorTestSuite(t)
-			tt.setup(suite)
+			tt.setup(suite.jobRepo)
 
 			checkpoints, err := suite.coord.GetCheckpoints(context.Background(), jobID)
 			if tt.wantErr {
@@ -1009,7 +1049,7 @@ func TestGetCheckpoints(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-			require.NotNil(t, checkpoints)
+			require.Equal(t, tt.want, checkpoints)
 			suite.jobRepo.AssertExpectations(t)
 		})
 	}

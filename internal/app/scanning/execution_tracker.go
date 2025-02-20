@@ -48,7 +48,7 @@ func NewExecutionTracker(
 }
 
 // CreateJobForTarget creates a new scan job for the given target and publishes a JobCreatedEvent.
-func (t *executionTracker) CreateJobForTarget(ctx context.Context, target scanning.Target) error {
+func (t *executionTracker) CreateJobForTarget(ctx context.Context, jobID uuid.UUID, target scanning.Target) error {
 	ctx, span := t.tracer.Start(ctx, "execution_tracker.scanning.create_job",
 		trace.WithAttributes(
 			attribute.String("controller_id", t.controllerID),
@@ -57,7 +57,7 @@ func (t *executionTracker) CreateJobForTarget(ctx context.Context, target scanni
 		))
 	defer span.End()
 
-	job, err := t.jobTaskSvc.CreateJob(ctx)
+	job, err := t.jobTaskSvc.CreateJobFromID(ctx, jobID)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to create job")
