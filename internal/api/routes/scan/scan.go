@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/google/uuid"
+
 	"github.com/ahrav/gitleaks-armada/internal/api/errs"
 	"github.com/ahrav/gitleaks-armada/internal/app/commands"
 	"github.com/ahrav/gitleaks-armada/internal/app/commands/scanning"
@@ -112,15 +114,15 @@ func start(cfg Config) web.HandlerFunc {
 
 		// Create scan configuration with multiple targets.
 		scanCfg := &config.Config{Targets: targets}
-		job := scanDomain.NewJob()
-		cmd := scanning.NewStartScanCommand(job.JobID(), scanCfg, "system") // TODO: Use JWT user instead of "system" if available.
+		jobID := uuid.New()
+		cmd := scanning.NewStartScanCommand(jobID, scanCfg, "system") // TODO: Use JWT user instead of "system" if available.
 		if err := cfg.CmdHandler.Handle(ctx, cmd); err != nil {
 			return errs.New(errs.Internal, err)
 		}
 
 		return startResponse{
-			ID:     job.JobID().String(),
-			Status: job.Status().String(),
+			ID:     jobID.String(),
+			Status: scanDomain.JobStatusQueued.String(),
 		}
 	}
 }
