@@ -177,6 +177,7 @@ func NewOrchestrator(
 	dispatcher.RegisterHandler(ctx, rules.EventTypeRulesUpdated, eventsFacilitator.HandleRule)
 	dispatcher.RegisterHandler(ctx, rules.EventTypeRulesPublished, eventsFacilitator.HandleRulesPublished)
 	dispatcher.RegisterHandler(ctx, scanning.EventTypeTaskJobMetric, eventsFacilitator.HandleTaskJobMetric)
+	dispatcher.RegisterHandler(ctx, scanning.EventTypeJobEnumerationCompleted, eventsFacilitator.HandleTaskJobMetric)
 
 	o.dispatcher = dispatcher
 
