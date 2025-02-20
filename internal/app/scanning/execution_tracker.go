@@ -180,7 +180,7 @@ func (t *executionTracker) ProcessEnumerationStream(
 		}
 
 		// All channels exhausted?
-		if result.ScanTargetsCh == nil && result.TasksCh == nil && result.ErrCh == nil {
+		if allChannelsClosed() {
 			break
 		}
 	}
