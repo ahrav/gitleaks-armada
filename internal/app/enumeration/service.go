@@ -87,6 +87,8 @@ func NewEnumService(
 // in the configuration. It creates scan jobs, processes targets concurrently, and
 // handles the publishing of task events. The method ensures proper error handling
 // and metric tracking throughout the enumeration lifecycle.
+// TODO: Add soem sort of alerting if the enumeration task seems to be stuck, or blocked. Maybe
+// add context timeout or some sort of lightweight heartbeat to the coordinator.
 func (es *EnumService) StartEnumeration(ctx context.Context, targetSpec *enumeration.TargetSpec) enumeration.EnumerationResult {
 	logger := es.logger.With(
 		"operation", "start_enumeration",
