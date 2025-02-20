@@ -10,12 +10,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/otel/trace/noop"
 
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	domain "github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
+	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
 
 // mockJobRepository helps test coordinator interactions with job persistence.
@@ -116,31 +116,12 @@ func (m *mockTaskRepository) BatchUpdateHeartbeats(ctx context.Context, heartbea
 	return args.Get(0).(int64), args.Error(1)
 }
 
-type coordinatorTestSuite struct {
-	jobRepo  *mockJobRepository
-	taskRepo *mockTaskRepository
-	coord    *jobTaskService
-	tracer   trace.Tracer
-	taskID   uuid.UUID
-}
-
-func newCoordinatorTestSuite(t *testing.T) *coordinatorTestSuite {
+func newJobTaskService(t *testing.T) *jobTaskService {
 	t.Helper()
-
 	jobRepo := new(mockJobRepository)
 	taskRepo := new(mockTaskRepository)
 	tracer := noop.NewTracerProvider().Tracer("test")
-
-	return &coordinatorTestSuite{
-		jobRepo:  jobRepo,
-		taskRepo: taskRepo,
-		coord: &jobTaskService{
-			jobRepo:  jobRepo,
-			taskRepo: taskRepo,
-			tracer:   tracer,
-		},
-		tracer: tracer,
-	}
+	return NewJobTaskService("test", jobRepo, taskRepo, logger.Noop(), tracer)
 }
 
 func TestCreateJob(t *testing.T) {
@@ -172,10 +153,10 @@ func TestCreateJob(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			suite := newCoordinatorTestSuite(t)
-			tt.setup(suite.jobRepo)
+			suite := newJobTaskService(t)
+			tt.setup(suite.jobRepo.(*mockJobRepository))
 
-			job, err := suite.coord.CreateJobFromID(context.Background(), uuid.New())
+			job, err := suite.CreateJobFromID(context.Background(), uuid.New())
 			if tt.wantErr {
 				require.Error(t, err)
 				return
@@ -184,7 +165,7 @@ func TestCreateJob(t *testing.T) {
 			require.NoError(t, err)
 			assert.NotNil(t, job)
 			assert.Equal(t, scanning.JobStatusQueued, job.Status())
-			suite.jobRepo.AssertExpectations(t)
+			suite.jobRepo.(*mockJobRepository).AssertExpectations(t)
 		})
 	}
 }
@@ -198,27 +179,27 @@ func TestAssociateEnumeratedTargets(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		setup   func(*coordinatorTestSuite)
+		setup   func(*mockJobRepository)
 		wantErr bool
 		errMsg  string
 	}{
 		{
 			name: "successful target association and task count increment",
-			setup: func(s *coordinatorTestSuite) {
+			setup: func(repo *mockJobRepository) {
 				// Expect target association.
-				s.jobRepo.On("AssociateTargets", mock.Anything, jobID, targetIDs).
+				repo.On("AssociateTargets", mock.Anything, jobID, targetIDs).
 					Return(nil)
 
 				// Expect task count increment.
-				s.jobRepo.On("IncrementTotalTasks", mock.Anything, jobID, len(targetIDs)).
+				repo.On("IncrementTotalTasks", mock.Anything, jobID, len(targetIDs)).
 					Return(nil)
 			},
 			wantErr: false,
 		},
 		{
 			name: "target association fails",
-			setup: func(s *coordinatorTestSuite) {
-				s.jobRepo.On("AssociateTargets", mock.Anything, jobID, targetIDs).
+			setup: func(repo *mockJobRepository) {
+				repo.On("AssociateTargets", mock.Anything, jobID, targetIDs).
 					Return(assert.AnError)
 			},
 			wantErr: true,
@@ -226,11 +207,11 @@ func TestAssociateEnumeratedTargets(t *testing.T) {
 		},
 		{
 			name: "task count increment fails",
-			setup: func(s *coordinatorTestSuite) {
-				s.jobRepo.On("AssociateTargets", mock.Anything, jobID, targetIDs).
+			setup: func(repo *mockJobRepository) {
+				repo.On("AssociateTargets", mock.Anything, jobID, targetIDs).
 					Return(nil)
 
-				s.jobRepo.On("IncrementTotalTasks", mock.Anything, jobID, len(targetIDs)).
+				repo.On("IncrementTotalTasks", mock.Anything, jobID, len(targetIDs)).
 					Return(assert.AnError)
 			},
 			wantErr: true,
@@ -240,10 +221,10 @@ func TestAssociateEnumeratedTargets(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			suite := newCoordinatorTestSuite(t)
-			tt.setup(suite)
+			suite := newJobTaskService(t)
+			tt.setup(suite.jobRepo.(*mockJobRepository))
 
-			err := suite.coord.AssociateEnumeratedTargets(context.Background(), jobID, targetIDs)
+			err := suite.AssociateEnumeratedTargets(context.Background(), jobID, targetIDs)
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.errMsg)
@@ -251,7 +232,7 @@ func TestAssociateEnumeratedTargets(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-			suite.jobRepo.AssertExpectations(t)
+			suite.jobRepo.(*mockJobRepository).AssertExpectations(t)
 		})
 	}
 }
@@ -259,7 +240,7 @@ func TestAssociateEnumeratedTargets(t *testing.T) {
 func TestUpdateJobStatus(t *testing.T) {
 	tests := []struct {
 		name          string
-		setup         func(*coordinatorTestSuite)
+		setup         func(*mockJobRepository)
 		initialStatus domain.JobStatus
 		targetStatus  domain.JobStatus
 		wantErr       bool
@@ -267,10 +248,10 @@ func TestUpdateJobStatus(t *testing.T) {
 	}{
 		{
 			name: "valid transition from queued to enumerating",
-			setup: func(s *coordinatorTestSuite) {
+			setup: func(repo *mockJobRepository) {
 				job := domain.NewJobWithStatus(uuid.New(), domain.JobStatusQueued)
-				s.jobRepo.On("GetJob", mock.Anything, mock.Anything).Return(job, nil)
-				s.jobRepo.On("UpdateJob", mock.Anything, mock.MatchedBy(func(j *domain.Job) bool {
+				repo.On("GetJob", mock.Anything, mock.Anything).Return(job, nil)
+				repo.On("UpdateJob", mock.Anything, mock.MatchedBy(func(j *domain.Job) bool {
 					return j.Status() == domain.JobStatusEnumerating
 				})).Return(nil)
 			},
@@ -280,10 +261,10 @@ func TestUpdateJobStatus(t *testing.T) {
 		},
 		{
 			name: "valid transition from enumerating to running",
-			setup: func(s *coordinatorTestSuite) {
+			setup: func(repo *mockJobRepository) {
 				job := domain.NewJobWithStatus(uuid.New(), domain.JobStatusEnumerating)
-				s.jobRepo.On("GetJob", mock.Anything, mock.Anything).Return(job, nil)
-				s.jobRepo.On("UpdateJob", mock.Anything, mock.MatchedBy(func(j *domain.Job) bool {
+				repo.On("GetJob", mock.Anything, mock.Anything).Return(job, nil)
+				repo.On("UpdateJob", mock.Anything, mock.MatchedBy(func(j *domain.Job) bool {
 					return j.Status() == domain.JobStatusRunning
 				})).Return(nil)
 			},
@@ -293,10 +274,10 @@ func TestUpdateJobStatus(t *testing.T) {
 		},
 		{
 			name: "valid transition from enumerating to failed",
-			setup: func(s *coordinatorTestSuite) {
+			setup: func(repo *mockJobRepository) {
 				job := domain.NewJobWithStatus(uuid.New(), domain.JobStatusEnumerating)
-				s.jobRepo.On("GetJob", mock.Anything, mock.Anything).Return(job, nil)
-				s.jobRepo.On("UpdateJob", mock.Anything, mock.MatchedBy(func(j *domain.Job) bool {
+				repo.On("GetJob", mock.Anything, mock.Anything).Return(job, nil)
+				repo.On("UpdateJob", mock.Anything, mock.MatchedBy(func(j *domain.Job) bool {
 					return j.Status() == domain.JobStatusFailed
 				})).Return(nil)
 			},
@@ -306,10 +287,10 @@ func TestUpdateJobStatus(t *testing.T) {
 		},
 		{
 			name: "valid transition from running to completed",
-			setup: func(s *coordinatorTestSuite) {
+			setup: func(repo *mockJobRepository) {
 				job := domain.NewJobWithStatus(uuid.New(), domain.JobStatusRunning)
-				s.jobRepo.On("GetJob", mock.Anything, mock.Anything).Return(job, nil)
-				s.jobRepo.On("UpdateJob", mock.Anything, mock.MatchedBy(func(j *domain.Job) bool {
+				repo.On("GetJob", mock.Anything, mock.Anything).Return(job, nil)
+				repo.On("UpdateJob", mock.Anything, mock.MatchedBy(func(j *domain.Job) bool {
 					return j.Status() == domain.JobStatusCompleted
 				})).Return(nil)
 			},
@@ -319,10 +300,10 @@ func TestUpdateJobStatus(t *testing.T) {
 		},
 		{
 			name: "valid transition from running to failed",
-			setup: func(s *coordinatorTestSuite) {
+			setup: func(repo *mockJobRepository) {
 				job := domain.NewJobWithStatus(uuid.New(), domain.JobStatusRunning)
-				s.jobRepo.On("GetJob", mock.Anything, mock.Anything).Return(job, nil)
-				s.jobRepo.On("UpdateJob", mock.Anything, mock.MatchedBy(func(j *domain.Job) bool {
+				repo.On("GetJob", mock.Anything, mock.Anything).Return(job, nil)
+				repo.On("UpdateJob", mock.Anything, mock.MatchedBy(func(j *domain.Job) bool {
 					return j.Status() == domain.JobStatusFailed
 				})).Return(nil)
 			},
@@ -332,9 +313,9 @@ func TestUpdateJobStatus(t *testing.T) {
 		},
 		{
 			name: "invalid transition from completed to running",
-			setup: func(s *coordinatorTestSuite) {
+			setup: func(repo *mockJobRepository) {
 				job := domain.NewJobWithStatus(uuid.New(), domain.JobStatusCompleted)
-				s.jobRepo.On("GetJob", mock.Anything, mock.Anything).Return(job, nil)
+				repo.On("GetJob", mock.Anything, mock.Anything).Return(job, nil)
 			},
 			initialStatus: domain.JobStatusCompleted,
 			targetStatus:  domain.JobStatusRunning,
@@ -343,9 +324,9 @@ func TestUpdateJobStatus(t *testing.T) {
 		},
 		{
 			name: "invalid transition from failed to completed",
-			setup: func(s *coordinatorTestSuite) {
+			setup: func(repo *mockJobRepository) {
 				job := domain.NewJobWithStatus(uuid.New(), domain.JobStatusFailed)
-				s.jobRepo.On("GetJob", mock.Anything, mock.Anything).Return(job, nil)
+				repo.On("GetJob", mock.Anything, mock.Anything).Return(job, nil)
 			},
 			initialStatus: domain.JobStatusFailed,
 			targetStatus:  domain.JobStatusCompleted,
@@ -354,9 +335,9 @@ func TestUpdateJobStatus(t *testing.T) {
 		},
 		{
 			name: "invalid transition from queued to running",
-			setup: func(s *coordinatorTestSuite) {
+			setup: func(repo *mockJobRepository) {
 				job := domain.NewJobWithStatus(uuid.New(), domain.JobStatusQueued)
-				s.jobRepo.On("GetJob", mock.Anything, mock.Anything).Return(job, nil)
+				repo.On("GetJob", mock.Anything, mock.Anything).Return(job, nil)
 			},
 			initialStatus: domain.JobStatusQueued,
 			targetStatus:  domain.JobStatusRunning,
@@ -365,10 +346,10 @@ func TestUpdateJobStatus(t *testing.T) {
 		},
 		{
 			name: "repository update failure",
-			setup: func(s *coordinatorTestSuite) {
+			setup: func(repo *mockJobRepository) {
 				job := domain.NewJobWithStatus(uuid.New(), domain.JobStatusEnumerating)
-				s.jobRepo.On("GetJob", mock.Anything, mock.Anything).Return(job, nil)
-				s.jobRepo.On("UpdateJob", mock.Anything, mock.MatchedBy(func(j *domain.Job) bool {
+				repo.On("GetJob", mock.Anything, mock.Anything).Return(job, nil)
+				repo.On("UpdateJob", mock.Anything, mock.MatchedBy(func(j *domain.Job) bool {
 					return j.Status() == domain.JobStatusRunning
 				})).Return(assert.AnError)
 			},
@@ -379,8 +360,8 @@ func TestUpdateJobStatus(t *testing.T) {
 		},
 		{
 			name: "job load failure",
-			setup: func(s *coordinatorTestSuite) {
-				s.jobRepo.On("GetJob", mock.Anything, mock.Anything).Return(nil, assert.AnError)
+			setup: func(repo *mockJobRepository) {
+				repo.On("GetJob", mock.Anything, mock.Anything).Return(nil, assert.AnError)
 			},
 			initialStatus: domain.JobStatusEnumerating,
 			targetStatus:  domain.JobStatusRunning,
@@ -391,11 +372,11 @@ func TestUpdateJobStatus(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			suite := newCoordinatorTestSuite(t)
-			tt.setup(suite)
+			suite := newJobTaskService(t)
+			tt.setup(suite.jobRepo.(*mockJobRepository))
 
 			job := domain.NewJobWithStatus(uuid.New(), tt.initialStatus)
-			err := suite.coord.UpdateJobStatus(context.Background(), job.JobID(), tt.targetStatus)
+			err := suite.UpdateJobStatus(context.Background(), job.JobID(), tt.targetStatus)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -404,7 +385,7 @@ func TestUpdateJobStatus(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-			suite.jobRepo.AssertExpectations(t)
+			suite.jobRepo.(*mockJobRepository).AssertExpectations(t)
 		})
 	}
 }
@@ -496,17 +477,17 @@ func TestStartTask(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			suite := newCoordinatorTestSuite(t)
-			tt.setup(suite.taskRepo)
+			suite := newJobTaskService(t)
+			tt.setup(suite.taskRepo.(*mockTaskRepository))
 
-			err := suite.coord.StartTask(context.Background(), tt.taskID, "https://github.com/org/repo")
+			err := suite.StartTask(context.Background(), tt.taskID, "https://github.com/org/repo")
 			if tt.wantErr {
 				require.Error(t, err)
 				return
 			}
 
 			require.NoError(t, err)
-			suite.taskRepo.AssertExpectations(t)
+			suite.taskRepo.(*mockTaskRepository).AssertExpectations(t)
 		})
 	}
 }
@@ -517,12 +498,12 @@ func TestUpdateTaskProgress(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		setup   func(*coordinatorTestSuite, *scanning.Progress)
+		setup   func(*mockTaskRepository, *scanning.Progress)
 		wantErr bool
 	}{
 		{
 			name: "successful progress update",
-			setup: func(s *coordinatorTestSuite, progress *scanning.Progress) {
+			setup: func(repo *mockTaskRepository, progress *scanning.Progress) {
 				task := scanning.ReconstructTask(
 					taskID,
 					jobID,
@@ -540,10 +521,10 @@ func TestUpdateTaskProgress(t *testing.T) {
 					0,
 				)
 
-				s.taskRepo.On("GetTask", mock.Anything, taskID).
+				repo.On("GetTask", mock.Anything, taskID).
 					Return(task, nil)
 
-				s.taskRepo.On("UpdateTask", mock.Anything, mock.MatchedBy(func(t *scanning.Task) bool {
+				repo.On("UpdateTask", mock.Anything, mock.MatchedBy(func(t *scanning.Task) bool {
 					return t.LastSequenceNum() == progress.SequenceNum()
 				})).Return(nil)
 			},
@@ -551,8 +532,8 @@ func TestUpdateTaskProgress(t *testing.T) {
 		},
 		{
 			name: "task not found",
-			setup: func(s *coordinatorTestSuite, progress *scanning.Progress) {
-				s.taskRepo.On("GetTask", mock.Anything, taskID).
+			setup: func(repo *mockTaskRepository, progress *scanning.Progress) {
+				repo.On("GetTask", mock.Anything, taskID).
 					Return(nil, assert.AnError)
 			},
 			wantErr: true,
@@ -561,7 +542,7 @@ func TestUpdateTaskProgress(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			suite := newCoordinatorTestSuite(t)
+			suite := newJobTaskService(t)
 			progress := scanning.NewProgress(
 				taskID,
 				jobID,
@@ -574,9 +555,9 @@ func TestUpdateTaskProgress(t *testing.T) {
 				nil,
 			)
 
-			tt.setup(suite, &progress)
+			tt.setup(suite.taskRepo.(*mockTaskRepository), &progress)
 
-			task, err := suite.coord.UpdateTaskProgress(context.Background(), progress)
+			task, err := suite.UpdateTaskProgress(context.Background(), progress)
 			if tt.wantErr {
 				require.Error(t, err)
 				return
@@ -584,7 +565,7 @@ func TestUpdateTaskProgress(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.NotNil(t, task)
-			suite.taskRepo.AssertExpectations(t)
+			suite.taskRepo.(*mockTaskRepository).AssertExpectations(t)
 		})
 	}
 }
@@ -595,12 +576,12 @@ func TestCompleteTask(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		setup   func(*coordinatorTestSuite)
+		setup   func(*mockTaskRepository)
 		wantErr bool
 	}{
 		{
 			name: "successful task completion",
-			setup: func(s *coordinatorTestSuite) {
+			setup: func(repo *mockTaskRepository) {
 				// Create initial task in IN_PROGRESS state
 				task := scanning.NewScanTask(jobID, shared.SourceTypeGitHub, taskID, "https://example.com")
 				err := task.ApplyProgress(scanning.NewProgress(
@@ -617,11 +598,11 @@ func TestCompleteTask(t *testing.T) {
 				require.NoError(t, err)
 
 				// First mock: Return the task when GetTask is called
-				s.taskRepo.On("GetTask", mock.Anything, taskID).
+				repo.On("GetTask", mock.Anything, taskID).
 					Return(task, nil)
 
 				// Second mock: Verify the task update with proper status check
-				s.taskRepo.On("UpdateTask", mock.Anything, mock.MatchedBy(func(updatedTask *scanning.Task) bool {
+				repo.On("UpdateTask", mock.Anything, mock.MatchedBy(func(updatedTask *scanning.Task) bool {
 					return updatedTask.TaskID() == taskID &&
 						updatedTask.JobID() == jobID &&
 						updatedTask.Status() == scanning.TaskStatusCompleted &&
@@ -632,8 +613,8 @@ func TestCompleteTask(t *testing.T) {
 		},
 		{
 			name: "task not found",
-			setup: func(s *coordinatorTestSuite) {
-				s.taskRepo.On("GetTask", mock.Anything, taskID).
+			setup: func(repo *mockTaskRepository) {
+				repo.On("GetTask", mock.Anything, taskID).
 					Return(nil, assert.AnError)
 			},
 			wantErr: true,
@@ -642,10 +623,10 @@ func TestCompleteTask(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			suite := newCoordinatorTestSuite(t)
-			tt.setup(suite)
+			suite := newJobTaskService(t)
+			tt.setup(suite.taskRepo.(*mockTaskRepository))
 
-			task, err := suite.coord.CompleteTask(context.Background(), taskID)
+			task, err := suite.CompleteTask(context.Background(), taskID)
 			if tt.wantErr {
 				require.Error(t, err)
 				return
@@ -654,7 +635,7 @@ func TestCompleteTask(t *testing.T) {
 			require.NoError(t, err)
 			assert.NotNil(t, task)
 			assert.Equal(t, scanning.TaskStatusCompleted, task.Status())
-			suite.taskRepo.AssertExpectations(t)
+			suite.taskRepo.(*mockTaskRepository).AssertExpectations(t)
 		})
 	}
 }
@@ -665,12 +646,12 @@ func TestFailTask(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		setup   func(*coordinatorTestSuite)
+		setup   func(*mockTaskRepository)
 		wantErr bool
 	}{
 		{
 			name: "successful task failure",
-			setup: func(s *coordinatorTestSuite) {
+			setup: func(repo *mockTaskRepository) {
 				task := scanning.NewScanTask(jobID, shared.SourceTypeGitHub, taskID, "https://example.com")
 				err := task.ApplyProgress(scanning.NewProgress(
 					taskID,
@@ -685,10 +666,10 @@ func TestFailTask(t *testing.T) {
 				))
 				require.NoError(t, err)
 
-				s.taskRepo.On("GetTask", mock.Anything, taskID).
+				repo.On("GetTask", mock.Anything, taskID).
 					Return(task, nil)
 
-				s.taskRepo.On("UpdateTask", mock.Anything, mock.MatchedBy(func(t *scanning.Task) bool {
+				repo.On("UpdateTask", mock.Anything, mock.MatchedBy(func(t *scanning.Task) bool {
 					isMatch := t.TaskID() == taskID &&
 						t.Status() == scanning.TaskStatusFailed &&
 						t.ResourceURI() == "https://example.com"
@@ -699,19 +680,19 @@ func TestFailTask(t *testing.T) {
 		},
 		{
 			name: "task not found",
-			setup: func(s *coordinatorTestSuite) {
-				s.taskRepo.On("GetTask", mock.Anything, taskID).
+			setup: func(repo *mockTaskRepository) {
+				repo.On("GetTask", mock.Anything, taskID).
 					Return(nil, assert.AnError)
 			},
 			wantErr: true,
 		},
 		{
 			name: "update task fails",
-			setup: func(s *coordinatorTestSuite) {
+			setup: func(repo *mockTaskRepository) {
 				task := scanning.NewScanTask(jobID, shared.SourceTypeGitHub, taskID, "https://example.com")
-				s.taskRepo.On("GetTask", mock.Anything, taskID).
+				repo.On("GetTask", mock.Anything, taskID).
 					Return(task, nil)
-				s.taskRepo.On("UpdateTask", mock.Anything, mock.MatchedBy(func(t *scanning.Task) bool {
+				repo.On("UpdateTask", mock.Anything, mock.MatchedBy(func(t *scanning.Task) bool {
 					return t.TaskID() == taskID && t.Status() == scanning.TaskStatusFailed
 				})).Return(assert.AnError)
 			},
@@ -721,10 +702,10 @@ func TestFailTask(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			suite := newCoordinatorTestSuite(t)
-			tt.setup(suite)
+			suite := newJobTaskService(t)
+			tt.setup(suite.taskRepo.(*mockTaskRepository))
 
-			task, err := suite.coord.FailTask(context.Background(), taskID)
+			task, err := suite.FailTask(context.Background(), taskID)
 			if tt.wantErr {
 				require.Error(t, err)
 				return
@@ -733,7 +714,7 @@ func TestFailTask(t *testing.T) {
 			require.NoError(t, err)
 			assert.NotNil(t, task)
 			assert.Equal(t, scanning.TaskStatusFailed, task.Status())
-			suite.taskRepo.AssertExpectations(t)
+			suite.taskRepo.(*mockTaskRepository).AssertExpectations(t)
 		})
 	}
 }
@@ -744,13 +725,13 @@ func TestMarkTaskStale(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		setup       func(*coordinatorTestSuite)
+		setup       func(*mockTaskRepository)
 		stallReason scanning.StallReason
 		wantErr     bool
 	}{
 		{
 			name: "successful mark task as stale",
-			setup: func(s *coordinatorTestSuite) {
+			setup: func(repo *mockTaskRepository) {
 				task := scanning.NewScanTask(jobID, shared.SourceTypeGitHub, taskID, "https://example.com")
 				err := task.ApplyProgress(scanning.NewProgress(
 					taskID,
@@ -765,10 +746,10 @@ func TestMarkTaskStale(t *testing.T) {
 				))
 				require.NoError(t, err)
 
-				s.taskRepo.On("GetTask", mock.Anything, taskID).
+				repo.On("GetTask", mock.Anything, taskID).
 					Return(task, nil)
 
-				s.taskRepo.On("UpdateTask", mock.Anything, mock.MatchedBy(func(t *scanning.Task) bool {
+				repo.On("UpdateTask", mock.Anything, mock.MatchedBy(func(t *scanning.Task) bool {
 					return t.Status() == scanning.TaskStatusStale &&
 						t.StallReason() != nil &&
 						*t.StallReason() == scanning.StallReasonNoProgress &&
@@ -780,8 +761,8 @@ func TestMarkTaskStale(t *testing.T) {
 		},
 		{
 			name: "task not found",
-			setup: func(s *coordinatorTestSuite) {
-				s.taskRepo.On("GetTask", mock.Anything, taskID).
+			setup: func(repo *mockTaskRepository) {
+				repo.On("GetTask", mock.Anything, taskID).
 					Return(nil, assert.AnError)
 			},
 			stallReason: scanning.StallReasonNoProgress,
@@ -789,13 +770,13 @@ func TestMarkTaskStale(t *testing.T) {
 		},
 		{
 			name: "task update fails",
-			setup: func(s *coordinatorTestSuite) {
+			setup: func(repo *mockTaskRepository) {
 				task := scanning.NewScanTask(jobID, shared.SourceTypeGitHub, taskID, "https://example.com")
 
-				s.taskRepo.On("GetTask", mock.Anything, taskID).
+				repo.On("GetTask", mock.Anything, taskID).
 					Return(task, nil)
 
-				s.taskRepo.On("UpdateTask", mock.Anything, mock.Anything).
+				repo.On("UpdateTask", mock.Anything, mock.Anything).
 					Return(assert.AnError)
 			},
 			stallReason: scanning.StallReasonNoProgress,
@@ -803,7 +784,7 @@ func TestMarkTaskStale(t *testing.T) {
 		},
 		{
 			name: "invalid state transition",
-			setup: func(s *coordinatorTestSuite) {
+			setup: func(repo *mockTaskRepository) {
 				task := scanning.ReconstructTask(
 					taskID,
 					jobID,
@@ -821,7 +802,7 @@ func TestMarkTaskStale(t *testing.T) {
 					0,
 				)
 
-				s.taskRepo.On("GetTask", mock.Anything, taskID).
+				repo.On("GetTask", mock.Anything, taskID).
 					Return(task, nil)
 			},
 			stallReason: scanning.StallReasonNoProgress,
@@ -833,10 +814,10 @@ func TestMarkTaskStale(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			suite := newCoordinatorTestSuite(t)
-			tt.setup(suite)
+			suite := newJobTaskService(t)
+			tt.setup(suite.taskRepo.(*mockTaskRepository))
 
-			task, err := suite.coord.MarkTaskStale(context.Background(), taskID, tt.stallReason)
+			task, err := suite.MarkTaskStale(context.Background(), taskID, tt.stallReason)
 			if tt.wantErr {
 				require.Error(t, err)
 				return
@@ -847,33 +828,35 @@ func TestMarkTaskStale(t *testing.T) {
 			assert.Equal(t, scanning.TaskStatusStale, task.Status())
 			assert.Equal(t, tt.stallReason, *task.StallReason())
 			assert.False(t, task.StalledAt().IsZero())
-			suite.taskRepo.AssertExpectations(t)
+			suite.taskRepo.(*mockTaskRepository).AssertExpectations(t)
 		})
 	}
 }
 
 func TestGetTask(t *testing.T) {
+	taskID := uuid.MustParse("b1f7eff4-2921-4e6c-9d88-da2de5707a2b")
+
 	tests := []struct {
 		name    string
 		taskID  uuid.UUID
-		setup   func(*coordinatorTestSuite)
+		setup   func(*mockTaskRepository)
 		wantErr bool
 	}{
 		{
 			name:   "successfully get task from repository",
-			taskID: uuid.New(),
-			setup: func(s *coordinatorTestSuite) {
-				task := scanning.NewScanTask(uuid.New(), shared.SourceTypeGitHub, s.taskID, "test://resource")
-				s.taskRepo.On("GetTask", mock.Anything, s.taskID).
+			taskID: taskID,
+			setup: func(repo *mockTaskRepository) {
+				task := scanning.NewScanTask(uuid.New(), shared.SourceTypeGitHub, taskID, "test://resource")
+				repo.On("GetTask", mock.Anything, taskID).
 					Return(task, nil)
 			},
 			wantErr: false,
 		},
 		{
 			name:   "repository error",
-			taskID: uuid.New(),
-			setup: func(s *coordinatorTestSuite) {
-				s.taskRepo.On("GetTask", mock.Anything, s.taskID).
+			taskID: taskID,
+			setup: func(repo *mockTaskRepository) {
+				repo.On("GetTask", mock.Anything, taskID).
 					Return(nil, assert.AnError)
 			},
 			wantErr: true,
@@ -884,11 +867,10 @@ func TestGetTask(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			suite := newCoordinatorTestSuite(t)
-			suite.taskID = tt.taskID
-			tt.setup(suite)
+			suite := newJobTaskService(t)
+			tt.setup(suite.taskRepo.(*mockTaskRepository))
 
-			task, err := suite.coord.GetTask(context.Background(), tt.taskID)
+			task, err := suite.GetTask(context.Background(), tt.taskID)
 			if tt.wantErr {
 				require.Error(t, err)
 				require.Nil(t, task)
@@ -899,7 +881,7 @@ func TestGetTask(t *testing.T) {
 			require.NotNil(t, task)
 			assert.Equal(t, tt.taskID, task.TaskID())
 
-			suite.taskRepo.AssertExpectations(t)
+			suite.taskRepo.(*mockTaskRepository).AssertExpectations(t)
 		})
 	}
 }
@@ -909,14 +891,14 @@ func TestGetTaskSourceType(t *testing.T) {
 
 	tests := []struct {
 		name           string
-		setup          func(*coordinatorTestSuite)
+		setup          func(*mockTaskRepository)
 		wantErr        bool
 		wantSourceType shared.SourceType
 	}{
 		{
 			name: "successful source type retrieval",
-			setup: func(s *coordinatorTestSuite) {
-				s.taskRepo.On("GetTaskSourceType", mock.Anything, taskID).
+			setup: func(repo *mockTaskRepository) {
+				repo.On("GetTaskSourceType", mock.Anything, taskID).
 					Return(shared.SourceTypeGitHub, nil)
 			},
 			wantErr:        false,
@@ -924,8 +906,8 @@ func TestGetTaskSourceType(t *testing.T) {
 		},
 		{
 			name: "task not found",
-			setup: func(s *coordinatorTestSuite) {
-				s.taskRepo.On("GetTaskSourceType", mock.Anything, taskID).
+			setup: func(repo *mockTaskRepository) {
+				repo.On("GetTaskSourceType", mock.Anything, taskID).
 					Return(shared.SourceTypeUnspecified, assert.AnError)
 			},
 			wantErr:        true,
@@ -937,10 +919,10 @@ func TestGetTaskSourceType(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			suite := newCoordinatorTestSuite(t)
-			tt.setup(suite)
+			suite := newJobTaskService(t)
+			tt.setup(suite.taskRepo.(*mockTaskRepository))
 
-			sourceType, err := suite.coord.GetTaskSourceType(context.Background(), taskID)
+			sourceType, err := suite.GetTaskSourceType(context.Background(), taskID)
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.Empty(t, sourceType)
@@ -949,7 +931,7 @@ func TestGetTaskSourceType(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantSourceType, sourceType)
-			suite.taskRepo.AssertExpectations(t)
+			suite.taskRepo.(*mockTaskRepository).AssertExpectations(t)
 		})
 	}
 }
@@ -959,22 +941,22 @@ func TestGetJobMetrics(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		setup   func(*coordinatorTestSuite)
+		setup   func(*mockJobRepository)
 		wantErr bool
 	}{
 		{
 			name: "successfully get job metrics",
-			setup: func(s *coordinatorTestSuite) {
+			setup: func(repo *mockJobRepository) {
 				metrics := domain.NewJobMetrics()
-				s.jobRepo.On("GetJobMetrics", mock.Anything, jobID).
+				repo.On("GetJobMetrics", mock.Anything, jobID).
 					Return(metrics, nil)
 			},
 			wantErr: false,
 		},
 		{
 			name: "repository error",
-			setup: func(s *coordinatorTestSuite) {
-				s.jobRepo.On("GetJobMetrics", mock.Anything, jobID).
+			setup: func(repo *mockJobRepository) {
+				repo.On("GetJobMetrics", mock.Anything, jobID).
 					Return(nil, assert.AnError)
 			},
 			wantErr: true,
@@ -983,10 +965,10 @@ func TestGetJobMetrics(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			suite := newCoordinatorTestSuite(t)
-			tt.setup(suite)
+			suite := newJobTaskService(t)
+			tt.setup(suite.jobRepo.(*mockJobRepository))
 
-			metrics, err := suite.coord.GetJobMetrics(context.Background(), jobID)
+			metrics, err := suite.GetJobMetrics(context.Background(), jobID)
 			if tt.wantErr {
 				require.Error(t, err)
 				require.Nil(t, metrics)
@@ -995,7 +977,7 @@ func TestGetJobMetrics(t *testing.T) {
 
 			require.NoError(t, err)
 			require.NotNil(t, metrics)
-			suite.jobRepo.AssertExpectations(t)
+			suite.jobRepo.(*mockJobRepository).AssertExpectations(t)
 		})
 	}
 }
@@ -1038,10 +1020,10 @@ func TestGetCheckpoints(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			suite := newCoordinatorTestSuite(t)
-			tt.setup(suite.jobRepo)
+			suite := newJobTaskService(t)
+			tt.setup(suite.jobRepo.(*mockJobRepository))
 
-			checkpoints, err := suite.coord.GetCheckpoints(context.Background(), jobID)
+			checkpoints, err := suite.GetCheckpoints(context.Background(), jobID)
 			if tt.wantErr {
 				require.Error(t, err)
 				require.Nil(t, checkpoints)
@@ -1050,7 +1032,7 @@ func TestGetCheckpoints(t *testing.T) {
 
 			require.NoError(t, err)
 			require.Equal(t, tt.want, checkpoints)
-			suite.jobRepo.AssertExpectations(t)
+			suite.jobRepo.(*mockJobRepository).AssertExpectations(t)
 		})
 	}
 }
@@ -1063,21 +1045,21 @@ func TestUpdateMetricsAndCheckpoint(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		setup   func(*coordinatorTestSuite)
+		setup   func(*mockJobRepository)
 		wantErr bool
 	}{
 		{
 			name: "successfully update metrics and checkpoint",
-			setup: func(s *coordinatorTestSuite) {
-				s.jobRepo.On("UpdateMetricsAndCheckpoint", mock.Anything, jobID, metrics, partition, offset).
+			setup: func(repo *mockJobRepository) {
+				repo.On("UpdateMetricsAndCheckpoint", mock.Anything, jobID, metrics, partition, offset).
 					Return(nil)
 			},
 			wantErr: false,
 		},
 		{
 			name: "repository error",
-			setup: func(s *coordinatorTestSuite) {
-				s.jobRepo.On("UpdateMetricsAndCheckpoint", mock.Anything, jobID, metrics, partition, offset).
+			setup: func(repo *mockJobRepository) {
+				repo.On("UpdateMetricsAndCheckpoint", mock.Anything, jobID, metrics, partition, offset).
 					Return(assert.AnError)
 			},
 			wantErr: true,
@@ -1086,17 +1068,17 @@ func TestUpdateMetricsAndCheckpoint(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			suite := newCoordinatorTestSuite(t)
-			tt.setup(suite)
+			suite := newJobTaskService(t)
+			tt.setup(suite.jobRepo.(*mockJobRepository))
 
-			err := suite.coord.UpdateMetricsAndCheckpoint(context.Background(), jobID, metrics, partition, offset)
+			err := suite.UpdateMetricsAndCheckpoint(context.Background(), jobID, metrics, partition, offset)
 			if tt.wantErr {
 				require.Error(t, err)
 				return
 			}
 
 			require.NoError(t, err)
-			suite.jobRepo.AssertExpectations(t)
+			suite.jobRepo.(*mockJobRepository).AssertExpectations(t)
 		})
 	}
 }
