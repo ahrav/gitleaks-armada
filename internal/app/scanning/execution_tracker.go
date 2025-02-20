@@ -104,6 +104,7 @@ func (t *executionTracker) ProcessEnumerationStream(
 	jobID uuid.UUID,
 	result *scanning.ScanningResult,
 ) error {
+	logger := t.logger.With("operation", "process_enumeration_stream", "job_id", jobID)
 	ctx, span := t.tracer.Start(ctx, "execution_tracker.process_enumeration_stream",
 		trace.WithAttributes(
 			attribute.String("controller_id", t.controllerID),
@@ -118,6 +119,7 @@ func (t *executionTracker) ProcessEnumerationStream(
 		return fmt.Errorf("failed to signal enumeration started: %w", err)
 	}
 	span.AddEvent("enumeration_started_signal_sent")
+	logger.Debug(ctx, "Enumeration started signal sent")
 
 	for {
 		select {
@@ -176,6 +178,7 @@ func (t *executionTracker) ProcessEnumerationStream(
 		span.SetStatus(codes.Error, "failed to signal enumeration complete")
 		return fmt.Errorf("failed to signal enumeration complete: %w", err)
 	}
+	logger.Debug(ctx, "Enumeration complete signal sent")
 	span.AddEvent("enumeration_complete_signal_sent")
 	span.SetStatus(codes.Ok, "enumeration completed")
 

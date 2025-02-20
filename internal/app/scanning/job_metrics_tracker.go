@@ -245,6 +245,8 @@ func (t *jobMetricsAggregator) runBackgroundLoop(ctx context.Context) {
 // HandleEnumerationCompleted processes a JobEnumerationCompletedEvent, which signals
 // that enumeration of tasks has finished for a specific job. The event conveys the
 // total number of tasks discovered.
+// TODO: What happens if the controller crashes before we process this event, do
+// we still track job completion correctly?
 func (t *jobMetricsAggregator) HandleEnumerationCompleted(
 	ctx context.Context,
 	evt events.EventEnvelope,
@@ -285,12 +287,8 @@ func (t *jobMetricsAggregator) HandleEnumerationCompleted(
 	if !exists {
 		metrics, err := t.repository.GetJobMetrics(ctx, jobID)
 		if err != nil {
-			if errors.Is(err, domain.ErrNoJobMetricsFound) {
-				metrics = domain.NewJobMetrics()
-			} else {
-				span.RecordError(err)
-				return fmt.Errorf("failed to load job metrics for job %s: %w", jobID, err)
-			}
+			span.RecordError(err)
+			return fmt.Errorf("failed to load job metrics for job %s: %w", jobID, err)
 		}
 		t.metrics[jobID] = metrics
 		jm = metrics
