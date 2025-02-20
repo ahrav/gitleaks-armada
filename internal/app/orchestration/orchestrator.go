@@ -269,6 +269,7 @@ func (o *Orchestrator) subscribeToEvents(ctx context.Context) error {
 		rules.EventTypeRulesPublished,
 		scanning.EventTypeJobRequested,
 		scanning.EventTypeJobCreated,
+		scanning.EventTypeJobEnumerationCompleted,
 		scanning.EventTypeTaskStarted,
 		scanning.EventTypeTaskProgressed,
 		scanning.EventTypeTaskCompleted,

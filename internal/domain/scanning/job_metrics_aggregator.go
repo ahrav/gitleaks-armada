@@ -39,6 +39,11 @@ type JobMetricsAggregator interface {
 	// have been successfully persisted.
 	HandleJobMetrics(ctx context.Context, evt events.EventEnvelope, ack events.AckFunc) error
 
+	// HandleEnumerationCompleted processes a JobEnumerationCompletedEvent, which signals
+	// that enumeration of tasks has finished for a specific job. The event conveys the
+	// total number of tasks discovered.
+	HandleEnumerationCompleted(ctx context.Context, evt events.EventEnvelope, ack events.AckFunc) error
+
 	// FlushMetrics persists the current state of job metrics to the backing store.
 	// This is typically called periodically to ensure durability of metrics.
 	FlushMetrics(ctx context.Context) error

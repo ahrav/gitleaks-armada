@@ -350,11 +350,30 @@ func (ef *EventsFacilitator) HandleTaskJobMetric(
 	ack events.AckFunc,
 ) error {
 	return ef.withSpanNoAck(ctx, "events_facilitator.handle_task_job_metric", func(ctx context.Context, span trace.Span) error {
-		if err := ef.jobMetricsAggregator.HandleJobMetrics(ctx, evt, ack); err != nil {
-			return fmt.Errorf("failed to handle job metrics (partition: %d, offset: %d): %w",
-				evt.Metadata.Partition, evt.Metadata.Offset, err)
+		span.AddEvent("processing_task_job_metric")
+
+		switch evt.Payload.(type) {
+		case scanning.TaskJobMetricEvent:
+			if err := ef.jobMetricsAggregator.HandleJobMetrics(ctx, evt, ack); err != nil {
+				span.RecordError(err)
+				span.SetStatus(codes.Error, "failed to handle job metrics")
+				return fmt.Errorf("failed to handle job metrics (partition: %d, offset: %d): %w",
+					evt.Metadata.Partition, evt.Metadata.Offset, err)
+			}
+
+		case scanning.JobEnumerationCompletedEvent:
+			if err := ef.jobMetricsAggregator.HandleEnumerationCompleted(ctx, evt, ack); err != nil {
+				span.RecordError(err)
+				span.SetStatus(codes.Error, "failed to handle enumeration completed")
+				return fmt.Errorf("failed to handle enumeration completed (partition: %d, offset: %d): %w",
+					evt.Metadata.Partition, evt.Metadata.Offset, err)
+			}
+		default:
+			span.SetStatus(codes.Error, "unexpected event type for job metrics tracker")
+			return fmt.Errorf("unexpected event type for job metrics tracker: %T", evt.Payload)
 		}
 
+		span.AddEvent("job_metrics_handled")
 		span.SetStatus(codes.Ok, "job metrics handled")
 		return nil
 	})

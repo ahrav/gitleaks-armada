@@ -83,6 +83,11 @@ func (m *mockJobMetricsAggregator) HandleJobMetrics(ctx context.Context, evt eve
 	return args.Error(0)
 }
 
+func (m *mockJobMetricsAggregator) HandleEnumerationCompleted(ctx context.Context, evt events.EventEnvelope, ack events.AckFunc) error {
+	args := m.Called(ctx, evt, ack)
+	return args.Error(0)
+}
+
 type mockEnumerationService struct{ mock.Mock }
 
 func (m *mockEnumerationService) StartEnumeration(ctx context.Context, targetSpec *enumeration.TargetSpec) enumeration.EnumerationResult {
