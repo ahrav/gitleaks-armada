@@ -1,6 +1,8 @@
 package otel
 
 import (
+	"strings"
+
 	"go.opentelemetry.io/otel/sdk/trace"
 )
 
@@ -21,8 +23,18 @@ func newEndpointExcluder(endpoints map[string]struct{}, probability float64) end
 func (ee endpointExcluder) ShouldSample(parameters trace.SamplingParameters) trace.SamplingResult {
 	for i := range parameters.Attributes {
 		if parameters.Attributes[i].Key == "http.target" {
-			if _, exists := ee.endpoints[parameters.Attributes[i].Value.AsString()]; exists {
+			path := parameters.Attributes[i].Value.AsString()
+
+			// Check for exact matches
+			if _, exists := ee.endpoints[path]; exists {
 				return trace.SamplingResult{Decision: trace.Drop}
+			}
+
+			// Check for prefix matches (for paths like /debug/*)
+			for endpoint := range ee.endpoints {
+				if strings.HasPrefix(path, endpoint) {
+					return trace.SamplingResult{Decision: trace.Drop}
+				}
 			}
 		}
 	}

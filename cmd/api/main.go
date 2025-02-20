@@ -199,7 +199,10 @@ func run(ctx context.Context, log *logger.Logger, hostname string) error {
 		ExcludedRoutes: map[string]struct{}{
 			"/v1/health":    {},
 			"/v1/readiness": {},
+			"/v1/liveness":  {},
 			"/debug":        {},
+			"/metrics":      {},
+			"/healthz":      {},
 		},
 		Probability: prob,
 		ResourceAttributes: map[string]string{
