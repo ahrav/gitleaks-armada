@@ -69,7 +69,7 @@ func (e EnumerationToScanningTranslator) TranslateEnumerationResultToScanning(
 	errCh := make(chan error, 1)
 
 	allChannelsClosed := func() bool {
-		return scanTargetsCh == nil && tasksCh == nil && errCh == nil
+		return enumResult.ScanTargetsCh == nil && enumResult.TasksCh == nil && enumResult.ErrCh == nil
 	}
 
 	go func() {
@@ -81,10 +81,6 @@ func (e EnumerationToScanningTranslator) TranslateEnumerationResultToScanning(
 		}()
 
 		for {
-			if allChannelsClosed() {
-				break
-			}
-
 			select {
 			case <-ctx.Done():
 				errCh <- ctx.Err()
@@ -93,6 +89,9 @@ func (e EnumerationToScanningTranslator) TranslateEnumerationResultToScanning(
 			case targets, ok := <-enumResult.ScanTargetsCh:
 				if !ok {
 					enumResult.ScanTargetsCh = nil
+					if allChannelsClosed() {
+						return
+					}
 					continue
 				}
 				scanTargetsCh <- targets // No translation needed on uuid.UUID
@@ -100,6 +99,9 @@ func (e EnumerationToScanningTranslator) TranslateEnumerationResultToScanning(
 			case enumTask, ok := <-enumResult.TasksCh:
 				if !ok {
 					enumResult.TasksCh = nil
+					if allChannelsClosed() {
+						return
+					}
 					continue
 				}
 				// Translate from enumeration.Task → scanning.Task.
@@ -108,6 +110,9 @@ func (e EnumerationToScanningTranslator) TranslateEnumerationResultToScanning(
 			case errVal, ok := <-enumResult.ErrCh:
 				if !ok {
 					enumResult.ErrCh = nil
+					if allChannelsClosed() {
+						return
+					}
 					continue
 				}
 				errCh <- errVal

@@ -126,10 +126,6 @@ func (t *executionTracker) ProcessEnumerationStream(
 	}
 
 	for {
-		if allChannelsClosed() {
-			break
-		}
-
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -138,6 +134,9 @@ func (t *executionTracker) ProcessEnumerationStream(
 			if !ok {
 				result.ScanTargetsCh = nil
 				logger.Debug(ctx, "ScanTargetsCh closed, setting to nil")
+				if allChannelsClosed() {
+					break
+				}
 				continue
 			}
 			if err := t.associateEnumeratedTargetsToJob(ctx, jobID, scanTargetIDs); err != nil {
@@ -151,6 +150,9 @@ func (t *executionTracker) ProcessEnumerationStream(
 			if !ok {
 				result.TasksCh = nil
 				logger.Debug(ctx, "TasksCh closed, setting to nil")
+				if allChannelsClosed() {
+					break
+				}
 				continue
 			}
 			if err := t.handleEnumeratedScanTask(
@@ -170,6 +172,9 @@ func (t *executionTracker) ProcessEnumerationStream(
 			if !ok {
 				result.ErrCh = nil
 				logger.Debug(ctx, "ErrCh closed, setting to nil")
+				if allChannelsClosed() {
+					break
+				}
 				continue
 			}
 			if errVal != nil {
@@ -179,7 +184,6 @@ func (t *executionTracker) ProcessEnumerationStream(
 			}
 		}
 
-		// All channels exhausted?
 		if allChannelsClosed() {
 			break
 		}
