@@ -344,6 +344,7 @@ func (ef *EventsFacilitator) HandleTaskFailed(
 // HandleTaskJobMetric processes scanning.TaskJobMetricEvent by delegating metric
 // handling to jobMetricsAggregator. Note that this handler does NOT call ack
 // automatically, since offset commits are managed in jobMetricsAggregator.
+// TODO: This might need a slight rename since it also handles JobEnumerationCompletedEvent.
 func (ef *EventsFacilitator) HandleTaskJobMetric(
 	ctx context.Context,
 	evt events.EventEnvelope,
