@@ -18,14 +18,19 @@ import (
 var _ domain.JobTaskService = (*jobTaskService)(nil)
 var _ domain.MetricsRepository = (*jobTaskService)(nil)
 
-// jobTaskService is responsible for managing the lifecycle of jobs and tasks.
+// jobTaskService implements domain.JobTaskService and domain.MetricsRepository.
+// It handles creation, updates, finalization, and metric retrieval for both jobs
+// and tasks, using jobRepo and taskRepo for persistence. Future caching strategies
+// may also be integrated here.
 type jobTaskService struct {
 	controllerID string
 
 	// TODO: Come back to the idea of using a cache.
-	// TODO: If we want to use a cache, it will need to be a distributed cache.
+	// If we want to use a cache, it will need to be a distributed cache.
 
-	jobRepo  domain.JobRepository
+	// jobRepo provides persistence and retrieval for Job entities.
+	jobRepo domain.JobRepository
+	// taskRepo provides persistence and retrieval for Task entities.
 	taskRepo domain.TaskRepository
 
 	// TODO: Revist the idea of a persistence interval.
@@ -34,8 +39,8 @@ type jobTaskService struct {
 	tracer trace.Tracer
 }
 
-// NewJobTaskService initializes the coordination system with configured thresholds
-// for caching and persistence to optimize performance under expected load.
+// NewJobTaskService returns a jobTaskService that manages the lifecycle of jobs
+// and tasks, optionally leveraging caching or future performance optimizations.
 // TODO: Consider splitting this into a JobService and a TaskService.
 func NewJobTaskService(
 	controllerID string,
@@ -54,8 +59,8 @@ func NewJobTaskService(
 	}
 }
 
-// CreateJob initializes a new scanning operation and ensures it's immediately
-// available in both the cache and persistent storage.
+// CreateJobFromID creates a new Job in the repository, using the provided jobID.
+// Returns the created Job on success.
 func (s *jobTaskService) CreateJobFromID(ctx context.Context, jobID uuid.UUID) (*domain.Job, error) {
 	ctx, span := s.tracer.Start(ctx, "job_task_service.scanning.create_job",
 		trace.WithAttributes(
@@ -76,13 +81,9 @@ func (s *jobTaskService) CreateJobFromID(ctx context.Context, jobID uuid.UUID) (
 	return job, nil
 }
 
-// AssociateEnumeratedTargets links the provided scan targets to a job and increments
-// the total task count in a single atomic transaction. By combining both steps, the
-// method ensures consistent state is maintained if an error occurs at any point. This
-// prevents partially associated targets or out-of-sync task counts.
-//
-//  1. jobRepo.AssociateTargets: Persists the relationship between the job and the targetIDs.
-//  2. jobRepo.IncrementTotalTasks: Adjusts the job's total tasks count to account for the new targets.
+// AssociateEnumeratedTargets links the given targetIDs to the specified job and increments
+// the job's total task count in an atomic transaction to maintain consistency.
+// TODO: what happens if only part of this succeeds?
 func (s *jobTaskService) AssociateEnumeratedTargets(
 	ctx context.Context,
 	jobID uuid.UUID,
@@ -141,7 +142,8 @@ func (s *jobTaskService) loadJob(ctx context.Context, jobID uuid.UUID) (*domain.
 	return job, nil
 }
 
-// UpdateJobStatus updates the status of a job after validating the state transition.
+// UpdateJobStatus changes the status of the given job, ensuring the transition
+// is valid according to domain rules, then persists the updated job.
 func (s *jobTaskService) UpdateJobStatus(ctx context.Context, jobID uuid.UUID, status domain.JobStatus) error {
 	ctx, span := s.tracer.Start(ctx, "job_task_service.scanning.update_job_status",
 		trace.WithAttributes(
@@ -181,9 +183,9 @@ func (s *jobTaskService) UpdateJobStatus(ctx context.Context, jobID uuid.UUID, s
 	return nil
 }
 
-// CompleteEnumeration finalizes the enumeration phase of a job and transitions it
-// to the appropriate next state based on whether any tasks were created.
-// It returns the job metrics needed for event publishing.
+// CompleteEnumeration concludes the enumeration phase for a job. It retrieves current
+// job metrics, calls job.CompleteEnumeration, updates the job in persistent storage,
+// and returns the final metrics.
 func (s *jobTaskService) CompleteEnumeration(ctx context.Context, jobID uuid.UUID) (*domain.JobMetrics, error) {
 	ctx, span := s.tracer.Start(ctx, "job_task_service.scanning.complete_enumeration",
 		trace.WithAttributes(
@@ -252,7 +254,7 @@ func (s *jobTaskService) loadTask(ctx context.Context, taskID uuid.UUID) (*domai
 	return task, nil
 }
 
-// CreateTask creates a new task in the repository.
+// CreateTask persists a new scanning task in the repository.
 func (s *jobTaskService) CreateTask(ctx context.Context, task *domain.Task) error {
 	ctx, span := s.tracer.Start(ctx, "job_task_service.scanning.create_task",
 		trace.WithAttributes(
@@ -273,8 +275,7 @@ func (s *jobTaskService) CreateTask(ctx context.Context, task *domain.Task) erro
 	return nil
 }
 
-// StartTask updates an existing task's state to indicate it has begun execution.
-// It returns an error if the task is not in a valid state for starting.
+// StartTask transitions a task from a pending state to running and persists the update.
 func (s *jobTaskService) StartTask(ctx context.Context, taskID uuid.UUID, resourceURI string) error {
 	ctx, span := s.tracer.Start(ctx, "job_task_service.scanning.start_task",
 		trace.WithAttributes(
@@ -308,9 +309,9 @@ func (s *jobTaskService) StartTask(ctx context.Context, taskID uuid.UUID, resour
 	return nil
 }
 
-// UpdateTaskProgress handles incremental scan progress updates while managing database load.
-// Updates are cached and only persisted based on configured intervals to prevent database bottlenecks
-// during high-frequency progress reporting.
+// UpdateTaskProgress updates a task’s progress in the repository, optionally batching
+// frequent updates to minimize database load. Returns the updated Task on success.
+// TODO: Might need to batch here?
 func (s *jobTaskService) UpdateTaskProgress(ctx context.Context, progress domain.Progress) (*domain.Task, error) {
 	ctx, span := s.tracer.Start(ctx, "job_task_service.scanning.update_task_progress",
 		trace.WithAttributes(
@@ -354,7 +355,8 @@ func (s *jobTaskService) UpdateTaskProgress(ctx context.Context, progress domain
 	return task, nil
 }
 
-// CompleteTask finalizes a successful task execution.
+// CompleteTask finalizes a task as successfully finished and persists its state.
+// Returns the updated Task on success.
 func (s *jobTaskService) CompleteTask(ctx context.Context, taskID uuid.UUID) (*domain.Task, error) {
 	ctx, span := s.tracer.Start(ctx, "job_task_service.scanning.complete_task",
 		trace.WithAttributes(
@@ -388,7 +390,7 @@ func (s *jobTaskService) CompleteTask(ctx context.Context, taskID uuid.UUID) (*d
 	return task, nil
 }
 
-// FailTask marks a task as failed in the repository.
+// FailTask transitions a task to the FAILED state and persists the update.
 func (s *jobTaskService) FailTask(ctx context.Context, taskID uuid.UUID) (*domain.Task, error) {
 	ctx, span := s.tracer.Start(ctx, "job_task_service.scanning.fail_task",
 		trace.WithAttributes(
@@ -422,8 +424,8 @@ func (s *jobTaskService) FailTask(ctx context.Context, taskID uuid.UUID) (*domai
 	return task, nil
 }
 
-// MarkTaskStale flags a task that has become unresponsive or stopped reporting progress.
-// This enables automated detection and recovery of failed tasks that require intervention.
+// MarkTaskStale flags a task as STALE, indicating it has not reported progress
+// for an extended period. This status can prompt automatic recovery or re-scheduling.
 func (s *jobTaskService) MarkTaskStale(
 	ctx context.Context,
 	taskID uuid.UUID,
@@ -462,7 +464,8 @@ func (s *jobTaskService) MarkTaskStale(
 	return task, nil
 }
 
-// GetTask retrieves a task using cache-first strategy to minimize database access.
+// GetTask retrieves a task by ID, using a cache-first approach if implemented.
+// TODO: Cache somehow?
 func (s *jobTaskService) GetTask(ctx context.Context, taskID uuid.UUID) (*domain.Task, error) {
 	ctx, span := s.tracer.Start(ctx, "job_task_service.scanning.get_task",
 		trace.WithAttributes(
@@ -483,7 +486,9 @@ func (s *jobTaskService) GetTask(ctx context.Context, taskID uuid.UUID) (*domain
 	return task, nil
 }
 
-// GetTaskSourceType retrieves the source type of a task using cache-first strategy.
+// GetTaskSourceType returns a task's source type. Useful for domain logic that
+// branches based on the type of resource the task is scanning.
+// TODO: There might be a better way to do this.
 func (s *jobTaskService) GetTaskSourceType(ctx context.Context, taskID uuid.UUID) (shared.SourceType, error) {
 	ctx, span := s.tracer.Start(ctx, "job_task_service.scanning.get_task_source_type",
 		trace.WithAttributes(
@@ -504,7 +509,8 @@ func (s *jobTaskService) GetTaskSourceType(ctx context.Context, taskID uuid.UUID
 	return sourceType, nil
 }
 
-// UpdateHeartbeats updates the last_heartbeat_at timestamp for a list of tasks.
+// UpdateHeartbeats updates the last heartbeat timestamp for a batch of tasks.
+// Returns the number of tasks updated.
 func (s *jobTaskService) UpdateHeartbeats(ctx context.Context, heartbeats map[uuid.UUID]time.Time) (int64, error) {
 	ctx, span := s.tracer.Start(ctx, "job_task_service.scanning.update_heartbeats",
 		trace.WithAttributes(
@@ -528,7 +534,8 @@ func (s *jobTaskService) UpdateHeartbeats(ctx context.Context, heartbeats map[uu
 	return updatedTasks, nil
 }
 
-// FindStaleTasks finds tasks that have not sent a heartbeat within the staleness threshold.
+// FindStaleTasks returns tasks that have not reported a heartbeat since before
+// the specified cutoff time, indicating they may require intervention.
 func (s *jobTaskService) FindStaleTasks(
 	ctx context.Context,
 	controllerID string,
@@ -556,8 +563,8 @@ func (s *jobTaskService) FindStaleTasks(
 	return staleTasks, nil
 }
 
-// GetJobMetrics retrieves the metrics for a specific job.
-// Returns ErrJobNotFound if the job doesn't exist.
+// GetJobMetrics fetches high-level statistics for a job, such as total tasks or
+// completed tasks. Returns an error if the job is not found.
 func (s *jobTaskService) GetJobMetrics(ctx context.Context, jobID uuid.UUID) (*domain.JobMetrics, error) {
 	ctx, span := s.tracer.Start(ctx, "job_task_service.scanning.get_job_metrics",
 		trace.WithAttributes(
@@ -580,7 +587,7 @@ func (s *jobTaskService) GetJobMetrics(ctx context.Context, jobID uuid.UUID) (*d
 	return metrics, nil
 }
 
-// GetCheckpoints retrieves all checkpoints for a job's metrics.
+// GetCheckpoints retrieves consumer offsets (checkpoints) for a job's partition(s).
 func (s *jobTaskService) GetCheckpoints(ctx context.Context, jobID uuid.UUID) (map[int32]int64, error) {
 	ctx, span := s.tracer.Start(ctx, "job_task_service.scanning.get_checkpoints",
 		trace.WithAttributes(
@@ -603,7 +610,8 @@ func (s *jobTaskService) GetCheckpoints(ctx context.Context, jobID uuid.UUID) (m
 	return checkpoints, nil
 }
 
-// UpdateMetricsAndCheckpoint updates the metrics and checkpoint for a job.
+// UpdateMetricsAndCheckpoint updates the job's metrics and the latest partition/offset
+// checkpoint in a single, atomic database operation.
 func (s *jobTaskService) UpdateMetricsAndCheckpoint(
 	ctx context.Context,
 	jobID uuid.UUID,
