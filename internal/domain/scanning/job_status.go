@@ -21,6 +21,8 @@ const (
 	// JobStatusCompleted indicates all job tasks finished successfully.
 	JobStatusCompleted JobStatus = "COMPLETED"
 
+	// TODO: Add Paused, Cancelled and maybe Cancelling depending on how long it takes to cancel.
+
 	// JobStatusFailed indicates the job encountered an unrecoverable error.
 	JobStatusFailed JobStatus = "FAILED"
 )
