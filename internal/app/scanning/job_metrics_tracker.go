@@ -256,7 +256,7 @@ func (t *jobMetricsAggregator) runBackgroundLoop(ctx context.Context) {
 }
 
 // HandleEnumerationCompleted reacts to JobEnumerationCompletedEvent, setting the
-// total number of tasks for the specified job. If metrics don’t exist yet, it
+// total number of tasks for the specified job. If metrics don't exist yet, it
 // attempts to load them from storage or create new ones.
 // TODO: What happens if the controller crashes before we process this event, do
 // we still track job completion correctly?
@@ -309,6 +309,12 @@ func (t *jobMetricsAggregator) HandleEnumerationCompleted(
 	// Only keep the latest ack function for each partition.
 	t.pendingAcks[jobID][evt.Metadata.Partition] = ack
 
+	// Store the checkpoint information for this partition
+	if t.checkpoints[jobID] == nil {
+		t.checkpoints[jobID] = make(map[int32]int64)
+	}
+	t.checkpoints[jobID][evt.Metadata.Partition] = evt.Metadata.Offset
+
 	// If we haven't yet loaded metrics from DB, attempt to load them or init them.
 	jm, exists := t.metrics[jobID]
 	if !exists {
@@ -350,7 +356,7 @@ func (t *jobMetricsAggregator) maybeMarkJobCompletedLocked(
 	total := jm.TotalTasks()
 	doneCount := jm.CompletedTasks() + jm.FailedTasks()
 
-	if total > 0 && doneCount == total && !jm.IsCompleted() {
+	if total > 0 && doneCount == total && jm.IsCompleted() {
 		err := t.repository.UpdateJobStatus(ctx, jobID, domain.JobStatusCompleted)
 		if err != nil {
 			// TODO: Maybe retry?
@@ -359,7 +365,6 @@ func (t *jobMetricsAggregator) maybeMarkJobCompletedLocked(
 			return
 		}
 
-		// jm.SetJobStatus(domain.JobStatusCompleted)
 		span.AddEvent("job_marked_completed")
 		logger.Info(ctx, "job is completed", "job_id", jobID.String())
 
@@ -370,7 +375,7 @@ func (t *jobMetricsAggregator) maybeMarkJobCompletedLocked(
 // HandleJobMetrics processes any TaskJobMetricEvent related to scanning tasks (e.g.,
 // TaskStartedEvent, TaskCompletedEvent). It updates in-memory metrics, sets the
 // latest ack function for the relevant partition, and handles out-of-order arrival
-// by queueing metrics if the task record isn’t available yet.
+// by queueing metrics if the task record isn't available yet.
 func (t *jobMetricsAggregator) HandleJobMetrics(ctx context.Context, evt events.EventEnvelope, ack events.AckFunc) error {
 	logger := logger.NewLoggerContext(t.logger.With(
 		"operation", "handle_job_metrics",
@@ -826,7 +831,7 @@ func (t *jobMetricsAggregator) LaunchMetricsFlusher(interval time.Duration) {
 	}
 }
 
-// FlushMetrics persists the aggregator’s in-memory metrics and checkpoints to
+// FlushMetrics persists the aggregator's in-memory metrics and checkpoints to
 // storage. It attempts to update every tracked job, logging but not halting on errors.
 func (t *jobMetricsAggregator) FlushMetrics(ctx context.Context) error {
 	t.mu.RLock()
