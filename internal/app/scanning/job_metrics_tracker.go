@@ -18,20 +18,24 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
 
+// taskStatusEntry tracks the latest known status of a task and when that status
+// was last updated.
 type taskStatusEntry struct {
 	status    domain.TaskStatus
 	updatedAt time.Time
 }
 
-// shouldBeCleanedUp returns true if the task is in a terminal state and has been
-// in that state for longer than the retention period, indicating it can be
-// cleaned up.
+// shouldBeCleanedUp returns whether a task in a terminal state has remained there
+// longer than the configured retention period, indicating it can be removed.
 // TODO: Add OnTaskStatusChanged to the metrics.
 func (t *taskStatusEntry) shouldBeCleanedUp(tp timeProvider, retentionPeriod time.Duration) bool {
 	return (t.status == domain.TaskStatusCompleted || t.status == domain.TaskStatusFailed) &&
 		tp.Now().Sub(t.updatedAt) > retentionPeriod
 }
 
+// pendingMetric temporarily holds a metric event until it can be associated with
+// a known task. This is necessary if the event arrives before the task itself
+// has been recorded.
 type pendingMetric struct {
 	envelope  events.EventEnvelope
 	timestamp time.Time
@@ -40,26 +44,30 @@ type pendingMetric struct {
 
 var _ domain.JobMetricsAggregator = (*jobMetricsAggregator)(nil)
 
-// jobMetricsAggregator implements JobMetricsTracker with in-memory state and periodic persistence.
+// jobMetricsAggregator implements in-memory aggregation of job/task metrics. It
+// periodically flushes metrics and checkpoint updates to persistent storage
+// through a domain.MetricsRepository. It also handles dynamic replay of historical
+// events for recovery.
+// TODO: Maybe consider splitting out the replayer.
 type jobMetricsAggregator struct {
 	controllerID string
 
-	mu         sync.RWMutex
-	metrics    map[uuid.UUID]*domain.JobMetrics // Job ID -> Metrics
-	taskStatus map[uuid.UUID]taskStatusEntry    // Task ID -> Status
-	repository domain.MetricsRepository         // Adapter to underlying job and task repositories
+	mu sync.RWMutex
+	// In-memory tracking of job metrics.
+	metrics map[uuid.UUID]*domain.JobMetrics // Job ID -> Metrics
+	// Latest known task status.
+	taskStatus map[uuid.UUID]taskStatusEntry // Task ID -> Status
+	repository domain.MetricsRepository      // Persists metrics & state
 
 	pendingAcks map[uuid.UUID]map[int32]events.AckFunc // jobID -> partition -> latest ack func
 
 	checkpoints map[uuid.UUID]map[int32]int64 // Job ID -> Partition ID -> Offset
 	replayer    events.DomainEventReplayer    // Replayer for consuming events to recover state
 
-	// pendingMetrics is a map of task ID to a list of pending metrics that we have received but
-	// haven't yet received a corresponding task status for.
-	pendingMetrics map[uuid.UUID][]pendingMetric
-	notifyCh       chan struct{}  // channel used to signal new work
-	stopCh         chan struct{}  // channel used to signal shutdown
-	wg             sync.WaitGroup // used to wait for background goroutine(s)
+	pendingMetrics map[uuid.UUID][]pendingMetric // Metric events awaiting known task
+	notifyCh       chan struct{}                 // Signals new metric events to process
+	stopCh         chan struct{}                 // Signals aggregator shutdown
+	wg             sync.WaitGroup                // used to wait for background goroutine(s)
 
 	// Configuration.
 
@@ -82,8 +90,9 @@ type jobMetricsAggregator struct {
 	tracer trace.Tracer
 }
 
-// NewJobMetricsAggregator creates a new JobMetricsTracker with the provided dependencies
-// and configuration. It starts background cleanup of completed task statuses.
+// NewJobMetricsAggregator returns a new jobMetricsAggregator with default intervals
+// for cleanup, retention, and retry. It starts background goroutines to clean up
+// task statuses and process pending metrics.
 func NewJobMetricsAggregator(
 	controllerID string,
 	repository domain.MetricsRepository,
@@ -128,7 +137,8 @@ func NewJobMetricsAggregator(
 	return t
 }
 
-// startStatusCleanupWorker runs periodic cleanup of completed/failed task statuses.
+// startStatusCleanupWorker periodically removes task status entries for tasks that
+// have remained in a terminal state beyond the retention period.
 func (t *jobMetricsAggregator) startStatusCleanupWorker(ctx context.Context) {
 	t.mu.RLock()
 	retentionPeriod := t.retentionPeriod
@@ -165,7 +175,9 @@ func (t *jobMetricsAggregator) startStatusCleanupWorker(ctx context.Context) {
 	}
 }
 
-// cleanupTaskStatus removes completed/failed task status entries.
+// cleanupTaskStatus scans the aggregator's task statuses and removes those that
+// can be safely removed. It also prunes pending acknowledgments for completed jobs
+// to free memory.
 func (t *jobMetricsAggregator) cleanupTaskStatus(ctx context.Context) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -196,6 +208,7 @@ func (t *jobMetricsAggregator) cleanupTaskStatus(ctx context.Context) {
 	logger.Info(ctx, "finished cleaning up task statuses")
 }
 
+// runBackgroundLoop processes pending metrics on a schedule or when signaled by notifyCh.
 func (t *jobMetricsAggregator) runBackgroundLoop(ctx context.Context) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -242,9 +255,9 @@ func (t *jobMetricsAggregator) runBackgroundLoop(ctx context.Context) {
 	}
 }
 
-// HandleEnumerationCompleted processes a JobEnumerationCompletedEvent, which signals
-// that enumeration of tasks has finished for a specific job. The event conveys the
-// total number of tasks discovered.
+// HandleEnumerationCompleted reacts to JobEnumerationCompletedEvent, setting the
+// total number of tasks for the specified job. If metrics don’t exist yet, it
+// attempts to load them from storage or create new ones.
 // TODO: What happens if the controller crashes before we process this event, do
 // we still track job completion correctly?
 func (t *jobMetricsAggregator) HandleEnumerationCompleted(
@@ -270,7 +283,6 @@ func (t *jobMetricsAggregator) HandleEnumerationCompleted(
 		attribute.Int("total_tasks", totalTasks),
 	)
 
-	// Acquire lock to modify in-memory metrics.
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -338,22 +350,10 @@ func (t *jobMetricsAggregator) maybeMarkJobCompletedLocked(
 	}
 }
 
-// HandleJobMetrics processes task-related events and updates job metrics accordingly.
-// It maintains an in-memory state of task statuses and aggregates metrics per job.
-//
-// The method handles the following events:
-// - TaskStartedEvent: When a task begins execution
-// - TaskCompletedEvent: When a task successfully completes
-// - TaskFailedEvent: When a task fails to complete
-// - TaskStaleEvent: When a task is detected as stale/hung
-//
-// For each event, it:
-// 1. Updates the task's status in memory
-// 2. Updates the associated job's metrics based on the status transition
-// 3. Maintains timing information for cleanup purposes
-//
-// This event handler is crucial for maintaining accurate job progress and health metrics,
-// which are used for monitoring and reporting job execution status.
+// HandleJobMetrics processes any TaskJobMetricEvent related to scanning tasks (e.g.,
+// TaskStartedEvent, TaskCompletedEvent). It updates in-memory metrics, sets the
+// latest ack function for the relevant partition, and handles out-of-order arrival
+// by queueing metrics if the task record isn’t available yet.
 func (t *jobMetricsAggregator) HandleJobMetrics(ctx context.Context, evt events.EventEnvelope, ack events.AckFunc) error {
 	logger := logger.NewLoggerContext(t.logger.With(
 		"operation", "handle_job_metrics",
@@ -521,6 +521,9 @@ func (t *jobMetricsAggregator) HandleJobMetrics(ctx context.Context, evt events.
 	return nil
 }
 
+// replayEvents replays historical events from a specific offset to rebuild metrics state
+// for the specified partition. This is typically invoked if the aggregator hasn't
+// seen job metrics for a while or upon startup.
 func (t *jobMetricsAggregator) replayEvents(ctx context.Context, jobID uuid.UUID, partition int32, fromOffset int64) error {
 	logger := t.logger.With(
 		"operation", "replay_events",
@@ -573,6 +576,8 @@ func (t *jobMetricsAggregator) replayEvents(ctx context.Context, jobID uuid.UUID
 	return nil
 }
 
+// processPendingMetrics attempts to process any metrics that arrived before the
+// corresponding task was known. It re-queues metrics if they still cannot be resolved.
 // TODO: come back to this and see if reusing the underlying slice is a good idea.
 // Probably not worth it right now.
 func (t *jobMetricsAggregator) processPendingMetrics(ctx context.Context) {
@@ -667,9 +672,8 @@ func (t *jobMetricsAggregator) processPendingMetrics(ctx context.Context) {
 	t.mu.Unlock()
 }
 
-// processMetric encapsulates the core logic to update job metrics and task statuses.
-// It returns domain.ErrTaskNotFound if the task does not yet exist (so callers
-// can decide whether to retry or add to pending).
+// processMetric updates in-memory metrics for a single TaskJobMetricEvent. It
+// returns domain.ErrTaskNotFound if the task has not yet been created.
 func (t *jobMetricsAggregator) processMetric(ctx context.Context, evt scanning.TaskJobMetricEvent) error {
 	ctx, span := t.tracer.Start(ctx, "job_metrics_aggregator.process_metric",
 		trace.WithAttributes(
@@ -755,7 +759,8 @@ func (t *jobMetricsAggregator) processMetric(ctx context.Context, evt scanning.T
 	return nil
 }
 
-// LaunchMetricsFlusher starts a background goroutine that periodically flushes metrics to storage.
+// LaunchMetricsFlusher starts a separate goroutine that periodically invokes FlushMetrics.
+// This ensures that in-memory metrics are regularly persisted to the database.
 func (t *jobMetricsAggregator) LaunchMetricsFlusher(interval time.Duration) {
 	logger := t.logger.With(
 		"operation", "launch_metrics_flusher",
@@ -794,16 +799,8 @@ func (t *jobMetricsAggregator) LaunchMetricsFlusher(interval time.Duration) {
 	}
 }
 
-// FlushMetrics persists all in-memory job metrics to the underlying storage.
-// This method is critical for durability, ensuring that job progress and statistics
-// are not lost in case of system failures or restarts.
-//
-// It attempts to flush metrics for all tracked jobs, continuing even if some updates fail.
-// If any errors occur during the flush, it logs them and returns the first error encountered
-// while attempting to complete the remaining updates.
-//
-// This method is typically called periodically by a background goroutine to ensure
-// regular persistence of metrics state.
+// FlushMetrics persists the aggregator’s in-memory metrics and checkpoints to
+// storage. It attempts to update every tracked job, logging but not halting on errors.
 func (t *jobMetricsAggregator) FlushMetrics(ctx context.Context) error {
 	t.mu.RLock()
 	metricCount := len(t.metrics)
@@ -850,8 +847,8 @@ func (t *jobMetricsAggregator) FlushMetrics(ctx context.Context) error {
 	return nil
 }
 
-// flushJobMetrics handles flushing metrics for a single job, including updating metrics
-// and committing offsets for each partition.
+// flushJobMetrics updates persistent metrics and commits offsets for each partition
+// for the given job, then acknowledges the consumed messages if successful.
 func (t *jobMetricsAggregator) flushJobMetrics(ctx context.Context, jobID uuid.UUID, metrics *domain.JobMetrics) error {
 	logger := t.logger.With("operation", "flush_job_metrics", "job_id", jobID.String())
 	span := trace.SpanFromContext(ctx)
@@ -906,7 +903,8 @@ func (t *jobMetricsAggregator) flushJobMetrics(ctx context.Context, jobID uuid.U
 	return nil
 }
 
-// Stop stops the background goroutines and waits for them to finish.
+// Stop signals the aggregator to shut down, waits for background loops to finish,
+// and flushes any remaining pending metrics before exiting.
 func (t *jobMetricsAggregator) Stop(ctx context.Context) {
 	logger := t.logger.With("operation", "stop_metrics_aggregator")
 	_, span := t.tracer.Start(ctx, "job_metrics_aggregator.stop",
