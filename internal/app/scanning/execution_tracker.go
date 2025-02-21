@@ -20,6 +20,7 @@ var _ scanning.ExecutionTracker = (*executionTracker)(nil)
 // executionTracker implements scanning.ExecutionTracker, coordinating job and task
 // state transitions across the system. It centralizes updates and publishes domain
 // events to keep external components informed.
+// TODO: Consider splitting this up into multiple components. (eg. JobScheduler, TaskScheduler, etc.)
 type executionTracker struct {
 	controllerID string
 
