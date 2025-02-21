@@ -101,6 +101,13 @@ func (j *Job) UpdateStatus(newStatus JobStatus) error {
 	if err := j.status.validateTransition(newStatus); err != nil {
 		return err
 	}
+
+	// Mark the start time when transitioning from QUEUED to ENUMERATING
+	// as this represents the beginning of actual job execution.
+	if j.status == JobStatusQueued && newStatus == JobStatusEnumerating {
+		j.timeline.MarkStarted()
+	}
+
 	j.status = newStatus
 	return nil
 }

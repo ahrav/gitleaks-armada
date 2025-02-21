@@ -365,7 +365,7 @@ func (t *jobMetricsAggregator) maybeMarkJobCompletedLocked(
 	total := jm.TotalTasks()
 	doneCount := jm.CompletedTasks() + jm.FailedTasks()
 
-	if total > 0 && doneCount == total && jm.IsCompleted() {
+	if total > 0 && doneCount == total && !jm.IsCompleted() {
 		err := t.repository.UpdateJobStatus(ctx, jobID, domain.JobStatusCompleted)
 		if err != nil {
 			// TODO: Maybe retry?

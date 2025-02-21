@@ -9,52 +9,60 @@ import (
 
 func TestJob_UpdateStatus(t *testing.T) {
 	tests := []struct {
-		name          string
-		currentStatus JobStatus
-		newStatus     JobStatus
-		wantErr       bool
+		name           string
+		currentStatus  JobStatus
+		newStatus      JobStatus
+		wantErr        bool
+		checkStartTime bool
 	}{
 		{
-			name:          "valid transition from queued to enumerating",
-			currentStatus: JobStatusQueued,
-			newStatus:     JobStatusEnumerating,
-			wantErr:       false,
+			name:           "valid transition from queued to enumerating",
+			currentStatus:  JobStatusQueued,
+			newStatus:      JobStatusEnumerating,
+			wantErr:        false,
+			checkStartTime: true,
 		},
 		{
-			name:          "valid transition from enumerating to running",
-			currentStatus: JobStatusEnumerating,
-			newStatus:     JobStatusRunning,
-			wantErr:       false,
+			name:           "valid transition from enumerating to running",
+			currentStatus:  JobStatusEnumerating,
+			newStatus:      JobStatusRunning,
+			wantErr:        false,
+			checkStartTime: false,
 		},
 		{
-			name:          "valid transition from running to completed",
-			currentStatus: JobStatusRunning,
-			newStatus:     JobStatusCompleted,
-			wantErr:       false,
+			name:           "valid transition from running to completed",
+			currentStatus:  JobStatusRunning,
+			newStatus:      JobStatusCompleted,
+			wantErr:        false,
+			checkStartTime: false,
 		},
 		{
-			name:          "valid transition from running to failed",
-			currentStatus: JobStatusRunning,
-			newStatus:     JobStatusFailed,
-			wantErr:       false,
+			name:           "valid transition from running to failed",
+			currentStatus:  JobStatusRunning,
+			newStatus:      JobStatusFailed,
+			wantErr:        false,
+			checkStartTime: false,
 		},
 		{
-			name:          "invalid transition from queued to running",
-			currentStatus: JobStatusQueued,
-			newStatus:     JobStatusRunning,
-			wantErr:       true,
+			name:           "invalid transition from queued to running",
+			currentStatus:  JobStatusQueued,
+			newStatus:      JobStatusRunning,
+			wantErr:        true,
+			checkStartTime: false,
 		},
 		{
-			name:          "invalid transition from completed to running",
-			currentStatus: JobStatusCompleted,
-			newStatus:     JobStatusRunning,
-			wantErr:       true,
+			name:           "invalid transition from completed to running",
+			currentStatus:  JobStatusCompleted,
+			newStatus:      JobStatusRunning,
+			wantErr:        true,
+			checkStartTime: false,
 		},
 		{
-			name:          "invalid transition from failed to running",
-			currentStatus: JobStatusFailed,
-			newStatus:     JobStatusRunning,
-			wantErr:       true,
+			name:           "invalid transition from failed to running",
+			currentStatus:  JobStatusFailed,
+			newStatus:      JobStatusRunning,
+			wantErr:        true,
+			checkStartTime: false,
 		},
 	}
 
@@ -62,14 +70,25 @@ func TestJob_UpdateStatus(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			job := NewJobWithStatus(uuid.New(), tt.currentStatus)
 
+			startTimeBefore := job.StartTime()
+
 			err := job.UpdateStatus(tt.newStatus)
 
 			if tt.wantErr {
 				assert.Error(t, err)
 				assert.Equal(t, tt.currentStatus, job.Status(), "status should not change on error")
+				assert.Equal(t, startTimeBefore, job.StartTime(), "start time should not change on error")
 			} else {
 				assert.NoError(t, err)
 				assert.Equal(t, tt.newStatus, job.Status(), "status should be updated")
+
+				if tt.checkStartTime {
+					assert.True(t, job.StartTime().After(startTimeBefore),
+						"start time should be updated for QUEUED to ENUMERATING transition")
+				} else {
+					assert.Equal(t, startTimeBefore, job.StartTime(),
+						"start time should not change for other transitions")
+				}
 			}
 		})
 	}
