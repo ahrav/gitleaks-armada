@@ -443,7 +443,7 @@ func TestJobMetrics_IsCompleted(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.metrics.IsCompleted(); got != tt.expected {
+			if got := tt.metrics.AllTasksTerminal(); got != tt.expected {
 				t.Errorf("JobMetrics.IsCompleted() = %v, want %v", got, tt.expected)
 			}
 		})

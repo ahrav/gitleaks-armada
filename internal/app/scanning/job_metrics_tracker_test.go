@@ -387,10 +387,9 @@ func TestHandleEnumerationCompleted_MarksJobCompleted(t *testing.T) {
 	var updateMetricsAndCheckpointOffset int64
 
 	repo := &mockMetricsRepository{
+		// Return metrics with 2 tasks that are already completed.
 		getJobMetricsFn: func(ctx context.Context, id uuid.UUID) (*domain.JobMetrics, error) {
-			// Return metrics with all tasks completed.
 			metrics := domain.NewJobMetrics()
-			// Simulate 2 tasks that are already completed.
 			metrics.OnTaskAdded(domain.TaskStatusCompleted)
 			metrics.OnTaskAdded(domain.TaskStatusCompleted)
 			return metrics, nil
@@ -400,11 +399,17 @@ func TestHandleEnumerationCompleted_MarksJobCompleted(t *testing.T) {
 			updateJobStatusArg = status
 			return nil
 		},
-		// Add GetTask to avoid not found errors.
+		// Avoid ErrTaskNotFound by returning a dummy Task
 		getTaskFn: func(ctx context.Context, id uuid.UUID) (*domain.Task, error) {
-			return &domain.Task{CoreTask: shared.CoreTask{ID: id}}, nil
+			return &domain.Task{}, nil
 		},
-		updateMetricsAndCheckpointFn: func(ctx context.Context, id uuid.UUID, metrics *domain.JobMetrics, partition int32, offset int64) error {
+		updateMetricsAndCheckpointFn: func(
+			ctx context.Context,
+			id uuid.UUID,
+			metrics *domain.JobMetrics,
+			partition int32,
+			offset int64,
+		) error {
 			updateMetricsAndCheckpointCalled = true
 			updateMetricsAndCheckpointPartition = partition
 			updateMetricsAndCheckpointOffset = offset
@@ -412,63 +417,178 @@ func TestHandleEnumerationCompleted_MarksJobCompleted(t *testing.T) {
 		},
 	}
 
-	tracker := NewJobMetricsAggregator(
-		"controller-id",
-		repo,
-		nil,
-		logger.Noop(),
-		noop.NewTracerProvider().Tracer(""),
-	)
+	aggregator := NewJobMetricsAggregator("controller-id", repo, nil, logger.Noop(), noop.NewTracerProvider().Tracer(""))
 
 	ackCalled := false
-	ackFunc := func(err error) {
-		ackCalled = true
-		require.NoError(t, err, "ack should have no error")
+	ackFunc := func(err error) { ackCalled = true; require.NoError(t, err) }
+
+	// Fire "TaskCompleted" for each, so aggregator increments st.completedCount.
+	// They can be "TaskJobMetricEvent" with status = TaskStatusCompleted.
+	evt1 := events.EventEnvelope{
+		Type: scanning.EventTypeTaskCompleted, // or custom type
+		Payload: scanning.TaskJobMetricEvent{
+			JobID:  jobID,
+			TaskID: uuid.New(),
+			Status: domain.TaskStatusCompleted,
+		},
+		Metadata: events.EventMetadata{Partition: 0, Offset: 10},
+	}
+	evt2 := events.EventEnvelope{
+		Type: scanning.EventTypeTaskCompleted,
+		Payload: scanning.TaskJobMetricEvent{
+			JobID:  jobID,
+			TaskID: uuid.New(),
+			Status: domain.TaskStatusCompleted,
+		},
+		Metadata: events.EventMetadata{Partition: 0, Offset: 11},
 	}
 
+	// Process them; aggregator updates completedCount=2 for jobID.
+	require.NoError(t, aggregator.HandleJobMetrics(ctx, evt1, ackFunc))
+	require.NoError(t, aggregator.HandleJobMetrics(ctx, evt2, ackFunc))
+
 	const (
-		testPartition = int32(1)
+		testPartition = int32(0)
 		testOffset    = int64(42)
 	)
 
+	// Now call HandleEnumerationCompleted => aggregator sees finalTaskCount=2, completedCount=2 => job is done
 	evt := events.EventEnvelope{
 		Type: scanning.EventTypeJobEnumerationCompleted,
 		Key:  jobID.String(),
 		Payload: scanning.JobEnumerationCompletedEvent{
 			JobID:      jobID,
-			TotalTasks: 2, // Set total tasks to match our completed tasks
+			TotalTasks: 2,
 		},
-		Metadata: events.EventMetadata{
-			Partition: testPartition,
-			Offset:    testOffset,
-		},
+		Metadata: events.EventMetadata{Partition: testPartition, Offset: testOffset},
 	}
 
-	err := tracker.HandleEnumerationCompleted(ctx, evt, ackFunc)
-	require.NoError(t, err, "handle enumeration completed should succeed")
+	// --- 1) First call to HandleEnumerationCompleted.
+	err := aggregator.HandleEnumerationCompleted(ctx, evt, ackFunc)
+	require.NoError(t, err, "HandleEnumerationCompleted should succeed")
 
-	// Verify that UpdateJobStatus was called with JobStatusCompleted.
-	require.True(t, updateJobStatusCalled, "UpdateJobStatus should have been called")
+	// Job should be immediately recognized as done (2 tasks completed)
+	// => aggregator finalizes it => calls UpdateJobStatus(JobStatusCompleted).
+	require.True(t, updateJobStatusCalled, "UpdateJobStatus must be called the first time")
 	require.Equal(t, domain.JobStatusCompleted, updateJobStatusArg, "job should be marked as completed")
 
-	// Verify the ack function wasn't called yet (needs flush).
-	require.False(t, ackCalled, "ack should not be called until flush")
+	// Because we haven't flushed yet, aggregator hasn't acked the event.
+	require.False(t, ackCalled, "Ack should not be called until we flush")
 
-	// Flush metrics and verify ack is called.
-	err = tracker.FlushMetrics(ctx)
-	require.NoError(t, err, "flush metrics should succeed")
-	require.True(t, ackCalled, "ack should be called after flush")
+	// --- 2) Flush metrics => This should call UpdateMetricsAndCheckpoint + ack.
+	err = aggregator.FlushMetrics(ctx)
+	require.NoError(t, err, "FlushMetrics should succeed")
 
-	// Verify checkpoint was updated with correct partition and offset.
-	require.True(t, updateMetricsAndCheckpointCalled, "UpdateMetricsAndCheckpoint should have been called")
-	require.Equal(t, testPartition, updateMetricsAndCheckpointPartition, "checkpoint partition should match event")
-	require.Equal(t, testOffset, updateMetricsAndCheckpointOffset, "checkpoint offset should match event")
+	require.True(t, ackCalled, "Ack should be called after flush")
+	require.True(t, updateMetricsAndCheckpointCalled,
+		"UpdateMetricsAndCheckpoint must be called during flush")
 
-	// Call HandleEnumerationCompleted again - it should work since it's idempotent.
-	// This shouldn't happen in normal circumstances, but it can occur if the controller
-	// restarts and re-processes the same event.
-	updateJobStatusCalled = false // Reset flag
-	err = tracker.HandleEnumerationCompleted(ctx, evt, ackFunc)
-	require.NoError(t, err, "second handle enumeration completed should succeed")
-	require.True(t, updateJobStatusCalled, "UpdateJobStatus should be called again")
+	require.Equal(t, testPartition, updateMetricsAndCheckpointPartition)
+	require.Equal(t, testOffset, updateMetricsAndCheckpointOffset)
+
+	// --- 3) Second call to HandleEnumerationCompleted with the same event.
+	// The aggregator has already marked the job as finalized => no need to finalize again.
+	updateJobStatusCalled = false // reset to see if aggregator calls it again
+	err = aggregator.HandleEnumerationCompleted(ctx, evt, ackFunc)
+	require.NoError(t, err, "Second call should succeed idempotently")
+
+	// Since the job is already finalized, aggregator should NOT call UpdateJobStatus again.
+	require.False(t, updateJobStatusCalled,
+		"UpdateJobStatus should NOT be called again, aggregator is idempotent")
 }
+
+// func TestHandleEnumerationCompleted_MarksJobCompleted(t *testing.T) {
+// 	ctx := context.Background()
+// 	jobID := uuid.New()
+
+// 	var updateJobStatusCalled bool
+// 	var updateJobStatusArg domain.JobStatus
+// 	var updateMetricsAndCheckpointCalled bool
+// 	var updateMetricsAndCheckpointPartition int32
+// 	var updateMetricsAndCheckpointOffset int64
+
+// 	repo := &mockMetricsRepository{
+// 		getJobMetricsFn: func(ctx context.Context, id uuid.UUID) (*domain.JobMetrics, error) {
+// 			// Return metrics with all tasks completed.
+// 			metrics := domain.NewJobMetrics()
+// 			// Simulate 2 tasks that are already completed.
+// 			metrics.OnTaskAdded(domain.TaskStatusCompleted)
+// 			metrics.OnTaskAdded(domain.TaskStatusCompleted)
+// 			return metrics, nil
+// 		},
+// 		updateJobStatusFn: func(ctx context.Context, id uuid.UUID, status domain.JobStatus) error {
+// 			updateJobStatusCalled = true
+// 			updateJobStatusArg = status
+// 			return nil
+// 		},
+// 		// Add GetTask to avoid not found errors.
+// 		getTaskFn: func(ctx context.Context, id uuid.UUID) (*domain.Task, error) {
+// 			return &domain.Task{CoreTask: shared.CoreTask{ID: id}}, nil
+// 		},
+// 		updateMetricsAndCheckpointFn: func(ctx context.Context, id uuid.UUID, metrics *domain.JobMetrics, partition int32, offset int64) error {
+// 			updateMetricsAndCheckpointCalled = true
+// 			updateMetricsAndCheckpointPartition = partition
+// 			updateMetricsAndCheckpointOffset = offset
+// 			return nil
+// 		},
+// 	}
+
+// 	tracker := NewJobMetricsAggregator(
+// 		"controller-id",
+// 		repo,
+// 		nil,
+// 		logger.Noop(),
+// 		noop.NewTracerProvider().Tracer(""),
+// 	)
+
+// 	ackCalled := false
+// 	ackFunc := func(err error) {
+// 		ackCalled = true
+// 		require.NoError(t, err, "ack should have no error")
+// 	}
+
+// 	const (
+// 		testPartition = int32(1)
+// 		testOffset    = int64(42)
+// 	)
+
+// 	evt := events.EventEnvelope{
+// 		Type: scanning.EventTypeJobEnumerationCompleted,
+// 		Key:  jobID.String(),
+// 		Payload: scanning.JobEnumerationCompletedEvent{
+// 			JobID:      jobID,
+// 			TotalTasks: 2, // Set total tasks to match our completed tasks
+// 		},
+// 		Metadata: events.EventMetadata{
+// 			Partition: testPartition,
+// 			Offset:    testOffset,
+// 		},
+// 	}
+
+// 	err := tracker.HandleEnumerationCompleted(ctx, evt, ackFunc)
+// 	require.NoError(t, err, "handle enumeration completed should succeed")
+
+// 	// Verify that UpdateJobStatus was called with JobStatusCompleted.
+// 	require.True(t, updateJobStatusCalled, "UpdateJobStatus should have been called")
+// 	require.Equal(t, domain.JobStatusCompleted, updateJobStatusArg, "job should be marked as completed")
+
+// 	// Verify the ack function wasn't called yet (needs flush).
+// 	require.False(t, ackCalled, "ack should not be called until flush")
+
+// 	// Flush metrics and verify ack is called.
+// 	err = tracker.FlushMetrics(ctx)
+// 	require.NoError(t, err, "flush metrics should succeed")
+// 	require.True(t, ackCalled, "ack should be called after flush")
+
+// 	// Verify checkpoint was updated with correct partition and offset.
+// 	require.True(t, updateMetricsAndCheckpointCalled, "UpdateMetricsAndCheckpoint should have been called")
+// 	require.Equal(t, testPartition, updateMetricsAndCheckpointPartition, "checkpoint partition should match event")
+// 	require.Equal(t, testOffset, updateMetricsAndCheckpointOffset, "checkpoint offset should match event")
+
+// 	// This shouldn't happen in normal circumstances, but it can occur if the controller
+// 	// restarts and re-processes the same event.
+// 	updateJobStatusCalled = false // Reset flag
+// 	err = tracker.HandleEnumerationCompleted(ctx, evt, ackFunc)
+// 	require.NoError(t, err, "second handle enumeration completed should succeed")
+// 	require.False(t, updateJobStatusCalled, "UpdateJobStatus should not be called again")
+// }

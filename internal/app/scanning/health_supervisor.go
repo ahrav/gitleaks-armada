@@ -25,7 +25,7 @@ type timeProvider interface {
 type realTimeProvider struct{}
 
 // Now returns the current time.
-func (realTimeProvider) Now() time.Time { return time.Now() }
+func (realTimeProvider) Now() time.Time { return time.Now().UTC() }
 
 var _ scanning.TaskHealthMonitor = (*taskHealthSupervisor)(nil)
 

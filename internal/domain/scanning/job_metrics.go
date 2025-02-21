@@ -39,8 +39,10 @@ func (m *JobMetrics) Clone() *JobMetrics {
 	}
 }
 
-// IsCompleted returns true if the job is completed.
-func (m *JobMetrics) IsCompleted() bool {
+// AllTasksTerminal returns true if there are no tasks in pending,
+// inProgress, or stale states. In other words, from the aggregator's
+// perspective, all tasks are completed or failed.
+func (m *JobMetrics) AllTasksTerminal() bool {
 	return m.pendingTasks == 0 && m.inProgressTasks == 0 && m.staleTasks == 0
 }
 

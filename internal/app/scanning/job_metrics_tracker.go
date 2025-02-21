@@ -42,6 +42,52 @@ type pendingMetric struct {
 	attempts  int
 }
 
+type AggregatorJobState struct {
+	jobID           uuid.UUID
+	enumerationDone bool
+	finalTaskCount  int
+
+	completedCount int
+	failedCount    int
+	jobFinalized   bool
+}
+
+// updateTaskCounts updates the completed and failed task counts based on status transitions.
+// It handles both task status changes and new task additions.
+func (s *AggregatorJobState) updateTaskCounts(oldStatus, newStatus domain.TaskStatus) {
+	// Handle completion status changes.
+	if newStatus == domain.TaskStatusCompleted && oldStatus != domain.TaskStatusCompleted {
+		s.completedCount++
+	}
+	if newStatus == domain.TaskStatusFailed && oldStatus != domain.TaskStatusFailed {
+		s.failedCount++
+	}
+
+	// Handle status transitions away from terminal states.
+	// If a previously terminal task transitions away from completed/failed, decrement
+	// the relevant counter.
+	// TODO: This shouldn't happen, but leaving for now.
+	if oldStatus == domain.TaskStatusCompleted && newStatus != domain.TaskStatusCompleted {
+		s.completedCount--
+	}
+	if oldStatus == domain.TaskStatusFailed && newStatus != domain.TaskStatusFailed {
+		s.failedCount--
+	}
+}
+
+// setEnumerationComplete marks the job's enumeration as complete and sets the final task count.
+func (s *AggregatorJobState) setEnumerationComplete(taskCount int) {
+	s.enumerationDone = true
+	s.finalTaskCount = taskCount
+}
+
+// isDone returns true if enumeration is finished AND all tasks are accounted for.
+func (s *AggregatorJobState) isDone() bool {
+	return s.enumerationDone &&
+		s.finalTaskCount > 0 &&
+		(s.completedCount+s.failedCount) == s.finalTaskCount
+}
+
 var _ domain.JobMetricsAggregator = (*jobMetricsAggregator)(nil)
 
 // jobMetricsAggregator implements in-memory aggregation of job/task metrics. It
@@ -52,7 +98,8 @@ var _ domain.JobMetricsAggregator = (*jobMetricsAggregator)(nil)
 type jobMetricsAggregator struct {
 	controllerID string
 
-	mu sync.RWMutex
+	mu        sync.RWMutex
+	jobStates map[uuid.UUID]*AggregatorJobState
 	// In-memory tracking of job metrics.
 	metrics map[uuid.UUID]*domain.JobMetrics // Job ID -> Metrics
 	// Latest known task status.
@@ -110,6 +157,7 @@ func NewJobMetricsAggregator(
 
 	t := &jobMetricsAggregator{
 		controllerID:    controllerID,
+		jobStates:       make(map[uuid.UUID]*AggregatorJobState),
 		metrics:         make(map[uuid.UUID]*domain.JobMetrics),
 		taskStatus:      make(map[uuid.UUID]taskStatusEntry),
 		pendingAcks:     make(map[uuid.UUID]map[int32]events.AckFunc),
@@ -200,7 +248,7 @@ func (t *jobMetricsAggregator) cleanupTaskStatus(ctx context.Context) {
 	// Cleanup pendingAcks for completed jobs.
 	for jobID := range t.pendingAcks {
 		// If job is completed/failed and retention period passed
-		if metrics, exists := t.metrics[jobID]; exists && metrics.IsCompleted() {
+		if metrics, exists := t.metrics[jobID]; exists && metrics.AllTasksTerminal() {
 			delete(t.pendingAcks, jobID)
 		}
 	}
@@ -312,73 +360,45 @@ func (t *jobMetricsAggregator) HandleEnumerationCompleted(
 	}
 	t.checkpoints[jobID][evt.Metadata.Partition] = evt.Metadata.Offset
 
-	// See if job metrics have already been loaded.
-	jm, exists := t.metrics[jobID]
-	t.mu.Unlock()
-
-	// If not loaded, perform a DB call outside the lock.
-	if !exists {
-		metrics, err := t.repository.GetJobMetrics(ctx, jobID)
-		if err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "failed to load job metrics")
-			return fmt.Errorf("failed to load job metrics for job %s: %w", jobID, err)
-		}
-		t.mu.Lock()
-		// Double-check: it is possible another routine loaded metrics meanwhile.
-		if existing, ok := t.metrics[jobID]; ok {
-			jm = existing
-		} else {
-			t.metrics[jobID] = metrics
-			jm = metrics
-		}
-		t.mu.Unlock()
+	st, ok := t.jobStates[jobID]
+	if !ok {
+		st = &AggregatorJobState{jobID: jobID}
+		t.jobStates[jobID] = st
 	}
+	st.setEnumerationComplete(totalTasks)
 
-	// Now update the job metrics within the lock.
-	t.mu.Lock()
-	// Set or update the total number of tasks.
-	jm.SetTotalTasks(totalTasks)
-	// Check if the job is already completed.
-	t.maybeMarkJobCompletedLocked(ctx, jobID, jm, logger)
 	t.mu.Unlock()
-
-	return nil
+	return t.tryFinalizeJobIfDone(ctx, st)
 }
 
-// maybeMarkJobCompletedLocked checks if a job has reached the "completed" state:
-// that is, whether the number of completed/failed tasks matches the total number
-// of enumerated tasks. If so, it updates the job status in persistent storage and
-// optionally publishes a JobCompletedEvent.
-//
-// This method must be called while holding the t.mu lock. It is assumed the caller
-// has already updated the in-memory JobMetrics counts accordingly (e.g., incremented
-// the completed or failed counts) and/or set the total task count.
-func (t *jobMetricsAggregator) maybeMarkJobCompletedLocked(
+func (t *jobMetricsAggregator) tryFinalizeJobIfDone(
 	ctx context.Context,
-	jobID uuid.UUID,
-	jm *domain.JobMetrics,
-	logger *logger.LoggerContext,
-) {
+	st *AggregatorJobState,
+) error {
 	span := trace.SpanFromContext(ctx)
 
-	total := jm.TotalTasks()
-	doneCount := jm.CompletedTasks() + jm.FailedTasks()
-
-	if total > 0 && doneCount == total && !jm.IsCompleted() {
-		err := t.repository.UpdateJobStatus(ctx, jobID, domain.JobStatusCompleted)
-		if err != nil {
-			// TODO: Maybe retry?
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "failed to update job status")
-			return
-		}
-
-		span.AddEvent("job_marked_completed")
-		logger.Info(ctx, "job is completed", "job_id", jobID.String())
-
-		// TODO: Maybe publish a job completed event?
+	t.mu.Lock()
+	// Double-check: could have changed in the meantime.
+	if !st.isDone() || st.jobFinalized {
+		span.AddEvent("job_not_done_or_already_finalized")
+		t.mu.Unlock()
+		return nil
 	}
+	st.jobFinalized = true // We'll finalize exactly once
+	jobID := st.jobID
+	t.mu.Unlock()
+
+	if err := t.repository.UpdateJobStatus(ctx, jobID, domain.JobStatusCompleted); err != nil {
+		// TODO: Maybe retry?
+		span.RecordError(err)
+		t.mu.Lock()
+		st.jobFinalized = false
+		t.mu.Unlock()
+		return fmt.Errorf("failed to finalize job %s: %w", jobID, err)
+	}
+
+	t.logger.Info(ctx, "job is completed", "job_id", jobID.String())
+	return nil
 }
 
 // HandleJobMetrics processes any TaskJobMetricEvent related to scanning tasks (e.g.,
@@ -435,7 +455,7 @@ func (t *jobMetricsAggregator) HandleJobMetrics(ctx context.Context, evt events.
 		logger.Debug(ctx, "task_id in pending metrics, appending to list")
 		t.pendingMetrics[metricEvt.TaskID] = append(t.pendingMetrics[metricEvt.TaskID], pendingMetric{
 			envelope:  evt,
-			timestamp: time.Now(),
+			timestamp: t.timeProvider.Now(),
 		})
 		t.mu.Unlock()
 		return nil
@@ -521,7 +541,7 @@ func (t *jobMetricsAggregator) HandleJobMetrics(ctx context.Context, evt events.
 			// We don't have the task status yet: add to pending for retry.
 			t.pendingMetrics[metricEvt.TaskID] = append(t.pendingMetrics[metricEvt.TaskID], pendingMetric{
 				envelope:  evt,
-				timestamp: time.Now(),
+				timestamp: t.timeProvider.Now(),
 			})
 			t.mu.Unlock()
 
@@ -735,81 +755,107 @@ func (t *jobMetricsAggregator) processMetric(ctx context.Context, evt scanning.T
 			evt.TaskID, evt.JobID, err)
 	}
 
-	// Check under the lock if we already have JobMetrics loaded for this job.
-	t.mu.Lock()
-	jm, exists := t.metrics[evt.JobID]
-	t.mu.Unlock()
-
-	// If not found, do the DB call outside the lock.
-	if !exists {
-		metrics, err := t.repository.GetJobMetrics(ctx, evt.JobID)
-		if err != nil {
-			if errors.Is(err, domain.ErrNoJobMetricsFound) {
-				metrics = domain.NewJobMetrics()
-			} else {
-				span.RecordError(err)
-				span.SetStatus(codes.Error, "failed to load job metrics")
-				return fmt.Errorf("failed to load job metrics for job %s: %w",
-					evt.JobID, err)
-			}
-		}
-
-		// Re-lock and "double-check" if someone else already loaded metrics.
-		t.mu.Lock()
-		jm, exists = t.metrics[evt.JobID]
-		if !exists {
-			t.metrics[evt.JobID] = metrics
-			jm = metrics
-		}
-		t.mu.Unlock()
+	jm, err := t.loadJobMetrics(ctx, evt.JobID)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to load job metrics")
+		return fmt.Errorf("failed to load job metrics for job %s: %w",
+			evt.JobID, err)
 	}
 
-	// Now do the rest of the processing under the lock.
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	// Check the old status in t.taskStatus to see if we're transitioning.
-	entry, hasEntry := t.taskStatus[evt.TaskID]
-	oldStatus := domain.TaskStatusUnspecified
-	if hasEntry {
-		oldStatus = entry.status
+	st := t.updateTaskStatusAndMetrics(ctx, evt, jm, logger)
+	if err := t.tryFinalizeJobIfDone(ctx, st); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to finalize job")
+		return err
 	}
-	logger.Add("old_status", oldStatus)
-
-	// If old status differs from new status, update metrics accordingly.
-	if oldStatus != evt.Status {
-		if !hasEntry {
-			// Possibly the first metric for this task; treat as OnTaskAdded.
-			jm.OnTaskAdded(evt.Status)
-			span.AddEvent("task_added")
-		} else {
-			jm.OnTaskStatusChanged(oldStatus, evt.Status)
-			span.AddEvent("task_status_changed")
-		}
-	} else {
-		logger.Debug(ctx, "task status unchanged")
-		span.AddEvent("task_status_unchanged")
-	}
-
-	// Update the in-memory record of this task’s status.
-	t.taskStatus[evt.TaskID] = taskStatusEntry{
-		status:    evt.Status,
-		updatedAt: time.Now(),
-	}
-
-	// Possibly mark job as completed if we have all tasks done, etc.
-	t.maybeMarkJobCompletedLocked(ctx, evt.JobID, jm, logger)
 
 	logger.Debug(ctx, "task metrics processed")
 	span.AddEvent("task_status_cached",
 		trace.WithAttributes(
 			attribute.String("status", string(evt.Status)),
-			attribute.String("timestamp", time.Now().UTC().String()),
+			attribute.String("timestamp", t.timeProvider.Now().String()),
 		),
 	)
 	span.SetStatus(codes.Ok, "task metrics processed")
 
 	return nil
+}
+
+func (t *jobMetricsAggregator) loadJobMetrics(ctx context.Context, jobID uuid.UUID) (*domain.JobMetrics, error) {
+	span := trace.SpanFromContext(ctx)
+	// Check under the lock if we already have JobMetrics loaded for this job.
+	t.mu.Lock()
+	jm, exists := t.metrics[jobID]
+	t.mu.Unlock()
+
+	if exists {
+		span.AddEvent("job_metrics_loaded_from_cache")
+		return jm, nil
+	}
+
+	metrics, err := t.repository.GetJobMetrics(ctx, jobID)
+	if err != nil {
+		span.RecordError(err)
+		return nil, err
+	}
+
+	// Re-lock and "double-check" if someone else already loaded metrics.
+	t.mu.Lock()
+	jm, exists = t.metrics[jobID]
+	if !exists {
+		t.metrics[jobID] = metrics
+		jm = metrics
+	}
+	t.mu.Unlock()
+
+	return jm, nil
+}
+
+func (t *jobMetricsAggregator) updateTaskStatusAndMetrics(
+	ctx context.Context,
+	evt scanning.TaskJobMetricEvent,
+	metrics *domain.JobMetrics,
+	logger *logger.LoggerContext,
+) *AggregatorJobState {
+	span := trace.SpanFromContext(ctx)
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	// Check the old status in t.taskStatus to see if we're transitioning.
+	oldStatus := domain.TaskStatusUnspecified
+	entry, hasEntry := t.taskStatus[evt.TaskID]
+	if hasEntry {
+		span.SetAttributes(attribute.String("old_status", string(entry.status)))
+		span.AddEvent("task_status_exists_transitioning")
+		oldStatus = entry.status
+	}
+
+	if oldStatus != evt.Status {
+		if !hasEntry {
+			metrics.OnTaskAdded(evt.Status)
+			span.AddEvent("task_added")
+		} else {
+			metrics.OnTaskStatusChanged(oldStatus, evt.Status)
+			span.AddEvent("task_status_changed")
+		}
+	} else {
+		span.AddEvent("task_status_unchanged")
+		logger.Debug(ctx, "task status unchanged")
+	}
+
+	t.taskStatus[evt.TaskID] = taskStatusEntry{status: evt.Status, updatedAt: t.timeProvider.Now()}
+
+	st, stExists := t.jobStates[evt.JobID]
+	if !stExists {
+		span.AddEvent("job_state_not_found_creating_new")
+		st = &AggregatorJobState{jobID: evt.JobID}
+		t.jobStates[evt.JobID] = st
+	}
+	st.updateTaskCounts(oldStatus, evt.Status)
+	span.AddEvent("job_state_updated")
+
+	return st
 }
 
 // LaunchMetricsFlusher starts a separate goroutine that periodically invokes FlushMetrics.

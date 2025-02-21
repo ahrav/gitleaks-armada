@@ -14,6 +14,7 @@ func TestJob_UpdateStatus(t *testing.T) {
 		newStatus      JobStatus
 		wantErr        bool
 		checkStartTime bool
+		checkEndTime   bool
 	}{
 		{
 			name:           "valid transition from queued to enumerating",
@@ -21,6 +22,7 @@ func TestJob_UpdateStatus(t *testing.T) {
 			newStatus:      JobStatusEnumerating,
 			wantErr:        false,
 			checkStartTime: true,
+			checkEndTime:   false,
 		},
 		{
 			name:           "valid transition from enumerating to running",
@@ -28,6 +30,7 @@ func TestJob_UpdateStatus(t *testing.T) {
 			newStatus:      JobStatusRunning,
 			wantErr:        false,
 			checkStartTime: false,
+			checkEndTime:   false,
 		},
 		{
 			name:           "valid transition from running to completed",
@@ -35,6 +38,7 @@ func TestJob_UpdateStatus(t *testing.T) {
 			newStatus:      JobStatusCompleted,
 			wantErr:        false,
 			checkStartTime: false,
+			checkEndTime:   true,
 		},
 		{
 			name:           "valid transition from running to failed",
@@ -42,6 +46,7 @@ func TestJob_UpdateStatus(t *testing.T) {
 			newStatus:      JobStatusFailed,
 			wantErr:        false,
 			checkStartTime: false,
+			checkEndTime:   true,
 		},
 		{
 			name:           "invalid transition from queued to running",
@@ -49,6 +54,7 @@ func TestJob_UpdateStatus(t *testing.T) {
 			newStatus:      JobStatusRunning,
 			wantErr:        true,
 			checkStartTime: false,
+			checkEndTime:   false,
 		},
 		{
 			name:           "invalid transition from completed to running",
@@ -56,6 +62,7 @@ func TestJob_UpdateStatus(t *testing.T) {
 			newStatus:      JobStatusRunning,
 			wantErr:        true,
 			checkStartTime: false,
+			checkEndTime:   false,
 		},
 		{
 			name:           "invalid transition from failed to running",
@@ -63,6 +70,7 @@ func TestJob_UpdateStatus(t *testing.T) {
 			newStatus:      JobStatusRunning,
 			wantErr:        true,
 			checkStartTime: false,
+			checkEndTime:   false,
 		},
 	}
 
@@ -71,6 +79,7 @@ func TestJob_UpdateStatus(t *testing.T) {
 			job := NewJobWithStatus(uuid.New(), tt.currentStatus)
 
 			startTimeBefore := job.StartTime()
+			endTimeBefore, _ := job.EndTime()
 
 			err := job.UpdateStatus(tt.newStatus)
 
@@ -78,6 +87,8 @@ func TestJob_UpdateStatus(t *testing.T) {
 				assert.Error(t, err)
 				assert.Equal(t, tt.currentStatus, job.Status(), "status should not change on error")
 				assert.Equal(t, startTimeBefore, job.StartTime(), "start time should not change on error")
+				endTimeAfter, _ := job.EndTime()
+				assert.Equal(t, endTimeBefore, endTimeAfter, "end time should not change on error")
 			} else {
 				assert.NoError(t, err)
 				assert.Equal(t, tt.newStatus, job.Status(), "status should be updated")
@@ -88,6 +99,19 @@ func TestJob_UpdateStatus(t *testing.T) {
 				} else {
 					assert.Equal(t, startTimeBefore, job.StartTime(),
 						"start time should not change for other transitions")
+				}
+
+				if tt.checkEndTime {
+					endTimeAfter, hasEndTime := job.EndTime()
+					assert.True(t, hasEndTime, "end time should be set")
+					assert.True(t, endTimeAfter.After(endTimeBefore),
+						"end time should be updated for terminal state transitions")
+				} else {
+					endTimeAfter, hasEndTime := job.EndTime()
+					if hasEndTime {
+						assert.Equal(t, endTimeBefore, endTimeAfter,
+							"end time should not change for non-terminal transitions")
+					}
 				}
 			}
 		})
