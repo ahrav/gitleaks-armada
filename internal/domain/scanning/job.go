@@ -108,7 +108,7 @@ func (j *Job) UpdateStatus(newStatus JobStatus) error {
 		j.timeline.MarkStarted()
 	}
 
-	// Mark completion time when transitioning to a terminal state
+	// Mark completion time when transitioning to a terminal state.
 	if newStatus == JobStatusCompleted || newStatus == JobStatusFailed {
 		j.timeline.MarkCompleted()
 	}
