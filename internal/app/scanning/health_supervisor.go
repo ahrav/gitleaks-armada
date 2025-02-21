@@ -29,11 +29,9 @@ func (realTimeProvider) Now() time.Time { return time.Now() }
 
 var _ scanning.TaskHealthMonitor = (*taskHealthSupervisor)(nil)
 
-// taskHealthSupervisor monitors task health by tracking heartbeats from running tasks.
-// It provides two main functions:
-//  1. Maintains an in-memory cache of task heartbeats that is periodically flushed to storage
-//  2. Periodically checks for and marks tasks as stale if they haven't sent a heartbeat within
-//     the configured threshold duration
+// taskHealthSupervisor implements scanning.TaskHealthMonitor, periodically
+// flushing cached heartbeats to persistent storage and marking tasks as stale
+// if they exceed a staleness threshold.
 type taskHealthSupervisor struct {
 	// ID of the controller in order to only check for stale tasks for that controller.
 	controllerID string
@@ -67,9 +65,11 @@ type taskHealthSupervisor struct {
 	logger *logger.Logger
 }
 
-// NewTaskHealthSupervisor creates a new TaskHealthSupervisor instance that monitors task health
-// by tracking heartbeats and detecting stale tasks. It uses the provided TaskHealthService
-// for persistence and task state management.
+// NewTaskHealthSupervisor returns a TaskHealthMonitor that tracks heartbeats, flushes
+// them to storage, and marks tasks as stale when they exceed the staleness threshold.
+//
+// The TaskHealthService manages persistent updates, while TaskStateHandler transitions
+// tasks to stale. Events about stale tasks are published via eventPublisher.
 func NewTaskHealthSupervisor(
 	controllerID string,
 	healthSvc scanning.TaskHealthService,
@@ -94,12 +94,11 @@ func NewTaskHealthSupervisor(
 	}
 }
 
-// Start launches background goroutines that:
-// 1. Periodically flush cached heartbeats to persistent storage
-// 2. Check for and mark tasks as stale if they haven't sent a heartbeat within the staleness threshold
+// Start launches background goroutines to periodically:
+//  1. Flush cached heartbeats to storage
+//  2. Detect and mark stale tasks
 //
-// The goroutines run until the provided context is canceled, at which point a final
-// heartbeat flush is performed before shutdown.
+// When the context is canceled, these goroutines exit and a final flush is performed.
 func (h *taskHealthSupervisor) Start(ctx context.Context) {
 	ctx, span := h.tracer.Start(ctx, "task_health_supervisor.scanning.start_staleness_loop",
 		trace.WithAttributes(
@@ -138,9 +137,8 @@ func (h *taskHealthSupervisor) Start(ctx context.Context) {
 	}()
 }
 
-// flushHeartbeats persists cached task heartbeats to storage. It acquires a lock,
-// copies and clears the cache, then releases the lock before performing the update
-// to minimize contention.
+// flushHeartbeats persists in-memory heartbeats to storage and then clears the
+// local cache, minimizing lock contention by copying out the current batch.
 func (h *taskHealthSupervisor) flushHeartbeats(ctx context.Context) {
 	logger := h.logger.With("operation", "flush_heartbeats", "flush_interval", h.flushInterval)
 	ctx, span := h.tracer.Start(ctx, "task_health_supervisor.scanning.flush_heartbeats",
@@ -182,9 +180,8 @@ func (h *taskHealthSupervisor) flushHeartbeats(ctx context.Context) {
 	span.SetStatus(codes.Ok, "heartbeats flushed")
 }
 
-// checkForStaleTasks queries for tasks that haven't sent a heartbeat within the staleness
-// threshold and marks them as stale. This enables automated detection and recovery of
-// failed or unresponsive tasks.
+// checkForStaleTasks finds tasks with heartbeats older than the staleness threshold
+// and transitions them to stale, publishing events to notify other consumers.
 func (h *taskHealthSupervisor) checkForStaleTasks(ctx context.Context) {
 	logr := h.logger.With("operation", "check_for_stale_tasks", "staleness_threshold", h.stalenessThreshold)
 	ctx, span := h.tracer.Start(ctx, "task_health_supervisor.scanning.check_for_stale_tasks",
@@ -256,9 +253,9 @@ func (h *taskHealthSupervisor) checkForStaleTasks(ctx context.Context) {
 	span.SetStatus(codes.Ok, "stale task check completed successfully")
 }
 
-// HandleHeartbeat processes an incoming task heartbeat event by caching the current
-// timestamp for the task. The cached heartbeats are periodically flushed to storage
-// by the background goroutine.
+// HandleHeartbeat caches the current timestamp for a task heartbeat, which is
+// later persisted in flushHeartbeats. This prevents excessive DB writes on each
+// incoming heartbeat.
 func (h *taskHealthSupervisor) HandleHeartbeat(ctx context.Context, evt scanning.TaskHeartbeatEvent) {
 	_, span := h.tracer.Start(ctx, "task_health_supervisor.scanning.handle_heartbeat",
 		trace.WithAttributes(
@@ -281,9 +278,8 @@ func (h *taskHealthSupervisor) HandleHeartbeat(ctx context.Context, evt scanning
 	span.SetStatus(codes.Ok, "heartbeat received")
 }
 
-// Stop gracefully shuts down the TaskHealthSupervisor by canceling its background
-// goroutines. This allows any in-progress operations to complete and ensures a
-// final heartbeat flush is performed.
+// Stop signals background goroutines to terminate and performs a final heartbeat
+// flush before shutting down. This ensures minimal data loss for in-flight tasks.
 func (h *taskHealthSupervisor) Stop() {
 	logger := h.logger.With("operation", "stop")
 	ctx, span := h.tracer.Start(context.Background(), "task_health_supervisor.scanning.stop")
