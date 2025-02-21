@@ -721,7 +721,7 @@ func (t *jobMetricsAggregator) processMetric(ctx context.Context, evt scanning.T
 
 	// Check the old status in t.taskStatus to see if we're transitioning.
 	entry, exists := t.taskStatus[evt.TaskID]
-	oldStatus := domain.TaskStatusPending
+	oldStatus := domain.TaskStatusUnspecified
 	if exists {
 		oldStatus = entry.status
 	}
