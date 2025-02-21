@@ -46,12 +46,13 @@ type enumMetrics interface {
 	IncJobsCreated(ctx context.Context)
 }
 
-var _ enumeration.Service = (*EnumService)(nil)
+var _ enumeration.Service = (*enumService)(nil)
 
-// EnumService coordinates the enumeration of targets by managing scan jobs,
-// publishing events, and tracking metrics. It serves as the primary orchestrator
-// for discovering and processing scan targets.
-type EnumService struct {
+// enumService orchestrates enumeration of scanning targets. It delegates low-level
+// logic to an enumeration.Coordinator, publishes relevant domain events, and gathers
+// telemetry metrics and logs. This design ensures that calling code can consume
+// streaming results rather than allocating large slices in memory.
+type enumService struct {
 	controllerID string
 
 	coordinator    enumeration.Coordinator
@@ -62,8 +63,8 @@ type EnumService struct {
 	tracer  trace.Tracer
 }
 
-// NewEnumService creates a new enumeration service with the required dependencies
-// for coordinating scans, publishing events, and monitoring metrics.
+// NewEnumService returns a new EnumService with the provided coordinator, event publisher,
+// logger, metrics collector, and tracer for instrumentation.
 func NewEnumService(
 	controllerID string,
 	coord enumeration.Coordinator,
@@ -71,9 +72,9 @@ func NewEnumService(
 	logger *logger.Logger,
 	metrics enumMetrics,
 	tracer trace.Tracer,
-) *EnumService {
+) *enumService {
 	logger = logger.With("component", "enum_service")
-	return &EnumService{
+	return &enumService{
 		controllerID:   controllerID,
 		coordinator:    coord,
 		eventPublisher: eventPublisher,
@@ -83,13 +84,19 @@ func NewEnumService(
 	}
 }
 
-// StartEnumeration initiates the enumeration process for a set of targets defined
-// in the configuration. It creates scan jobs, processes targets concurrently, and
-// handles the publishing of task events. The method ensures proper error handling
-// and metric tracking throughout the enumeration lifecycle.
+// StartEnumeration initiates enumeration for the specified target. It returns
+// enumeration.EnumerationResult containing channels to receive discovered scan
+// target IDs, enumerated tasks, and potential errors. Results are streamed via
+// channels to avoid large, in-memory lists.
+//
+// This method spawns a goroutine to run the enumeration asynchronously and closes
+// the channels upon completion or error. The calling code should range over
+// ScanTargetsCh, TasksCh, and ErrCh to retrieve results, handling any errors
+// or context cancellations.
+//
 // TODO: Add soem sort of alerting if the enumeration task seems to be stuck, or blocked. Maybe
 // add context timeout or some sort of lightweight heartbeat to the coordinator.
-func (es *EnumService) StartEnumeration(ctx context.Context, targetSpec *enumeration.TargetSpec) enumeration.EnumerationResult {
+func (es *enumService) StartEnumeration(ctx context.Context, targetSpec *enumeration.TargetSpec) enumeration.EnumerationResult {
 	logger := es.logger.With(
 		"operation", "start_enumeration",
 		"target_name", targetSpec.Name(),
@@ -134,6 +141,7 @@ func (es *EnumService) StartEnumeration(ctx context.Context, targetSpec *enumera
 			span.SetStatus(codes.Ok, "enumeration completed successfully")
 		}()
 
+		// Coordinator provides channels for scan target IDs, tasks, and errors.
 		enumChannels := es.coordinator.EnumerateTarget(ctx, *targetSpec)
 
 		done := false
