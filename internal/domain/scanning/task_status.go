@@ -28,6 +28,9 @@ const (
 	// TaskStatusStale indicates a task stopped reporting progress and may need recovery.
 	TaskStatusStale TaskStatus = "STALE"
 
+	// TODO: Add retrying, cancelled, timed out.
+	// No Paused on the task level. We either let the task finish, or kill it. (tbh)
+
 	// TaskStatusUnspecified is used when a task status is unknown.
 	TaskStatusUnspecified TaskStatus = "UNSPECIFIED"
 )
