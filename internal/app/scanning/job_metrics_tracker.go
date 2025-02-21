@@ -265,13 +265,22 @@ func (t *jobMetricsAggregator) HandleEnumerationCompleted(
 	evt events.EventEnvelope,
 	ack events.AckFunc,
 ) error {
-	ctx, span := t.tracer.Start(ctx, "job_metrics_aggregator.handle_enumeration_completed")
+	logger := logger.NewLoggerContext(t.logger.With(
+		"operation", "handle_enumeration_completed",
+		"event_type", evt.Type,
+	))
+	ctx, span := t.tracer.Start(ctx, "job_metrics_aggregator.handle_enumeration_completed",
+		trace.WithAttributes(
+			attribute.String("controller_id", t.controllerID),
+		),
+	)
 	defer span.End()
 
 	enumEvt, ok := evt.Payload.(scanning.JobEnumerationCompletedEvent)
 	if !ok {
 		err := fmt.Errorf("invalid payload type, expected JobEnumerationCompletedEvent, got %T", evt.Payload)
 		span.RecordError(err)
+		span.SetStatus(codes.Error, "invalid payload type")
 		return err
 	}
 
@@ -282,6 +291,12 @@ func (t *jobMetricsAggregator) HandleEnumerationCompleted(
 		attribute.String("job_id", jobID.String()),
 		attribute.Int("total_tasks", totalTasks),
 	)
+	logger.Add(
+		"job_id", jobID.String(),
+		"total_tasks", totalTasks,
+	)
+
+	logger.Info(ctx, "enumeration completed event received")
 
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -300,6 +315,7 @@ func (t *jobMetricsAggregator) HandleEnumerationCompleted(
 		metrics, err := t.repository.GetJobMetrics(ctx, jobID)
 		if err != nil {
 			span.RecordError(err)
+			span.SetStatus(codes.Error, "failed to load job metrics")
 			return fmt.Errorf("failed to load job metrics for job %s: %w", jobID, err)
 		}
 		t.metrics[jobID] = metrics
@@ -310,7 +326,7 @@ func (t *jobMetricsAggregator) HandleEnumerationCompleted(
 	jm.SetTotalTasks(totalTasks)
 
 	// Check if we're already done (possible if task(s) completed extremely fast).
-	t.maybeMarkJobCompletedLocked(ctx, jobID, jm)
+	t.maybeMarkJobCompletedLocked(ctx, jobID, jm, logger)
 
 	return nil
 }
@@ -327,6 +343,7 @@ func (t *jobMetricsAggregator) maybeMarkJobCompletedLocked(
 	ctx context.Context,
 	jobID uuid.UUID,
 	jm *domain.JobMetrics,
+	logger *logger.LoggerContext,
 ) {
 	span := trace.SpanFromContext(ctx)
 
@@ -344,7 +361,7 @@ func (t *jobMetricsAggregator) maybeMarkJobCompletedLocked(
 
 		// jm.SetJobStatus(domain.JobStatusCompleted)
 		span.AddEvent("job_marked_completed")
-		t.logger.Info(ctx, "job is completed", "job_id", jobID.String())
+		logger.Info(ctx, "job is completed", "job_id", jobID.String())
 
 		// TODO: Maybe publish a job completed event?
 	}
@@ -675,6 +692,12 @@ func (t *jobMetricsAggregator) processPendingMetrics(ctx context.Context) {
 // processMetric updates in-memory metrics for a single TaskJobMetricEvent. It
 // returns domain.ErrTaskNotFound if the task has not yet been created.
 func (t *jobMetricsAggregator) processMetric(ctx context.Context, evt scanning.TaskJobMetricEvent) error {
+	logger := logger.NewLoggerContext(t.logger.With(
+		"operation", "process_metric",
+		"job_id", evt.JobID.String(),
+		"task_id", evt.TaskID.String(),
+		"new_status", evt.Status,
+	))
 	ctx, span := t.tracer.Start(ctx, "job_metrics_aggregator.process_metric",
 		trace.WithAttributes(
 			attribute.String("controller_id", t.controllerID),
@@ -726,6 +749,8 @@ func (t *jobMetricsAggregator) processMetric(ctx context.Context, evt scanning.T
 		oldStatus = entry.status
 	}
 
+	logger.Add("old_status", oldStatus)
+
 	if oldStatus != evt.Status {
 		// This is the first time we see a new status for this task.
 		if !exists {
@@ -737,6 +762,7 @@ func (t *jobMetricsAggregator) processMetric(ctx context.Context, evt scanning.T
 			span.AddEvent("task_status_changed")
 		}
 	} else {
+		logger.Debug(ctx, "task status unchanged")
 		span.AddEvent("task_status_unchanged")
 	}
 
@@ -751,10 +777,11 @@ func (t *jobMetricsAggregator) processMetric(ctx context.Context, evt scanning.T
 		attribute.String("timestamp", time.Now().UTC().String()),
 	))
 	span.SetStatus(codes.Ok, "task metrics processed")
+	logger.Debug(ctx, "task metrics processed")
 
 	// After updating the metrics, check if job is now fully completed.
 	// Because we hold t.mu, we can call maybeMarkJobCompletedLocked safely.
-	t.maybeMarkJobCompletedLocked(ctx, evt.JobID, jm)
+	t.maybeMarkJobCompletedLocked(ctx, evt.JobID, jm, logger)
 
 	return nil
 }

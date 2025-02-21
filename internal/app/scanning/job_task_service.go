@@ -481,7 +481,9 @@ func (s *jobTaskService) GetTask(ctx context.Context, taskID uuid.UUID) (*domain
 		return nil, fmt.Errorf("get task: %w", err)
 	}
 
-	span.AddEvent("task_retrieved")
+	span.AddEvent("task_retrieved", trace.WithAttributes(
+		attribute.String("task_status", string(task.Status())),
+	))
 	span.SetStatus(codes.Ok, "task retrieved successfully")
 	return task, nil
 }
@@ -504,7 +506,9 @@ func (s *jobTaskService) GetTaskSourceType(ctx context.Context, taskID uuid.UUID
 		return shared.SourceTypeUnspecified, fmt.Errorf("repository task source type query failed (task_id: %s): %w", taskID, err)
 	}
 
-	span.AddEvent("task_source_type_retrieved")
+	span.AddEvent("task_source_type_retrieved", trace.WithAttributes(
+		attribute.String("source_type", string(sourceType)),
+	))
 	span.SetStatus(codes.Ok, "task source type retrieved successfully")
 	return sourceType, nil
 }
@@ -581,7 +585,13 @@ func (s *jobTaskService) GetJobMetrics(ctx context.Context, jobID uuid.UUID) (*d
 		return nil, fmt.Errorf("failed to get job metrics: %w", err)
 	}
 
-	span.AddEvent("job_metrics_retrieved")
+	span.AddEvent("job_metrics_retrieved", trace.WithAttributes(
+		attribute.Int("total_tasks", metrics.TotalTasks()),
+		attribute.Int("pending_tasks", metrics.PendingTasks()),
+		attribute.Int("in_progress_tasks", metrics.InProgressTasks()),
+		attribute.Int("completed_tasks", metrics.CompletedTasks()),
+		attribute.Int("failed_tasks", metrics.FailedTasks()),
+	))
 	span.SetStatus(codes.Ok, "job metrics retrieved successfully")
 
 	return metrics, nil
@@ -604,7 +614,9 @@ func (s *jobTaskService) GetCheckpoints(ctx context.Context, jobID uuid.UUID) (m
 		return nil, fmt.Errorf("failed to get checkpoints: %w", err)
 	}
 
-	span.AddEvent("checkpoints_retrieved")
+	span.AddEvent("checkpoints_retrieved", trace.WithAttributes(
+		attribute.Int("num_checkpoints", len(checkpoints)),
+	))
 	span.SetStatus(codes.Ok, "checkpoints retrieved successfully")
 
 	return checkpoints, nil
