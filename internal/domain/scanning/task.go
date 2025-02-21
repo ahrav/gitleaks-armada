@@ -2,7 +2,6 @@ package scanning
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"time"
 
@@ -208,33 +207,6 @@ func (c *Checkpoint) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// TaskStatus represents the execution state of an individual scan task. It enables
-// fine-grained tracking of task progress and error conditions.
-type TaskStatus string
-
-// ErrTaskStatusUnknown is returned when a task status is unknown.
-var ErrTaskStatusUnknown = errors.New("task status unknown")
-
-const (
-	// TaskStatusPending indicates a task is created but not yet started.
-	TaskStatusPending TaskStatus = "PENDING"
-
-	// TaskStatusInProgress indicates a task is actively scanning.
-	TaskStatusInProgress TaskStatus = "IN_PROGRESS"
-
-	// TaskStatusCompleted indicates a task finished successfully.
-	TaskStatusCompleted TaskStatus = "COMPLETED"
-
-	// TaskStatusFailed indicates a task encountered an unrecoverable error.
-	TaskStatusFailed TaskStatus = "FAILED"
-
-	// TaskStatusStale indicates a task stopped reporting progress and may need recovery.
-	TaskStatusStale TaskStatus = "STALE"
-
-	// TaskStatusUnspecified is used when a task status is unknown.
-	TaskStatusUnspecified TaskStatus = "UNSPECIFIED"
-)
-
 // StallReason identifies the specific cause of a task stall, enabling targeted recovery strategies.
 type StallReason string
 
@@ -393,20 +365,32 @@ func (t *Task) RecoveryAttempts() int { return t.recoveryAttempts }
 // IsInProgress returns true if the task is in the IN_PROGRESS state.
 func (t *Task) IsInProgress() bool { return t.status == TaskStatusInProgress }
 
+// UpdateStatus changes the task's status after validating the transition.
+// It returns an error if the transition is not valid.
+func (t *Task) UpdateStatus(newStatus TaskStatus) error {
+	if err := t.status.validateTransition(newStatus); err != nil {
+		return err
+	}
+
+	// Mark the start time when transitioning from PENDING to IN_PROGRESS
+	// as this represents the beginning of actual task execution.
+	if t.status == TaskStatusPending && newStatus == TaskStatusInProgress {
+		t.timeline.MarkStarted()
+	}
+
+	// Mark completion time when transitioning to a terminal state.
+	if newStatus == TaskStatusCompleted || newStatus == TaskStatusFailed {
+		t.timeline.MarkCompleted()
+	}
+
+	t.status = newStatus
+	return nil
+}
+
 // Start transitions a task to IN_PROGRESS state. It can only be called on tasks
 // in PENDING state. This marks the beginning of task execution.
 func (t *Task) Start() error {
-	if t.status != TaskStatusPending {
-		return TaskInvalidStateError{
-			taskID: t.ID,
-			status: t.status,
-			reason: TaskInvalidStateReasonWrongStatus,
-		}
-	}
-
-	t.status = TaskStatusInProgress
-	t.timeline.MarkStarted()
-	return nil
+	return t.UpdateStatus(TaskStatusInProgress)
 }
 
 // OutOfOrderProgressError is an error type for indicating that a progress update
@@ -448,8 +432,9 @@ func (t *Task) ApplyProgress(progress Progress) error {
 
 	// If task is in pending state, transition to in progress.
 	if t.status == TaskStatusPending {
-		t.status = TaskStatusInProgress
-		t.timeline.MarkStarted()
+		if err := t.UpdateStatus(TaskStatusInProgress); err != nil {
+			return err
+		}
 	}
 
 	t.updateProgress(progress)
@@ -521,19 +506,6 @@ func (t *Task) Complete() error {
 		return nil // Already completed, idempotent
 	}
 
-	// TODO: Figure out if we not include pending here.
-	// It's included becaasue realy short scans never transition to IN_PROGRESS b/c we get not progress updates.
-	// At leat not yet for Git based sources.
-	if t.status != TaskStatusInProgress && t.status != TaskStatusStale && t.status != TaskStatusPending {
-		return TaskInvalidStateError{
-			taskID: t.ID,
-			status: t.status,
-			reason: TaskInvalidStateReasonWrongStatus,
-		}
-	}
-
-	// t.ClearStall()
-
 	// TODO: Uncomment once progress is tracked in source scanners.
 	// if t.itemsProcessed == 0 {
 	// 	return TaskInvalidStateError{
@@ -543,9 +515,7 @@ func (t *Task) Complete() error {
 	// 	}
 	// }
 
-	t.status = TaskStatusCompleted
-	t.timeline.MarkCompleted()
-	return nil
+	return t.UpdateStatus(TaskStatusCompleted)
 }
 
 func (t *Task) ClearStall() {
@@ -555,30 +525,12 @@ func (t *Task) ClearStall() {
 
 // Fail marks a task as failed.
 func (t *Task) Fail() error {
-	if t.status != TaskStatusInProgress && t.status != TaskStatusStale && t.status != TaskStatusPending {
-		return TaskInvalidStateError{
-			taskID: t.ID,
-			status: t.status,
-			reason: TaskInvalidStateReasonWrongStatus,
-		}
-	}
-
-	t.status = TaskStatusFailed
-	t.timeline.MarkCompleted()
-	return nil
+	return t.UpdateStatus(TaskStatusFailed)
 }
 
 // MarkStale transitions a task from IN_PROGRESS to STALE, storing a reason and time.
 // The task must be in IN_PROGRESS state to be marked as STALE and a reason must be provided.
 func (t *Task) MarkStale(reason *StallReason) error {
-	if t.status != TaskStatusInProgress {
-		return TaskInvalidStateError{
-			taskID: t.ID,
-			status: t.status,
-			reason: TaskInvalidStateReasonWrongStatus,
-		}
-	}
-
 	if reason == nil {
 		return TaskInvalidStateError{
 			taskID: t.ID,
@@ -587,7 +539,10 @@ func (t *Task) MarkStale(reason *StallReason) error {
 		}
 	}
 
-	t.status = TaskStatusStale
+	if err := t.UpdateStatus(TaskStatusStale); err != nil {
+		return err
+	}
+
 	t.stallReason = reason
 	t.stalledAt = time.Now()
 
