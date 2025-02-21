@@ -299,8 +299,6 @@ func (t *jobMetricsAggregator) HandleEnumerationCompleted(
 	logger.Info(ctx, "enumeration completed event received")
 
 	t.mu.Lock()
-	defer t.mu.Unlock()
-
 	// TODO: Extract this logic since it's also used in HandleJobMetrics.
 	// Store the latest ack function for this job's partition.
 	if t.pendingAcks[jobID] == nil {
@@ -317,6 +315,7 @@ func (t *jobMetricsAggregator) HandleEnumerationCompleted(
 
 	// If we haven't yet loaded metrics from DB, attempt to load them or init them.
 	jm, exists := t.metrics[jobID]
+	t.mu.Unlock()
 	if !exists {
 		metrics, err := t.repository.GetJobMetrics(ctx, jobID)
 		if err != nil {
@@ -324,7 +323,9 @@ func (t *jobMetricsAggregator) HandleEnumerationCompleted(
 			span.SetStatus(codes.Error, "failed to load job metrics")
 			return fmt.Errorf("failed to load job metrics for job %s: %w", jobID, err)
 		}
+		t.mu.Lock()
 		t.metrics[jobID] = metrics
+		t.mu.Unlock()
 		jm = metrics
 	}
 
