@@ -70,6 +70,7 @@ func createTestTask(t *testing.T, store *taskStore, jobID uuid.UUID, status scan
 		nil,
 		scanning.ReasonPtr(scanning.StallReasonNoProgress),
 		time.Time{},
+		time.Time{},
 		0,
 	)
 }
@@ -131,6 +132,7 @@ func TestTaskStore_UpdateTask(t *testing.T) {
 		json.RawMessage(`{"updated": "details"}`),
 		checkpoint,
 		scanning.ReasonPtr(scanning.StallReasonNoProgress),
+		time.Time{},
 		time.Time{},
 		0,
 	)
@@ -298,6 +300,7 @@ func TestTaskStore_GetTask_WithStallInfo(t *testing.T) {
 		nil,                         // Checkpoint
 		scanning.ReasonPtr(stallReason),
 		stallTime,
+		time.Time{},
 		0,
 	)
 
@@ -650,4 +653,42 @@ func TestTaskStore_UpdateTask_StartTimeSetOnTransition(t *testing.T) {
 	assert.False(t, updatedTask.StartTime().IsZero(), "Start time should be persisted")
 	assert.WithinDuration(t, task.StartTime(), updatedTask.StartTime(), time.Second,
 		"Persisted start time should match the task's start time")
+}
+
+func TestTaskStore_UpdateTask_PauseAndResume(t *testing.T) {
+	t.Parallel()
+	ctx, _, taskStore, jobStore, cleanup := setupTaskTest(t)
+	defer cleanup()
+
+	job := createTestScanJob(t, jobStore, ctx)
+	task := createTestTask(t, taskStore, job.JobID(), scanning.TaskStatusInProgress)
+	err := taskStore.CreateTask(ctx, task, "test-controller")
+	require.NoError(t, err)
+
+	initialTask, err := taskStore.GetTask(ctx, task.TaskID())
+	require.NoError(t, err)
+	assert.Equal(t, scanning.TaskStatusInProgress, initialTask.Status())
+	assert.True(t, initialTask.PausedAt().IsZero(), "Paused time should be zero for IN_PROGRESS task")
+
+	// Simulate pause.
+	err = task.UpdateStatus(scanning.TaskStatusPaused)
+	require.NoError(t, err)
+	err = taskStore.UpdateTask(ctx, task)
+	require.NoError(t, err)
+
+	updatedTask, err := taskStore.GetTask(ctx, task.TaskID())
+	require.NoError(t, err)
+	assert.Equal(t, scanning.TaskStatusPaused, updatedTask.Status())
+	assert.False(t, updatedTask.PausedAt().IsZero(), "Paused time should be persisted")
+
+	// Simulate resume.
+	err = task.UpdateStatus(scanning.TaskStatusInProgress)
+	require.NoError(t, err)
+	err = taskStore.UpdateTask(ctx, task)
+	require.NoError(t, err)
+
+	updatedTask, err = taskStore.GetTask(ctx, task.TaskID())
+	require.NoError(t, err)
+	assert.Equal(t, scanning.TaskStatusInProgress, updatedTask.Status())
+	assert.True(t, updatedTask.PausedAt().IsZero(), "Paused time should be cleared after resume")
 }

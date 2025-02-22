@@ -168,6 +168,23 @@ func TestTask_ApplyProgress(t *testing.T) {
 			wantSeqNum:           3,
 			wantRecoveryAttempts: 2,
 		},
+		{
+			name: "recover from paused state",
+			setupTask: func() *Task {
+				task := NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com")
+				_ = task.UpdateStatus(TaskStatusPaused)
+				return task
+			},
+			progress: Progress{
+				sequenceNum:    1,
+				itemsProcessed: 100,
+				timestamp:      time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+			},
+			wantStatus:           TaskStatusInProgress,
+			wantItems:            100,
+			wantSeqNum:           1,
+			wantRecoveryAttempts: 0,
+		},
 	}
 
 	for _, tt := range tests {
@@ -204,36 +221,6 @@ func TestTask_ApplyProgress(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestTask_GetSummary(t *testing.T) {
-	t.Parallel()
-
-	mockTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
-	mockProvider := &mockTimeProvider{currentTime: mockTime}
-
-	taskID := uuid.New()
-	jobID := uuid.New()
-	task := NewScanTask(jobID, shared.SourceTypeGitHub, taskID, "https://example.com", WithTimeProvider(mockProvider))
-
-	progress := Progress{
-		taskID:         taskID,
-		sequenceNum:    1,
-		itemsProcessed: 100,
-		timestamp:      mockTime,
-	}
-
-	err := task.ApplyProgress(progress)
-	require.NoError(t, err)
-
-	duration := 5 * time.Minute
-	summary := task.GetSummary(duration)
-
-	assert.Equal(t, taskID, summary.GetTaskID())
-	assert.Equal(t, TaskStatusInProgress, summary.GetStatus())
-	assert.Equal(t, int64(100), summary.itemsProcessed)
-	assert.Equal(t, duration, summary.duration)
-	assert.Equal(t, progress.Timestamp(), summary.GetLastUpdateTimestamp())
 }
 
 func TestTask_Complete(t *testing.T) {
@@ -358,6 +345,7 @@ func TestTask_Fail(t *testing.T) {
 				nil,
 				nil,
 				time.Time{},
+				time.Time{},
 				0,
 			),
 			wantErr: false,
@@ -377,6 +365,7 @@ func TestTask_Fail(t *testing.T) {
 				nil,
 				nil,
 				nil,
+				time.Time{},
 				time.Time{},
 				0,
 			),
@@ -398,6 +387,7 @@ func TestTask_Fail(t *testing.T) {
 				nil,
 				nil,
 				time.Time{},
+				time.Time{},
 				0,
 			),
 			wantErr: true,
@@ -418,6 +408,7 @@ func TestTask_Fail(t *testing.T) {
 				nil,
 				nil,
 				nil,
+				time.Time{},
 				time.Time{},
 				0,
 			),
@@ -480,6 +471,7 @@ func TestTask_MarkStale(t *testing.T) {
 				nil,
 				nil,
 				time.Time{},
+				time.Time{},
 				0,
 			),
 			reason:  ReasonPtr(StallReasonNoProgress),
@@ -500,6 +492,7 @@ func TestTask_MarkStale(t *testing.T) {
 				nil,
 				nil,
 				nil,
+				time.Time{},
 				time.Time{},
 				0,
 			),
@@ -522,6 +515,7 @@ func TestTask_MarkStale(t *testing.T) {
 				nil,
 				nil,
 				time.Time{},
+				time.Time{},
 				0,
 			),
 			reason:  nil,
@@ -542,6 +536,7 @@ func TestTask_MarkStale(t *testing.T) {
 				nil,
 				nil,
 				nil,
+				time.Time{},
 				time.Time{},
 				0,
 			),

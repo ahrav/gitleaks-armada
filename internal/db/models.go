@@ -430,6 +430,7 @@ type ScanTask struct {
 	StallReason       NullScanTaskStallReason
 	RecoveryAttempts  int32
 	StalledAt         pgtype.Timestamptz
+	PausedAt          pgtype.Timestamptz
 	CreatedAt         pgtype.Timestamptz
 	UpdatedAt         pgtype.Timestamptz
 }

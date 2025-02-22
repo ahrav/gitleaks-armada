@@ -144,6 +144,7 @@ SELECT
     t.last_checkpoint,
     t.stall_reason,
     t.stalled_at,
+    t.paused_at,
     t.recovery_attempts,
     t.last_heartbeat_at,
     t.created_at,
@@ -173,6 +174,7 @@ type FindStaleTasksRow struct {
 	LastCheckpoint    []byte
 	StallReason       NullScanTaskStallReason
 	StalledAt         pgtype.Timestamptz
+	PausedAt          pgtype.Timestamptz
 	RecoveryAttempts  int32
 	LastHeartbeatAt   pgtype.Timestamptz
 	CreatedAt         pgtype.Timestamptz
@@ -202,6 +204,7 @@ func (q *Queries) FindStaleTasks(ctx context.Context, arg FindStaleTasksParams) 
 			&i.LastCheckpoint,
 			&i.StallReason,
 			&i.StalledAt,
+			&i.PausedAt,
 			&i.RecoveryAttempts,
 			&i.LastHeartbeatAt,
 			&i.CreatedAt,
@@ -347,6 +350,7 @@ SELECT
     stall_reason,
     last_heartbeat_at,
     stalled_at,
+    paused_at,
     recovery_attempts,
     created_at,
     updated_at
@@ -368,6 +372,7 @@ type GetScanTaskRow struct {
 	StallReason      NullScanTaskStallReason
 	LastHeartbeatAt  pgtype.Timestamptz
 	StalledAt        pgtype.Timestamptz
+	PausedAt         pgtype.Timestamptz
 	RecoveryAttempts int32
 	CreatedAt        pgtype.Timestamptz
 	UpdatedAt        pgtype.Timestamptz
@@ -390,6 +395,7 @@ func (q *Queries) GetScanTask(ctx context.Context, taskID pgtype.UUID) (GetScanT
 		&i.StallReason,
 		&i.LastHeartbeatAt,
 		&i.StalledAt,
+		&i.PausedAt,
 		&i.RecoveryAttempts,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -442,6 +448,7 @@ SELECT
     t.last_checkpoint,
     t.stall_reason,
     t.stalled_at,
+    t.paused_at,
     t.recovery_attempts,
     t.last_heartbeat_at,
     t.created_at,
@@ -470,6 +477,7 @@ type ListScanTasksByJobAndStatusRow struct {
 	LastCheckpoint   []byte
 	StallReason      NullScanTaskStallReason
 	StalledAt        pgtype.Timestamptz
+	PausedAt         pgtype.Timestamptz
 	RecoveryAttempts int32
 	LastHeartbeatAt  pgtype.Timestamptz
 	CreatedAt        pgtype.Timestamptz
@@ -498,6 +506,7 @@ func (q *Queries) ListScanTasksByJobAndStatus(ctx context.Context, arg ListScanT
 			&i.LastCheckpoint,
 			&i.StallReason,
 			&i.StalledAt,
+			&i.PausedAt,
 			&i.RecoveryAttempts,
 			&i.LastHeartbeatAt,
 			&i.CreatedAt,
@@ -622,8 +631,9 @@ SET
     last_checkpoint = $7,
     stall_reason = $8,
     stalled_at = $9,
-    recovery_attempts = $10,
-    start_time = $11,
+    paused_at = $10,
+    recovery_attempts = $11,
+    start_time = $12,
     updated_at = NOW()
 WHERE task_id = $1
 `
@@ -638,6 +648,7 @@ type UpdateScanTaskParams struct {
 	LastCheckpoint   []byte
 	StallReason      NullScanTaskStallReason
 	StalledAt        pgtype.Timestamptz
+	PausedAt         pgtype.Timestamptz
 	RecoveryAttempts int32
 	StartTime        pgtype.Timestamptz
 }
@@ -653,6 +664,7 @@ func (q *Queries) UpdateScanTask(ctx context.Context, arg UpdateScanTaskParams) 
 		arg.LastCheckpoint,
 		arg.StallReason,
 		arg.StalledAt,
+		arg.PausedAt,
 		arg.RecoveryAttempts,
 		arg.StartTime,
 	)

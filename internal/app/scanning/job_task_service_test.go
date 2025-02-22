@@ -516,6 +516,7 @@ func TestUpdateTaskProgress(t *testing.T) {
 					nil,
 					scanning.ReasonPtr(scanning.StallReasonNoProgress),
 					time.Time{},
+					time.Time{},
 					0,
 				)
 
@@ -796,6 +797,7 @@ func TestMarkTaskStale(t *testing.T) {
 					nil,
 					nil,
 					nil,
+					time.Time{},
 					time.Time{},
 					0,
 				)

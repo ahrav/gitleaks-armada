@@ -116,17 +116,3 @@ func (j *Job) UpdateStatus(newStatus JobStatus) error {
 	j.status = newStatus
 	return nil
 }
-
-// JobSummary provides an aggregated overview of job execution progress.
-// It combines overall job status with task-level metrics to enable job monitoring.
-// TODO: Do something with this eventually..
-type JobSummary struct {
-	JobID          string
-	Status         JobStatus
-	StartTime      time.Time
-	Duration       time.Duration
-	TotalTasks     int
-	CompletedTasks int
-	FailedTasks    int
-	TaskSummaries  []TaskSummary
-}

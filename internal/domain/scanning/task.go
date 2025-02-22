@@ -232,6 +232,7 @@ type Task struct {
 	status           TaskStatus
 	stallReason      *StallReason
 	stalledAt        time.Time
+	pausedAt         time.Time
 	recoveryAttempts int // Track number of times task has recovered from STALE state
 
 	lastSequenceNum int64
@@ -290,6 +291,7 @@ func ReconstructTask(
 	lastCheckpoint *Checkpoint,
 	stallReason *StallReason,
 	stalledAt time.Time,
+	pausedAt time.Time,
 	recoveryAttempts int,
 ) *Task {
 	return &Task{
@@ -307,6 +309,7 @@ func ReconstructTask(
 		lastCheckpoint:   lastCheckpoint,
 		stallReason:      stallReason,
 		stalledAt:        stalledAt,
+		pausedAt:         pausedAt,
 		recoveryAttempts: recoveryAttempts,
 	}
 }
@@ -351,6 +354,9 @@ func (t *Task) StallReason() *StallReason { return t.stallReason }
 // StalledAt returns the time this task was stalled.
 func (t *Task) StalledAt() time.Time { return t.stalledAt }
 
+// PausedAt returns the time this task was paused.
+func (t *Task) PausedAt() time.Time { return t.pausedAt }
+
 // StalledDuration returns the duration this task has been stalled.
 func (t *Task) StalledDuration() time.Duration {
 	if t.stalledAt.IsZero() {
@@ -370,6 +376,14 @@ func (t *Task) IsInProgress() bool { return t.status == TaskStatusInProgress }
 func (t *Task) UpdateStatus(newStatus TaskStatus) error {
 	if err := t.status.validateTransition(newStatus); err != nil {
 		return err
+	}
+
+	if newStatus == TaskStatusPaused {
+		t.pausedAt = time.Now()
+	}
+
+	if t.status == TaskStatusPaused && newStatus == TaskStatusInProgress {
+		t.pausedAt = time.Time{}
 	}
 
 	// Mark the start time when transitioning from PENDING to IN_PROGRESS
@@ -418,7 +432,7 @@ func (e *OutOfOrderProgressError) Error() string {
 // ApplyProgress applies a progress update to this task's state.
 // It updates all monitoring metrics and preserves any checkpoint data.
 func (t *Task) ApplyProgress(progress Progress) error {
-	if t.status != TaskStatusInProgress && t.status != TaskStatusStale && t.status != TaskStatusPending {
+	if t.status != TaskStatusInProgress && t.status != TaskStatusStale && t.status != TaskStatusPending && t.status != TaskStatusPaused {
 		return TaskInvalidStateError{
 			taskID: t.ID,
 			status: t.status,
@@ -430,8 +444,8 @@ func (t *Task) ApplyProgress(progress Progress) error {
 		return NewOutOfOrderProgressError(t.TaskID(), progress.SequenceNum(), t.LastSequenceNum())
 	}
 
-	// If task is in pending state, transition to in progress.
-	if t.status == TaskStatusPending {
+	// If task is in pending or paused state, transition to in progress.
+	if t.status == TaskStatusPending || t.status == TaskStatusPaused {
 		if err := t.UpdateStatus(TaskStatusInProgress); err != nil {
 			return err
 		}
@@ -582,39 +596,6 @@ func (t *Task) MarkStale(reason *StallReason) error {
 
 	return nil
 }
-
-// GetSummary returns a TaskSummary containing the key metrics and status
-// for this task's execution progress.
-func (t *Task) GetSummary(duration time.Duration) TaskSummary {
-	return TaskSummary{
-		taskID:          t.ID,
-		status:          t.status,
-		itemsProcessed:  t.itemsProcessed,
-		duration:        duration,
-		lastUpdateTs:    t.timeline.LastUpdate(),
-		progressDetails: t.progressDetails,
-	}
-}
-
-// TaskSummary provides a concise view of task execution progress.
-// It contains the key metrics needed for monitoring task health and completion.
-type TaskSummary struct {
-	taskID          uuid.UUID
-	status          TaskStatus
-	itemsProcessed  int64
-	duration        time.Duration
-	lastUpdateTs    time.Time
-	progressDetails json.RawMessage
-}
-
-// GetTaskID returns the unique identifier for this scan task.
-func (s TaskSummary) GetTaskID() uuid.UUID { return s.taskID }
-
-// GetStatus returns the current execution status of the scan task.
-func (s TaskSummary) GetStatus() TaskStatus { return s.status }
-
-// GetLastUpdateTimestamp returns when this task last reported progress.
-func (s TaskSummary) GetLastUpdateTimestamp() time.Time { return s.lastUpdateTs }
 
 // StaleTaskInfo represents the minimal information needed for stale task processing
 type StaleTaskInfo struct {

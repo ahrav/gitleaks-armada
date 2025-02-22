@@ -76,6 +76,7 @@ SELECT
     stall_reason,
     last_heartbeat_at,
     stalled_at,
+    paused_at,
     recovery_attempts,
     created_at,
     updated_at
@@ -93,8 +94,9 @@ SET
     last_checkpoint = $7,
     stall_reason = $8,
     stalled_at = $9,
-    recovery_attempts = $10,
-    start_time = $11,
+    paused_at = $10,
+    recovery_attempts = $11,
+    start_time = $12,
     updated_at = NOW()
 WHERE task_id = $1;
 
@@ -112,6 +114,7 @@ SELECT
     t.last_checkpoint,
     t.stall_reason,
     t.stalled_at,
+    t.paused_at,
     t.recovery_attempts,
     t.last_heartbeat_at,
     t.created_at,
@@ -143,6 +146,7 @@ SELECT
     t.last_checkpoint,
     t.stall_reason,
     t.stalled_at,
+    t.paused_at,
     t.recovery_attempts,
     t.last_heartbeat_at,
     t.created_at,

@@ -106,6 +106,11 @@ func (s *taskStore) GetTask(ctx context.Context, taskID uuid.UUID) (*scanning.Ta
 			stallReason = &r
 		}
 
+		var pausedAt pgtype.Timestamptz
+		if row.PausedAt.Valid {
+			pausedAt = pgtype.Timestamptz{Time: row.PausedAt.Time, Valid: true}
+		}
+
 		domainTask = scanning.ReconstructTask(
 			row.TaskID.Bytes,
 			row.JobID.Bytes,
@@ -120,6 +125,7 @@ func (s *taskStore) GetTask(ctx context.Context, taskID uuid.UUID) (*scanning.Ta
 			checkpoint,
 			stallReason,
 			row.StalledAt.Time,
+			pausedAt.Time,
 			int(row.RecoveryAttempts),
 		)
 		return nil
@@ -183,6 +189,7 @@ func (s *taskStore) UpdateTask(ctx context.Context, task *scanning.Task) error {
 			LastCheckpoint:   checkpointJSON,
 			StallReason:      stallReason,
 			StalledAt:        pgtype.Timestamptz{Time: task.StalledAt(), Valid: !task.StalledAt().IsZero()},
+			PausedAt:         pgtype.Timestamptz{Time: task.PausedAt(), Valid: !task.PausedAt().IsZero()},
 			RecoveryAttempts: int32(task.RecoveryAttempts()),
 		}
 
@@ -234,6 +241,11 @@ func (s *taskStore) ListTasksByJobAndStatus(
 				}
 			}
 
+			var pausedAt pgtype.Timestamptz
+			if row.PausedAt.Valid {
+				pausedAt = pgtype.Timestamptz{Time: row.PausedAt.Time, Valid: true}
+			}
+
 			t := scanning.ReconstructTask(
 				row.TaskID.Bytes,
 				row.JobID.Bytes,
@@ -248,6 +260,7 @@ func (s *taskStore) ListTasksByJobAndStatus(
 				checkpoint,
 				scanning.ReasonPtr(scanning.StallReason(row.StallReason.ScanTaskStallReason)),
 				row.StalledAt.Time,
+				pausedAt.Time,
 				int(row.RecoveryAttempts),
 			)
 			results = append(results, t)
