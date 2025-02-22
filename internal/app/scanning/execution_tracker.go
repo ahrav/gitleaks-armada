@@ -54,49 +54,6 @@ func NewExecutionTracker(
 	}
 }
 
-// CreateJobForTarget uses the provided jobID to create a new scan job for the given
-// target and publishes a JobCreatedEvent. This links the target’s domain context
-// to the newly created job, enabling downstream consumers to process the scan.
-func (t *executionTracker) CreateJobForTarget(ctx context.Context, jobID uuid.UUID, target scanning.Target) error {
-	ctx, span := t.tracer.Start(ctx, "execution_tracker.scanning.create_job",
-		trace.WithAttributes(
-			attribute.String("controller_id", t.controllerID),
-			attribute.String("target_name", target.Name()),
-			attribute.String("source_type", target.SourceType().String()),
-		))
-	defer span.End()
-
-	_, err := t.jobTaskSvc.CreateJobFromID(ctx, jobID)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to create job")
-		return fmt.Errorf("failed to create job for target %s: %w", target.Name(), err)
-	}
-
-	// Publish JobCreatedEvent with target information.
-	// The target information is required by downstream consumers of the JobCreatedEvent
-	// to link scan targets to a single scan job.
-	evt := scanning.NewJobScheduledEvent(jobID, target)
-	if err := t.publisher.PublishDomainEvent(
-		ctx, evt, events.WithKey(jobID.String()),
-	); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to publish job created event")
-		return fmt.Errorf("failed to publish job created event (job_id: %s, source_type: %s, source_name: %s): %w",
-			jobID, target.SourceType().String(), target.Name(), err)
-	}
-
-	span.AddEvent("job_created_and_event_published")
-	span.SetStatus(codes.Ok, "job created and event published")
-	t.logger.Info(ctx, "Job created",
-		"job_id", jobID,
-		"target_name", target.Name(),
-		"source_type", target.SourceType().String(),
-	)
-
-	return nil
-}
-
 // ProcessEnumerationStream consumes channels from a scanning.ScanningResult, updating the
 // job in stages (e.g., enumerating, linking enumerated targets, creating tasks). It
 // signals when enumeration starts and completes, ensuring the job transitions properly.

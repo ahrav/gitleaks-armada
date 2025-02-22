@@ -29,11 +29,6 @@ func (m *mockJobScheduler) Schedule(ctx context.Context, jobID uuid.UUID, target
 // Mock implementations.
 type mockExecutionTracker struct{ mock.Mock }
 
-func (m *mockExecutionTracker) CreateJobForTarget(ctx context.Context, jobID uuid.UUID, target scanning.Target) error {
-	args := m.Called(ctx, jobID, target)
-	return args.Error(0)
-}
-
 func (m *mockExecutionTracker) ProcessEnumerationStream(ctx context.Context, jobID uuid.UUID, result *scanning.ScanningResult) error {
 	args := m.Called(ctx, jobID, result)
 	return args.Error(0)
@@ -150,14 +145,13 @@ func TestHandleScanJobRequested(t *testing.T) {
 		{
 			name: "success - two targets",
 			setupMock: func(m *mockJobScheduler) {
-				// Expect exactly two calls (one per target)
-				m.On("Schedule", mock.Anything, mock.Anything, mock.Anything).Return(nil).Times(2)
+				m.On("Schedule", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
 			},
 			targets: []scanning.Target{
 				scanning.NewTarget("test-target", shared.SourceTypeGitHub, &scanning.Auth{}, map[string]string{}, scanning.TargetConfig{}),
 				scanning.NewTarget("test-target-2", shared.SourceTypeURL, &scanning.Auth{}, map[string]string{}, scanning.TargetConfig{}),
 			},
-			expectedCalls: 2,
+			expectedCalls: 1,
 			expectErr:     false,
 		},
 	}
