@@ -42,6 +42,36 @@ func TestValidateTransition_ValidTransitions(t *testing.T) {
 			current: JobStatusRunning,
 			target:  JobStatusFailed,
 		},
+		{
+			name:    "Running to Pausing is valid",
+			current: JobStatusRunning,
+			target:  JobStatusPausing,
+		},
+		{
+			name:    "Enumerating to Pausing is valid",
+			current: JobStatusEnumerating,
+			target:  JobStatusPausing,
+		},
+		{
+			name:    "Pausing to Paused is valid",
+			current: JobStatusPausing,
+			target:  JobStatusPaused,
+		},
+		{
+			name:    "Pausing to Failed is valid",
+			current: JobStatusPausing,
+			target:  JobStatusFailed,
+		},
+		{
+			name:    "Paused to Running is valid",
+			current: JobStatusPaused,
+			target:  JobStatusRunning,
+		},
+		{
+			name:    "Paused to Failed is valid",
+			current: JobStatusPaused,
+			target:  JobStatusFailed,
+		},
 	}
 
 	for _, tt := range tests {
@@ -122,6 +152,51 @@ func TestValidateTransition_InvalidTransitions(t *testing.T) {
 			name:    "Valid status to empty status is invalid",
 			current: JobStatusQueued,
 			target:  "",
+		},
+		{
+			name:    "Queued to Pausing is invalid",
+			current: JobStatusQueued,
+			target:  JobStatusPausing,
+		},
+		{
+			name:    "Queued to Paused is invalid",
+			current: JobStatusQueued,
+			target:  JobStatusPaused,
+		},
+		{
+			name:    "Pausing to Running is invalid",
+			current: JobStatusPausing,
+			target:  JobStatusRunning,
+		},
+		{
+			name:    "Pausing to Enumerating is invalid",
+			current: JobStatusPausing,
+			target:  JobStatusEnumerating,
+		},
+		{
+			name:    "Pausing to Completed is invalid",
+			current: JobStatusPausing,
+			target:  JobStatusCompleted,
+		},
+		{
+			name:    "Paused to Pausing is invalid",
+			current: JobStatusPaused,
+			target:  JobStatusPausing,
+		},
+		{
+			name:    "Paused to Enumerating is invalid",
+			current: JobStatusPaused,
+			target:  JobStatusEnumerating,
+		},
+		{
+			name:    "Paused to Completed is invalid",
+			current: JobStatusPaused,
+			target:  JobStatusCompleted,
+		},
+		{
+			name:    "Paused to Paused is invalid",
+			current: JobStatusPaused,
+			target:  JobStatusPaused,
 		},
 	}
 

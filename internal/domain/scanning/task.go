@@ -506,6 +506,14 @@ func (t *Task) Complete() error {
 		return nil // Already completed, idempotent
 	}
 
+	if t.status == TaskStatusFailed {
+		return TaskInvalidStateError{
+			taskID: t.ID,
+			status: t.status,
+			reason: TaskInvalidStateReasonWrongStatus,
+		}
+	}
+
 	// TODO: Uncomment once progress is tracked in source scanners.
 	// if t.itemsProcessed == 0 {
 	// 	return TaskInvalidStateError{
@@ -525,12 +533,38 @@ func (t *Task) ClearStall() {
 
 // Fail marks a task as failed.
 func (t *Task) Fail() error {
+	if t.status == TaskStatusFailed {
+		return TaskInvalidStateError{
+			taskID: t.ID,
+			status: t.status,
+			reason: TaskInvalidStateReasonWrongStatus,
+		}
+	}
+
+	if t.status == TaskStatusCompleted {
+		return TaskInvalidStateError{
+			taskID: t.ID,
+			status: t.status,
+			reason: TaskInvalidStateReasonWrongStatus,
+		}
+	}
+
 	return t.UpdateStatus(TaskStatusFailed)
 }
 
 // MarkStale transitions a task from IN_PROGRESS to STALE, storing a reason and time.
 // The task must be in IN_PROGRESS state to be marked as STALE and a reason must be provided.
 func (t *Task) MarkStale(reason *StallReason) error {
+	// First check if the task is in a valid state for marking stale.
+	if t.status == TaskStatusStale || t.status == TaskStatusFailed || t.status == TaskStatusCompleted {
+		return TaskInvalidStateError{
+			taskID: t.ID,
+			status: t.status,
+			reason: TaskInvalidStateReasonWrongStatus,
+		}
+	}
+
+	// Then check if we have a valid reason.
 	if reason == nil {
 		return TaskInvalidStateError{
 			taskID: t.ID,

@@ -20,6 +20,7 @@ const (
 	EventTypeTaskFailed     events.EventType = "TaskFailed"
 	EventTypeTaskHeartbeat  events.EventType = "TaskHeartbeat"
 	EventTypeTaskJobMetric  events.EventType = "TaskJobMetric"
+	EventTypeTaskPaused     events.EventType = "TaskPaused"
 )
 
 // TaskCreatedEvent indicates a new task was discovered and needs to be scanned
@@ -218,3 +219,26 @@ func NewTaskJobMetricEvent(jobID, taskID uuid.UUID, status TaskStatus) TaskJobMe
 
 func (e TaskJobMetricEvent) EventType() events.EventType { return EventTypeTaskJobMetric }
 func (e TaskJobMetricEvent) OccurredAt() time.Time       { return e.occurredAt }
+
+// TaskPausedEvent means the task has been paused.
+type TaskPausedEvent struct {
+	occurredAt  time.Time
+	JobID       uuid.UUID
+	TaskID      uuid.UUID
+	PausedAt    time.Time
+	RequestedBy string
+}
+
+func NewTaskPausedEvent(jobID, taskID uuid.UUID, requestedBy string) TaskPausedEvent {
+	now := time.Now()
+	return TaskPausedEvent{
+		occurredAt:  now,
+		JobID:       jobID,
+		TaskID:      taskID,
+		PausedAt:    now,
+		RequestedBy: requestedBy,
+	}
+}
+
+func (e TaskPausedEvent) EventType() events.EventType { return EventTypeTaskPaused }
+func (e TaskPausedEvent) OccurredAt() time.Time       { return e.occurredAt }

@@ -15,13 +15,19 @@ const (
 	// JobStatusEnumerating indicates a job is enumerating targets.
 	JobStatusEnumerating JobStatus = "ENUMERATING"
 
-	// JobStatusInProgress indicates a job is actively processing tasks.
+	// JobStatusRunning indicates a job is actively processing tasks.
 	JobStatusRunning JobStatus = "RUNNING"
+
+	// JobStatusPausing indicates a job is in the process of pausing.
+	JobStatusPausing JobStatus = "PAUSING"
+
+	// JobStatusPaused indicates a job has been temporarily halted.
+	JobStatusPaused JobStatus = "PAUSED"
 
 	// JobStatusCompleted indicates all job tasks finished successfully.
 	JobStatusCompleted JobStatus = "COMPLETED"
 
-	// TODO: Add Paused, Cancelled and maybe Cancelling depending on how long it takes to cancel.
+	// TODO: Add Cancelled and maybe Cancelling depending on how long it takes to cancel.
 
 	// JobStatusFailed indicates the job encountered an unrecoverable error.
 	JobStatusFailed JobStatus = "FAILED"
@@ -38,10 +44,14 @@ func (s JobStatus) Int32() int32 {
 		return 2
 	case JobStatusRunning:
 		return 3
-	case JobStatusCompleted:
+	case JobStatusPausing:
 		return 4
-	case JobStatusFailed:
+	case JobStatusPaused:
 		return 5
+	case JobStatusCompleted:
+		return 6
+	case JobStatusFailed:
+		return 7
 	default:
 		return 0
 	}
@@ -57,6 +67,10 @@ func (s JobStatus) ProtoString() string {
 		return "SCAN_JOB_STATUS_ENUMERATING"
 	case JobStatusRunning:
 		return "SCAN_JOB_STATUS_RUNNING"
+	case JobStatusPausing:
+		return "SCAN_JOB_STATUS_PAUSING"
+	case JobStatusPaused:
+		return "SCAN_JOB_STATUS_PAUSED"
 	case JobStatusCompleted:
 		return "SCAN_JOB_STATUS_COMPLETED"
 	case JobStatusFailed:
@@ -76,8 +90,12 @@ func JobStatusFromInt32(i int32) JobStatus {
 	case 3:
 		return JobStatusRunning
 	case 4:
-		return JobStatusCompleted
+		return JobStatusPausing
 	case 5:
+		return JobStatusPaused
+	case 6:
+		return JobStatusCompleted
+	case 7:
 		return JobStatusFailed
 	default:
 		return "" // represents unspecified
@@ -93,6 +111,10 @@ func ParseJobStatus(s string) JobStatus {
 		return JobStatusEnumerating
 	case "RUNNING", "SCAN_JOB_STATUS_RUNNING":
 		return JobStatusRunning
+	case "PAUSING", "SCAN_JOB_STATUS_PAUSING":
+		return JobStatusPausing
+	case "PAUSED", "SCAN_JOB_STATUS_PAUSED":
+		return JobStatusPaused
 	case "COMPLETED", "SCAN_JOB_STATUS_COMPLETED":
 		return JobStatusCompleted
 	case "FAILED", "SCAN_JOB_STATUS_FAILED":
@@ -118,11 +140,17 @@ func (s JobStatus) isValidTransition(target JobStatus) bool {
 		// From Queued, can only move to Enumerating.
 		return target == JobStatusEnumerating
 	case JobStatusEnumerating:
-		// From Enumerating, can move to Running, Failed or Completed.
-		return target == JobStatusRunning || target == JobStatusFailed || target == JobStatusCompleted
+		// From Enumerating, can move to Running, Failed, Completed, or Pausing.
+		return target == JobStatusRunning || target == JobStatusFailed || target == JobStatusCompleted || target == JobStatusPausing
 	case JobStatusRunning:
-		// From Running, can move to Completed or Failed.
-		return target == JobStatusCompleted || target == JobStatusFailed
+		// From Running, can move to Completed, Failed, or Pausing.
+		return target == JobStatusCompleted || target == JobStatusFailed || target == JobStatusPausing
+	case JobStatusPausing:
+		// From Pausing, can only move to Paused or Failed.
+		return target == JobStatusPaused || target == JobStatusFailed
+	case JobStatusPaused:
+		// From Paused, can move to Running or Failed.
+		return target == JobStatusRunning || target == JobStatusFailed
 	case JobStatusCompleted, JobStatusFailed:
 		// Terminal states - no further transitions allowed.
 		return false

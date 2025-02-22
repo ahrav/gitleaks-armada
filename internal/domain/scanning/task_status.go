@@ -28,6 +28,9 @@ const (
 	// TaskStatusStale indicates a task stopped reporting progress and may need recovery.
 	TaskStatusStale TaskStatus = "STALE"
 
+	// TaskStatusPaused indicates a task has been temporarily halted.
+	TaskStatusPaused TaskStatus = "PAUSED"
+
 	// TODO: Add retrying, cancelled, timed out.
 	// No Paused on the task level. We either let the task finish, or kill it. (tbh)
 
@@ -51,14 +54,17 @@ func (s TaskStatus) validateTransition(target TaskStatus) error {
 func (s TaskStatus) isValidTransition(target TaskStatus) bool {
 	switch s {
 	case TaskStatusPending:
-		// From Pending, can only move to InProgress or Failed.
-		return target == TaskStatusInProgress || target == TaskStatusFailed
+		// From Pending, can only move to InProgress, Failed, or Paused.
+		return target == TaskStatusInProgress || target == TaskStatusFailed || target == TaskStatusPaused
 	case TaskStatusInProgress:
-		// From InProgress, can move to Completed, Failed, or Stale.
-		return target == TaskStatusCompleted || target == TaskStatusFailed || target == TaskStatusStale
+		// From InProgress, can move to Completed, Failed, Stale, or Paused.
+		return target == TaskStatusCompleted || target == TaskStatusFailed || target == TaskStatusStale || target == TaskStatusPaused
 	case TaskStatusStale:
-		// From Stale, can move to InProgress, Failed, or Completed.
-		return target == TaskStatusInProgress || target == TaskStatusFailed || target == TaskStatusCompleted
+		// From Stale, can move to InProgress, Failed, Completed, or Paused.
+		return target == TaskStatusInProgress || target == TaskStatusFailed || target == TaskStatusCompleted || target == TaskStatusPaused
+	case TaskStatusPaused:
+		// From Paused, can move to InProgress, Failed, or Stale.
+		return target == TaskStatusInProgress || target == TaskStatusFailed || target == TaskStatusStale
 	case TaskStatusCompleted, TaskStatusFailed:
 		// Terminal states - no further transitions allowed.
 		return false

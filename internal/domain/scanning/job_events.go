@@ -16,6 +16,8 @@ const (
 	EventTypeJobCompleted            events.EventType = "JobCompleted"
 	EventTypeJobFailed               events.EventType = "JobFailed"
 	EventTypeJobEnumerationCompleted events.EventType = "JobEnumerationCompleted"
+	EventTypeJobPausing              events.EventType = "JobPausing"
+	EventTypeJobPaused               events.EventType = "JobPaused"
 	// TODO: Add EventTypeJobCancelled, etc.
 )
 
@@ -119,3 +121,46 @@ func NewJobFailedEvent(jobID, reason string) JobFailedEvent {
 
 func (e JobFailedEvent) EventType() events.EventType { return EventTypeJobFailed }
 func (e JobFailedEvent) OccurredAt() time.Time       { return e.occurredAt }
+
+// JobPausingEvent signals that a job is in the process of pausing.
+type JobPausingEvent struct {
+	occurredAt  time.Time
+	JobID       string
+	RequestedBy string
+}
+
+// NewJobPausingEvent creates a new job pausing event.
+func NewJobPausingEvent(jobID, requestedBy string) JobPausingEvent {
+	return JobPausingEvent{
+		occurredAt:  time.Now(),
+		JobID:       jobID,
+		RequestedBy: requestedBy,
+	}
+}
+
+func (e JobPausingEvent) EventType() events.EventType { return EventTypeJobPausing }
+func (e JobPausingEvent) OccurredAt() time.Time       { return e.occurredAt }
+
+// JobPausedEvent signals that a job has been successfully paused.
+type JobPausedEvent struct {
+	occurredAt  time.Time
+	JobID       string
+	PausedAt    time.Time
+	Reason      string
+	RequestedBy string
+}
+
+// NewJobPausedEvent creates a new job paused event.
+func NewJobPausedEvent(jobID, requestedBy, reason string) JobPausedEvent {
+	now := time.Now()
+	return JobPausedEvent{
+		occurredAt:  now,
+		JobID:       jobID,
+		PausedAt:    now,
+		Reason:      reason,
+		RequestedBy: requestedBy,
+	}
+}
+
+func (e JobPausedEvent) EventType() events.EventType { return EventTypeJobPaused }
+func (e JobPausedEvent) OccurredAt() time.Time       { return e.occurredAt }

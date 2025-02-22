@@ -40,6 +40,11 @@ func TestTaskStatus_String(t *testing.T) {
 			expected: "STALE",
 		},
 		{
+			name:     "paused status",
+			status:   TaskStatusPaused,
+			expected: "PAUSED",
+		},
+		{
 			name:     "unspecified status",
 			status:   TaskStatusUnspecified,
 			expected: "UNSPECIFIED",
@@ -133,6 +138,64 @@ func TestTaskStatus_ValidateTransition(t *testing.T) {
 			name:          "stale to pending invalid",
 			currentStatus: TaskStatusStale,
 			targetStatus:  TaskStatusPending,
+			wantErr:       true,
+		},
+
+		// Valid transitions to/from PAUSED
+		{
+			name:          "pending to paused",
+			currentStatus: TaskStatusPending,
+			targetStatus:  TaskStatusPaused,
+			wantErr:       false,
+		},
+		{
+			name:          "in progress to paused",
+			currentStatus: TaskStatusInProgress,
+			targetStatus:  TaskStatusPaused,
+			wantErr:       false,
+		},
+		{
+			name:          "stale to paused",
+			currentStatus: TaskStatusStale,
+			targetStatus:  TaskStatusPaused,
+			wantErr:       false,
+		},
+		{
+			name:          "paused to in progress",
+			currentStatus: TaskStatusPaused,
+			targetStatus:  TaskStatusInProgress,
+			wantErr:       false,
+		},
+		{
+			name:          "paused to failed",
+			currentStatus: TaskStatusPaused,
+			targetStatus:  TaskStatusFailed,
+			wantErr:       false,
+		},
+		{
+			name:          "paused to stale",
+			currentStatus: TaskStatusPaused,
+			targetStatus:  TaskStatusStale,
+			wantErr:       false,
+		},
+
+		// Invalid transitions from PAUSED
+		{
+			name:          "paused to completed invalid",
+			currentStatus: TaskStatusPaused,
+			targetStatus:  TaskStatusCompleted,
+			wantErr:       true,
+		},
+		{
+			name:          "paused to pending invalid",
+			currentStatus: TaskStatusPaused,
+			targetStatus:  TaskStatusPending,
+			wantErr:       true,
+		},
+		{
+			name:          "paused to paused invalid",
+			currentStatus: TaskStatusPaused,
+			targetStatus:  TaskStatusPaused,
 			wantErr:       true,
 		},
 
