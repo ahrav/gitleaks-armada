@@ -151,8 +151,10 @@ func NewOrchestrator(
 		tracer,
 	)
 
+	jobScheduler := scan.NewJobScheduler(id, jobTaskSvc, eventPublisher, logger, tracer)
 	eventsFacilitator := NewEventsFacilitator(
 		id,
+		jobScheduler,
 		executionTracker,
 		o.taskHealthSupervisor,
 		o.metricsAggregator,

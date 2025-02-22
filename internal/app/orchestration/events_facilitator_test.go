@@ -19,6 +19,13 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 )
 
+type mockJobScheduler struct{ mock.Mock }
+
+func (m *mockJobScheduler) Schedule(ctx context.Context, jobID uuid.UUID, targets []scanning.Target) error {
+	args := m.Called(ctx, jobID, targets)
+	return args.Error(0)
+}
+
 // Mock implementations.
 type mockExecutionTracker struct{ mock.Mock }
 
@@ -104,12 +111,14 @@ func (m *mockRulesService) SaveRule(ctx context.Context, r rules.GitleaksRule) e
 
 func setupEventsFacilitatorTestSuite() (
 	*EventsFacilitator,
+	*mockJobScheduler,
 	*mockExecutionTracker,
 	*mockTaskHealthMonitor,
 	*mockJobMetricsAggregator,
 	*mockEnumerationService,
 	*mockRulesService,
 ) {
+	mockJobScheduler := new(mockJobScheduler)
 	mockTracker := new(mockExecutionTracker)
 	mockHealthMonitor := new(mockTaskHealthMonitor)
 	mockMetricsAggregator := new(mockJobMetricsAggregator)
@@ -118,6 +127,7 @@ func setupEventsFacilitatorTestSuite() (
 
 	facilitator := NewEventsFacilitator(
 		"test-controller",
+		mockJobScheduler,
 		mockTracker,
 		mockHealthMonitor, mockMetricsAggregator,
 		mockEnumService,
@@ -125,23 +135,23 @@ func setupEventsFacilitatorTestSuite() (
 		noop.NewTracerProvider().Tracer("test"),
 	)
 
-	return facilitator, mockTracker, mockHealthMonitor, mockMetricsAggregator,
+	return facilitator, mockJobScheduler, mockTracker, mockHealthMonitor, mockMetricsAggregator,
 		mockEnumService, mockRulesService
 }
 
 func TestHandleScanJobRequested(t *testing.T) {
 	tests := []struct {
 		name          string
-		setupMock     func(m *mockExecutionTracker)
+		setupMock     func(m *mockJobScheduler)
 		targets       []scanning.Target
 		expectedCalls int
 		expectErr     bool
 	}{
 		{
 			name: "success - two targets",
-			setupMock: func(m *mockExecutionTracker) {
+			setupMock: func(m *mockJobScheduler) {
 				// Expect exactly two calls (one per target)
-				m.On("CreateJobForTarget", mock.Anything, mock.Anything, mock.Anything).Return(nil).Times(2)
+				m.On("Schedule", mock.Anything, mock.Anything, mock.Anything).Return(nil).Times(2)
 			},
 			targets: []scanning.Target{
 				scanning.NewTarget("test-target", shared.SourceTypeGitHub, &scanning.Auth{}, map[string]string{}, scanning.TargetConfig{}),
@@ -154,8 +164,8 @@ func TestHandleScanJobRequested(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			facilitator, mockTracker, _, _, _, _ := setupEventsFacilitatorTestSuite()
-			tt.setupMock(mockTracker)
+			facilitator, mockJobScheduler, _, _, _, _, _ := setupEventsFacilitatorTestSuite()
+			tt.setupMock(mockJobScheduler)
 
 			var ackCalled bool
 			ack := func(err error) { ackCalled = true }
@@ -177,7 +187,7 @@ func TestHandleScanJobRequested(t *testing.T) {
 				assert.NoError(t, err)
 			}
 			assert.True(t, ackCalled, "ack function should have been called")
-			mockTracker.AssertNumberOfCalls(t, "CreateJobForTarget", tt.expectedCalls)
+			mockJobScheduler.AssertNumberOfCalls(t, "Schedule", tt.expectedCalls)
 		})
 	}
 }
@@ -214,7 +224,7 @@ func TestHandleTaskStarted(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			facilitator, mockTracker, _, _, _, _ := setupEventsFacilitatorTestSuite()
+			facilitator, _, mockTracker, _, _, _, _ := setupEventsFacilitatorTestSuite()
 			tt.setupMock(mockTracker)
 
 			var ackCalled bool
@@ -275,7 +285,7 @@ func TestHandleTaskProgressed(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			facilitator, mockTracker, _, _, _, _ := setupEventsFacilitatorTestSuite()
+			facilitator, _, mockTracker, _, _, _, _ := setupEventsFacilitatorTestSuite()
 			tt.setupMock(mockTracker)
 
 			var ackCalled bool
@@ -324,7 +334,7 @@ func TestHandleTaskCompleted(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			facilitator, mockTracker, _, _, _, _ := setupEventsFacilitatorTestSuite()
+			facilitator, _, mockTracker, _, _, _, _ := setupEventsFacilitatorTestSuite()
 			tt.setupMock(mockTracker)
 
 			var ackCalled bool
@@ -377,7 +387,7 @@ func TestHandleTaskFailed(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			facilitator, mockTracker, _, _, _, _ := setupEventsFacilitatorTestSuite()
+			facilitator, _, mockTracker, _, _, _, _ := setupEventsFacilitatorTestSuite()
 			tt.setupMock(mockTracker)
 
 			var ackCalled bool
@@ -411,7 +421,7 @@ func TestHandleTaskHeartbeat(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			facilitator, _, mockHealthMonitor, _, _, _ := setupEventsFacilitatorTestSuite()
+			facilitator, _, _, mockHealthMonitor, _, _, _ := setupEventsFacilitatorTestSuite()
 
 			taskID := uuid.New()
 			heartbeatEvt := scanning.TaskHeartbeatEvent{TaskID: taskID}
@@ -476,7 +486,7 @@ func TestHandleTaskJobMetric(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			facilitator, _, _, mockMetricsTracker, _, _ := setupEventsFacilitatorTestSuite()
+			facilitator, _, _, _, mockMetricsTracker, _, _ := setupEventsFacilitatorTestSuite()
 			tt.setupMock(mockMetricsTracker)
 
 			ack := func(err error) {} // Ack is handled by the execution tracker.
@@ -524,7 +534,7 @@ func TestHandleRule(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			facilitator, _, _, _, _, mockRulesService := setupEventsFacilitatorTestSuite()
+			facilitator, _, _, _, _, _, mockRulesService := setupEventsFacilitatorTestSuite()
 			tt.setupMock(mockRulesService)
 
 			var ackCalled bool

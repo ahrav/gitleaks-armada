@@ -24,6 +24,12 @@ type EventsFacilitator struct {
 	// controllerID uniquely identifies the controller running this event facilitator.
 	controllerID string
 
+	// jobScheduler coordinates the creation and orchestration of new scanning jobs.
+	// It delegates persistence to a JobTaskService and publishes domain events to notify
+	// external subscribers about newly scheduled work, ensuring consistent job setup
+	// while maintaining loose coupling with other system components.
+	jobScheduler scanning.JobScheduler
+
 	// executionTracker manages the lifecycle of scanning tasks (e.g., start, update, stop).
 	// EventsFacilitator delegates most task-related operations here.
 	executionTracker scanning.ExecutionTracker
@@ -57,6 +63,7 @@ type EventsFacilitator struct {
 // and a tracer for delegating domain-specific logic and instrumenting events.
 func NewEventsFacilitator(
 	controllerID string,
+	jobScheduler scanning.JobScheduler,
 	tracker scanning.ExecutionTracker,
 	taskHealthSupervisor scanning.TaskHealthMonitor,
 	metricsTracker scanning.JobMetricsAggregator,
@@ -66,6 +73,7 @@ func NewEventsFacilitator(
 ) *EventsFacilitator {
 	return &EventsFacilitator{
 		controllerID:         controllerID,
+		jobScheduler:         jobScheduler,
 		executionTracker:     tracker,
 		taskHealthSupervisor: taskHealthSupervisor,
 		jobMetricsAggregator: metricsTracker,
@@ -152,11 +160,10 @@ func (ef *EventsFacilitator) HandleScanJobRequested(
 			attribute.String("job_id", jobEvt.JobID().String()),
 		))
 
-		// Create a job for each target.
-		for _, target := range jobEvt.Targets {
-			if err := ef.executionTracker.CreateJobForTarget(ctx, jobEvt.JobID(), target); err != nil {
-				return fmt.Errorf("failed to create job for target %s: %w", target.Name(), err)
-			}
+		if err := ef.jobScheduler.Schedule(ctx, jobEvt.JobID(), jobEvt.Targets); err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "failed to schedule job")
+			return fmt.Errorf("failed to schedule job (job_id: %s): %w", jobEvt.JobID(), err)
 		}
 
 		span.AddEvent("jobs_created_successfully")
