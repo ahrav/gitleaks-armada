@@ -166,10 +166,9 @@ func JobCreatedEventToProto(event scanning.JobCreatedEvent) (*pb.JobCreatedEvent
 	}
 
 	return &pb.JobCreatedEvent{
-		JobId:      event.Job.JobID().String(),
+		JobId:      event.JobID.String(),
 		Timestamp:  event.OccurredAt().UnixNano(),
 		TargetSpec: targetSpec,
-		Status:     jobStatusToProto(event.Job.Status()),
 	}, nil
 }
 
@@ -202,8 +201,7 @@ func ProtoToJobCreatedEvent(event *pb.JobCreatedEvent) (scanning.JobCreatedEvent
 		return scanning.JobCreatedEvent{}, fmt.Errorf("convert proto to target: %w", err)
 	}
 
-	job := scanning.NewJobWithStatus(uuid.MustParse(event.JobId), protoToJobStatus(event.Status))
-	return scanning.NewJobCreatedEvent(job, target), nil
+	return scanning.NewJobCreatedEvent(uuid.MustParse(event.JobId), target), nil
 }
 
 // JobEnumerationCompletedEventToProto converts a domain JobEnumerationCompletedEvent to its protobuf representation.

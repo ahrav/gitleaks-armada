@@ -66,7 +66,7 @@ func (t *executionTracker) CreateJobForTarget(ctx context.Context, jobID uuid.UU
 		))
 	defer span.End()
 
-	job, err := t.jobTaskSvc.CreateJobFromID(ctx, jobID)
+	_, err := t.jobTaskSvc.CreateJobFromID(ctx, jobID)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to create job")
@@ -76,20 +76,20 @@ func (t *executionTracker) CreateJobForTarget(ctx context.Context, jobID uuid.UU
 	// Publish JobCreatedEvent with target information.
 	// The target information is required by downstream consumers of the JobCreatedEvent
 	// to link scan targets to a single scan job.
-	evt := scanning.NewJobCreatedEvent(job, target)
+	evt := scanning.NewJobCreatedEvent(jobID, target)
 	if err := t.publisher.PublishDomainEvent(
-		ctx, evt, events.WithKey(job.JobID().String()),
+		ctx, evt, events.WithKey(jobID.String()),
 	); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to publish job created event")
 		return fmt.Errorf("failed to publish job created event (job_id: %s, source_type: %s, source_name: %s): %w",
-			job.JobID(), target.SourceType().String(), target.Name(), err)
+			jobID, target.SourceType().String(), target.Name(), err)
 	}
 
 	span.AddEvent("job_created_and_event_published")
 	span.SetStatus(codes.Ok, "job created and event published")
 	t.logger.Info(ctx, "Job created",
-		"job_id", job.JobID(),
+		"job_id", jobID,
 		"target_name", target.Name(),
 		"source_type", target.SourceType().String(),
 	)

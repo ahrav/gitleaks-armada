@@ -68,7 +68,6 @@ message JobCreatedEvent {
   string job_id = 1;
   int64 timestamp = 2;
   shared.TargetSpec target_spec = 3;
-  ScanJobStatus status = 4;
 }
 
 // JobEnumerationCompletedEvent signals that all targets for a job have been

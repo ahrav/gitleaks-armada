@@ -180,7 +180,7 @@ func (ef *EventsFacilitator) HandleScanJobCreated(
 		}
 
 		span.AddEvent("processing_job_created", trace.WithAttributes(
-			attribute.String("job_id", jobEvt.Job.JobID().String()),
+			attribute.String("job_id", jobEvt.JobID.String()),
 		))
 
 		// ACL check: convert scanning target to enumeration target.
@@ -198,10 +198,10 @@ func (ef *EventsFacilitator) HandleScanJobCreated(
 		scanningResult := ef.enumToScanACL.TranslateEnumerationResultToScanning(
 			ctx,
 			enumResult,
-			jobEvt.Job.JobID(),
+			jobEvt.JobID,
 		)
 
-		err = ef.executionTracker.ProcessEnumerationStream(ctx, jobEvt.Job.JobID(), scanningResult)
+		err = ef.executionTracker.ProcessEnumerationStream(ctx, jobEvt.JobID, scanningResult)
 		if err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "enumeration stream processing failed")

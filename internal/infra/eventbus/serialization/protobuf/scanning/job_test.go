@@ -42,7 +42,7 @@ func TestJobCreatedEventConversion(t *testing.T) {
 			},
 		)
 
-		domainEvent := scanning.NewJobCreatedEvent(job, targetSpec)
+		domainEvent := scanning.NewJobCreatedEvent(job.JobID(), targetSpec)
 
 		// Test domain to proto conversion.
 		protoEvent, err := JobCreatedEventToProto(domainEvent)
@@ -63,7 +63,7 @@ func TestJobCreatedEventConversion(t *testing.T) {
 		// Test proto to domain conversion.
 		convertedEvent, err := ProtoToJobCreatedEvent(protoEvent)
 		require.NoError(t, err)
-		assert.Equal(t, job.JobID().String(), convertedEvent.Job.JobID().String())
+		assert.Equal(t, job.JobID().String(), convertedEvent.JobID.String())
 		assert.Equal(t, targetSpec.Name(), convertedEvent.Target.Name())
 		assert.Equal(t, targetSpec.SourceType(), convertedEvent.Target.SourceType())
 		assert.Equal(t, metadata, convertedEvent.Target.Metadata())
@@ -98,7 +98,7 @@ func TestJobCreatedEventConversion(t *testing.T) {
 			},
 		)
 
-		domainEvent := scanning.NewJobCreatedEvent(job, targetSpec)
+		domainEvent := scanning.NewJobCreatedEvent(job.JobID(), targetSpec)
 
 		// Test domain to proto conversion.
 		protoEvent, err := JobCreatedEventToProto(domainEvent)
@@ -142,7 +142,7 @@ func TestJobCreatedEventConversion(t *testing.T) {
 			},
 		)
 
-		domainEvent := scanning.NewJobCreatedEvent(job, targetSpec)
+		domainEvent := scanning.NewJobCreatedEvent(job.JobID(), targetSpec)
 
 		// Test domain to proto conversion.
 		protoEvent, err := JobCreatedEventToProto(domainEvent)
