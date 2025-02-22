@@ -14,6 +14,8 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
 
+var _ domain.JobScheduler = (*jobScheduler)(nil)
+
 // jobScheduler coordinates the creation and orchestration of new jobs within the scanning
 // domain. By delegating persistence to a JobTaskService and notifying external
 // subscribers through domain events, it ensures consistent job setup while allowing
