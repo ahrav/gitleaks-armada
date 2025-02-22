@@ -91,6 +91,7 @@ func (s *jobScheduler) Schedule(ctx context.Context, jobID uuid.UUID, targets []
 		span.AddEvent("job_scheduled_event_published")
 		span.SetStatus(codes.Ok, "job scheduled event published successfully")
 	}
+	logger.Debug(ctx, "All job scheduled events published successfully")
 	span.AddEvent("all_job_scheduled_events_published")
 	span.SetStatus(codes.Ok, "all job scheduled events published successfully")
 
