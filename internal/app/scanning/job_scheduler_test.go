@@ -135,7 +135,7 @@ func TestScheduleJob(t *testing.T) {
 				testTargets = targets
 			}
 
-			err := scheduler.ScheduleJob(context.Background(), jobID, testTargets)
+			err := scheduler.Schedule(context.Background(), jobID, testTargets)
 
 			if tt.wantErr {
 				require.Error(t, err)

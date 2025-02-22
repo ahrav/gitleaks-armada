@@ -47,11 +47,11 @@ func NewJobScheduler(
 	}
 }
 
-// ScheduleJob creates a new job with the provided jobID and targets, then publishes
+// Schedule creates a new job with the provided jobID and targets, then publishes
 // domain events to notify external services that the job was scheduled. This method
 // can be extended to enforce additional domain rules or trigger further setup steps.
-func (s *jobScheduler) ScheduleJob(ctx context.Context, jobID uuid.UUID, targets []domain.Target) error {
-	ctx, span := s.tracer.Start(ctx, "job_scheduler.schedule_job",
+func (s *jobScheduler) Schedule(ctx context.Context, jobID uuid.UUID, targets []domain.Target) error {
+	ctx, span := s.tracer.Start(ctx, "job_scheduler.schedule",
 		trace.WithAttributes(
 			attribute.String("controller_id", s.controllerID),
 			attribute.String("job_id", jobID.String()),
