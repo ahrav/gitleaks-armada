@@ -76,8 +76,8 @@ func (s *jobScheduler) Schedule(ctx context.Context, jobID uuid.UUID, targets []
 			attribute.String("target_source_type", target.SourceType().String()),
 		)
 
-		// Publish JobCreatedEvent with target information.
-		// The target information is required by downstream consumers of the JobCreatedEvent
+		// Publish JobScheduledEvent with target information.
+		// The target information is required by downstream consumers of the JobScheduledEvent
 		// to link scan targets to a single scan job.
 		evt := domain.NewJobScheduledEvent(jobID, target)
 		if err := s.publisher.PublishDomainEvent(ctx, evt, events.WithKey(jobID.String())); err != nil {

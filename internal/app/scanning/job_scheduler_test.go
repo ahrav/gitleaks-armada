@@ -65,10 +65,10 @@ func TestScheduleJob(t *testing.T) {
 		{
 			name: "successful job scheduling with multiple targets",
 			setup: func(service *mockJobTaskSvc, publisher *mockDomainEventPublisher) {
-				job := scanning.NewJob(jobID)
-				service.On("CreateJobFromID", mock.Anything, jobID).Return(job, nil)
+				service.On("CreateJobFromID", mock.Anything, jobID).Return(nil)
 
 				for _, target := range targets {
+					expectedTarget := target // Capture the target value
 					publisher.On("PublishDomainEvent",
 						mock.Anything,
 						mock.MatchedBy(func(evt events.DomainEvent) bool {
@@ -77,8 +77,8 @@ func TestScheduleJob(t *testing.T) {
 								return false
 							}
 							return scheduledEvt.JobID == jobID &&
-								scheduledEvt.Target.Name() == target.Name() &&
-								scheduledEvt.Target.SourceType() == target.SourceType()
+								scheduledEvt.Target.Name() == expectedTarget.Name() &&
+								scheduledEvt.Target.SourceType() == expectedTarget.SourceType()
 						}),
 						mock.AnythingOfType("[]events.PublishOption"),
 					).Return(nil).Once()
@@ -90,7 +90,10 @@ func TestScheduleJob(t *testing.T) {
 			name: "job creation fails",
 			setup: func(service *mockJobTaskSvc, publisher *mockDomainEventPublisher) {
 				service.On("CreateJobFromID", mock.Anything, jobID).
-					Return(nil, errors.New("job creation failed"))
+					Return(errors.New("job creation failed"))
+
+				// Since job creation fails, no events should be published
+				// No need to set up publisher expectations
 			},
 			wantErr: true,
 			errMsg:  "failed to create job",
@@ -99,8 +102,7 @@ func TestScheduleJob(t *testing.T) {
 			name: "event publishing fails",
 			setup: func(service *mockJobTaskSvc, publisher *mockDomainEventPublisher) {
 				// Job creation succeeds.
-				job := scanning.NewJob(jobID)
-				service.On("CreateJobFromID", mock.Anything, jobID).Return(job, nil)
+				service.On("CreateJobFromID", mock.Anything, jobID).Return(nil)
 
 				// But event publishing fails.
 				publisher.On("PublishDomainEvent",
@@ -118,8 +120,7 @@ func TestScheduleJob(t *testing.T) {
 		{
 			name: "successful job scheduling with no targets",
 			setup: func(service *mockJobTaskSvc, publisher *mockDomainEventPublisher) {
-				job := scanning.NewJob(jobID)
-				service.On("CreateJobFromID", mock.Anything, jobID).Return(job, nil)
+				service.On("CreateJobFromID", mock.Anything, jobID).Return(nil)
 			},
 			wantErr: false,
 		},
