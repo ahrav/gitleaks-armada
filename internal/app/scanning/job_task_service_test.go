@@ -156,15 +156,13 @@ func TestCreateJob(t *testing.T) {
 			suite := newJobTaskService(t)
 			tt.setup(suite.jobRepo.(*mockJobRepository))
 
-			job, err := suite.CreateJobFromID(context.Background(), uuid.New())
+			err := suite.CreateJobFromID(context.Background(), uuid.New())
 			if tt.wantErr {
 				require.Error(t, err)
 				return
 			}
 
 			require.NoError(t, err)
-			assert.NotNil(t, job)
-			assert.Equal(t, scanning.JobStatusQueued, job.Status())
 			suite.jobRepo.(*mockJobRepository).AssertExpectations(t)
 		})
 	}

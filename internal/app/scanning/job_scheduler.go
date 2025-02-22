@@ -62,8 +62,7 @@ func (s *jobScheduler) Schedule(ctx context.Context, jobID uuid.UUID, targets []
 	)
 	defer span.End()
 
-	_, err := s.jobTaskService.CreateJobFromID(ctx, jobID)
-	if err != nil {
+	if err := s.jobTaskService.CreateJobFromID(ctx, jobID); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to create job")
 		return fmt.Errorf("failed to create job: %w", err)

@@ -23,12 +23,9 @@ func (m *mockDomainEventPublisher) PublishDomainEvent(ctx context.Context, event
 // mockJobTaskSvc implements domain.JobTaskService for testing.
 type mockJobTaskSvc struct{ mock.Mock }
 
-func (m *mockJobTaskSvc) CreateJobFromID(ctx context.Context, jobID uuid.UUID) (*scanning.Job, error) {
+func (m *mockJobTaskSvc) CreateJobFromID(ctx context.Context, jobID uuid.UUID) error {
 	args := m.Called(ctx, jobID)
-	if job := args.Get(0); job != nil {
-		return job.(*scanning.Job), args.Error(1)
-	}
-	return nil, args.Error(1)
+	return args.Error(0)
 }
 
 func (m *mockJobTaskSvc) AssociateEnumeratedTargets(ctx context.Context, jobID uuid.UUID, targetIDs []uuid.UUID) error {

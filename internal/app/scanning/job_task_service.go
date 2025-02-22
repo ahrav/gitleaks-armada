@@ -61,7 +61,7 @@ func NewJobTaskService(
 
 // CreateJobFromID creates a new Job in the repository, using the provided jobID.
 // Returns the created Job on success.
-func (s *jobTaskService) CreateJobFromID(ctx context.Context, jobID uuid.UUID) (*domain.Job, error) {
+func (s *jobTaskService) CreateJobFromID(ctx context.Context, jobID uuid.UUID) error {
 	ctx, span := s.tracer.Start(ctx, "job_task_service.scanning.create_job",
 		trace.WithAttributes(
 			attribute.String("controller_id", s.controllerID),
@@ -73,12 +73,12 @@ func (s *jobTaskService) CreateJobFromID(ctx context.Context, jobID uuid.UUID) (
 	if err := s.jobRepo.CreateJob(ctx, job); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to create job")
-		return nil, fmt.Errorf("job repository create operation failed: %w", err)
+		return fmt.Errorf("job repository create operation failed: %w", err)
 	}
 	span.AddEvent("job_created")
 	span.SetStatus(codes.Ok, "job created successfully")
 
-	return job, nil
+	return nil
 }
 
 // AssociateEnumeratedTargets links the given targetIDs to the specified job and increments

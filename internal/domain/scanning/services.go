@@ -21,7 +21,7 @@ type JobTaskService interface {
 
 	// CreateJobFromID initializes a new scanning operation in the system
 	// from an existing job ID.
-	CreateJobFromID(ctx context.Context, jobID uuid.UUID) (*Job, error)
+	CreateJobFromID(ctx context.Context, jobID uuid.UUID) error
 
 	// AssociateEnumeratedTargets links the provided scan targets to the specified job
 	// and updates the job's total task count in a single atomic operation. This ensures
