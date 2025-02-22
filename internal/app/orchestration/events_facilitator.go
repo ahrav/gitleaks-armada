@@ -165,21 +165,21 @@ func (ef *EventsFacilitator) HandleScanJobRequested(
 	}, ack)
 }
 
-// HandleScanJobCreated processes a scanning.JobCreatedEvent by converting
+// HandleScanJobScheduled processes a scanning.JobScheduledEvent by converting
 // the scanning target to an enumeration spec, starting enumeration, and then
 // routing its results back into the scanning domain. Acks on success or error.
-func (ef *EventsFacilitator) HandleScanJobCreated(
+func (ef *EventsFacilitator) HandleScanJobScheduled(
 	ctx context.Context,
 	evt events.EventEnvelope,
 	ack events.AckFunc,
 ) error {
-	return ef.withSpan(ctx, "events_facilitator.handle_scan_job_created", func(ctx context.Context, span trace.Span) error {
-		jobEvt, ok := evt.Payload.(scanning.JobCreatedEvent)
+	return ef.withSpan(ctx, "events_facilitator.handle_scan_job_scheduled", func(ctx context.Context, span trace.Span) error {
+		jobEvt, ok := evt.Payload.(scanning.JobScheduledEvent)
 		if !ok {
 			return recordPayloadTypeError(span, evt.Payload)
 		}
 
-		span.AddEvent("processing_job_created", trace.WithAttributes(
+		span.AddEvent("processing_job_scheduled", trace.WithAttributes(
 			attribute.String("job_id", jobEvt.JobID.String()),
 		))
 

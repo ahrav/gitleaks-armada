@@ -120,8 +120,8 @@ func RegisterEventSerializers() {
 	RegisterSerializeFunc(scanning.EventTypeJobRequested, serializeJobRequested)
 	RegisterDeserializeFunc(scanning.EventTypeJobRequested, deserializeJobRequested)
 
-	RegisterSerializeFunc(scanning.EventTypeJobCreated, serializeJobCreated)
-	RegisterDeserializeFunc(scanning.EventTypeJobCreated, deserializeJobCreated)
+	RegisterSerializeFunc(scanning.EventTypeJobScheduled, serializeJobCreated)
+	RegisterDeserializeFunc(scanning.EventTypeJobScheduled, deserializeJobCreated)
 
 	// Task events.
 	RegisterSerializeFunc(scanning.EventTypeTaskCreated, serializeTaskCreated)
@@ -195,7 +195,7 @@ func deserializeJobRequested(data []byte) (any, error) {
 
 // serializeJobCreated converts a JobCreatedEvent to protobuf bytes.
 func serializeJobCreated(payload any) ([]byte, error) {
-	event, ok := payload.(scanning.JobCreatedEvent)
+	event, ok := payload.(scanning.JobScheduledEvent)
 	if !ok {
 		return nil, fmt.Errorf("serializeJobCreated: payload is not JobCreatedEvent, got %T", payload)
 	}

@@ -107,7 +107,7 @@ func NewEventBus(
 		rules.EventTypeRulesUpdated:               cfg.RulesResponseTopic,    // scanner -> controller
 		rules.EventTypeRulesPublished:             cfg.RulesResponseTopic,    // scanner -> controller
 		scanning.EventTypeJobRequested:            cfg.JobLifecycleTopic,     // api -> controller
-		scanning.EventTypeJobCreated:              cfg.JobLifecycleTopic,     // controller -> controller
+		scanning.EventTypeJobScheduled:            cfg.JobLifecycleTopic,     // controller -> controller
 		scanning.EventTypeTaskCreated:             cfg.TaskCreatedTopic,      // controller -> scanner
 		scanning.EventTypeJobEnumerationCompleted: cfg.JobLifecycleTopic,     // controller -> controller
 		scanning.EventTypeTaskStarted:             cfg.ScanningTaskTopic,     // scanner -> controller

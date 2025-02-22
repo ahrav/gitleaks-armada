@@ -42,7 +42,7 @@ func TestJobCreatedEventConversion(t *testing.T) {
 			},
 		)
 
-		domainEvent := scanning.NewJobCreatedEvent(job.JobID(), targetSpec)
+		domainEvent := scanning.NewJobScheduledEvent(job.JobID(), targetSpec)
 
 		// Test domain to proto conversion.
 		protoEvent, err := JobCreatedEventToProto(domainEvent)
@@ -98,7 +98,7 @@ func TestJobCreatedEventConversion(t *testing.T) {
 			},
 		)
 
-		domainEvent := scanning.NewJobCreatedEvent(job.JobID(), targetSpec)
+		domainEvent := scanning.NewJobScheduledEvent(job.JobID(), targetSpec)
 
 		// Test domain to proto conversion.
 		protoEvent, err := JobCreatedEventToProto(domainEvent)
@@ -142,7 +142,7 @@ func TestJobCreatedEventConversion(t *testing.T) {
 			},
 		)
 
-		domainEvent := scanning.NewJobCreatedEvent(job.JobID(), targetSpec)
+		domainEvent := scanning.NewJobScheduledEvent(job.JobID(), targetSpec)
 
 		// Test domain to proto conversion.
 		protoEvent, err := JobCreatedEventToProto(domainEvent)

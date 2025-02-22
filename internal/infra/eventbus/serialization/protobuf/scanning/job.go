@@ -159,7 +159,7 @@ func ProtoToTarget(pbTarget *pb.TargetSpec) (scanning.Target, error) {
 }
 
 // JobCreatedEventToProto converts a domain JobCreatedEvent to its protobuf representation.
-func JobCreatedEventToProto(event scanning.JobCreatedEvent) (*pb.JobCreatedEvent, error) {
+func JobCreatedEventToProto(event scanning.JobScheduledEvent) (*pb.JobCreatedEvent, error) {
 	targetSpec, err := TargetToProto(event.Target)
 	if err != nil {
 		return nil, fmt.Errorf("convert target to proto: %w", err)
@@ -191,17 +191,17 @@ func jobStatusToProto(s scanning.JobStatus) pb.ScanJobStatus {
 }
 
 // ProtoToJobCreatedEvent converts a protobuf JobCreatedEvent to its domain representation.
-func ProtoToJobCreatedEvent(event *pb.JobCreatedEvent) (scanning.JobCreatedEvent, error) {
+func ProtoToJobCreatedEvent(event *pb.JobCreatedEvent) (scanning.JobScheduledEvent, error) {
 	if event == nil || event.TargetSpec == nil {
-		return scanning.JobCreatedEvent{}, serializationerrors.ErrNilEvent{EventType: "JobCreatedEvent"}
+		return scanning.JobScheduledEvent{}, serializationerrors.ErrNilEvent{EventType: "JobCreatedEvent"}
 	}
 
 	target, err := ProtoToTarget(event.TargetSpec)
 	if err != nil {
-		return scanning.JobCreatedEvent{}, fmt.Errorf("convert proto to target: %w", err)
+		return scanning.JobScheduledEvent{}, fmt.Errorf("convert proto to target: %w", err)
 	}
 
-	return scanning.NewJobCreatedEvent(uuid.MustParse(event.JobId), target), nil
+	return scanning.NewJobScheduledEvent(uuid.MustParse(event.JobId), target), nil
 }
 
 // JobEnumerationCompletedEventToProto converts a domain JobEnumerationCompletedEvent to its protobuf representation.

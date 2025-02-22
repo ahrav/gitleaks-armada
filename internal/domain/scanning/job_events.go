@@ -12,7 +12,7 @@ import (
 const (
 	EventTypeJobRequested events.EventType = "JobRequested"
 
-	EventTypeJobCreated              events.EventType = "JobCreated"
+	EventTypeJobScheduled            events.EventType = "JobScheduled"
 	EventTypeJobCompleted            events.EventType = "JobCompleted"
 	EventTypeJobFailed               events.EventType = "JobFailed"
 	EventTypeJobEnumerationCompleted events.EventType = "JobEnumerationCompleted"
@@ -41,24 +41,24 @@ func (e JobRequestedEvent) EventType() events.EventType { return EventTypeJobReq
 func (e JobRequestedEvent) OccurredAt() time.Time       { return e.occurredAt }
 func (e JobRequestedEvent) JobID() uuid.UUID            { return e.jobID }
 
-// JobCreatedEvent signals that a new ScanJob was initialized.
-type JobCreatedEvent struct {
+// JobScheduledEvent signals that a new ScanJob was initialized.
+type JobScheduledEvent struct {
 	occurredAt time.Time
 	JobID      uuid.UUID
 	Target     Target
 }
 
-// NewJobCreatedEvent creates a new scan job created event.
-func NewJobCreatedEvent(jobID uuid.UUID, target Target) JobCreatedEvent {
-	return JobCreatedEvent{
+// NewJobScheduledEvent creates a new scan job scheduled event.
+func NewJobScheduledEvent(jobID uuid.UUID, target Target) JobScheduledEvent {
+	return JobScheduledEvent{
 		occurredAt: time.Now(),
 		JobID:      jobID,
 		Target:     target,
 	}
 }
 
-func (e JobCreatedEvent) EventType() events.EventType { return EventTypeJobCreated }
-func (e JobCreatedEvent) OccurredAt() time.Time       { return e.occurredAt }
+func (e JobScheduledEvent) EventType() events.EventType { return EventTypeJobScheduled }
+func (e JobScheduledEvent) OccurredAt() time.Time       { return e.occurredAt }
 
 // JobEnumerationCompletedEvent signals that all targets for a job have been enumerated.
 type JobEnumerationCompletedEvent struct {

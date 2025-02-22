@@ -168,7 +168,7 @@ func NewOrchestrator(
 		scanning.EventTypeJobRequested,
 		eventsFacilitator.HandleScanJobRequested,
 	)
-	dispatcher.RegisterHandler(ctx, scanning.EventTypeJobCreated, eventsFacilitator.HandleScanJobCreated)
+	dispatcher.RegisterHandler(ctx, scanning.EventTypeJobScheduled, eventsFacilitator.HandleScanJobScheduled)
 	dispatcher.RegisterHandler(ctx, scanning.EventTypeTaskStarted, eventsFacilitator.HandleTaskStarted)
 	dispatcher.RegisterHandler(ctx, scanning.EventTypeTaskProgressed, eventsFacilitator.HandleTaskProgressed)
 	dispatcher.RegisterHandler(ctx, scanning.EventTypeTaskCompleted, eventsFacilitator.HandleTaskCompleted)
@@ -269,7 +269,7 @@ func (o *Orchestrator) subscribeToEvents(ctx context.Context) error {
 		rules.EventTypeRulesUpdated,
 		rules.EventTypeRulesPublished,
 		scanning.EventTypeJobRequested,
-		scanning.EventTypeJobCreated,
+		scanning.EventTypeJobScheduled,
 		scanning.EventTypeJobEnumerationCompleted,
 		scanning.EventTypeTaskStarted,
 		scanning.EventTypeTaskProgressed,
