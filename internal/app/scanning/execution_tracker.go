@@ -443,6 +443,8 @@ func (t *executionTracker) HandleTaskStale(ctx context.Context, evt scanning.Tas
 		attribute.String("source_type", string(sourceType)),
 	))
 
+	// TODO: We still need to handle getting auth creds for the task.
+	// We should probably use our Target type here similar to when we create a JobScheduledEvent.
 	resumeEvent := scanning.NewTaskResumeEvent(
 		task.JobID(),
 		task.TaskID(),
