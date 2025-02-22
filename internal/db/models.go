@@ -107,6 +107,8 @@ const (
 	ScanJobStatusQUEUED      ScanJobStatus = "QUEUED"
 	ScanJobStatusENUMERATING ScanJobStatus = "ENUMERATING"
 	ScanJobStatusRUNNING     ScanJobStatus = "RUNNING"
+	ScanJobStatusPAUSING     ScanJobStatus = "PAUSING"
+	ScanJobStatusPAUSED      ScanJobStatus = "PAUSED"
 	ScanJobStatusCOMPLETED   ScanJobStatus = "COMPLETED"
 	ScanJobStatusFAILED      ScanJobStatus = "FAILED"
 )
@@ -194,6 +196,7 @@ type ScanTaskStatus string
 const (
 	ScanTaskStatusPENDING    ScanTaskStatus = "PENDING"
 	ScanTaskStatusINPROGRESS ScanTaskStatus = "IN_PROGRESS"
+	ScanTaskStatusPAUSED     ScanTaskStatus = "PAUSED"
 	ScanTaskStatusCOMPLETED  ScanTaskStatus = "COMPLETED"
 	ScanTaskStatusFAILED     ScanTaskStatus = "FAILED"
 	ScanTaskStatusSTALE      ScanTaskStatus = "STALE"

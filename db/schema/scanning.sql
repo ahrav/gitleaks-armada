@@ -5,6 +5,8 @@ CREATE TYPE scan_job_status AS ENUM (
     'QUEUED',
     'ENUMERATING',
     'RUNNING',
+    'PAUSING',
+    'PAUSED',
     'COMPLETED',
     'FAILED'
 );
@@ -58,6 +60,7 @@ CREATE TABLE scan_job_targets (
 CREATE TYPE scan_task_status AS ENUM (
     'PENDING',
     'IN_PROGRESS',
+    'PAUSED',
     'COMPLETED',
     'FAILED',
     'STALE'
