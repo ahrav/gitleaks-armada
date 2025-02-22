@@ -396,9 +396,14 @@ func TaskJobMetricEventToProto(e scanning.TaskJobMetricEvent) *pb.TaskJobMetricE
 	return &pb.TaskJobMetricEvent{
 		JobId:     e.JobID.String(),
 		TaskId:    e.TaskID.String(),
-		Status:    TaskStatusToProto(e.Status),
+		Status:    taskStatusToProto(e.Status),
 		Timestamp: e.OccurredAt().UnixNano(),
 	}
+}
+
+// taskStatusToProto converts a domain TaskStatus to its protobuf representation.
+func taskStatusToProto(s scanning.TaskStatus) pb.TaskStatus {
+	return pb.TaskStatus(s.Int32())
 }
 
 // ProtoToTaskJobMetricEvent converts a protobuf TaskJobMetricEvent to domain event.
@@ -417,38 +422,11 @@ func ProtoToTaskJobMetricEvent(p *pb.TaskJobMetricEvent) (scanning.TaskJobMetric
 		return scanning.TaskJobMetricEvent{}, serializationerrors.ErrInvalidUUID{Field: "task ID", Err: err}
 	}
 
-	status := ProtoToTaskStatus(p.Status)
+	status := protoToTaskStatus(p.Status)
 	return scanning.NewTaskJobMetricEvent(jobID, taskID, status), nil
 }
 
-// TaskStatusToProto converts a domain TaskStatus to its protobuf representation.
-func TaskStatusToProto(s scanning.TaskStatus) pb.TaskStatus {
-	switch s {
-	case scanning.TaskStatusPending:
-		return pb.TaskStatus_TASK_STATUS_PENDING
-	case scanning.TaskStatusInProgress:
-		return pb.TaskStatus_TASK_STATUS_IN_PROGRESS
-	case scanning.TaskStatusCompleted:
-		return pb.TaskStatus_TASK_STATUS_COMPLETED
-	case scanning.TaskStatusFailed:
-		return pb.TaskStatus_TASK_STATUS_FAILED
-	default:
-		return pb.TaskStatus_TASK_STATUS_UNSPECIFIED
-	}
-}
-
-// ProtoToTaskStatus converts a protobuf TaskStatus to its domain representation.
-func ProtoToTaskStatus(s pb.TaskStatus) scanning.TaskStatus {
-	switch s {
-	case pb.TaskStatus_TASK_STATUS_PENDING:
-		return scanning.TaskStatusPending
-	case pb.TaskStatus_TASK_STATUS_IN_PROGRESS:
-		return scanning.TaskStatusInProgress
-	case pb.TaskStatus_TASK_STATUS_COMPLETED:
-		return scanning.TaskStatusCompleted
-	case pb.TaskStatus_TASK_STATUS_FAILED:
-		return scanning.TaskStatusFailed
-	default:
-		return scanning.TaskStatusUnspecified
-	}
+// protoToTaskStatus converts a protobuf TaskStatus to its domain representation.
+func protoToTaskStatus(s pb.TaskStatus) scanning.TaskStatus {
+	return scanning.TaskStatusFromInt32(int32(s))
 }

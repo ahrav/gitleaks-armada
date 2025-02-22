@@ -340,3 +340,259 @@ func TestTaskStatus_IsValidTransition(t *testing.T) {
 		})
 	}
 }
+
+func TestTaskStatus_Int32(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		status   TaskStatus
+		expected int32
+	}{
+		{
+			name:     "pending status",
+			status:   TaskStatusPending,
+			expected: 1,
+		},
+		{
+			name:     "in progress status",
+			status:   TaskStatusInProgress,
+			expected: 2,
+		},
+		{
+			name:     "completed status",
+			status:   TaskStatusCompleted,
+			expected: 3,
+		},
+		{
+			name:     "failed status",
+			status:   TaskStatusFailed,
+			expected: 4,
+		},
+		{
+			name:     "stale status",
+			status:   TaskStatusStale,
+			expected: 5,
+		},
+		{
+			name:     "paused status",
+			status:   TaskStatusPaused,
+			expected: 6,
+		},
+		{
+			name:     "unspecified status",
+			status:   TaskStatusUnspecified,
+			expected: 0,
+		},
+		{
+			name:     "invalid status",
+			status:   "INVALID",
+			expected: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.expected, tt.status.Int32())
+		})
+	}
+}
+
+func TestTaskStatus_ProtoString(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		status   TaskStatus
+		expected string
+	}{
+		{
+			name:     "pending status",
+			status:   TaskStatusPending,
+			expected: "TASK_STATUS_PENDING",
+		},
+		{
+			name:     "in progress status",
+			status:   TaskStatusInProgress,
+			expected: "TASK_STATUS_IN_PROGRESS",
+		},
+		{
+			name:     "completed status",
+			status:   TaskStatusCompleted,
+			expected: "TASK_STATUS_COMPLETED",
+		},
+		{
+			name:     "failed status",
+			status:   TaskStatusFailed,
+			expected: "TASK_STATUS_FAILED",
+		},
+		{
+			name:     "stale status",
+			status:   TaskStatusStale,
+			expected: "TASK_STATUS_STALE",
+		},
+		{
+			name:     "paused status",
+			status:   TaskStatusPaused,
+			expected: "TASK_STATUS_PAUSED",
+		},
+		{
+			name:     "unspecified status",
+			status:   TaskStatusUnspecified,
+			expected: "TASK_STATUS_UNSPECIFIED",
+		},
+		{
+			name:     "invalid status",
+			status:   "INVALID",
+			expected: "TASK_STATUS_UNSPECIFIED",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.expected, tt.status.ProtoString())
+		})
+	}
+}
+
+func TestTaskStatusFromInt32(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		input    int32
+		expected TaskStatus
+	}{
+		{
+			name:     "pending status",
+			input:    1,
+			expected: TaskStatusPending,
+		},
+		{
+			name:     "in progress status",
+			input:    2,
+			expected: TaskStatusInProgress,
+		},
+		{
+			name:     "completed status",
+			input:    3,
+			expected: TaskStatusCompleted,
+		},
+		{
+			name:     "failed status",
+			input:    4,
+			expected: TaskStatusFailed,
+		},
+		{
+			name:     "stale status",
+			input:    5,
+			expected: TaskStatusStale,
+		},
+		{
+			name:     "paused status",
+			input:    6,
+			expected: TaskStatusPaused,
+		},
+		{
+			name:     "invalid status",
+			input:    99,
+			expected: TaskStatusUnspecified,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.expected, TaskStatusFromInt32(tt.input))
+		})
+	}
+}
+
+func TestParseTaskStatus(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		input    string
+		expected TaskStatus
+	}{
+		{
+			name:     "pending status short",
+			input:    "PENDING",
+			expected: TaskStatusPending,
+		},
+		{
+			name:     "pending status proto",
+			input:    "TASK_STATUS_PENDING",
+			expected: TaskStatusPending,
+		},
+		{
+			name:     "in progress status short",
+			input:    "IN_PROGRESS",
+			expected: TaskStatusInProgress,
+		},
+		{
+			name:     "in progress status proto",
+			input:    "TASK_STATUS_IN_PROGRESS",
+			expected: TaskStatusInProgress,
+		},
+		{
+			name:     "completed status short",
+			input:    "COMPLETED",
+			expected: TaskStatusCompleted,
+		},
+		{
+			name:     "completed status proto",
+			input:    "TASK_STATUS_COMPLETED",
+			expected: TaskStatusCompleted,
+		},
+		{
+			name:     "failed status short",
+			input:    "FAILED",
+			expected: TaskStatusFailed,
+		},
+		{
+			name:     "failed status proto",
+			input:    "TASK_STATUS_FAILED",
+			expected: TaskStatusFailed,
+		},
+		{
+			name:     "stale status short",
+			input:    "STALE",
+			expected: TaskStatusStale,
+		},
+		{
+			name:     "stale status proto",
+			input:    "TASK_STATUS_STALE",
+			expected: TaskStatusStale,
+		},
+		{
+			name:     "paused status short",
+			input:    "PAUSED",
+			expected: TaskStatusPaused,
+		},
+		{
+			name:     "paused status proto",
+			input:    "TASK_STATUS_PAUSED",
+			expected: TaskStatusPaused,
+		},
+		{
+			name:     "invalid status",
+			input:    "INVALID",
+			expected: TaskStatusUnspecified,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.expected, ParseTaskStatus(tt.input))
+		})
+	}
+}

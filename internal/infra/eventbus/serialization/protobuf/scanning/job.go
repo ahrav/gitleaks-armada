@@ -172,24 +172,6 @@ func JobCreatedEventToProto(event scanning.JobScheduledEvent) (*pb.JobCreatedEve
 	}, nil
 }
 
-// jobStatusToProto converts a domain JobStatus to its protobuf representation.
-func jobStatusToProto(s scanning.JobStatus) pb.ScanJobStatus {
-	switch s {
-	case scanning.JobStatusQueued:
-		return pb.ScanJobStatus_SCAN_JOB_STATUS_QUEUED
-	case scanning.JobStatusEnumerating:
-		return pb.ScanJobStatus_SCAN_JOB_STATUS_ENUMERATING
-	case scanning.JobStatusRunning:
-		return pb.ScanJobStatus_SCAN_JOB_STATUS_RUNNING
-	case scanning.JobStatusCompleted:
-		return pb.ScanJobStatus_SCAN_JOB_STATUS_COMPLETED
-	case scanning.JobStatusFailed:
-		return pb.ScanJobStatus_SCAN_JOB_STATUS_FAILED
-	default:
-		return pb.ScanJobStatus_SCAN_JOB_STATUS_UNSPECIFIED
-	}
-}
-
 // ProtoToJobCreatedEvent converts a protobuf JobCreatedEvent to its domain representation.
 func ProtoToJobCreatedEvent(event *pb.JobCreatedEvent) (scanning.JobScheduledEvent, error) {
 	if event == nil || event.TargetSpec == nil {
@@ -228,22 +210,4 @@ func ProtoToJobEnumerationCompletedEvent(event *pb.JobEnumerationCompletedEvent)
 		jobID,
 		int(event.TotalTasks),
 	), nil
-}
-
-// protoToJobStatus converts a protobuf ScanJobStatus to its domain representation.
-func protoToJobStatus(s pb.ScanJobStatus) scanning.JobStatus {
-	switch s {
-	case pb.ScanJobStatus_SCAN_JOB_STATUS_QUEUED:
-		return scanning.JobStatusQueued
-	case pb.ScanJobStatus_SCAN_JOB_STATUS_ENUMERATING:
-		return scanning.JobStatusEnumerating
-	case pb.ScanJobStatus_SCAN_JOB_STATUS_RUNNING:
-		return scanning.JobStatusRunning
-	case pb.ScanJobStatus_SCAN_JOB_STATUS_COMPLETED:
-		return scanning.JobStatusCompleted
-	case pb.ScanJobStatus_SCAN_JOB_STATUS_FAILED:
-		return scanning.JobStatusFailed
-	default:
-		return "" // represents unspecified
-	}
 }

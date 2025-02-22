@@ -173,10 +173,10 @@ func TestTaskStatusConversion(t *testing.T) {
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
-				protoStatus := TaskStatusToProto(tc.domainStatus)
+				protoStatus := taskStatusToProto(tc.domainStatus)
 				assert.Equal(t, tc.protoStatus, protoStatus)
 
-				domainStatus := ProtoToTaskStatus(tc.protoStatus)
+				domainStatus := protoToTaskStatus(tc.protoStatus)
 				assert.Equal(t, tc.domainStatus, domainStatus)
 			})
 		}
@@ -185,12 +185,12 @@ func TestTaskStatusConversion(t *testing.T) {
 	t.Run("invalid status handling", func(t *testing.T) {
 		// Test invalid domain status converts to UNSPECIFIED proto status.
 		invalidDomainStatus := scanning.TaskStatus("INVALID_STATUS")
-		protoStatus := TaskStatusToProto(invalidDomainStatus)
+		protoStatus := taskStatusToProto(invalidDomainStatus)
 		assert.Equal(t, pb.TaskStatus_TASK_STATUS_UNSPECIFIED, protoStatus)
 
 		// Test invalid proto status converts to TaskStatusUnspecified.
 		invalidProtoStatus := pb.TaskStatus(-1)
-		domainStatus := ProtoToTaskStatus(invalidProtoStatus)
+		domainStatus := protoToTaskStatus(invalidProtoStatus)
 		assert.Equal(t, scanning.TaskStatusUnspecified, domainStatus)
 	})
 }

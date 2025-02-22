@@ -53,6 +53,8 @@ enum TaskStatus {
   TASK_STATUS_IN_PROGRESS = 2;
   TASK_STATUS_COMPLETED = 3;
   TASK_STATUS_FAILED = 4;
+  TASK_STATUS_STALE = 5;
+  TASK_STATUS_PAUSED = 6;
 }
 
 // JobRequestedEvent represents a request to create a new scan job.
