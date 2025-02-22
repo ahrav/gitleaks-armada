@@ -53,6 +53,7 @@ func NewJobScheduler(
 // domain events to notify external services that the job was scheduled. This method
 // can be extended to enforce additional domain rules or trigger further setup steps.
 func (s *jobScheduler) Schedule(ctx context.Context, jobID uuid.UUID, targets []domain.Target) error {
+	logger := s.logger.With("operation", "schedule", "job_id", jobID)
 	ctx, span := s.tracer.Start(ctx, "job_scheduler.schedule",
 		trace.WithAttributes(
 			attribute.String("controller_id", s.controllerID),
@@ -61,11 +62,12 @@ func (s *jobScheduler) Schedule(ctx context.Context, jobID uuid.UUID, targets []
 		),
 	)
 	defer span.End()
+	logger.Debug(ctx, "Scheduling job")
 
 	if err := s.jobTaskService.CreateJobFromID(ctx, jobID); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to create job")
-		return fmt.Errorf("failed to create job: %w", err)
+		return fmt.Errorf("failed to create job (job_id: %s): %w", jobID, err)
 	}
 	span.AddEvent("job_created")
 	span.SetStatus(codes.Ok, "job created successfully")
@@ -79,11 +81,12 @@ func (s *jobScheduler) Schedule(ctx context.Context, jobID uuid.UUID, targets []
 		// Publish JobScheduledEvent with target information.
 		// The target information is required by downstream consumers of the JobScheduledEvent
 		// to link scan targets to a single scan job.
+		// TODO: Retry? Should we maybe move on to the next target if this fails?
 		evt := domain.NewJobScheduledEvent(jobID, target)
 		if err := s.publisher.PublishDomainEvent(ctx, evt, events.WithKey(jobID.String())); err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "failed to publish job scheduled event")
-			return fmt.Errorf("failed to publish job scheduled event: %w", err)
+			return fmt.Errorf("failed to publish job scheduled event (job_id: %s): %w", jobID, err)
 		}
 		span.AddEvent("job_scheduled_event_published")
 		span.SetStatus(codes.Ok, "job scheduled event published successfully")
