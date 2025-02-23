@@ -17,6 +17,12 @@ type ProgressReporter interface {
 	// the scan's execution and enable recovery in case of failures.
 	// Returns an error if the progress report fails.
 	ReportProgress(ctx context.Context, progress scanning.Progress) error
+
+	// ReportPausedProgress updates the system with the current state of a paused scan operation.
+	// The provided Progress contains metrics and state information that help track
+	// the scan's execution and enable recovery in case of failures.
+	// Returns an error if the progress report fails.
+	ReportPausedProgress(ctx context.Context, progress scanning.Progress) error
 }
 
 // StreamResult encapsulates the streaming channels used for real-time scan feedback.

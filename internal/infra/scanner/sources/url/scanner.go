@@ -34,7 +34,6 @@ type Scanner struct {
 
 	template *srcs.ScanTemplate
 	detector *detect.Detector
-	reporter scanning.ProgressReporter
 
 	logger  *logger.Logger
 	tracer  trace.Tracer
@@ -68,6 +67,17 @@ func (s *Scanner) ScanStreaming(
 	scanReq *dtos.ScanRequest,
 	reporter scanning.ProgressReporter,
 ) (<-chan struct{}, <-chan scanning.Finding, <-chan error) {
+	scanCtx := NewScanContext(
+		s.scannerID,
+		scanReq.TaskID,
+		scanReq.JobID,
+		0,               // resumeFileIdx
+		&atomic.Int64{}, // resumeSequence
+		scanReq.Metadata["archive_format"],
+		reporter,
+		s.tracer,
+	)
+
 	opts := srcs.TemplateOptions{
 		OperationName: "gitleaks_url_scanner.scan",
 		OperationAttributes: []attribute.KeyValue{
@@ -75,8 +85,19 @@ func (s *Scanner) ScanStreaming(
 			attribute.String("url", scanReq.ResourceURI),
 		},
 		HeartbeatInterval: 5 * time.Second,
+		OnCancel: func(ctx context.Context, req *dtos.ScanRequest) {
+			if err := scanCtx.HandlePause(ctx, "scan_cancelled"); err != nil {
+				s.logger.Error(ctx, "Failed to handle scan pause",
+					"error", err,
+					"task_id", req.TaskID,
+				)
+			}
+		},
 	}
-	return s.template.ScanStreaming(ctx, scanReq, opts, reporter, s.runURLScan)
+
+	return s.template.ScanStreaming(ctx, scanReq, opts, reporter, func(ctx context.Context, task *dtos.ScanRequest, findingsChan chan<- scanning.Finding, reporter scanning.ProgressReporter) error {
+		return s.runURLScan(ctx, task, findingsChan, scanCtx)
+	})
 }
 
 // runURLScan encapsulates the main scanning logic, including fetching data
@@ -85,7 +106,7 @@ func (s *Scanner) runURLScan(
 	ctx context.Context,
 	scanReq *dtos.ScanRequest,
 	findingsChan chan<- scanning.Finding,
-	reporter scanning.ProgressReporter,
+	scanCtx *ScanContext,
 ) error {
 	logr := logger.NewLoggerContext(s.logger.With(
 		"operation", "gitleaks_url_scanner.scan_main",
@@ -161,16 +182,7 @@ func (s *Scanner) runURLScan(
 	}
 	span.SetAttributes(attribute.String("archive_format", format))
 
-	scanCtx := NewScanContext(
-		s.scannerID,
-		scanReq.TaskID,
-		scanReq.JobID,
-		resumeFileIdx,
-		&sequenceNum,
-		format,
-		reporter,
-		s.tracer,
-	)
+	scanCtx.nextSequence.Store(sequenceNum.Load())
 
 	// Prepare a specialized ArchiveReader based on format (e.g., "warc.gz")
 	reader, err := s.createArchiveReader(ctx, format, scanReq, scanCtx, logr)
@@ -232,6 +244,9 @@ type ScanContext struct {
 	archiveFormat string
 
 	tracer trace.Tracer
+
+	// lastProgress tracks the most recent progress state
+	lastProgress atomic.Value // stores domain.Progress
 }
 
 // NewScanContext constructs a ScanContext, typically called once at the start of a scan.
@@ -245,7 +260,7 @@ func NewScanContext(
 	reporter scanning.ProgressReporter,
 	tracer trace.Tracer,
 ) *ScanContext {
-	return &ScanContext{
+	sc := &ScanContext{
 		scannerID:     scannerID,
 		taskID:        taskID,
 		jobID:         jobID,
@@ -255,6 +270,19 @@ func NewScanContext(
 		archiveFormat: archiveFormat,
 		tracer:        tracer,
 	}
+	// Initialize with empty progress
+	sc.lastProgress.Store(domain.NewProgress(
+		taskID,
+		jobID,
+		0,
+		time.Now(),
+		0,
+		0,
+		"",
+		nil,
+		nil,
+	))
+	return sc
 }
 
 // NextSequence increments and returns the next sequence number for progress events.
@@ -284,30 +312,35 @@ func (sc *ScanContext) ReportProgress(ctx context.Context, itemsProcessed int64,
 		"archive_format": sc.archiveFormat,
 	}
 
-	if err := sc.reporter.ReportProgress(
-		ctx,
-		domain.NewProgress(
+	progress := domain.NewProgress(
+		sc.taskID,
+		sc.jobID,
+		seqNum,
+		time.Now(),
+		itemsProcessed,
+		0,
+		message,
+		nil,
+		domain.NewCheckpoint(
 			sc.taskID,
-			sc.jobID,
-			seqNum,
-			time.Now(),
-			itemsProcessed,
-			0, // TODO: address error counts
-			message,
-			nil, // TODO: address progress details. Do we need this?
-			domain.NewCheckpoint(
-				sc.taskID,
-				[]byte(strconv.FormatInt(itemsProcessed, 10)),
-				metadata,
-			),
+			[]byte(strconv.FormatInt(itemsProcessed, 10)),
+			metadata,
 		),
-	); err != nil {
-		span.RecordError(err)
-		return fmt.Errorf("failed to report progress: %w", err)
-	}
-	span.AddEvent("progress_reported")
+	)
 
-	return nil
+	// Store the progress for potential pause/cancel scenarios.
+	sc.lastProgress.Store(progress)
+
+	return sc.reporter.ReportProgress(ctx, progress)
+}
+
+// HandlePause emits a TaskPausedEvent with the latest progress.
+func (sc *ScanContext) HandlePause(ctx context.Context, reason string) error {
+	ctx, span := sc.tracer.Start(ctx, "scan_context.handle_pause")
+	defer span.End()
+
+	lastProgress := sc.lastProgress.Load().(domain.Progress)
+	return sc.reporter.ReportPausedProgress(ctx, lastProgress)
 }
 
 // createArchiveReader performs an HTTP GET and then wraps the response Body

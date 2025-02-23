@@ -64,3 +64,26 @@ func (r *DomainEventProgressReporter) ReportProgress(ctx context.Context, p scan
 
 	return nil
 }
+
+func (r *DomainEventProgressReporter) ReportPausedProgress(ctx context.Context, p scanning.Progress) error {
+	ctx, span := r.tracer.Start(
+		ctx,
+		"progress_reporter.report_paused_progress",
+		trace.WithAttributes(
+			attribute.String("scanner_id", r.scannerID),
+			attribute.String("task_id", p.TaskID().String()),
+		),
+	)
+	defer span.End()
+
+	evt := scanning.NewTaskPausedEvent(p.JobID(), p.TaskID(), p, "system")
+	if err := r.domainPublisher.PublishDomainEvent(ctx, evt, events.WithKey(p.TaskID().String())); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to publish task paused event")
+		return fmt.Errorf("failed to publish task paused event: %w", err)
+	}
+	span.SetStatus(codes.Ok, "task paused event published")
+	span.AddEvent("task_paused_event_published")
+
+	return nil
+}

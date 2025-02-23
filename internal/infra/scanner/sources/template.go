@@ -99,8 +99,11 @@ func (st *ScanTemplate) ScanStreaming(
 		for {
 			select {
 			case <-ctx.Done():
+				// Handle cancellation before shutting down. (final checkpoint)
 				if opts.OnCancel != nil {
-					opts.OnCancel(ctx, task)
+					cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					defer cancel()
+					opts.OnCancel(cleanupCtx, task)
 				}
 				errChan <- ctx.Err()
 				return
