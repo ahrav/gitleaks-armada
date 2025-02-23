@@ -30,7 +30,7 @@ type Config struct {
 // Routes binds all the scan endpoints.
 func Routes(app *web.App, cfg Config) {
 	app.HandlerFunc(http.MethodPost, "", "/v1/scan", start(cfg))
-	app.HandlerFunc(http.MethodPost, "", "/v1/scan/:id/pause", pause(cfg))
+	app.HandlerFunc(http.MethodPost, "", "/v1/scan/{id}/pause", pause(cfg))
 	// app.HandlerFunc(http.MethodGet, "", "/v1/scan/:id", status(cfg))
 }
 
