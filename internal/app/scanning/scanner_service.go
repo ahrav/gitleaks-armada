@@ -52,6 +52,11 @@ type ScannerService struct {
 
 	ruleProvider RuleProvider // TODO: Figure out where this should live
 
+	// This is a map of job ID to task ID to cancel function.
+	// We use this to cancel all tasks for a given job when it is paused.
+	mu                   sync.RWMutex
+	activeJobTasksCancel map[uuid.UUID]map[uuid.UUID]context.CancelCauseFunc
+
 	workers   int
 	stopCh    chan struct{}
 	workerWg  sync.WaitGroup
@@ -89,21 +94,22 @@ func NewScannerService(
 	ruleProvider, _ := scanner.(RuleProvider)
 
 	return &ScannerService{
-		scannerID:         id,
-		eventBus:          eventBus,
-		broadcastEventBus: broadcastEventBus,
-		domainPublisher:   dp,
-		secretScanner:     scanner,
-		progressReporter:  pr,
-		ruleProvider:      ruleProvider,
-		enumACL:           acl.EnumerationACL{},
-		logger:            logger,
-		metrics:           metrics,
-		tracer:            tracer,
-		workers:           workerCount,
-		stopCh:            make(chan struct{}),
-		taskEvent:         make(chan *dtos.ScanRequest, workerCount*10),
-		highPrioritySem:   make(chan struct{}, workerCount), // TODO: Come back to this
+		scannerID:            id,
+		eventBus:             eventBus,
+		broadcastEventBus:    broadcastEventBus,
+		domainPublisher:      dp,
+		secretScanner:        scanner,
+		progressReporter:     pr,
+		ruleProvider:         ruleProvider,
+		enumACL:              acl.EnumerationACL{},
+		activeJobTasksCancel: make(map[uuid.UUID]map[uuid.UUID]context.CancelCauseFunc),
+		workers:              workerCount,
+		stopCh:               make(chan struct{}),
+		taskEvent:            make(chan *dtos.ScanRequest, workerCount*10),
+		highPrioritySem:      make(chan struct{}, workerCount), // TODO: Come back to this
+		logger:               logger,
+		metrics:              metrics,
+		tracer:               tracer,
 	}
 }
 
@@ -404,6 +410,14 @@ func (s *ScannerService) handleJobPausedEvent(
 	logger.Add("job_id", jobPausedEvt.JobID)
 	logger.Info(ctx, "Handling job paused task")
 
+	jobID := uuid.MustParse(jobPausedEvt.JobID)
+	s.mu.Lock()
+	for taskID, cancel := range s.activeJobTasksCancel[jobID] {
+		cancel(fmt.Errorf("job paused"))
+		delete(s.activeJobTasksCancel[jobID], taskID)
+	}
+	s.mu.Unlock()
+
 	span.AddEvent("job_paused_task_handled")
 	span.SetStatus(codes.Ok, "job_paused_task_handled")
 	logger.Info(ctx, "Job paused task handled")
@@ -479,6 +493,9 @@ func (s *ScannerService) doWorkerLoop(ctx context.Context, workerID int, workerL
 					attribute.String("task_id", task.TaskID.String()),
 					attribute.String("resource_uri", task.ResourceURI),
 				))
+			s.mu.Lock()
+			s.activeJobTasksCancel[task.JobID][task.TaskID] = cancel
+			s.mu.Unlock()
 
 			workerLogger.Add(
 				"task_id", task.TaskID,
@@ -497,7 +514,11 @@ func (s *ScannerService) doWorkerLoop(ctx context.Context, workerID int, workerL
 					"error", err)
 			}
 			taskSpan.End()
+
+			s.mu.Lock()
 			cancel(nil)
+			delete(s.activeJobTasksCancel[task.JobID], task.TaskID)
+			s.mu.Unlock()
 		}
 	}
 }
