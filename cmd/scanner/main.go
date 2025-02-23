@@ -136,6 +136,20 @@ func main() {
 	}
 	defer kafkaClient.Close()
 
+	// Create a Kafka client for broadcast events where every scanner instance
+	// needs to receive the message (e.g., job pause events)
+	broadcastClient, err := kafka.NewClient(&kafka.ClientConfig{
+		Brokers:     strings.Split(os.Getenv("KAFKA_BROKERS"), ","),
+		GroupID:     fmt.Sprintf("scanner-broadcast-%s", hostname), // Unique group per pod for broadcast events
+		ClientID:    fmt.Sprintf("scanner-broadcast-%s", hostname),
+		ServiceType: "scanner",
+	})
+	if err != nil {
+		log.Error(ctx, "failed to create broadcast kafka client", "error", err)
+		os.Exit(1)
+	}
+	defer broadcastClient.Close()
+
 	kafkaCfg := &kafka.EventBusConfig{
 		TaskCreatedTopic:      os.Getenv("KAFKA_TASK_CREATED_TOPIC"),
 		ScanningTaskTopic:     os.Getenv("KAFKA_SCANNING_TASK_TOPIC"),
@@ -149,12 +163,28 @@ func main() {
 		ClientID:              fmt.Sprintf("scanner-%s", hostname),
 	}
 
+	// Create a separate config for broadcast events
+	broadcastCfg := &kafka.EventBusConfig{
+		JobLifecycleTopic: os.Getenv("KAFKA_JOB_LIFECYCLE_TOPIC"),
+		GroupID:           fmt.Sprintf("scanner-broadcast-%s", hostname),
+		ClientID:          fmt.Sprintf("scanner-broadcast-%s", hostname),
+		ServiceType:       "scanner",
+	}
+
 	eventBus, err := kafka.ConnectEventBus(kafkaCfg, kafkaClient, log, metricsCollector, tracer)
 	if err != nil {
 		log.Error(ctx, "failed to create kafka broker", "error", err)
 		os.Exit(1)
 	}
 	log.Info(ctx, "Scanner connected to Kafka")
+
+	// Create a separate event bus for broadcast events.
+	broadcastEventBus, err := kafka.ConnectEventBus(broadcastCfg, broadcastClient, log, metricsCollector, tracer)
+	if err != nil {
+		log.Error(ctx, "failed to create broadcast kafka broker", "error", err)
+		os.Exit(1)
+	}
+	log.Info(ctx, "Scanner connected to broadcast Kafka broker")
 
 	domainEventTranslator := events.NewDomainEventTranslator(kafka.NewKafkaPositionTranslator())
 	eventPublisher := kafka.NewDomainEventPublisher(eventBus, domainEventTranslator)
@@ -167,6 +197,7 @@ func main() {
 	scannerService := scanning.NewScannerService(
 		hostname,
 		eventBus,
+		broadcastEventBus, // Pass the broadcast event bus
 		eventPublisher,
 		progressreporter.New(hostname, eventPublisher, tracer),
 		gitleaksScanner,

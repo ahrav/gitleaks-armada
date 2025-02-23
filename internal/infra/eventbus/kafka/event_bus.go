@@ -60,6 +60,9 @@ type EventBusConfig struct {
 
 	// ServiceType identifies the type of service (e.g., "scanner", "controller")
 	ServiceType string
+
+	// JobBroadcastTopic is the topic for broadcast events to all scanners
+	JobBroadcastTopic string
 }
 
 var _ events.EventBus = (*EventBus)(nil)
@@ -109,6 +112,7 @@ func NewEventBus(
 		scanning.EventTypeJobRequested:            cfg.JobLifecycleTopic,     // api -> controller
 		scanning.EventTypeJobScheduled:            cfg.JobLifecycleTopic,     // controller -> controller
 		scanning.EventTypeJobPausing:              cfg.JobLifecycleTopic,     // controller -> controller
+		scanning.EventTypeJobPaused:               cfg.JobBroadcastTopic,     // controller -> scanner (broadcast)
 		scanning.EventTypeTaskCreated:             cfg.TaskCreatedTopic,      // controller -> scanner
 		scanning.EventTypeJobEnumerationCompleted: cfg.JobLifecycleTopic,     // controller -> controller
 		scanning.EventTypeTaskStarted:             cfg.ScanningTaskTopic,     // scanner -> controller

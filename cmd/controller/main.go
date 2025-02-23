@@ -229,6 +229,7 @@ func main() {
 		RulesRequestTopic:     os.Getenv("KAFKA_RULES_REQUEST_TOPIC"),
 		RulesResponseTopic:    os.Getenv("KAFKA_RULES_RESPONSE_TOPIC"),
 		JobLifecycleTopic:     os.Getenv("KAFKA_JOB_LIFECYCLE_TOPIC"),
+		JobBroadcastTopic:     os.Getenv("KAFKA_JOB_BROADCAST_TOPIC"),
 		GroupID:               os.Getenv("KAFKA_GROUP_ID"),
 		ClientID:              svcName,
 		ServiceType:           serviceType,
@@ -281,6 +282,7 @@ func main() {
 	checkpointStorage := enumStore.NewCheckpointStore(pool, tracer)
 	enumStateStorage := enumStore.NewEnumerationSessionStateStore(pool, checkpointStorage, tracer)
 	eventPublisher := kafka.NewDomainEventPublisher(eventBus, domainEventTranslator)
+	broadcastPublisher := kafka.NewDomainEventPublisher(eventBus, domainEventTranslator)
 	enumFactory := enumeration.NewEnumerationFactory(hostname, http.DefaultClient, log, tracer)
 	enumTaskStorage := enumStore.NewTaskStore(pool, tracer)
 	batchStorage := enumStore.NewBatchStore(pool, checkpointStorage, tracer)
@@ -309,6 +311,7 @@ func main() {
 		coord,
 		eventBus,
 		eventPublisher,
+		broadcastPublisher,
 		domainEventReplayer,
 		enumCoord,
 		rulesService,

@@ -36,6 +36,7 @@ type Orchestrator struct {
 	clusterCoordinator cluster.Coordinator
 	eventBus           events.EventBus
 	eventPublisher     events.DomainEventPublisher
+	broadcastPublisher events.DomainEventPublisher // For broadcasting events to all scanners
 
 	cfgLoader loaders.Loader
 
@@ -69,6 +70,7 @@ type Orchestrator struct {
 //   - coord: Implements leader election using distributed locks
 //   - queue: Reliable message queue for distributing work items
 //   - eventPublisher: Broadcasts domain events for system observability
+//   - broadcastPublisher: Broadcasts events to all scanners
 //   - eventReplayer: Replays domain events from a specific position
 //   - enumerationService: Implements scanning logic and target discovery
 //   - rulesService: Manages scanning rules and their updates
@@ -89,6 +91,7 @@ func NewOrchestrator(
 	coord cluster.Coordinator,
 	queue events.EventBus,
 	eventPublisher events.DomainEventPublisher,
+	broadcastPublisher events.DomainEventPublisher,
 	eventReplayer events.DomainEventReplayer,
 	enumCoord enumeration.Coordinator,
 	rulesService rulessvc.Service,
@@ -106,6 +109,7 @@ func NewOrchestrator(
 		clusterCoordinator: coord,
 		eventBus:           queue,
 		eventPublisher:     eventPublisher,
+		broadcastPublisher: broadcastPublisher,
 		rulesService:       rulesService,
 		stateRepo:          stateRepo,
 		cfgLoader:          cfgLoader,
@@ -151,7 +155,15 @@ func NewOrchestrator(
 		tracer,
 	)
 
-	jobScheduler := scan.NewJobScheduler(id, jobTaskSvc, eventPublisher, logger, tracer)
+	jobScheduler := scan.NewJobScheduler(
+		id,
+		jobTaskSvc,
+		eventPublisher,
+		broadcastPublisher,
+		logger,
+		tracer,
+	)
+
 	eventsFacilitator := NewEventsFacilitator(
 		id,
 		jobScheduler,

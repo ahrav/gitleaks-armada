@@ -42,9 +42,10 @@ type RuleProvider interface {
 type ScannerService struct {
 	scannerID string
 
-	eventBus         events.EventBus
-	domainPublisher  events.DomainEventPublisher
-	progressReporter ProgressReporter
+	eventBus          events.EventBus // Main event bus for task events
+	broadcastEventBus events.EventBus // Event bus for broadcast events where all scanners need to receive the message
+	domainPublisher   events.DomainEventPublisher
+	progressReporter  ProgressReporter
 
 	secretScanner SecretScanner
 	enumACL       acl.EnumerationACL
@@ -69,7 +70,8 @@ type ScannerService struct {
 // It configures worker pools based on available CPU cores to optimize scanning throughput.
 func NewScannerService(
 	id string,
-	eb events.EventBus,
+	eventBus events.EventBus,
+	broadcastEventBus events.EventBus,
 	dp events.DomainEventPublisher,
 	pr ProgressReporter,
 	scanner SecretScanner,
@@ -85,26 +87,29 @@ func NewScannerService(
 
 	// Try to get rule provider if scanner supports it. (e.g. Gitleaks)
 	ruleProvider, _ := scanner.(RuleProvider)
+
 	return &ScannerService{
-		scannerID:        id,
-		eventBus:         eb,
-		domainPublisher:  dp,
-		secretScanner:    scanner,
-		progressReporter: pr,
-		ruleProvider:     ruleProvider,
-		enumACL:          acl.EnumerationACL{},
-		logger:           logger,
-		metrics:          metrics,
-		tracer:           tracer,
-		workers:          workerCount,
-		stopCh:           make(chan struct{}),
-		taskEvent:        make(chan *dtos.ScanRequest, workerCount*10),
-		highPrioritySem:  make(chan struct{}, workerCount), // TODO: Come back to this
+		scannerID:         id,
+		eventBus:          eventBus,
+		broadcastEventBus: broadcastEventBus,
+		domainPublisher:   dp,
+		secretScanner:     scanner,
+		progressReporter:  pr,
+		ruleProvider:      ruleProvider,
+		enumACL:           acl.EnumerationACL{},
+		logger:            logger,
+		metrics:           metrics,
+		tracer:            tracer,
+		workers:           workerCount,
+		stopCh:            make(chan struct{}),
+		taskEvent:         make(chan *dtos.ScanRequest, workerCount*10),
+		highPrioritySem:   make(chan struct{}, workerCount), // TODO: Come back to this
 	}
 }
 
 // Run starts the scanner service and its worker pool. It subscribes to task events
 // and coordinates scanning operations until the context is cancelled.
+// TODO: Use Dispatcher to handle events similar to the controller.
 func (s *ScannerService) Run(ctx context.Context) error {
 	// Create a shorter-lived span just for initialization.
 	// This is because Run is a long-running operation and we don't want to
@@ -118,6 +123,36 @@ func (s *ScannerService) Run(ctx context.Context) error {
 
 	s.logger.Info(initCtx, "Running scanner service")
 
+	// Subscribe to task events.
+	// TODO: We need to make handling events more resilient once we ack (commit)
+	// the event, but fail after.
+	if err := s.eventBus.Subscribe(
+		ctx,
+		[]events.EventType{
+			scanning.EventTypeTaskCreated,
+			scanning.EventTypeTaskResume,
+			rules.EventTypeRulesRequested,
+		},
+		s.handleEvent,
+	); err != nil {
+		initSpan.RecordError(err)
+		initSpan.SetStatus(codes.Error, "failed to subscribe to events")
+		return fmt.Errorf("failed to subscribe to events: %w", err)
+	}
+
+	// Subscribe to broadcast events where every scanner instance needs to receive the message.
+	if err := s.broadcastEventBus.Subscribe(
+		ctx,
+		[]events.EventType{
+			scanning.EventTypeJobPaused,
+		},
+		s.handleEvent,
+	); err != nil {
+		initSpan.RecordError(err)
+		initSpan.SetStatus(codes.Error, "failed to subscribe to broadcast events")
+		return fmt.Errorf("failed to subscribe to broadcast events: %w", err)
+	}
+
 	initSpan.AddEvent("starting_workers")
 	s.workerWg.Add(s.workers)
 	for i := range s.workers {
@@ -128,31 +163,13 @@ func (s *ScannerService) Run(ctx context.Context) error {
 	}
 	s.metrics.SetActiveWorkers(initCtx, s.workers)
 
-	// TODO: We need to make handling events more resilient once we ack (commit)
-	// the event, but fail after.
-	err := s.eventBus.Subscribe(
-		initCtx,
-		[]events.EventType{
-			scanning.EventTypeTaskCreated,
-			scanning.EventTypeTaskResume,
-			rules.EventTypeRulesRequested,
-		},
-		s.handleEvent,
-	)
-	if err != nil {
-		s.logger.Error(initCtx, "Failed to subscribe to events", "err", err)
-		initSpan.RecordError(err)
-		initSpan.SetStatus(codes.Error, "failed to subscribe to events")
-		initSpan.End()
-		return fmt.Errorf("scanner[%s]: failed to subscribe: %w", s.scannerID, err)
-	}
 	initSpan.AddEvent("subscribed_to_events")
 	initSpan.End()
 
-	<-initCtx.Done()
-	s.logger.Info(initCtx, "Stopping scanner service", "id", s.scannerID)
+	<-ctx.Done()
+	s.logger.Info(ctx, "Stopping scanner service", "id", s.scannerID)
 
-	_, shutdownSpan := s.tracer.Start(initCtx, "scanner_service.scanning.shutdown")
+	_, shutdownSpan := s.tracer.Start(ctx, "scanner_service.scanning.shutdown")
 	defer shutdownSpan.End()
 
 	shutdownSpan.AddEvent("initiating_shutdown")
@@ -161,7 +178,7 @@ func (s *ScannerService) Run(ctx context.Context) error {
 	s.workerWg.Wait()
 	shutdownSpan.AddEvent("shutdown_complete")
 
-	return initCtx.Err()
+	return ctx.Err()
 }
 
 // handleEvent routes events to appropriate handlers.
@@ -175,6 +192,8 @@ func (s *ScannerService) handleEvent(ctx context.Context, evt events.EventEnvelo
 		return s.handleTaskEvent(ctx, evt, ack)
 	case rules.EventTypeRulesRequested:
 		return s.handleRuleRequest(ctx, evt, ack)
+	case scanning.EventTypeJobPaused:
+		return s.handleJobPausedEvent(ctx, evt, ack)
 	default:
 		return fmt.Errorf("unknown event type: %s", evt.Type)
 	}
@@ -347,6 +366,43 @@ func (s *ScannerService) handleTaskResumeEvent(
 	span.AddEvent("resume_task_spawned")
 	span.SetStatus(codes.Ok, "resume_task_spawned")
 	logger.Info(ctx, "Resume task spawned")
+
+	return nil
+}
+
+// handleJobPausedEvent processes job paused events and handles the task
+func (s *ScannerService) handleJobPausedEvent(
+	ctx context.Context,
+	evt events.EventEnvelope,
+	ack events.AckFunc,
+) error {
+	logger := logger.NewLoggerContext(s.logger.With(
+		"operation", "handle_job_paused_event",
+		"event_type", string(evt.Type),
+	))
+	ctx, span := s.tracer.Start(ctx, "scanner_service.scanning.handle_job_paused_event",
+		trace.WithAttributes(
+			attribute.String("component", "scanner_service"),
+			attribute.String("scanner_id", s.scannerID),
+			attribute.String("event_type", string(evt.Type)),
+		))
+	defer span.End()
+
+	span.AddEvent("starting_job_paused_task")
+
+	jobPausedEvt, ok := evt.Payload.(*scanning.JobPausedEvent)
+	if !ok {
+		err := fmt.Errorf("invalid job paused event payload: %T", evt.Payload)
+		span.SetStatus(codes.Error, err.Error())
+		span.RecordError(err)
+		return err
+	}
+	logger.Add("job_id", jobPausedEvt.JobID)
+	logger.Info(ctx, "Handling job paused task")
+
+	span.AddEvent("job_paused_task_handled")
+	span.SetStatus(codes.Ok, "job_paused_task_handled")
+	logger.Info(ctx, "Job paused task handled")
 
 	return nil
 }
