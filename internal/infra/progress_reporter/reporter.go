@@ -65,8 +65,7 @@ func (r *DomainEventProgressReporter) ReportProgress(ctx context.Context, p scan
 	return nil
 }
 
-// ReportPausedProgress publishes a TaskPausedEvent containing the current scan progress.
-// This allows other components to track scan status and detect stalled operations.
+// ReportPausedProgress publishes a TaskPausedEvent and a TaskJobMetricEvent.
 // It returns an error if event publishing fails.
 func (r *DomainEventProgressReporter) ReportPausedProgress(ctx context.Context, p scanning.Progress) error {
 	ctx, span := r.tracer.Start(
