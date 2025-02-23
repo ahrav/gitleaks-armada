@@ -6,7 +6,7 @@ require (
 	github.com/IBM/sarama v1.43.3
 	github.com/cenkalti/backoff v2.2.1+incompatible
 	github.com/docker/go-connections v0.5.0
-	github.com/golang-migrate/migrate/v4 v4.18.1
+	github.com/golang-migrate/migrate/v4 v4.18.2
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.7.2
 	github.com/nlnwa/gowarc v1.6.0
