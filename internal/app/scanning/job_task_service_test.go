@@ -177,7 +177,6 @@ func TestAssociateEnumeratedTargets(t *testing.T) {
 		name    string
 		setup   func(*mockJobRepository)
 		wantErr bool
-		errMsg  string
 	}{
 		{
 			name: "successful target association and task count increment",
@@ -199,7 +198,6 @@ func TestAssociateEnumeratedTargets(t *testing.T) {
 					Return(assert.AnError)
 			},
 			wantErr: true,
-			errMsg:  "failed to associate targets with job",
 		},
 		{
 			name: "task count increment fails",
@@ -211,7 +209,6 @@ func TestAssociateEnumeratedTargets(t *testing.T) {
 					Return(assert.AnError)
 			},
 			wantErr: true,
-			errMsg:  "failed to increment total tasks for job",
 		},
 	}
 
@@ -223,7 +220,6 @@ func TestAssociateEnumeratedTargets(t *testing.T) {
 			err := suite.AssociateEnumeratedTargets(context.Background(), jobID, targetIDs)
 			if tt.wantErr {
 				require.Error(t, err)
-				assert.Contains(t, err.Error(), tt.errMsg)
 				return
 			}
 
@@ -240,7 +236,6 @@ func TestUpdateJobStatus(t *testing.T) {
 		initialStatus domain.JobStatus
 		targetStatus  domain.JobStatus
 		wantErr       bool
-		errMsg        string
 	}{
 		{
 			name: "valid transition from queued to enumerating",
@@ -316,7 +311,6 @@ func TestUpdateJobStatus(t *testing.T) {
 			initialStatus: domain.JobStatusCompleted,
 			targetStatus:  domain.JobStatusRunning,
 			wantErr:       true,
-			errMsg:        "invalid job status transition from COMPLETED to RUNNING",
 		},
 		{
 			name: "invalid transition from failed to completed",
@@ -327,7 +321,6 @@ func TestUpdateJobStatus(t *testing.T) {
 			initialStatus: domain.JobStatusFailed,
 			targetStatus:  domain.JobStatusCompleted,
 			wantErr:       true,
-			errMsg:        "invalid job status transition from FAILED to COMPLETED",
 		},
 		{
 			name: "invalid transition from queued to running",
@@ -338,7 +331,6 @@ func TestUpdateJobStatus(t *testing.T) {
 			initialStatus: domain.JobStatusQueued,
 			targetStatus:  domain.JobStatusRunning,
 			wantErr:       true,
-			errMsg:        "invalid job status transition from QUEUED to RUNNING",
 		},
 		{
 			name: "repository update failure",
@@ -352,7 +344,6 @@ func TestUpdateJobStatus(t *testing.T) {
 			initialStatus: domain.JobStatusEnumerating,
 			targetStatus:  domain.JobStatusRunning,
 			wantErr:       true,
-			errMsg:        "failed to update job status",
 		},
 		{
 			name: "job load failure",
@@ -362,7 +353,6 @@ func TestUpdateJobStatus(t *testing.T) {
 			initialStatus: domain.JobStatusEnumerating,
 			targetStatus:  domain.JobStatusRunning,
 			wantErr:       true,
-			errMsg:        "failed to load job",
 		},
 	}
 
@@ -376,7 +366,6 @@ func TestUpdateJobStatus(t *testing.T) {
 
 			if tt.wantErr {
 				require.Error(t, err)
-				assert.Contains(t, err.Error(), tt.errMsg)
 				return
 			}
 

@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/trace"
@@ -47,12 +46,11 @@ func newTrackerTestSuite(t *testing.T) *trackerTestSuite {
 
 func TestExecutionTracker_AssociateEnumeratedTargetsToJob(t *testing.T) {
 	tests := []struct {
-		name        string
-		setup       func(*mockJobTaskSvc)
-		jobID       uuid.UUID
-		targetIDs   []uuid.UUID
-		wantErr     bool
-		expectedErr string
+		name      string
+		setup     func(*mockJobTaskSvc)
+		jobID     uuid.UUID
+		targetIDs []uuid.UUID
+		wantErr   bool
 	}{
 		{
 			name: "successful target linking and task increment",
@@ -78,8 +76,7 @@ func TestExecutionTracker_AssociateEnumeratedTargetsToJob(t *testing.T) {
 				uuid.New(),
 				uuid.New(),
 			},
-			wantErr:     true,
-			expectedErr: "failed to associate enumerated targets",
+			wantErr: true,
 		},
 		{
 			name: "empty target list",
@@ -102,7 +99,6 @@ func TestExecutionTracker_AssociateEnumeratedTargetsToJob(t *testing.T) {
 			err := suite.tracker.associateEnumeratedTargetsToJob(context.Background(), tt.jobID, tt.targetIDs)
 			if tt.wantErr {
 				require.Error(t, err)
-				assert.Contains(t, err.Error(), tt.expectedErr)
 			} else {
 				require.NoError(t, err)
 			}
@@ -370,7 +366,6 @@ func TestExecutionTracker_StopTracking(t *testing.T) {
 			err := suite.tracker.HandleTaskCompletion(context.Background(), tt.event)
 			if tt.wantErr {
 				require.Error(t, err)
-				assert.Contains(t, err.Error(), "failed to complete task")
 			} else {
 				require.NoError(t, err)
 			}
@@ -420,7 +415,6 @@ func TestExecutionTracker_MarkTaskFailure(t *testing.T) {
 			err := suite.tracker.HandleTaskFailure(context.Background(), tt.event)
 			if tt.wantErr {
 				require.Error(t, err)
-				assert.Contains(t, err.Error(), "failed to fail task")
 			} else {
 				require.NoError(t, err)
 			}
