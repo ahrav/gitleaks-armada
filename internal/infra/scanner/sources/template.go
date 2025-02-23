@@ -20,6 +20,7 @@ type TemplateOptions struct {
 	OperationName       string
 	OperationAttributes []attribute.KeyValue
 	HeartbeatInterval   time.Duration
+	OnCancel            func(context.Context, *dtos.ScanRequest)
 }
 
 // ScanTemplate provides a reusable way to run streaming scans with channels,
@@ -98,6 +99,9 @@ func (st *ScanTemplate) ScanStreaming(
 		for {
 			select {
 			case <-ctx.Done():
+				if opts.OnCancel != nil {
+					opts.OnCancel(ctx, task)
+				}
 				errChan <- ctx.Err()
 				return
 			case <-ticker.C:
