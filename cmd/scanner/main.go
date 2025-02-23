@@ -165,7 +165,7 @@ func main() {
 
 	// Create a separate config for broadcast events.
 	broadcastCfg := &kafka.EventBusConfig{
-		JobLifecycleTopic: os.Getenv("KAFKA_JOB_LIFECYCLE_TOPIC"),
+		JobBroadcastTopic: os.Getenv("KAFKA_JOB_BROADCAST_TOPIC"),
 		GroupID:           fmt.Sprintf("scanner-broadcast-%s", hostname),
 		ClientID:          fmt.Sprintf("scanner-broadcast-%s", hostname),
 		ServiceType:       "scanner",
@@ -197,7 +197,7 @@ func main() {
 	scannerService := scanning.NewScannerService(
 		hostname,
 		eventBus,
-		broadcastEventBus, // Pass the broadcast event bus
+		broadcastEventBus,
 		eventPublisher,
 		progressreporter.New(hostname, eventPublisher, tracer),
 		gitleaksScanner,

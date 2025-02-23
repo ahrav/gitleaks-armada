@@ -36,7 +36,6 @@ type Orchestrator struct {
 	clusterCoordinator cluster.Coordinator
 	eventBus           events.EventBus
 	eventPublisher     events.DomainEventPublisher
-	broadcastPublisher events.DomainEventPublisher // For broadcasting events to all scanners
 
 	cfgLoader loaders.Loader
 
@@ -109,7 +108,6 @@ func NewOrchestrator(
 		clusterCoordinator: coord,
 		eventBus:           queue,
 		eventPublisher:     eventPublisher,
-		broadcastPublisher: broadcastPublisher,
 		rulesService:       rulesService,
 		stateRepo:          stateRepo,
 		cfgLoader:          cfgLoader,
