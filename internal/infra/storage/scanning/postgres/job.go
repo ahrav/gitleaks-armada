@@ -121,16 +121,11 @@ func (r *jobStore) UpdateJob(ctx context.Context, job *scanning.Job) error {
 		span := trace.SpanFromContext(ctx)
 
 		endTime, hasEndTime := job.EndTime()
-		dbEndTime := pgtype.Timestamptz{
-			Time:  endTime,
-			Valid: hasEndTime,
-		}
-
 		rowsAffected, err := r.q.UpdateJob(ctx, db.UpdateJobParams{
 			JobID:     pgtype.UUID{Bytes: job.JobID(), Valid: true},
 			Status:    db.ScanJobStatus(job.Status()),
 			StartTime: pgtype.Timestamptz{Time: job.StartTime(), Valid: true},
-			EndTime:   dbEndTime,
+			EndTime:   pgtype.Timestamptz{Time: endTime, Valid: hasEndTime},
 		})
 		if err != nil {
 			return fmt.Errorf("UpdateJob query error: %w", err)

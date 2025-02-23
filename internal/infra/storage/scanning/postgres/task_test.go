@@ -430,6 +430,9 @@ func TestTaskStore_UpdateTask_RecoveryFromStale(t *testing.T) {
 	assert.Equal(t, 0, stalledTask.RecoveryAttempts())
 
 	// Simulate recovery with progress update.
+	err = stalledTask.RecoverFromStale()
+	require.NoError(t, err)
+
 	progress := scanning.NewProgress(task.TaskID(), task.JobID(), 10, time.Now(), 100, 0, "", nil, nil)
 	err = stalledTask.ApplyProgress(progress)
 
@@ -454,6 +457,9 @@ func TestTaskStore_UpdateTask_RecoveryFromStale(t *testing.T) {
 	require.NoError(t, err)
 
 	// Second recovery.
+	err = recoveredTask.RecoverFromStale()
+	require.NoError(t, err)
+
 	progress = scanning.NewProgress(task.TaskID(), task.JobID(), 20, time.Now(), 100, 0, "", nil, nil)
 	err = recoveredTask.ApplyProgress(progress)
 	require.NoError(t, err)
@@ -627,6 +633,9 @@ func TestTaskStore_UpdateTask_StartTimeSetOnTransition(t *testing.T) {
 	assert.True(t, initialTask.StartTime().IsZero(), "Start time should be zero for PENDING task")
 
 	// Simulate progress update that transitions task to IN_PROGRESS.
+	err = task.Start()
+	require.NoError(t, err)
+
 	progress := scanning.NewProgress(
 		task.TaskID(),
 		job.JobID(),
