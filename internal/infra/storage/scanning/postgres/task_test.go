@@ -671,7 +671,7 @@ func TestTaskStore_UpdateTask_PauseAndResume(t *testing.T) {
 	assert.True(t, initialTask.PausedAt().IsZero(), "Paused time should be zero for IN_PROGRESS task")
 
 	// Simulate pause.
-	err = task.UpdateStatus(scanning.TaskStatusPaused)
+	err = task.Pause()
 	require.NoError(t, err)
 	err = taskStore.UpdateTask(ctx, task)
 	require.NoError(t, err)
@@ -682,7 +682,7 @@ func TestTaskStore_UpdateTask_PauseAndResume(t *testing.T) {
 	assert.False(t, updatedTask.PausedAt().IsZero(), "Paused time should be persisted")
 
 	// Simulate resume.
-	err = task.UpdateStatus(scanning.TaskStatusInProgress)
+	err = task.Resume()
 	require.NoError(t, err)
 	err = taskStore.UpdateTask(ctx, task)
 	require.NoError(t, err)

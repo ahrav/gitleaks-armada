@@ -403,8 +403,111 @@ func (t *Task) RecoveryAttempts() int { return t.recoveryAttempts }
 // IsInProgress returns true if the task is in the IN_PROGRESS state.
 func (t *Task) IsInProgress() bool { return t.status == TaskStatusInProgress }
 
+// ----------------------------------------------------
+// Domain-Specific Lifecycle Methods
+// ----------------------------------------------------
+
+// Start transitions from PENDING → IN_PROGRESS.
+func (t *Task) Start() error { return t.UpdateStatus(TaskStatusInProgress) }
+
+// Pause transitions from IN_PROGRESS → PAUSED.
+func (t *Task) Pause() error {
+	if t.status != TaskStatusInProgress {
+		return TaskInvalidStateError{
+			taskID: t.ID,
+			status: t.status,
+			reason: TaskInvalidStateReasonWrongStatus,
+		}
+	}
+	// Domain side-effect: record pause time.
+	t.pausedAt = time.Now()
+	return t.UpdateStatus(TaskStatusPaused)
+}
+
+// Resume transitions from PAUSED → IN_PROGRESS.
+func (t *Task) Resume() error {
+	if t.status != TaskStatusPaused {
+		return TaskInvalidStateError{
+			taskID: t.ID,
+			status: t.status,
+			reason: TaskInvalidStateReasonWrongStatus,
+		}
+	}
+	// Domain side-effect: clear pausedAt.
+	t.pausedAt = time.Time{}
+	return t.UpdateStatus(TaskStatusInProgress)
+}
+
+// MarkStale transitions from IN_PROGRESS → STALE.
+func (t *Task) MarkStale(reason *StallReason) error {
+	if reason == nil {
+		return TaskInvalidStateError{
+			taskID: t.ID,
+			status: t.status,
+			reason: TaskInvalidStateReasonNoReason,
+		}
+	}
+	t.stallReason = reason
+	t.stalledAt = time.Now()
+	return t.UpdateStatus(TaskStatusStale)
+}
+
+// RecoverFromStale transitions from STALE → IN_PROGRESS.
+func (t *Task) RecoverFromStale() error {
+	if t.status != TaskStatusStale {
+		return TaskInvalidStateError{
+			taskID: t.ID,
+			status: t.status,
+			reason: TaskInvalidStateReasonWrongStatus,
+		}
+	}
+	t.recoveryAttempts++
+	t.clearStall()
+	return t.UpdateStatus(TaskStatusInProgress)
+}
+
+// clearStall resets stall-specific fields but does not itself change the status.
+func (t *Task) clearStall() {
+	t.stallReason = nil
+	t.stalledAt = time.Time{}
+}
+
+// Complete transitions from IN_PROGRESS (or maybe STALE) → COMPLETED.
+func (t *Task) Complete() error {
+	if t.status == TaskStatusCompleted {
+		return nil // idempotent
+	}
+	// Example domain rule: must not complete if 0 items processed
+	/*
+		if t.itemsProcessed == 0 {
+			return TaskInvalidStateError{
+				taskID: t.ID,
+				status: t.status,
+				reason: TaskInvalidStateReasonNoProgress,
+			}
+		}
+	*/
+	return t.UpdateStatus(TaskStatusCompleted)
+}
+
+// Fail transitions from any non-terminal to FAILED.
+func (t *Task) Fail() error {
+	if t.status == TaskStatusFailed {
+		return TaskInvalidStateError{
+			taskID: t.ID,
+			status: t.status,
+			reason: TaskInvalidStateReasonWrongStatus,
+		}
+	}
+	return t.UpdateStatus(TaskStatusFailed)
+}
+
+// ----------------------------------------------------
+// The Single Gatekeeper for Status Transitions
+// ----------------------------------------------------
+
 // UpdateStatus changes the task's status after validating the transition.
-// It handles all side effects of the status change including timestamps and state resets.
+// It runs the "gatekeeper" checks so we know if oldStatus→newStatus is allowed.
 func (t *Task) UpdateStatus(newStatus TaskStatus) error {
 	if err := t.status.validateTransition(newStatus); err != nil {
 		return TaskInvalidStateError{
@@ -414,35 +517,11 @@ func (t *Task) UpdateStatus(newStatus TaskStatus) error {
 		}
 	}
 
-	// Handle side effects based on the transition.
-	switch newStatus {
-	case TaskStatusInProgress:
-		// Mark start time only when transitioning from PENDING.
-		if t.status == TaskStatusPending {
-			t.timeline.MarkStarted()
-		}
-		// Clear pause time if transitioning from PAUSED.
-		if t.status == TaskStatusPaused {
-			t.pausedAt = time.Time{}
-		}
-		// Clear stall info if transitioning from STALE.
-		if t.status == TaskStatusStale {
-			t.recoveryAttempts++
-			t.clearStall()
-		}
-	case TaskStatusPaused:
-		t.pausedAt = time.Now()
-	case TaskStatusStale:
-		// Only set stall info if not already set.
-		if t.stallReason == nil {
-			return TaskInvalidStateError{
-				taskID: t.ID,
-				status: t.status,
-				reason: TaskInvalidStateReasonNoReason,
-			}
-		}
-		t.stalledAt = time.Now()
-	case TaskStatusCompleted, TaskStatusFailed:
+	// Universal side effects for start/completion times:
+	if t.status == TaskStatusPending && newStatus == TaskStatusInProgress {
+		t.timeline.MarkStarted()
+	}
+	if newStatus == TaskStatusCompleted || newStatus == TaskStatusFailed {
 		t.timeline.MarkCompleted()
 	}
 
@@ -450,10 +529,9 @@ func (t *Task) UpdateStatus(newStatus TaskStatus) error {
 	return nil
 }
 
-// Start transitions a task to IN_PROGRESS state.
-func (t *Task) Start() error {
-	return t.UpdateStatus(TaskStatusInProgress)
-}
+// ----------------------------------------------------
+// Progress Handling
+// ----------------------------------------------------
 
 // OutOfOrderProgressError is an error type for indicating that a progress update
 // is out of order and should be ignored.
@@ -477,10 +555,14 @@ func (e *OutOfOrderProgressError) Error() string {
 	return fmt.Sprintf("out of order progress update for task %s: sequence number %d is less than or equal to the last sequence number %d", e.taskID, e.seqNum, e.lastSeqNum)
 }
 
-// ApplyProgress applies a progress update to this task's state.
-// It updates all monitoring metrics and preserves any checkpoint data.
+// ApplyProgress updates metrics if in a valid state.
+// This method assumes the task is already in the correct state for receiving progress.
 func (t *Task) ApplyProgress(progress Progress) error {
-	if t.status != TaskStatusInProgress && t.status != TaskStatusStale && t.status != TaskStatusPending && t.status != TaskStatusPaused {
+	// Must be in one of these states to accept progress
+	switch t.status {
+	case TaskStatusInProgress:
+		// OK
+	default:
 		return TaskInvalidStateError{
 			taskID: t.ID,
 			status: t.status,
@@ -490,13 +572,6 @@ func (t *Task) ApplyProgress(progress Progress) error {
 
 	if !t.isSeqNumValid(progress) {
 		return NewOutOfOrderProgressError(t.TaskID(), progress.SequenceNum(), t.LastSequenceNum())
-	}
-
-	// If task is in pending, paused, or stale state, transition to in progress
-	if t.status == TaskStatusPending || t.status == TaskStatusPaused || t.status == TaskStatusStale {
-		if err := t.UpdateStatus(TaskStatusInProgress); err != nil {
-			return err
-		}
 	}
 
 	t.lastSequenceNum = progress.SequenceNum()
@@ -513,48 +588,6 @@ func (t *Task) ApplyProgress(progress Progress) error {
 
 func (t *Task) isSeqNumValid(progress Progress) bool {
 	return progress.SequenceNum() > t.lastSequenceNum
-}
-
-// Complete marks a task as completed.
-func (t *Task) Complete() error {
-	if t.status == TaskStatusCompleted {
-		return nil // Already completed, idempotent
-	}
-
-	// TODO: Uncomment once progress is tracked in source scanners.
-	// if t.itemsProcessed == 0 {
-	// 	return TaskInvalidStateError{
-	// 		taskID: t.ID,
-	// 		status: t.status,
-	// 		reason: TaskInvalidStateReasonNoProgress,
-	// 	}
-	// }
-
-	return t.UpdateStatus(TaskStatusCompleted)
-}
-
-func (t *Task) clearStall() {
-	t.stallReason = nil
-	t.stalledAt = time.Time{}
-}
-
-// Fail marks a task as failed.
-func (t *Task) Fail() error {
-	return t.UpdateStatus(TaskStatusFailed)
-}
-
-// MarkStale transitions a task to STALE state and records the reason.
-func (t *Task) MarkStale(reason *StallReason) error {
-	if reason == nil {
-		return TaskInvalidStateError{
-			taskID: t.ID,
-			status: t.status,
-			reason: TaskInvalidStateReasonNoReason,
-		}
-	}
-
-	t.stallReason = reason
-	return t.UpdateStatus(TaskStatusStale)
 }
 
 // StaleTaskInfo represents the minimal information needed for stale task processing.

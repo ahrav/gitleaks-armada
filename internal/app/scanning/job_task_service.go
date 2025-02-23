@@ -309,9 +309,11 @@ func (s *jobTaskService) StartTask(ctx context.Context, taskID uuid.UUID, resour
 	return nil
 }
 
-// UpdateTaskProgress updates a task’s progress in the repository, optionally batching
-// frequent updates to minimize database load. Returns the updated Task on success.
-// TODO: Might need to batch here?
+// UpdateTaskProgress handles task progress updates and necessary state transitions.
+// It handles three specific cases:
+// 1. Regular progress updates (IN_PROGRESS -> IN_PROGRESS)
+// 2. Resuming from STALE -> IN_PROGRESS
+// 3. Resuming from PAUSED -> IN_PROGRESS
 func (s *jobTaskService) UpdateTaskProgress(ctx context.Context, progress domain.Progress) (*domain.Task, error) {
 	ctx, span := s.tracer.Start(ctx, "job_task_service.scanning.update_task_progress",
 		trace.WithAttributes(
@@ -325,31 +327,60 @@ func (s *jobTaskService) UpdateTaskProgress(ctx context.Context, progress domain
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to load task")
-		return nil, fmt.Errorf("task load for progress update failed: %w", err)
+		return nil, fmt.Errorf("load task: %w", err)
 	}
-	span.SetAttributes(
-		attribute.String("task_status", string(task.Status())),
-	)
+	span.SetAttributes(attribute.String("task_status", string(task.Status())))
 
+	// Handle state transitions before applying progress.
+	switch task.Status() {
+	case domain.TaskStatusStale:
+		if err := task.RecoverFromStale(); err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "failed to recover from stale")
+			return nil, fmt.Errorf("recover from stale: %w", err)
+		}
+		span.AddEvent("task_recovered_from_stale")
+
+	case domain.TaskStatusPaused:
+		if err := task.Resume(); err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "failed to resume from pause")
+			return nil, fmt.Errorf("resume from pause: %w", err)
+		}
+		span.AddEvent("task_resumed_from_pause")
+
+	case domain.TaskStatusPending:
+		if err := task.Start(); err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "failed to start task")
+			return nil, fmt.Errorf("start task: %w", err)
+		}
+		span.AddEvent("task_started")
+
+	case domain.TaskStatusInProgress:
+		// Already in correct state, regular progress update.
+		span.AddEvent("task_already_in_progress")
+
+	default:
+		span.RecordError(fmt.Errorf("unexpected status: %s", task.Status()))
+		span.SetStatus(codes.Error, "unexpected task status")
+		return nil, fmt.Errorf("unexpected task status for progress update: %s", task.Status())
+	}
+
+	// Now that we're in the correct state, apply the progress.
 	if err := task.ApplyProgress(progress); err != nil {
 		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to apply progress update")
+		span.SetStatus(codes.Error, "failed to apply progress")
 		return nil, fmt.Errorf("apply progress: %w", err)
 	}
-	span.AddEvent("progress_applied",
-		trace.WithAttributes(
-			attribute.String("task_status", string(task.Status())),
-		),
-	)
+	span.AddEvent("progress_applied")
 
 	if err := s.taskRepo.UpdateTask(ctx, task); err != nil {
 		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to persist updated task")
+		span.SetStatus(codes.Error, "failed to persist task")
 		return nil, fmt.Errorf("persist task: %w", err)
 	}
-	span.AddEvent("task_persisted_due_to_interval")
-
-	span.AddEvent("task_progress_updated")
+	span.AddEvent("task_persisted")
 	span.SetStatus(codes.Ok, "task progress updated successfully")
 
 	return task, nil

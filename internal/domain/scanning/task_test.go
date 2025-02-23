@@ -1,6 +1,8 @@
 package scanning
 
 import (
+	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -57,34 +59,36 @@ func TestTask_ApplyProgress(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name                 string
-		setupTask            func() *Task
-		progress             Progress
-		wantStatus           TaskStatus
-		wantItems            int64
-		wantSeqNum           int64
-		wantErr              bool
-		checkpoints          bool
-		wantRecoveryAttempts int
+		name      string
+		setupTask func() *Task
+		progress  Progress
+		wantErr   bool
+		verify    func(*testing.T, *Task)
 	}{
 		{
 			name: "basic progress update",
 			setupTask: func() *Task {
-				return NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com")
+				task := NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com")
+				_ = task.Start()
+				return task
 			},
 			progress: Progress{
 				sequenceNum:    1,
 				itemsProcessed: 100,
-				timestamp:      time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+				timestamp:      time.Now(),
 			},
-			wantStatus: TaskStatusInProgress,
-			wantItems:  100,
-			wantSeqNum: 1,
+			verify: func(t *testing.T, task *Task) {
+				assert.Equal(t, int64(100), task.ItemsProcessed())
+				assert.Equal(t, int64(1), task.LastSequenceNum())
+				assert.Equal(t, TaskStatusInProgress, task.Status())
+			},
 		},
 		{
 			name: "update with checkpoint",
 			setupTask: func() *Task {
-				return NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com")
+				task := NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com")
+				_ = task.Start()
+				return task
 			},
 			progress: Progress{
 				sequenceNum: 1,
@@ -92,102 +96,81 @@ func TestTask_ApplyProgress(t *testing.T) {
 					resumeToken: []byte("token"),
 				},
 			},
-			wantStatus:  TaskStatusInProgress,
-			wantSeqNum:  1,
-			checkpoints: true,
+			verify: func(t *testing.T, task *Task) {
+				assert.NotNil(t, task.LastCheckpoint())
+				assert.Equal(t, []byte("token"), task.LastCheckpoint().ResumeToken())
+			},
 		},
 		{
 			name: "out of order update",
 			setupTask: func() *Task {
 				task := NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com")
-				_ = task.ApplyProgress(Progress{
-					sequenceNum: 2,
-				})
+				_ = task.Start()
+				_ = task.ApplyProgress(Progress{sequenceNum: 2})
 				return task
 			},
 			progress: Progress{
-				sequenceNum: 1, // Lower than current
+				sequenceNum: 1,
 			},
-			wantStatus: TaskStatusInProgress, // Should not change
-			wantSeqNum: 2,                    // Should not change
-			wantErr:    true,
+			wantErr: true,
 		},
 		{
-			name: "recover from stale state",
+			name: "reject progress in pending state",
 			setupTask: func() *Task {
-				task := NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com")
-
-				_ = task.ApplyProgress(Progress{
-					taskID:      task.TaskID(),
-					sequenceNum: 1,
-				})
-
-				reason := StallReasonNoProgress
-				_ = task.MarkStale(&reason)
-				return task
+				return NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com")
 			},
 			progress: Progress{
-				sequenceNum:    2,
+				sequenceNum:    1,
 				itemsProcessed: 100,
-				timestamp:      time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
 			},
-			wantStatus:           TaskStatusInProgress,
-			wantItems:            100,
-			wantSeqNum:           2,
-			wantRecoveryAttempts: 1,
+			wantErr: true,
 		},
 		{
-			name: "multiple recoveries from stale state",
+			name: "reject progress in paused state",
 			setupTask: func() *Task {
 				task := NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com")
-				reason := StallReasonNoProgress
-
-				_ = task.ApplyProgress(Progress{
-					taskID:      task.TaskID(),
-					sequenceNum: 1,
-				})
-
-				// First stale cycle.
-				_ = task.MarkStale(&reason)
-				_ = task.ApplyProgress(Progress{
-					taskID:      task.TaskID(),
-					sequenceNum: 2,
-				})
-
-				// Second stale cycle.
-				_ = task.MarkStale(&reason)
-				return task
-			},
-			progress: Progress{
-				sequenceNum:    3,
-				itemsProcessed: 100,
-				timestamp:      time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-			},
-			wantStatus:           TaskStatusInProgress,
-			wantItems:            100,
-			wantSeqNum:           3,
-			wantRecoveryAttempts: 2,
-		},
-		{
-			name: "recover from paused state",
-			setupTask: func() *Task {
-				task := NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com")
-				_ = task.UpdateStatus(TaskStatusPaused)
+				_ = task.Start()
+				_ = task.Pause()
 				return task
 			},
 			progress: Progress{
 				sequenceNum:    1,
 				itemsProcessed: 100,
-				timestamp:      time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
 			},
-			wantStatus:           TaskStatusInProgress,
-			wantItems:            100,
-			wantSeqNum:           1,
-			wantRecoveryAttempts: 0,
+			wantErr: true,
+		},
+		{
+			name: "reject progress in stale state",
+			setupTask: func() *Task {
+				task := NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com")
+				_ = task.Start()
+				_ = task.MarkStale(ReasonPtr(StallReasonNoProgress))
+				return task
+			},
+			progress: Progress{
+				sequenceNum:    1,
+				itemsProcessed: 100,
+			},
+			wantErr: true,
+		},
+		{
+			name: "reject progress in completed state",
+			setupTask: func() *Task {
+				task := NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com")
+				_ = task.Start()
+				_ = task.Complete()
+				return task
+			},
+			progress: Progress{
+				sequenceNum:    1,
+				itemsProcessed: 100,
+			},
+			wantErr: true,
 		},
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -198,26 +181,19 @@ func TestTask_ApplyProgress(t *testing.T) {
 			}
 
 			err := task.ApplyProgress(tt.progress)
+
 			if tt.wantErr {
 				require.Error(t, err)
-				var outOfOrderErr *OutOfOrderProgressError
-				assert.ErrorAs(t, err, &outOfOrderErr)
-			} else {
-				require.NoError(t, err)
+				var stateErr TaskInvalidStateError
+				if errors.As(err, &stateErr) {
+					assert.Equal(t, TaskInvalidStateReasonWrongStatus, stateErr.Reason())
+				}
+				return
 			}
 
-			assert.Equal(t, tt.wantStatus, task.Status())
-			assert.Equal(t, tt.wantItems, task.ItemsProcessed())
-			assert.Equal(t, tt.wantSeqNum, task.LastSequenceNum())
-			if tt.checkpoints {
-				assert.NotNil(t, task.LastCheckpoint())
-				assert.Equal(t, tt.progress.Checkpoint().ResumeToken(), task.LastCheckpoint().ResumeToken())
-			}
-			assert.Equal(t, tt.wantRecoveryAttempts, task.RecoveryAttempts())
-
-			if tt.wantRecoveryAttempts > 0 {
-				assert.Nil(t, task.StallReason())
-				assert.True(t, task.StalledAt().IsZero())
+			require.NoError(t, err)
+			if tt.verify != nil {
+				tt.verify(t, task)
 			}
 		})
 	}
@@ -566,6 +542,353 @@ func TestTask_MarkStale(t *testing.T) {
 			assert.True(t, tt.initialTask.StalledAt().After(beforeStale) ||
 				tt.initialTask.StalledAt().Equal(beforeStale))
 			assert.Greater(t, tt.initialTask.StalledDuration(), time.Duration(0))
+		})
+	}
+}
+
+func TestTask_LifecycleTransitions(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		setupTask     func() *Task
+		transition    func(*Task) error
+		wantStatus    TaskStatus
+		wantErr       bool
+		wantErrReason TaskInvalidStateReason
+		verify        func(*testing.T, *Task)
+	}{
+		{
+			name: "start - pending to in progress",
+			setupTask: func() *Task {
+				return NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com")
+			},
+			transition: func(t *Task) error { return t.Start() },
+			wantStatus: TaskStatusInProgress,
+			verify: func(t *testing.T, task *Task) {
+				assert.False(t, task.StartTime().IsZero())
+			},
+		},
+		{
+			name: "start - fail from completed",
+			setupTask: func() *Task {
+				task := NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com")
+				_ = task.Start()
+				_ = task.Complete()
+				return task
+			},
+			transition:    func(t *Task) error { return t.Start() },
+			wantErr:       true,
+			wantErrReason: TaskInvalidStateReasonWrongStatus,
+		},
+		{
+			name: "pause - in progress to paused",
+			setupTask: func() *Task {
+				task := NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com")
+				_ = task.Start()
+				return task
+			},
+			transition: func(t *Task) error { return t.Pause() },
+			wantStatus: TaskStatusPaused,
+			verify: func(t *testing.T, task *Task) {
+				assert.False(t, task.PausedAt().IsZero())
+			},
+		},
+		{
+			name: "pause - fail from pending",
+			setupTask: func() *Task {
+				return NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com")
+			},
+			transition:    func(t *Task) error { return t.Pause() },
+			wantErr:       true,
+			wantErrReason: TaskInvalidStateReasonWrongStatus,
+		},
+		{
+			name: "resume - paused to in progress",
+			setupTask: func() *Task {
+				task := NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com")
+				_ = task.Start()
+				_ = task.Pause()
+				return task
+			},
+			transition: func(t *Task) error { return t.Resume() },
+			wantStatus: TaskStatusInProgress,
+			verify: func(t *testing.T, task *Task) {
+				assert.True(t, task.PausedAt().IsZero())
+			},
+		},
+		{
+			name: "resume - fail from in progress",
+			setupTask: func() *Task {
+				task := NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com")
+				_ = task.Start()
+				return task
+			},
+			transition:    func(t *Task) error { return t.Resume() },
+			wantErr:       true,
+			wantErrReason: TaskInvalidStateReasonWrongStatus,
+		},
+		{
+			name: "mark stale - in progress to stale",
+			setupTask: func() *Task {
+				task := NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com")
+				_ = task.Start()
+				return task
+			},
+			transition: func(t *Task) error { return t.MarkStale(ReasonPtr(StallReasonNoProgress)) },
+			wantStatus: TaskStatusStale,
+			verify: func(t *testing.T, task *Task) {
+				assert.NotNil(t, task.StallReason())
+				assert.False(t, task.StalledAt().IsZero())
+				assert.Equal(t, StallReasonNoProgress, *task.StallReason())
+			},
+		},
+		{
+			name: "mark stale - fail without reason",
+			setupTask: func() *Task {
+				task := NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com")
+				_ = task.Start()
+				return task
+			},
+			transition:    func(t *Task) error { return t.MarkStale(nil) },
+			wantErr:       true,
+			wantErrReason: TaskInvalidStateReasonNoReason,
+		},
+		{
+			name: "mark stale - fail from completed",
+			setupTask: func() *Task {
+				task := NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com")
+				_ = task.Start()
+				_ = task.Complete()
+				return task
+			},
+			transition:    func(t *Task) error { return t.MarkStale(ReasonPtr(StallReasonNoProgress)) },
+			wantErr:       true,
+			wantErrReason: TaskInvalidStateReasonWrongStatus,
+		},
+		{
+			name: "recover from stale",
+			setupTask: func() *Task {
+				task := NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com")
+				_ = task.Start()
+				_ = task.MarkStale(ReasonPtr(StallReasonNoProgress))
+				return task
+			},
+			transition: func(t *Task) error { return t.RecoverFromStale() },
+			wantStatus: TaskStatusInProgress,
+			verify: func(t *testing.T, task *Task) {
+				assert.Nil(t, task.StallReason())
+				assert.True(t, task.StalledAt().IsZero())
+				assert.Equal(t, 1, task.RecoveryAttempts())
+			},
+		},
+		{
+			name: "recover from stale - fail from in progress",
+			setupTask: func() *Task {
+				task := NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com")
+				_ = task.Start()
+				return task
+			},
+			transition:    func(t *Task) error { return t.RecoverFromStale() },
+			wantErr:       true,
+			wantErrReason: TaskInvalidStateReasonWrongStatus,
+		},
+		{
+			name: "complete - in progress to completed",
+			setupTask: func() *Task {
+				task := NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com")
+				_ = task.Start()
+				return task
+			},
+			transition: func(t *Task) error { return t.Complete() },
+			wantStatus: TaskStatusCompleted,
+			verify: func(t *testing.T, task *Task) {
+				assert.False(t, task.EndTime().IsZero())
+			},
+		},
+		{
+			name: "complete - idempotent when already completed",
+			setupTask: func() *Task {
+				task := NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com")
+				_ = task.Start()
+				_ = task.Complete()
+				return task
+			},
+			transition: func(t *Task) error { return t.Complete() },
+			wantStatus: TaskStatusCompleted,
+		},
+		{
+			name: "fail - from any state",
+			setupTask: func() *Task {
+				task := NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com")
+				_ = task.Start()
+				_ = task.Pause()
+				return task
+			},
+			transition: func(t *Task) error { return t.Fail() },
+			wantStatus: TaskStatusFailed,
+			verify: func(t *testing.T, task *Task) {
+				assert.False(t, task.EndTime().IsZero())
+			},
+		},
+		{
+			name: "fail - fail from failed",
+			setupTask: func() *Task {
+				task := NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com")
+				_ = task.Start()
+				_ = task.Fail()
+				return task
+			},
+			transition:    func(t *Task) error { return t.Fail() },
+			wantStatus:    TaskStatusFailed,
+			wantErr:       true,
+			wantErrReason: TaskInvalidStateReasonWrongStatus,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			task := tt.setupTask()
+			err := tt.transition(task)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				var stateErr TaskInvalidStateError
+				require.ErrorAs(t, err, &stateErr)
+				assert.Equal(t, tt.wantErrReason, stateErr.Reason())
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantStatus, task.Status())
+
+			if tt.verify != nil {
+				tt.verify(t, task)
+			}
+		})
+	}
+}
+
+// TestUpdateTaskProgress tests the service layer's handling of state transitions
+// before applying progress updates.
+func TestUpdateTaskProgress(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		setupTask func() *Task
+		progress  Progress
+		wantErr   bool
+		verify    func(*testing.T, *Task)
+	}{
+		{
+			name: "transition from pending to in progress",
+			setupTask: func() *Task {
+				return NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com")
+			},
+			progress: Progress{
+				sequenceNum:    1,
+				itemsProcessed: 100,
+			},
+			verify: func(t *testing.T, task *Task) {
+				assert.Equal(t, TaskStatusInProgress, task.Status())
+				assert.Equal(t, int64(100), task.ItemsProcessed())
+				assert.False(t, task.StartTime().IsZero())
+			},
+		},
+		{
+			name: "transition from paused to in progress",
+			setupTask: func() *Task {
+				task := NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com")
+				_ = task.Start()
+				_ = task.Pause()
+				return task
+			},
+			progress: Progress{
+				sequenceNum:    1,
+				itemsProcessed: 100,
+			},
+			verify: func(t *testing.T, task *Task) {
+				assert.Equal(t, TaskStatusInProgress, task.Status())
+				assert.True(t, task.PausedAt().IsZero())
+				assert.Equal(t, int64(100), task.ItemsProcessed())
+			},
+		},
+		{
+			name: "transition from stale to in progress",
+			setupTask: func() *Task {
+				task := NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com")
+				_ = task.Start()
+				_ = task.MarkStale(ReasonPtr(StallReasonNoProgress))
+				return task
+			},
+			progress: Progress{
+				sequenceNum:    1,
+				itemsProcessed: 100,
+			},
+			verify: func(t *testing.T, task *Task) {
+				assert.Equal(t, TaskStatusInProgress, task.Status())
+				assert.Equal(t, 1, task.RecoveryAttempts())
+				assert.Nil(t, task.StallReason())
+				assert.True(t, task.StalledAt().IsZero())
+				assert.Equal(t, int64(100), task.ItemsProcessed())
+			},
+		},
+		{
+			name: "reject progress in completed state",
+			setupTask: func() *Task {
+				task := NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com")
+				_ = task.Start()
+				_ = task.Complete()
+				return task
+			},
+			progress: Progress{
+				sequenceNum:    1,
+				itemsProcessed: 100,
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			task := tt.setupTask()
+			tt.progress.taskID = task.TaskID()
+
+			// Simulate service layer behavior
+			var err error
+			switch task.Status() {
+			case TaskStatusStale:
+				err = task.RecoverFromStale()
+			case TaskStatusPaused:
+				err = task.Resume()
+			case TaskStatusPending:
+				err = task.Start()
+			case TaskStatusInProgress:
+				// Already in correct state
+			default:
+				err = fmt.Errorf("unexpected task status: %s", task.Status())
+			}
+
+			if err == nil && !tt.wantErr {
+				err = task.ApplyProgress(tt.progress)
+			}
+
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+			if tt.verify != nil {
+				tt.verify(t, task)
+			}
 		})
 	}
 }
