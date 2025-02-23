@@ -134,7 +134,7 @@ func (s *Scanner) runGitScan(
 
 	ctx, detectSpan := s.tracer.Start(ctx, "gitleaks_scanner.scanning.detect_secrets")
 	detectSpan.AddEvent("starting_secret_detection")
-	findings, err := s.detector.DetectGit(gitCmd)
+	findings, err := s.detector.DetectGit(gitCmd, nil)
 	if err != nil {
 		detectSpan.RecordError(err)
 		detectSpan.AddEvent("secret_detection_failed")
