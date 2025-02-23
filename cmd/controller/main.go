@@ -219,23 +219,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	kafkaCfg := &kafka.EventBusConfig{
-		Brokers:               strings.Split(os.Getenv("KAFKA_BROKERS"), ","),
-		TaskCreatedTopic:      os.Getenv("KAFKA_TASK_CREATED_TOPIC"),
-		ScanningTaskTopic:     os.Getenv("KAFKA_SCANNING_TASK_TOPIC"),
-		ResultsTopic:          os.Getenv("KAFKA_RESULTS_TOPIC"),
-		ProgressTopic:         os.Getenv("KAFKA_PROGRESS_TOPIC"),
-		HighPriorityTaskTopic: os.Getenv("KAFKA_HIGH_PRIORITY_TASK_TOPIC"),
-		RulesRequestTopic:     os.Getenv("KAFKA_RULES_REQUEST_TOPIC"),
-		RulesResponseTopic:    os.Getenv("KAFKA_RULES_RESPONSE_TOPIC"),
-		JobLifecycleTopic:     os.Getenv("KAFKA_JOB_LIFECYCLE_TOPIC"),
-		JobBroadcastTopic:     os.Getenv("KAFKA_JOB_BROADCAST_TOPIC"),
-		GroupID:               os.Getenv("KAFKA_GROUP_ID"),
-		ClientID:              svcName,
-		ServiceType:           serviceType,
-	}
-
-	// Create the shared Kafka client
 	kafkaClient, err := kafka.NewClient(&kafka.ClientConfig{
 		Brokers:     strings.Split(os.Getenv("KAFKA_BROKERS"), ","),
 		GroupID:     os.Getenv("KAFKA_GROUP_ID"),
@@ -248,10 +231,51 @@ func main() {
 	}
 	defer kafkaClient.Close()
 
-	// Connect event bus using shared client.
+	// Create a separate client for broadcast events.
+	broadcastClient, err := kafka.NewClient(&kafka.ClientConfig{
+		Brokers:     strings.Split(os.Getenv("KAFKA_BROKERS"), ","),
+		GroupID:     fmt.Sprintf("controller-broadcast-%s", hostname),
+		ClientID:    fmt.Sprintf("controller-broadcast-%s", hostname),
+		ServiceType: serviceType,
+	})
+	if err != nil {
+		log.Error(ctx, "failed to create broadcast kafka client", "error", err)
+		os.Exit(1)
+	}
+	defer broadcastClient.Close()
+
+	kafkaCfg := &kafka.EventBusConfig{
+		Brokers:               strings.Split(os.Getenv("KAFKA_BROKERS"), ","),
+		TaskCreatedTopic:      os.Getenv("KAFKA_TASK_CREATED_TOPIC"),
+		ScanningTaskTopic:     os.Getenv("KAFKA_SCANNING_TASK_TOPIC"),
+		ResultsTopic:          os.Getenv("KAFKA_RESULTS_TOPIC"),
+		ProgressTopic:         os.Getenv("KAFKA_PROGRESS_TOPIC"),
+		HighPriorityTaskTopic: os.Getenv("KAFKA_HIGH_PRIORITY_TASK_TOPIC"),
+		RulesRequestTopic:     os.Getenv("KAFKA_RULES_REQUEST_TOPIC"),
+		RulesResponseTopic:    os.Getenv("KAFKA_RULES_RESPONSE_TOPIC"),
+		JobLifecycleTopic:     os.Getenv("KAFKA_JOB_LIFECYCLE_TOPIC"),
+		GroupID:               os.Getenv("KAFKA_GROUP_ID"),
+		ClientID:              svcName,
+		ServiceType:           serviceType,
+	}
+
+	// Broadcast event bus config.
+	broadcastCfg := &kafka.EventBusConfig{
+		JobBroadcastTopic: os.Getenv("KAFKA_JOB_BROADCAST_TOPIC"),
+		GroupID:           fmt.Sprintf("controller-broadcast-%s", hostname),
+		ClientID:          fmt.Sprintf("controller-broadcast-%s", hostname),
+		ServiceType:       serviceType,
+	}
+
 	eventBus, err := kafka.ConnectEventBus(kafkaCfg, kafkaClient, log, metricCollector, tracer)
 	if err != nil {
 		log.Error(ctx, "failed to connect event bus", "error", err)
+		os.Exit(1)
+	}
+
+	broadcastEventBus, err := kafka.ConnectEventBus(broadcastCfg, broadcastClient, log, metricCollector, tracer)
+	if err != nil {
+		log.Error(ctx, "failed to connect broadcast event bus", "error", err)
 		os.Exit(1)
 	}
 
@@ -282,7 +306,7 @@ func main() {
 	checkpointStorage := enumStore.NewCheckpointStore(pool, tracer)
 	enumStateStorage := enumStore.NewEnumerationSessionStateStore(pool, checkpointStorage, tracer)
 	eventPublisher := kafka.NewDomainEventPublisher(eventBus, domainEventTranslator)
-	broadcastPublisher := kafka.NewDomainEventPublisher(eventBus, domainEventTranslator)
+	broadcastPublisher := kafka.NewDomainEventPublisher(broadcastEventBus, domainEventTranslator)
 	enumFactory := enumeration.NewEnumerationFactory(hostname, http.DefaultClient, log, tracer)
 	enumTaskStorage := enumStore.NewTaskStore(pool, tracer)
 	batchStorage := enumStore.NewBatchStore(pool, checkpointStorage, tracer)
@@ -347,6 +371,9 @@ func main() {
 		// Close components in order.
 		if err := eventBus.Close(); err != nil {
 			log.Error(shutdownCtx, "Failed to close event bus", "error", err)
+		}
+		if err := broadcastEventBus.Close(); err != nil {
+			log.Error(shutdownCtx, "Failed to close broadcast event bus", "error", err)
 		}
 		if err := orchestrator.Stop(shutdownCtx); err != nil {
 			log.Error(shutdownCtx, "Failed to stop orchestrator", "error", err)
