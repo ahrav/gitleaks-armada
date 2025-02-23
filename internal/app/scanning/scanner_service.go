@@ -494,6 +494,9 @@ func (s *ScannerService) doWorkerLoop(ctx context.Context, workerID int, workerL
 					attribute.String("resource_uri", task.ResourceURI),
 				))
 			s.mu.Lock()
+			if _, ok := s.activeJobTasksCancel[task.JobID]; !ok {
+				s.activeJobTasksCancel[task.JobID] = make(map[uuid.UUID]context.CancelCauseFunc)
+			}
 			s.activeJobTasksCancel[task.JobID][task.TaskID] = cancel
 			s.mu.Unlock()
 
