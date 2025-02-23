@@ -40,7 +40,7 @@ func setupJobSchedulerTestSuite() (
 }
 
 func TestScheduleJob(t *testing.T) {
-	jobID := uuid.MustParse("429735d7-ec1b-4d96-8749-938ca0a744be")
+	jobID := uuid.New()
 	targets := []scanning.Target{
 		scanning.NewTarget(
 			"test-target-1",
@@ -69,7 +69,6 @@ func TestScheduleJob(t *testing.T) {
 				service.On("CreateJobFromID", mock.Anything, jobID).Return(nil)
 
 				for _, target := range targets {
-					expectedTarget := target // Capture the target value
 					publisher.On("PublishDomainEvent",
 						mock.Anything,
 						mock.MatchedBy(func(evt events.DomainEvent) bool {
@@ -78,8 +77,8 @@ func TestScheduleJob(t *testing.T) {
 								return false
 							}
 							return scheduledEvt.JobID == jobID &&
-								scheduledEvt.Target.Name() == expectedTarget.Name() &&
-								scheduledEvt.Target.SourceType() == expectedTarget.SourceType()
+								scheduledEvt.Target.Name() == target.Name() &&
+								scheduledEvt.Target.SourceType() == target.SourceType()
 						}),
 						mock.AnythingOfType("[]events.PublishOption"),
 					).Return(nil).Once()
@@ -145,7 +144,7 @@ func TestScheduleJob(t *testing.T) {
 }
 
 func TestPauseJob(t *testing.T) {
-	jobID := uuid.MustParse("429735d7-ec1b-4d96-8749-938ca0a744be")
+	jobID := uuid.New()
 	requestedBy := "test-user"
 
 	tests := []struct {
