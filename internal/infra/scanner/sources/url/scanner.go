@@ -91,7 +91,9 @@ func (s *Scanner) ScanStreaming(
 					"error", err,
 					"task_id", req.TaskID,
 				)
+				return
 			}
+			s.logger.Info(ctx, "Scan paused", "task_id", req.TaskID, "job_id", req.JobID)
 		},
 	}
 
@@ -343,7 +345,7 @@ func (sc *ScanContext) HandlePause(ctx context.Context, reason string) error {
 	newProgress := domain.NewProgress(
 		sc.taskID,
 		sc.jobID,
-		sc.nextSequence.Load(),
+		sc.NextSequence(),
 		time.Now(),
 		lastProgress.ItemsProcessed(),
 		0,
