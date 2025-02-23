@@ -26,6 +26,11 @@ func (m *mockJobScheduler) Schedule(ctx context.Context, jobID uuid.UUID, target
 	return args.Error(0)
 }
 
+func (m *mockJobScheduler) Pause(ctx context.Context, jobID uuid.UUID, requestedBy string) error {
+	args := m.Called(ctx, jobID, requestedBy)
+	return args.Error(0)
+}
+
 // Mock implementations.
 type mockExecutionTracker struct{ mock.Mock }
 

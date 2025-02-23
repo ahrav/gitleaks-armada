@@ -3,6 +3,8 @@ package scan
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 
 	"github.com/google/uuid"
@@ -28,6 +30,7 @@ type Config struct {
 // Routes binds all the scan endpoints.
 func Routes(app *web.App, cfg Config) {
 	app.HandlerFunc(http.MethodPost, "", "/v1/scan", start(cfg))
+	app.HandlerFunc(http.MethodPost, "", "/v1/scan/:id/pause", pause(cfg))
 	// app.HandlerFunc(http.MethodGet, "", "/v1/scan/:id", status(cfg))
 }
 
@@ -170,4 +173,53 @@ func buildTargetConfig(tr targetRequest) config.TargetSpec {
 	}
 
 	return target
+}
+
+// pauseRequest represents the payload for pausing a scan.
+type pauseRequest struct {
+	Reason string `json:"reason,omitempty"`
+}
+
+// pauseResponse represents the response for pausing a scan.
+type pauseResponse struct {
+	ID     string `json:"id"`     // The job ID
+	Status string `json:"status"` // Current status
+}
+
+// Encode implements the web.Encoder interface.
+func (pr pauseResponse) Encode() ([]byte, string, error) {
+	data, err := json.Marshal(pr)
+	if err != nil {
+		return nil, "", err
+	}
+	return data, "application/json", nil
+}
+
+// HTTPStatus implements the httpStatus interface to set the response status code.
+func (pr pauseResponse) HTTPStatus() int { return http.StatusAccepted } // 202
+
+// pause handles the request to pause a scan job.
+func pause(cfg Config) web.HandlerFunc {
+	return func(ctx context.Context, r *http.Request) web.Encoder {
+		jobID, err := uuid.Parse(web.Param(r, "id"))
+		if err != nil {
+			return errs.New(errs.InvalidArgument, fmt.Errorf("invalid job ID: %w", err))
+		}
+
+		var req pauseRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+			return errs.New(errs.InvalidArgument, err)
+		}
+
+		// Create and publish the JobPausingEvent
+		evt := scanDomain.NewJobPausingEvent(jobID.String(), "system") // TODO: Use JWT user instead of "system" if available.
+		if err := cfg.EventBus.PublishDomainEvent(ctx, evt, events.WithKey(jobID.String())); err != nil {
+			return errs.New(errs.Internal, fmt.Errorf("failed to publish pause event: %w", err))
+		}
+
+		return pauseResponse{
+			ID:     jobID.String(),
+			Status: scanDomain.JobStatusPausing.String(),
+		}
+	}
 }

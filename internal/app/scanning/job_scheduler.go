@@ -97,3 +97,39 @@ func (s *jobScheduler) Schedule(ctx context.Context, jobID uuid.UUID, targets []
 
 	return nil
 }
+
+// Pause initiates the pausing of a job by transitioning it to the PAUSING state
+// and publishing a JobPausingEvent. The actual pause operation is handled asynchronously
+// by the job coordinator.
+func (s *jobScheduler) Pause(ctx context.Context, jobID uuid.UUID, requestedBy string) error {
+	logger := s.logger.With("operation", "pause_job", "job_id", jobID)
+	ctx, span := s.tracer.Start(ctx, "job_scheduler.pause_job",
+		trace.WithAttributes(
+			attribute.String("controller_id", s.controllerID),
+			attribute.String("job_id", jobID.String()),
+			attribute.String("requested_by", requestedBy),
+		),
+	)
+	defer span.End()
+	logger.Debug(ctx, "Pausing job")
+
+	// First update the job status to PAUSING
+	if err := s.jobTaskService.UpdateJobStatus(ctx, jobID, domain.JobStatusPausing); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to update job status to pausing")
+		return fmt.Errorf("failed to update job status to pausing (job_id: %s): %w", jobID, err)
+	}
+	span.AddEvent("job_status_updated_to_pausing")
+
+	// Publish JobPausingEvent to notify other components
+	evt := domain.NewJobPausingEvent(jobID.String(), requestedBy)
+	if err := s.publisher.PublishDomainEvent(ctx, evt, events.WithKey(jobID.String())); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to publish job pausing event")
+		return fmt.Errorf("failed to publish job pausing event (job_id: %s): %w", jobID, err)
+	}
+	span.AddEvent("job_pausing_event_published")
+	span.SetStatus(codes.Ok, "job pause initiated successfully")
+
+	return nil
+}

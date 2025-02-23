@@ -36,6 +36,51 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /v1/scan/{jobId}/pause:
+    post:
+      summary: Pause a running scan job
+      operationId: pauseScan
+      tags:
+        - Scanning
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: The ID of the scan job to pause
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PauseRequest'
+      responses:
+        '202':
+          description: Pause request accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PauseResponse'
+        '404':
+          description: Job not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '400':
+          description: Invalid request parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 components:
   schemas:
     ScanRequest:
@@ -182,3 +227,26 @@ components:
           type: object
           additionalProperties: true
           description: Authentication credentials specific to the auth type.
+    PauseRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          description: Optional reason for pausing the scan
+    PauseResponse:
+      type: object
+      required:
+        - id
+        - status
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: The ID of the paused job
+        status:
+          type: string
+          enum: [PAUSING]
+          description: The new status of the job
+      example:
+        id: "123e4567-e89b-12d3-a456-426614174000"
+        status: "PAUSING"

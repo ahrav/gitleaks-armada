@@ -150,3 +150,83 @@ func TestScheduleJob(t *testing.T) {
 		})
 	}
 }
+
+func TestPauseJob(t *testing.T) {
+	jobID := uuid.MustParse("429735d7-ec1b-4d96-8749-938ca0a744be")
+	requestedBy := "test-user"
+
+	tests := []struct {
+		name    string
+		setup   func(*mockJobTaskSvc, *mockDomainEventPublisher)
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "successful job pause",
+			setup: func(service *mockJobTaskSvc, publisher *mockDomainEventPublisher) {
+				service.On("UpdateJobStatus", mock.Anything, jobID, scanning.JobStatusPausing).Return(nil)
+
+				publisher.On("PublishDomainEvent",
+					mock.Anything,
+					mock.MatchedBy(func(evt events.DomainEvent) bool {
+						pausingEvt, ok := evt.(scanning.JobPausingEvent)
+						if !ok {
+							return false
+						}
+						return pausingEvt.JobID == jobID.String() &&
+							pausingEvt.RequestedBy == requestedBy
+					}),
+					mock.AnythingOfType("[]events.PublishOption"),
+				).Return(nil)
+			},
+			wantErr: false,
+		},
+		{
+			name: "status update fails",
+			setup: func(service *mockJobTaskSvc, publisher *mockDomainEventPublisher) {
+				service.On("UpdateJobStatus", mock.Anything, jobID, scanning.JobStatusPausing).
+					Return(errors.New("status update failed"))
+
+				// Event should not be published if status update fails.
+			},
+			wantErr: true,
+			errMsg:  "failed to update job status to pausing",
+		},
+		{
+			name: "event publishing fails",
+			setup: func(service *mockJobTaskSvc, publisher *mockDomainEventPublisher) {
+				service.On("UpdateJobStatus", mock.Anything, jobID, scanning.JobStatusPausing).Return(nil)
+
+				publisher.On("PublishDomainEvent",
+					mock.Anything,
+					mock.MatchedBy(func(evt events.DomainEvent) bool {
+						_, ok := evt.(scanning.JobPausingEvent)
+						return ok
+					}),
+					mock.AnythingOfType("[]events.PublishOption"),
+				).Return(errors.New("event publishing failed"))
+			},
+			wantErr: true,
+			errMsg:  "failed to publish job pausing event",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			scheduler, mockService, mockPublisher := setupJobSchedulerTestSuite()
+			tt.setup(mockService, mockPublisher)
+
+			err := scheduler.Pause(context.Background(), jobID, requestedBy)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errMsg)
+				return
+			}
+
+			require.NoError(t, err)
+			mockService.AssertExpectations(t)
+			mockPublisher.AssertExpectations(t)
+		})
+	}
+}

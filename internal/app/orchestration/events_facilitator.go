@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -217,6 +218,45 @@ func (ef *EventsFacilitator) HandleScanJobScheduled(
 
 		span.AddEvent("enumeration_completed_successfully")
 		span.SetStatus(codes.Ok, "enumeration completed")
+		return nil
+	}, ack)
+}
+
+// HandleJobPausing processes a scanning.JobPausingEvent by updating the job status
+// to PAUSED and publishing a JobPausedEvent.
+func (ef *EventsFacilitator) HandleJobPausing(
+	ctx context.Context,
+	evt events.EventEnvelope,
+	ack events.AckFunc,
+) error {
+	return ef.withSpan(ctx, "events_facilitator.handle_job_pausing", func(ctx context.Context, span trace.Span) error {
+		span.AddEvent("processing_job_pausing")
+
+		pausingEvt, ok := evt.Payload.(scanning.JobPausingEvent)
+		if !ok {
+			return recordPayloadTypeError(span, evt.Payload)
+		}
+
+		jobID, err := uuid.Parse(pausingEvt.JobID)
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "invalid job ID")
+			return fmt.Errorf("invalid job ID: %w", err)
+		}
+
+		span.AddEvent("job_pausing_event_valid", trace.WithAttributes(
+			attribute.String("job_id", jobID.String()),
+			attribute.String("requested_by", pausingEvt.RequestedBy),
+		))
+
+		if err := ef.jobScheduler.Pause(ctx, jobID, pausingEvt.RequestedBy); err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "failed to pause job")
+			return fmt.Errorf("failed to pause job (job_id: %s): %w", jobID, err)
+		}
+
+		span.AddEvent("job_paused_successfully")
+		span.SetStatus(codes.Ok, "job paused successfully")
 		return nil
 	}, ack)
 }

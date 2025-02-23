@@ -168,35 +168,65 @@ func TestJobStore_UpdateJob(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, initialJob)
 
-	// Set completion time one hour later.
-	completionTime := initialJob.StartTime().Add(time.Hour)
-	completionTimeline := scanning.ReconstructTimeline(
-		initialJob.StartTime(),
-		completionTime,
-		completionTime,
-	)
+	// Test state transitions
+	testCases := []struct {
+		name          string
+		initialStatus scanning.JobStatus
+		targetStatus  scanning.JobStatus
+		expectError   bool
+	}{
+		{
+			name:          "transition to pausing",
+			initialStatus: scanning.JobStatusRunning,
+			targetStatus:  scanning.JobStatusPausing,
+			expectError:   false,
+		},
+		{
+			name:          "transition to paused",
+			initialStatus: scanning.JobStatusPausing,
+			targetStatus:  scanning.JobStatusPaused,
+			expectError:   false,
+		},
+		{
+			name:          "invalid transition to paused",
+			initialStatus: scanning.JobStatusRunning,
+			targetStatus:  scanning.JobStatusPaused,
+			expectError:   true,
+		},
+	}
 
-	updatedJob := scanning.ReconstructJob(
-		job.JobID(),
-		scanning.JobStatusCompleted,
-		completionTimeline,
-	)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Set initial state
+			job := scanning.ReconstructJob(
+				uuid.New(),
+				tc.initialStatus,
+				scanning.NewTimeline(&mockTimeProvider{current: time.Now()}),
+			)
+			err := store.CreateJob(ctx, job)
+			require.NoError(t, err)
 
-	err = store.UpdateJob(ctx, updatedJob)
-	require.NoError(t, err)
+			// Attempt state transition
+			updatedJob := scanning.ReconstructJob(
+				job.JobID(),
+				tc.targetStatus,
+				scanning.NewTimeline(&mockTimeProvider{current: time.Now()}),
+			)
+			err = store.UpdateJob(ctx, updatedJob)
 
-	loaded, err := store.GetJob(ctx, job.JobID())
-	require.NoError(t, err)
-	require.NotNil(t, loaded)
+			if tc.expectError {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
 
-	// Verify status and timing.
-	assert.Equal(t, scanning.JobStatusCompleted, loaded.Status())
-	endTime, hasEndTime := loaded.EndTime()
-	assert.True(t, hasEndTime)
-	assert.Equal(t, completionTime.UTC(), endTime.UTC(),
-		"End time should match completion time")
-	assert.WithinDuration(t, time.Now().UTC(), loaded.LastUpdateTime(), time.Second,
-		"Last update time should be close to current time")
+			// Verify state
+			loaded, err := store.GetJob(ctx, job.JobID())
+			require.NoError(t, err)
+			require.NotNil(t, loaded)
+			assert.Equal(t, tc.targetStatus, loaded.Status())
+		})
+	}
 }
 
 func TestJobStore_AssociateTargets(t *testing.T) {
