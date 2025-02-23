@@ -85,8 +85,21 @@ func (r *DomainEventProgressReporter) ReportPausedProgress(ctx context.Context, 
 		span.SetStatus(codes.Error, "failed to publish task paused event")
 		return fmt.Errorf("failed to publish task paused event: %w", err)
 	}
-	span.SetStatus(codes.Ok, "task paused event published")
 	span.AddEvent("task_paused_event_published")
+
+	if err := r.domainPublisher.PublishDomainEvent(
+		ctx,
+		scanning.NewTaskJobMetricEvent(p.JobID(), p.TaskID(), scanning.TaskStatusPaused),
+		events.WithKey(p.JobID().String()),
+	); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to publish task job metric event")
+		return fmt.Errorf("failed to publish task job metric task paused event: %w", err)
+	}
+	span.AddEvent("task_job_metric_event_published")
+
+	span.SetStatus(codes.Ok, "task paused and job metric published")
+	span.AddEvent("task_paused_and_job_metric_published")
 
 	return nil
 }

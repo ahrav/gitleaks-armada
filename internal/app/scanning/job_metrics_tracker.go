@@ -47,9 +47,11 @@ type AggregatorJobState struct {
 	enumerationDone bool
 	finalTaskCount  int
 
-	completedCount int
-	failedCount    int
-	jobFinalized   bool
+	completedCount  int
+	failedCount     int
+	pausedCount     int // Track number of paused tasks
+	inProgressCount int // Track number of in-progress tasks
+	jobFinalized    bool
 }
 
 // updateTaskCounts updates the completed and failed task counts based on status transitions.
@@ -62,6 +64,18 @@ func (s *AggregatorJobState) updateTaskCounts(oldStatus, newStatus domain.TaskSt
 	if newStatus == domain.TaskStatusFailed && oldStatus != domain.TaskStatusFailed {
 		s.failedCount++
 	}
+	if newStatus == domain.TaskStatusPaused && oldStatus != domain.TaskStatusPaused {
+		s.pausedCount++
+		if oldStatus == domain.TaskStatusInProgress {
+			s.inProgressCount--
+		}
+	}
+	if newStatus == domain.TaskStatusInProgress && oldStatus != domain.TaskStatusInProgress {
+		s.inProgressCount++
+		if oldStatus == domain.TaskStatusPaused {
+			s.pausedCount--
+		}
+	}
 
 	// Handle status transitions away from terminal states.
 	// If a previously terminal task transitions away from completed/failed, decrement
@@ -73,6 +87,20 @@ func (s *AggregatorJobState) updateTaskCounts(oldStatus, newStatus domain.TaskSt
 	if oldStatus == domain.TaskStatusFailed && newStatus != domain.TaskStatusFailed {
 		s.failedCount--
 	}
+}
+
+// shouldPauseJob returns true if all non-terminal tasks are paused.
+func (s *AggregatorJobState) shouldPauseJob() bool {
+	// We should pause the job if:
+	// 1. We have at least one task (finalTaskCount > 0)
+	// 2. All non-terminal tasks are paused (pausedCount == activeTaskCount)
+	// where activeTaskCount = finalTaskCount - (completedCount + failedCount)
+	if s.finalTaskCount == 0 {
+		return false
+	}
+
+	activeTaskCount := s.finalTaskCount - (s.completedCount + s.failedCount)
+	return activeTaskCount > 0 && s.pausedCount == activeTaskCount
 }
 
 // setEnumerationComplete marks the job's enumeration as complete and sets the final task count.
@@ -764,10 +792,22 @@ func (t *jobMetricsAggregator) processMetric(ctx context.Context, evt scanning.T
 	}
 
 	st := t.updateTaskStatusAndMetrics(ctx, evt, jm, logger)
-	if err := t.tryFinalizeJobIfDone(ctx, st); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to finalize job")
-		return err
+
+	// Check if we need to update job status based on task state changes
+	if st.shouldPauseJob() {
+		if err := t.repository.UpdateJobStatus(ctx, evt.JobID, domain.JobStatusPaused); err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "failed to update job status to paused")
+			return fmt.Errorf("failed to update job status to paused for job %s: %w", evt.JobID, err)
+		}
+		span.AddEvent("job_paused")
+		logger.Info(ctx, "job paused", "job_id", evt.JobID.String())
+	} else if st.isDone() {
+		if err := t.tryFinalizeJobIfDone(ctx, st); err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "failed to finalize job")
+			return err
+		}
 	}
 
 	logger.Debug(ctx, "task metrics processed")
