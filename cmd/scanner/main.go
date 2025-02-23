@@ -163,7 +163,7 @@ func main() {
 		ClientID:              fmt.Sprintf("scanner-%s", hostname),
 	}
 
-	// Create a separate config for broadcast events
+	// Create a separate config for broadcast events.
 	broadcastCfg := &kafka.EventBusConfig{
 		JobLifecycleTopic: os.Getenv("KAFKA_JOB_LIFECYCLE_TOPIC"),
 		GroupID:           fmt.Sprintf("scanner-broadcast-%s", hostname),

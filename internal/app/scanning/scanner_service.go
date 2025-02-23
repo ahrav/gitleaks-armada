@@ -387,10 +387,11 @@ func (s *ScannerService) handleJobPausedEvent(
 			attribute.String("event_type", string(evt.Type)),
 		))
 	defer span.End()
+	defer ack(nil) // TODO: revist
 
 	span.AddEvent("starting_job_paused_task")
 
-	jobPausedEvt, ok := evt.Payload.(*scanning.JobPausedEvent)
+	jobPausedEvt, ok := evt.Payload.(scanning.JobPausedEvent)
 	if !ok {
 		err := fmt.Errorf("invalid job paused event payload: %T", evt.Payload)
 		span.SetStatus(codes.Error, err.Error())
