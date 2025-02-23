@@ -370,7 +370,10 @@ func (s *ScannerService) handleTaskResumeEvent(
 	return nil
 }
 
-// handleJobPausedEvent processes job paused events and handles the task
+// handleJobPausedEvent processes job paused events and handles the task.
+// TODO: This needs to be fully implemented. We will need to track each job's task's ctx
+// and then cacnel them when the job is paused. We might also want to emit a new (PausedEvent)
+// with the checkpoint maybe?
 func (s *ScannerService) handleJobPausedEvent(
 	ctx context.Context,
 	evt events.EventEnvelope,
