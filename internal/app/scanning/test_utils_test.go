@@ -64,6 +64,14 @@ func (m *mockJobTaskSvc) UpdateTaskProgress(ctx context.Context, progress scanni
 	return nil, args.Error(1)
 }
 
+func (m *mockJobTaskSvc) PauseTask(ctx context.Context, taskID uuid.UUID, progress scanning.Progress, requestedBy string) (*scanning.Task, error) {
+	args := m.Called(ctx, taskID, progress, requestedBy)
+	if task := args.Get(0); task != nil {
+		return task.(*scanning.Task), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
 func (m *mockJobTaskSvc) CompleteTask(ctx context.Context, taskID uuid.UUID) (*scanning.Task, error) {
 	args := m.Called(ctx, taskID)
 	if task := args.Get(0); task != nil {

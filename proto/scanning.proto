@@ -167,3 +167,11 @@ message TaskJobMetricEvent {
   TaskStatus status = 3;
   int64 timestamp = 4;
 }
+
+message TaskPausedEvent {
+  string job_id = 1;
+  string task_id = 2;
+  int64 timestamp = 3;
+  string requested_by = 4;
+  TaskProgressedEvent progress = 5;
+}

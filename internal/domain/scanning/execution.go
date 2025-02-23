@@ -58,7 +58,7 @@ type ExecutionTracker interface {
 	//     status and publishing a completion event.
 	//
 	// This method blocks until the incoming channels are closed (or until the context is
-	// canceled), ensuring all enumerated items are processed and the scanning domain’s job
+	// canceled), ensuring all enumerated items are processed and the scanning domain's job
 	// lifecycle is accurately updated.
 	ProcessEnumerationStream(
 		ctx context.Context,
@@ -87,6 +87,10 @@ type ExecutionTracker interface {
 
 	// HandleTaskStale marks a task as stale, indicating it has stopped reporting progress.
 	HandleTaskStale(ctx context.Context, evt TaskStaleEvent) error
+
+	// HandleTaskPaused handles task pause events, transitioning the task to PAUSED status
+	// and storing the final progress checkpoint for later resumption.
+	HandleTaskPaused(ctx context.Context, evt TaskPausedEvent) error
 
 	// // GetJobProgress returns consolidated metrics for all tasks in a job, including
 	// // total tasks, completed tasks, failed tasks, and overall progress percentage.

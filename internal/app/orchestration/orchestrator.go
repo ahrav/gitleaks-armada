@@ -191,6 +191,7 @@ func NewOrchestrator(
 	dispatcher.RegisterHandler(ctx, scanning.EventTypeTaskJobMetric, eventsFacilitator.HandleTaskJobMetric)
 	dispatcher.RegisterHandler(ctx, scanning.EventTypeJobEnumerationCompleted, eventsFacilitator.HandleTaskJobMetric)
 	dispatcher.RegisterHandler(ctx, scanning.EventTypeJobPausing, eventsFacilitator.HandleJobPausing)
+	dispatcher.RegisterHandler(ctx, scanning.EventTypeTaskPaused, eventsFacilitator.HandleTaskPaused)
 
 	o.dispatcher = dispatcher
 
@@ -291,6 +292,7 @@ func (o *Orchestrator) subscribeToEvents(ctx context.Context) error {
 		scanning.EventTypeTaskHeartbeat,
 		scanning.EventTypeTaskJobMetric,
 		scanning.EventTypeJobPausing,
+		scanning.EventTypeTaskPaused,
 	}
 
 	if err := o.eventBus.Subscribe(

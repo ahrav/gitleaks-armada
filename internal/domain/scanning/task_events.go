@@ -83,10 +83,7 @@ type TaskProgressedEvent struct {
 }
 
 func NewTaskProgressedEvent(p Progress) TaskProgressedEvent {
-	return TaskProgressedEvent{
-		occurredAt: time.Now(),
-		Progress:   p,
-	}
+	return TaskProgressedEvent{occurredAt: time.Now(), Progress: p}
 }
 
 func (e TaskProgressedEvent) EventType() events.EventType { return EventTypeTaskProgressed }
@@ -225,16 +222,18 @@ type TaskPausedEvent struct {
 	occurredAt  time.Time
 	JobID       uuid.UUID
 	TaskID      uuid.UUID
+	Progress    Progress
 	PausedAt    time.Time
 	RequestedBy string
 }
 
-func NewTaskPausedEvent(jobID, taskID uuid.UUID, requestedBy string) TaskPausedEvent {
+func NewTaskPausedEvent(jobID, taskID uuid.UUID, progress Progress, requestedBy string) TaskPausedEvent {
 	now := time.Now()
 	return TaskPausedEvent{
 		occurredAt:  now,
 		JobID:       jobID,
 		TaskID:      taskID,
+		Progress:    progress,
 		PausedAt:    now,
 		RequestedBy: requestedBy,
 	}

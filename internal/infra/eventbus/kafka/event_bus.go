@@ -117,6 +117,7 @@ func NewEventBus(
 		scanning.EventTypeJobEnumerationCompleted: cfg.JobLifecycleTopic,     // controller -> controller
 		scanning.EventTypeTaskStarted:             cfg.ScanningTaskTopic,     // scanner -> controller
 		scanning.EventTypeTaskProgressed:          cfg.ScanningTaskTopic,     // scanner -> controller
+		scanning.EventTypeTaskPaused:              cfg.ScanningTaskTopic,     // controller -> scanner
 		scanning.EventTypeTaskCompleted:           cfg.ScanningTaskTopic,     // scanner -> controller
 		scanning.EventTypeTaskFailed:              cfg.ScanningTaskTopic,     // scanner -> controller
 		scanning.EventTypeTaskHeartbeat:           cfg.ScanningTaskTopic,     // scanner -> controller

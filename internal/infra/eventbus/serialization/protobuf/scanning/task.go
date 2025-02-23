@@ -2,6 +2,7 @@ package scanning
 
 import (
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -429,4 +430,42 @@ func ProtoToTaskJobMetricEvent(p *pb.TaskJobMetricEvent) (scanning.TaskJobMetric
 // protoToTaskStatus converts a protobuf TaskStatus to its domain representation.
 func protoToTaskStatus(s pb.TaskStatus) scanning.TaskStatus {
 	return scanning.TaskStatusFromInt32(int32(s))
+}
+
+// TaskPausedEventToProto converts a domain TaskPausedEvent to its protobuf representation.
+func TaskPausedEventToProto(event scanning.TaskPausedEvent) *pb.TaskPausedEvent {
+	var progressEvent *pb.TaskProgressedEvent
+	progressEvent = TaskProgressedEventToProto(scanning.TaskProgressedEvent{Progress: event.Progress})
+
+	return &pb.TaskPausedEvent{
+		JobId:       event.JobID.String(),
+		TaskId:      event.TaskID.String(),
+		Timestamp:   event.OccurredAt().UnixNano(),
+		RequestedBy: event.RequestedBy,
+		Progress:    progressEvent,
+	}
+}
+
+// ProtoToTaskPausedEvent converts a protobuf TaskPausedEvent to its domain representation.
+func ProtoToTaskPausedEvent(event *pb.TaskPausedEvent) (scanning.TaskPausedEvent, error) {
+	if event == nil {
+		return scanning.TaskPausedEvent{}, serializationerrors.ErrNilEvent{EventType: "TaskPaused"}
+	}
+
+	jobID, err := uuid.Parse(event.JobId)
+	if err != nil {
+		return scanning.TaskPausedEvent{}, serializationerrors.ErrInvalidUUID{Field: "job ID", Err: err}
+	}
+
+	taskID, err := uuid.Parse(event.TaskId)
+	if err != nil {
+		return scanning.TaskPausedEvent{}, serializationerrors.ErrInvalidUUID{Field: "task ID", Err: err}
+	}
+
+	progressEvent, err := ProtoToTaskProgressedEvent(event.Progress)
+	if err != nil {
+		return scanning.TaskPausedEvent{}, fmt.Errorf("failed to convert progress event: %w", err)
+	}
+
+	return scanning.NewTaskPausedEvent(jobID, taskID, progressEvent.Progress, event.RequestedBy), nil
 }

@@ -304,7 +304,7 @@ func (t *executionTracker) signalEnumerationComplete(ctx context.Context, jobID 
 }
 
 // HandleTaskStart registers and initializes progress tracking for a newly started task.
-// This may transition the job’s overall status to RUNNING if this is the first active task.
+// This may transition the job's overall status to RUNNING if this is the first active task.
 func (t *executionTracker) HandleTaskStart(ctx context.Context, evt scanning.TaskStartedEvent) error {
 	taskID, jobID, resourceURI := evt.TaskID, evt.JobID, evt.ResourceURI
 	ctx, span := t.tracer.Start(ctx, "execution_tracker.scanning.start_tracking",
@@ -333,7 +333,7 @@ func (t *executionTracker) HandleTaskStart(ctx context.Context, evt scanning.Tas
 	return nil
 }
 
-// HandleTaskProgress updates the task progress in the job’s aggregate view,
+// HandleTaskProgress updates the task progress in the job's aggregate view,
 // recalculating any aggregated metrics if needed. It ensures real-time visibility
 // into scan progress at both the task and job levels.
 func (t *executionTracker) HandleTaskProgress(ctx context.Context, evt scanning.TaskProgressedEvent) error {
@@ -357,6 +357,37 @@ func (t *executionTracker) HandleTaskProgress(ctx context.Context, evt scanning.
 	span.AddEvent("task_progress_updated")
 	span.SetStatus(codes.Ok, "task progress updated")
 	t.logger.Info(ctx, "Task progress updated", "task_id", taskID)
+
+	return nil
+}
+
+// HandleTaskPaused handles task pause events by transitioning the task to PAUSED status
+// and storing the final progress checkpoint for later resumption.
+func (t *executionTracker) HandleTaskPaused(ctx context.Context, evt scanning.TaskPausedEvent) error {
+	taskID := evt.TaskID
+	ctx, span := t.tracer.Start(ctx, "execution_tracker.scanning.pause_task",
+		trace.WithAttributes(
+			attribute.String("controller_id", t.controllerID),
+			attribute.String("task_id", taskID.String()),
+			attribute.String("job_id", evt.JobID.String()),
+			attribute.String("requested_by", evt.RequestedBy),
+		))
+	defer span.End()
+
+	_, err := t.jobTaskSvc.PauseTask(ctx, evt.TaskID, evt.Progress, evt.RequestedBy)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to pause task")
+		return fmt.Errorf("failed to pause task: %w", err)
+	}
+
+	span.AddEvent("task_paused")
+	span.SetStatus(codes.Ok, "task paused successfully")
+	t.logger.Info(ctx, "Task paused",
+		"task_id", taskID,
+		"job_id", evt.JobID,
+		"requested_by", evt.RequestedBy,
+	)
 
 	return nil
 }
@@ -385,7 +416,7 @@ func (t *executionTracker) HandleTaskCompletion(ctx context.Context, evt scannin
 	return nil
 }
 
-// HandleTaskFailure marks a task as FAILED, updating the job’s aggregate state if needed
+// HandleTaskFailure marks a task as FAILED, updating the job's aggregate state if needed
 // and logging the error. Downstream consumers may respond to the event for remediation
 // or re-try logic.
 func (t *executionTracker) HandleTaskFailure(ctx context.Context, evt scanning.TaskFailedEvent) error {

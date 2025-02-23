@@ -2,6 +2,7 @@ package scanning
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -559,6 +560,94 @@ func TestUpdateTaskProgress(t *testing.T) {
 			require.NoError(t, err)
 			assert.NotNil(t, task)
 			suite.taskRepo.(*mockTaskRepository).AssertExpectations(t)
+		})
+	}
+}
+
+func TestPauseTask(t *testing.T) {
+	tests := []struct {
+		name        string
+		taskID      uuid.UUID
+		progress    domain.Progress
+		requestedBy string
+		setupTask   func(*scanning.Task)
+		mockSetup   func(*mockTaskRepository)
+		wantErr     bool
+	}{
+		{
+			name:        "successful pause with progress",
+			taskID:      uuid.New(),
+			requestedBy: "test-user",
+			progress:    domain.Progress{},
+			setupTask: func(task *scanning.Task) {
+				task.Start()
+			},
+			mockSetup: func(m *mockTaskRepository) {
+				m.On("GetTask", mock.Anything, mock.Anything).
+					Return(scanning.NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "test://uri"), nil)
+				m.On("UpdateTask", mock.Anything, mock.Anything).
+					Return(nil)
+			},
+			wantErr: false,
+		},
+		{
+			name:        "successful pause without progress",
+			taskID:      uuid.New(),
+			requestedBy: "test-user",
+			progress:    domain.Progress{},
+			setupTask: func(task *scanning.Task) {
+				task.Start()
+			},
+			mockSetup: func(m *mockTaskRepository) {
+				m.On("GetTask", mock.Anything, mock.Anything).
+					Return(scanning.NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "test://uri"), nil)
+				m.On("UpdateTask", mock.Anything, mock.Anything).
+					Return(nil)
+			},
+			wantErr: false,
+		},
+		{
+			name:        "task not found",
+			taskID:      uuid.New(),
+			requestedBy: "test-user",
+			progress:    domain.Progress{},
+			setupTask:   func(task *scanning.Task) {},
+			mockSetup: func(m *mockTaskRepository) {
+				m.On("GetTask", mock.Anything, mock.Anything).
+					Return(nil, errors.New("task not found"))
+			},
+			wantErr: true,
+		},
+		{
+			name:        "update task failure",
+			taskID:      uuid.New(),
+			requestedBy: "test-user",
+			progress:    domain.Progress{},
+			setupTask: func(task *scanning.Task) {
+				task.Start()
+			},
+			mockSetup: func(m *mockTaskRepository) {
+				m.On("GetTask", mock.Anything, mock.Anything).
+					Return(scanning.NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "test://uri"), nil)
+				m.On("UpdateTask", mock.Anything, mock.Anything).
+					Return(errors.New("update failed"))
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := newJobTaskService(t)
+			tt.mockSetup(svc.taskRepo.(*mockTaskRepository))
+
+			_, err := svc.PauseTask(context.Background(), tt.taskID, tt.progress, tt.requestedBy)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			svc.taskRepo.(*mockTaskRepository).AssertExpectations(t)
 		})
 	}
 }

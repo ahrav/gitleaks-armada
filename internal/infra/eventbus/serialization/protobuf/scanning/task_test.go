@@ -343,3 +343,78 @@ func TestTaskJobMetricEventConversion(t *testing.T) {
 		}
 	})
 }
+
+func TestTaskPausedEventConversion(t *testing.T) {
+	t.Run("successful conversions", func(t *testing.T) {
+		jobID := uuid.New()
+		taskID := uuid.New()
+		requestedBy := "test-user"
+		progress := scanning.NewProgress(
+			taskID,
+			jobID,
+			1,
+			time.Now(),
+			100,
+			0,
+			"test progress",
+			nil,
+			nil,
+		)
+
+		domainEvent := scanning.NewTaskPausedEvent(jobID, taskID, progress, requestedBy)
+
+		// Test domain to proto conversion.
+		protoEvent := TaskPausedEventToProto(domainEvent)
+		require.NotNil(t, protoEvent)
+		assert.Equal(t, jobID.String(), protoEvent.JobId)
+		assert.Equal(t, taskID.String(), protoEvent.TaskId)
+		assert.Equal(t, requestedBy, protoEvent.RequestedBy)
+		require.NotNil(t, protoEvent.Progress)
+
+		// Test proto to domain conversion.
+		convertedEvent, err := ProtoToTaskPausedEvent(protoEvent)
+		require.NoError(t, err)
+		assert.Equal(t, jobID, convertedEvent.JobID)
+		assert.Equal(t, taskID, convertedEvent.TaskID)
+		assert.Equal(t, requestedBy, convertedEvent.RequestedBy)
+		require.NotNil(t, convertedEvent.Progress)
+		assert.Equal(t, progress.ItemsProcessed(), convertedEvent.Progress.ItemsProcessed())
+	})
+
+	t.Run("error cases", func(t *testing.T) {
+		testCases := []struct {
+			name    string
+			event   *pb.TaskPausedEvent
+			wantErr error
+		}{
+			{
+				name:    "nil event",
+				event:   nil,
+				wantErr: serializationerrors.ErrNilEvent{EventType: "TaskPaused"},
+			},
+			{
+				name: "invalid job ID",
+				event: &pb.TaskPausedEvent{
+					JobId:  "invalid",
+					TaskId: uuid.New().String(),
+				},
+				wantErr: serializationerrors.ErrInvalidUUID{Field: "job ID"},
+			},
+			{
+				name: "invalid task ID",
+				event: &pb.TaskPausedEvent{
+					JobId:  uuid.New().String(),
+					TaskId: "invalid",
+				},
+				wantErr: serializationerrors.ErrInvalidUUID{Field: "task ID"},
+			},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				_, err := ProtoToTaskPausedEvent(tc.event)
+				assert.IsType(t, tc.wantErr, err)
+			})
+		}
+	})
+}

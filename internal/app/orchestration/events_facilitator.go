@@ -356,6 +356,38 @@ func (ef *EventsFacilitator) HandleTaskCompleted(
 	}, ack)
 }
 
+// HandleTaskPaused processes a scanning.TaskPausedEvent by transitioning the task
+// to PAUSED status and storing its final progress checkpoint.
+func (ef *EventsFacilitator) HandleTaskPaused(
+	ctx context.Context,
+	evt events.EventEnvelope,
+	ack events.AckFunc,
+) error {
+	return ef.withSpan(ctx, "events_facilitator.handle_task_paused", func(ctx context.Context, span trace.Span) error {
+		span.AddEvent("processing_task_paused")
+
+		pausedEvt, ok := evt.Payload.(scanning.TaskPausedEvent)
+		if !ok {
+			return recordPayloadTypeError(span, evt.Payload)
+		}
+
+		span.AddEvent("task_paused_event_valid", trace.WithAttributes(
+			attribute.String("task_id", pausedEvt.TaskID.String()),
+			attribute.String("job_id", pausedEvt.JobID.String()),
+			attribute.String("requested_by", pausedEvt.RequestedBy),
+		))
+
+		if err := ef.executionTracker.HandleTaskPaused(ctx, pausedEvt); err != nil {
+			return fmt.Errorf("failed to pause task (task_id: %s, job_id: %s, requested_by: %s, partition: %d, offset: %d): %w",
+				pausedEvt.TaskID, pausedEvt.JobID, pausedEvt.RequestedBy, evt.Metadata.Partition, evt.Metadata.Offset, err)
+		}
+
+		span.AddEvent("task_paused_event_handled")
+		span.SetStatus(codes.Ok, "task paused event handled")
+		return nil
+	}, ack)
+}
+
 // HandleTaskFailed processes a scanning.TaskFailedEvent and updates the
 // executionTracker with the failure reason.
 func (ef *EventsFacilitator) HandleTaskFailed(

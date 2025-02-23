@@ -315,15 +315,16 @@ func (s *jobTaskService) StartTask(ctx context.Context, taskID uuid.UUID, resour
 // 2. Resuming from STALE -> IN_PROGRESS
 // 3. Resuming from PAUSED -> IN_PROGRESS
 func (s *jobTaskService) UpdateTaskProgress(ctx context.Context, progress domain.Progress) (*domain.Task, error) {
-	ctx, span := s.tracer.Start(ctx, "job_task_service.scanning.update_task_progress",
+	taskID := progress.TaskID()
+	ctx, span := s.tracer.Start(ctx, "job_task_service.update_task_progress",
 		trace.WithAttributes(
 			attribute.String("controller_id", s.controllerID),
-			attribute.String("task_id", progress.TaskID().String()),
+			attribute.String("task_id", taskID.String()),
 			attribute.Int64("sequence_num", progress.SequenceNum()),
 		))
 	defer span.End()
 
-	task, err := s.loadTask(ctx, progress.TaskID())
+	task, err := s.loadTask(ctx, taskID)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to load task")
@@ -340,14 +341,6 @@ func (s *jobTaskService) UpdateTaskProgress(ctx context.Context, progress domain
 			return nil, fmt.Errorf("recover from stale: %w", err)
 		}
 		span.AddEvent("task_recovered_from_stale")
-
-	case domain.TaskStatusPaused:
-		if err := task.Resume(); err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "failed to resume from pause")
-			return nil, fmt.Errorf("resume from pause: %w", err)
-		}
-		span.AddEvent("task_resumed_from_pause")
 
 	case domain.TaskStatusPending:
 		if err := task.Start(); err != nil {
@@ -377,11 +370,58 @@ func (s *jobTaskService) UpdateTaskProgress(ctx context.Context, progress domain
 
 	if err := s.taskRepo.UpdateTask(ctx, task); err != nil {
 		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to persist task")
-		return nil, fmt.Errorf("persist task: %w", err)
+		span.SetStatus(codes.Error, "failed to update task")
+		return nil, fmt.Errorf("update task: %w", err)
 	}
-	span.AddEvent("task_persisted")
-	span.SetStatus(codes.Ok, "task progress updated successfully")
+
+	span.AddEvent("task_progress_updated")
+	span.SetStatus(codes.Ok, "task progress updated")
+
+	return task, nil
+}
+
+// PauseTask transitions a task to PAUSED status and stores its final progress checkpoint.
+func (s *jobTaskService) PauseTask(
+	ctx context.Context,
+	taskID uuid.UUID,
+	progress domain.Progress,
+	requestedBy string,
+) (*domain.Task, error) {
+	ctx, span := s.tracer.Start(ctx, "job_task_service.pause_task",
+		trace.WithAttributes(
+			attribute.String("controller_id", s.controllerID),
+			attribute.String("task_id", taskID.String()),
+			attribute.String("requested_by", requestedBy),
+		))
+	defer span.End()
+
+	task, err := s.loadTask(ctx, taskID)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to load task")
+		return nil, fmt.Errorf("load task: %w", err)
+	}
+
+	if err := task.Pause(); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to pause task")
+		return nil, fmt.Errorf("pause task: %w", err)
+	}
+
+	// Apply final progress if provided.
+	if err := task.ApplyProgress(progress); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to apply final progress")
+		return nil, fmt.Errorf("apply final progress: %w", err)
+	}
+
+	if err := s.taskRepo.UpdateTask(ctx, task); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to update task")
+		return nil, fmt.Errorf("update task: %w", err)
+	}
+	span.AddEvent("task_paused")
+	span.SetStatus(codes.Ok, "task paused successfully")
 
 	return task, nil
 }

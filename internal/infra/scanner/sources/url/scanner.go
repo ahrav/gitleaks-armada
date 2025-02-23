@@ -34,6 +34,7 @@ type Scanner struct {
 
 	template *srcs.ScanTemplate
 	detector *detect.Detector
+	reporter scanning.ProgressReporter
 
 	logger  *logger.Logger
 	tracer  trace.Tracer

@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/trace/noop"
 
 	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
@@ -60,6 +61,11 @@ func (m *mockExecutionTracker) HandleTaskFailure(ctx context.Context, evt scanni
 }
 
 func (m *mockExecutionTracker) HandleTaskStale(ctx context.Context, evt scanning.TaskStaleEvent) error {
+	args := m.Called(ctx, evt)
+	return args.Error(0)
+}
+
+func (m *mockExecutionTracker) HandleTaskPaused(ctx context.Context, evt scanning.TaskPausedEvent) error {
 	args := m.Called(ctx, evt)
 	return args.Error(0)
 }
@@ -187,6 +193,78 @@ func TestHandleScanJobRequested(t *testing.T) {
 			}
 			assert.True(t, ackCalled, "ack function should have been called")
 			mockJobScheduler.AssertNumberOfCalls(t, "Schedule", tt.expectedCalls)
+		})
+	}
+}
+
+func TestHandleTaskPaused(t *testing.T) {
+	tests := []struct {
+		name    string
+		setup   func(*mockExecutionTracker)
+		event   events.EventEnvelope
+		wantErr bool
+	}{
+		{
+			name: "successful task pause",
+			setup: func(m *mockExecutionTracker) {
+				m.On("HandleTaskPaused", mock.Anything, mock.MatchedBy(func(evt scanning.TaskPausedEvent) bool {
+					return evt.RequestedBy == "test-user"
+				})).Return(nil)
+			},
+			event: events.EventEnvelope{
+				Payload: scanning.TaskPausedEvent{
+					JobID:       uuid.New(),
+					TaskID:      uuid.New(),
+					Progress:    scanning.Progress{},
+					RequestedBy: "test-user",
+				},
+				Metadata: events.EventMetadata{
+					Partition: 0,
+					Offset:    1,
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid event payload",
+			setup: func(m *mockExecutionTracker) {
+				// No expectations since handler should fail before calling tracker
+			},
+			event: events.EventEnvelope{
+				Payload: "invalid payload",
+			},
+			wantErr: true,
+		},
+		{
+			name: "execution tracker error",
+			setup: func(m *mockExecutionTracker) {
+				m.On("HandleTaskPaused", mock.Anything, mock.Anything).
+					Return(errors.New("tracker error"))
+			},
+			event: events.EventEnvelope{
+				Payload: scanning.TaskPausedEvent{
+					JobID:       uuid.New(),
+					TaskID:      uuid.New(),
+					Progress:    scanning.Progress{},
+					RequestedBy: "test-user",
+				},
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			facilitator, _, tracker, _, _, _, _ := setupEventsFacilitatorTestSuite()
+			tt.setup(tracker)
+
+			err := facilitator.HandleTaskPaused(context.Background(), tt.event, func(error) {})
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			tracker.AssertExpectations(t)
 		})
 	}
 }

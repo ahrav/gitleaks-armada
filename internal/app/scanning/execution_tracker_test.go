@@ -15,6 +15,7 @@ import (
 
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
+	domain "github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
@@ -273,6 +274,59 @@ func TestExecutionTracker_UpdateProgress(t *testing.T) {
 			tt.setup(suite.jobTaskSvc)
 
 			err := suite.tracker.HandleTaskProgress(context.Background(), tt.event)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			suite.jobTaskSvc.AssertExpectations(t)
+		})
+	}
+}
+
+func TestHandleTaskPaused(t *testing.T) {
+	tests := []struct {
+		name    string
+		setup   func(*mockJobTaskSvc)
+		event   scanning.TaskPausedEvent
+		wantErr bool
+	}{
+		{
+			name: "successful task pause",
+			setup: func(m *mockJobTaskSvc) {
+				m.On("PauseTask", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					Return(new(scanning.Task), nil)
+			},
+			event: scanning.TaskPausedEvent{
+				JobID:       uuid.New(),
+				TaskID:      uuid.New(),
+				Progress:    domain.Progress{},
+				RequestedBy: "test-user",
+			},
+			wantErr: false,
+		},
+		{
+			name: "pause task failure",
+			setup: func(m *mockJobTaskSvc) {
+				m.On("PauseTask", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					Return(nil, errors.New("pause failed"))
+			},
+			event: scanning.TaskPausedEvent{
+				JobID:       uuid.New(),
+				TaskID:      uuid.New(),
+				Progress:    domain.Progress{},
+				RequestedBy: "test-user",
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			suite := newTrackerTestSuite(t)
+			tt.setup(suite.jobTaskSvc)
+
+			err := suite.tracker.HandleTaskPaused(context.Background(), tt.event)
 			if tt.wantErr {
 				require.Error(t, err)
 			} else {
