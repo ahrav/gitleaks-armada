@@ -126,7 +126,7 @@ func TestTask_ApplyProgress(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "reject progress in paused state",
+			name: "update progress in paused state",
 			setupTask: func() *Task {
 				task := NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com")
 				_ = task.Start()
@@ -137,7 +137,6 @@ func TestTask_ApplyProgress(t *testing.T) {
 				sequenceNum:    1,
 				itemsProcessed: 100,
 			},
-			wantErr: true,
 		},
 		{
 			name: "reject progress in stale state",

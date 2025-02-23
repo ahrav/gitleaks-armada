@@ -271,6 +271,9 @@ const (
 
 	// TaskInvalidStateReasonNoReason indicates the task is in the STALE state but no reason is provided
 	TaskInvalidStateReasonNoReason TaskInvalidStateReason = "NO_REASON"
+
+	// TaskInvalidStateReasonProgressUpdateNotAllowed indicates the task is not in the correct state to accept progress updates
+	TaskInvalidStateReasonProgressUpdateNotAllowed TaskInvalidStateReason = "PROGRESS_UPDATE_NOT_ALLOWED"
 )
 
 // ReasonPtr returns a pointer to a StallReason.
@@ -555,33 +558,31 @@ func (e *OutOfOrderProgressError) Error() string {
 	return fmt.Sprintf("out of order progress update for task %s: sequence number %d is less than or equal to the last sequence number %d", e.taskID, e.seqNum, e.lastSeqNum)
 }
 
-// ApplyProgress updates metrics if in a valid state.
-// This method assumes the task is already in the correct state for receiving progress.
+// ApplyProgress updates the task's progress metrics and checkpoint data. The task must
+// be in either IN_PROGRESS or PAUSED state to accept progress updates.
 func (t *Task) ApplyProgress(progress Progress) error {
-	// Must be in one of these states to accept progress
-	switch t.status {
-	case TaskStatusInProgress:
-		// OK
-	default:
-		return TaskInvalidStateError{
+	// Validate task state - only allow progress updates in IN_PROGRESS or PAUSED state
+	if !t.IsInProgress() && t.status != TaskStatusPaused {
+		return &TaskInvalidStateError{
 			taskID: t.ID,
 			status: t.status,
-			reason: TaskInvalidStateReasonWrongStatus,
+			reason: TaskInvalidStateReasonProgressUpdateNotAllowed,
 		}
 	}
 
+	// Validate sequence number
 	if !t.isSeqNumValid(progress) {
-		return NewOutOfOrderProgressError(t.TaskID(), progress.SequenceNum(), t.LastSequenceNum())
+		return NewOutOfOrderProgressError(t.ID, progress.SequenceNum(), t.lastSequenceNum)
 	}
 
+	// Update task metrics
 	t.lastSequenceNum = progress.SequenceNum()
-	t.timeline.UpdateLastUpdate()
-	t.itemsProcessed += progress.ItemsProcessed()
+	t.itemsProcessed = progress.ItemsProcessed()
 	t.progressDetails = progress.ProgressDetails()
+	t.lastCheckpoint = progress.Checkpoint()
 
-	if progress.Checkpoint() != nil {
-		t.lastCheckpoint = progress.Checkpoint()
-	}
+	// Update timeline
+	t.timeline.UpdateLastUpdate()
 
 	return nil
 }

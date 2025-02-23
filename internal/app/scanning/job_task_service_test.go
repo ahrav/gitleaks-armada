@@ -578,15 +578,26 @@ func TestPauseTask(t *testing.T) {
 			name:        "successful pause with progress",
 			taskID:      uuid.New(),
 			requestedBy: "test-user",
-			progress:    domain.Progress{},
+			progress: domain.ReconstructProgress(
+				uuid.New(), // taskID
+				uuid.New(), // jobID
+				1,          // sequence number > 0
+				time.Now(),
+				100,
+				0,
+				"test progress",
+				nil,
+				nil,
+			),
 			setupTask: func(task *scanning.Task) {
 				task.Start()
 			},
 			mockSetup: func(m *mockTaskRepository) {
-				m.On("GetTask", mock.Anything, mock.Anything).
-					Return(scanning.NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "test://uri"), nil)
-				m.On("UpdateTask", mock.Anything, mock.Anything).
-					Return(nil)
+				task := scanning.NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "test://uri")
+				err := task.Start() // Transition to IN_PROGRESS state
+				require.NoError(t, err)
+				m.On("GetTask", mock.Anything, mock.Anything).Return(task, nil)
+				m.On("UpdateTask", mock.Anything, mock.Anything).Return(nil)
 			},
 			wantErr: false,
 		},
@@ -594,15 +605,26 @@ func TestPauseTask(t *testing.T) {
 			name:        "successful pause without progress",
 			taskID:      uuid.New(),
 			requestedBy: "test-user",
-			progress:    domain.Progress{},
+			progress: domain.ReconstructProgress(
+				uuid.New(), // taskID
+				uuid.New(), // jobID
+				1,          // sequence number > 0
+				time.Now(),
+				0,
+				0,
+				"",
+				nil,
+				nil,
+			),
 			setupTask: func(task *scanning.Task) {
 				task.Start()
 			},
 			mockSetup: func(m *mockTaskRepository) {
-				m.On("GetTask", mock.Anything, mock.Anything).
-					Return(scanning.NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "test://uri"), nil)
-				m.On("UpdateTask", mock.Anything, mock.Anything).
-					Return(nil)
+				task := scanning.NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "test://uri")
+				err := task.Start() // Transition to IN_PROGRESS state
+				require.NoError(t, err)
+				m.On("GetTask", mock.Anything, mock.Anything).Return(task, nil)
+				m.On("UpdateTask", mock.Anything, mock.Anything).Return(nil)
 			},
 			wantErr: false,
 		},
@@ -627,10 +649,13 @@ func TestPauseTask(t *testing.T) {
 				task.Start()
 			},
 			mockSetup: func(m *mockTaskRepository) {
-				m.On("GetTask", mock.Anything, mock.Anything).
-					Return(scanning.NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "test://uri"), nil)
-				m.On("UpdateTask", mock.Anything, mock.Anything).
-					Return(errors.New("update failed"))
+				task := scanning.NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "test://uri")
+				err := task.Start() // Transition to IN_PROGRESS state
+				require.NoError(t, err)
+				m.On("GetTask", mock.Anything, mock.Anything).Return(task, nil)
+				m.On("UpdateTask", mock.Anything, mock.MatchedBy(func(t *scanning.Task) bool {
+					return t.Status() == scanning.TaskStatusPaused
+				})).Return(errors.New("update failed")).Once()
 			},
 			wantErr: true,
 		},
@@ -664,7 +689,7 @@ func TestCompleteTask(t *testing.T) {
 		{
 			name: "successful task completion",
 			setup: func(repo *mockTaskRepository) {
-				// Create a task that's IN_PROGRESS (valid state for completion)
+				// Create a task that's IN_PROGRESS (valid state for completion).
 				task := domain.NewScanTask(jobID, shared.SourceTypeGitHub, taskID, "https://example.com")
 				err := task.Start() // Transition to IN_PROGRESS first
 				require.NoError(t, err)
