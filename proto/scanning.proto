@@ -80,6 +80,22 @@ message JobEnumerationCompletedEvent {
   int32 total_tasks = 3;
 }
 
+// JobPausingEvent signals that a job is in the process of being paused.
+message JobPausingEvent {
+  string job_id = 1;
+  int64 timestamp = 2;
+  string requested_by = 3;
+}
+
+// JobPausedEvent signals that a job has been successfully paused.
+message JobPausedEvent {
+  string job_id = 1;
+  int64 timestamp = 2;
+  int64 paused_at = 3;
+  string reason = 4;
+  string requested_by = 5;
+}
+
 // TaskCreatedEvent represents a new task discovered for scanning.
 message TaskCreatedEvent {
   string job_id = 1;

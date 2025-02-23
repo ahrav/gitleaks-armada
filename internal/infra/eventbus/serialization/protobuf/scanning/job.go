@@ -211,3 +211,41 @@ func ProtoToJobEnumerationCompletedEvent(event *pb.JobEnumerationCompletedEvent)
 		int(event.TotalTasks),
 	), nil
 }
+
+// JobPausingEventToProto converts a domain JobPausingEvent to its protobuf representation.
+func JobPausingEventToProto(event scanning.JobPausingEvent) *pb.JobPausingEvent {
+	return &pb.JobPausingEvent{
+		JobId:       event.JobID,
+		Timestamp:   event.OccurredAt().UnixNano(),
+		RequestedBy: event.RequestedBy,
+	}
+}
+
+// ProtoToJobPausingEvent converts a protobuf JobPausingEvent to its domain representation.
+func ProtoToJobPausingEvent(event *pb.JobPausingEvent) (scanning.JobPausingEvent, error) {
+	if event == nil {
+		return scanning.JobPausingEvent{}, serializationerrors.ErrNilEvent{EventType: "JobPausingEvent"}
+	}
+
+	return scanning.NewJobPausingEvent(event.JobId, event.RequestedBy), nil
+}
+
+// JobPausedEventToProto converts a domain JobPausedEvent to its protobuf representation.
+func JobPausedEventToProto(event scanning.JobPausedEvent) *pb.JobPausedEvent {
+	return &pb.JobPausedEvent{
+		JobId:       event.JobID,
+		Timestamp:   event.OccurredAt().UnixNano(),
+		PausedAt:    event.PausedAt.UnixNano(),
+		Reason:      event.Reason,
+		RequestedBy: event.RequestedBy,
+	}
+}
+
+// ProtoToJobPausedEvent converts a protobuf JobPausedEvent to its domain representation.
+func ProtoToJobPausedEvent(event *pb.JobPausedEvent) (scanning.JobPausedEvent, error) {
+	if event == nil {
+		return scanning.JobPausedEvent{}, serializationerrors.ErrNilEvent{EventType: "JobPausedEvent"}
+	}
+
+	return scanning.NewJobPausedEvent(event.JobId, event.RequestedBy, event.Reason), nil
+}

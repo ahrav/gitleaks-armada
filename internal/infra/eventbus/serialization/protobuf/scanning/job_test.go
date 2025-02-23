@@ -307,3 +307,61 @@ func TestJobEnumerationCompletedEventConversion(t *testing.T) {
 		assert.Contains(t, err.Error(), "parse job ID")
 	})
 }
+
+func TestJobPausingEventConversion(t *testing.T) {
+	t.Run("successful conversion", func(t *testing.T) {
+		jobID := "test-job-id"
+		requestedBy := "test-user"
+		domainEvent := scanning.NewJobPausingEvent(jobID, requestedBy)
+
+		// Test domain to proto conversion.
+		protoEvent := JobPausingEventToProto(domainEvent)
+		require.NotNil(t, protoEvent)
+		assert.Equal(t, jobID, protoEvent.JobId)
+		assert.Equal(t, requestedBy, protoEvent.RequestedBy)
+		assert.Equal(t, domainEvent.OccurredAt().UnixNano(), protoEvent.Timestamp)
+
+		// Test proto to domain conversion.
+		convertedEvent, err := ProtoToJobPausingEvent(protoEvent)
+		require.NoError(t, err)
+		assert.Equal(t, jobID, convertedEvent.JobID)
+		assert.Equal(t, requestedBy, convertedEvent.RequestedBy)
+	})
+
+	t.Run("nil event", func(t *testing.T) {
+		_, err := ProtoToJobPausingEvent(nil)
+		require.Error(t, err)
+		assert.IsType(t, serializationerrors.ErrNilEvent{}, err)
+	})
+}
+
+func TestJobPausedEventConversion(t *testing.T) {
+	t.Run("successful conversion", func(t *testing.T) {
+		jobID := "test-job-id"
+		requestedBy := "test-user"
+		reason := "maintenance"
+		domainEvent := scanning.NewJobPausedEvent(jobID, requestedBy, reason)
+
+		// Test domain to proto conversion.
+		protoEvent := JobPausedEventToProto(domainEvent)
+		require.NotNil(t, protoEvent)
+		assert.Equal(t, jobID, protoEvent.JobId)
+		assert.Equal(t, requestedBy, protoEvent.RequestedBy)
+		assert.Equal(t, reason, protoEvent.Reason)
+		assert.Equal(t, domainEvent.OccurredAt().UnixNano(), protoEvent.Timestamp)
+		assert.Equal(t, domainEvent.PausedAt.UnixNano(), protoEvent.PausedAt)
+
+		// Test proto to domain conversion.
+		convertedEvent, err := ProtoToJobPausedEvent(protoEvent)
+		require.NoError(t, err)
+		assert.Equal(t, jobID, convertedEvent.JobID)
+		assert.Equal(t, requestedBy, convertedEvent.RequestedBy)
+		assert.Equal(t, reason, convertedEvent.Reason)
+	})
+
+	t.Run("nil event", func(t *testing.T) {
+		_, err := ProtoToJobPausedEvent(nil)
+		require.Error(t, err)
+		assert.IsType(t, serializationerrors.ErrNilEvent{}, err)
+	})
+}
