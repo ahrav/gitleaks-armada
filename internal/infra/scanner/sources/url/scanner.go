@@ -112,7 +112,7 @@ func (s *Scanner) runURLScan(
 		"operation", "gitleaks_url_scanner.scan_main",
 		"scanner_id", s.scannerID,
 		"url", scanReq.ResourceURI,
-		"source_type", string(scanReq.SourceType),
+		"source_type", scanReq.SourceType.String(),
 		"task_id", scanReq.TaskID.String(),
 		"job_id", scanReq.JobID.String(),
 	))
@@ -120,7 +120,7 @@ func (s *Scanner) runURLScan(
 		trace.WithAttributes(
 			attribute.String("scanner_id", s.scannerID),
 			attribute.String("url", scanReq.ResourceURI),
-			attribute.String("source_type", string(scanReq.SourceType)),
+			attribute.String("source_type", scanReq.SourceType.String()),
 			attribute.String("task_id", scanReq.TaskID.String()),
 			attribute.String("job_id", scanReq.JobID.String()),
 		),
@@ -129,7 +129,7 @@ func (s *Scanner) runURLScan(
 
 	startTime := time.Now()
 	defer func() {
-		s.metrics.ObserveScanDuration(ctx, shared.ParseSourceType(string(scanReq.SourceType)), time.Since(startTime))
+		s.metrics.ObserveScanDuration(ctx, shared.ParseSourceType(scanReq.SourceType.String()), time.Since(startTime))
 		span.SetAttributes(attribute.Int64("scan_duration_ms", time.Since(startTime).Milliseconds()))
 	}()
 
@@ -187,7 +187,7 @@ func (s *Scanner) runURLScan(
 	// Prepare a specialized ArchiveReader based on format (e.g., "warc.gz")
 	reader, err := s.createArchiveReader(ctx, format, scanReq, scanCtx, logr)
 	if err != nil {
-		s.metrics.IncScanError(ctx, shared.ParseSourceType(string(scanReq.SourceType)))
+		s.metrics.IncScanError(ctx, shared.ParseSourceType(scanReq.SourceType.String()))
 		return fmt.Errorf("failed to create archive reader with format %s and task resource URI %s: %w",
 			format, scanReq.ResourceURI, err)
 	}
@@ -212,12 +212,12 @@ func (s *Scanner) runURLScan(
 	}
 
 	for e := range errs {
-		s.metrics.IncScanError(ctx, shared.ParseSourceType(string(scanReq.SourceType)))
+		s.metrics.IncScanError(ctx, shared.ParseSourceType(scanReq.SourceType.String()))
 		detectSpan.RecordError(e)
 		detectSpan.SetStatus(codes.Error, "gitleaks_detection_error")
 	}
 
-	s.metrics.ObserveScanFindings(ctx, shared.ParseSourceType(string(scanReq.SourceType)), len(findings))
+	s.metrics.ObserveScanFindings(ctx, shared.ParseSourceType(scanReq.SourceType.String()), len(findings))
 	detectSpan.AddEvent("findings_processed",
 		trace.WithAttributes(attribute.Int("findings.count", len(findings))))
 	detectSpan.End()
@@ -274,7 +274,7 @@ func NewScanContext(
 	sc.lastProgress.Store(domain.NewProgress(
 		taskID,
 		jobID,
-		1,
+		0,
 		time.Now(),
 		0,
 		0,

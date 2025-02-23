@@ -181,22 +181,36 @@ components:
     ScanResponse:
       type: object
       required:
-        - id
-        - status
+        - jobs
       properties:
-        id:
-          type: string
-          format: uuid
-          description: Unique identifier for the scan job
-          example: "123e4567-e89b-12d3-a456-426614174000"
-        status:
-          type: string
-          enum: [QUEUED]
-          description: Current status of the scan job
-          example: "QUEUED"
+        jobs:
+          type: array
+          items:
+            type: object
+            required:
+              - id
+              - status
+            properties:
+              id:
+                type: string
+                format: uuid
+                description: Unique identifier for the scan job
+              status:
+                type: string
+                enum: [QUEUED]
+                description: Current status of the scan job
+              target_type:
+                type: string
+                enum: [github, s3, url]
+                description: Type of target for this job
       example:
-        id: "123e4567-e89b-12d3-a456-426614174000"
-        status: "QUEUED"
+        jobs:
+          - id: "123e4567-e89b-12d3-a456-426614174000"
+            status: "QUEUED"
+            target_type: "github"
+          - id: "456e4567-e89b-12d3-a456-426614174000"
+            status: "QUEUED"
+            target_type: "url"
     ErrorResponse:
       type: object
       required:

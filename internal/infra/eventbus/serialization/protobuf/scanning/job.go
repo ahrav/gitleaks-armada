@@ -91,7 +91,6 @@ func ProtoToJobRequestedEvent(event *pb.JobRequestedEvent) (scanning.JobRequeste
 
 	targets := make([]scanning.Target, 0, len(event.Targets))
 	for _, pbTarget := range event.Targets {
-
 		target, err := ProtoToTarget(pbTarget)
 		if err != nil {
 			return scanning.JobRequestedEvent{}, fmt.Errorf("convert proto to target: %w", err)

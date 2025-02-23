@@ -124,7 +124,11 @@ func (t *executionTracker) ProcessEnumerationStream(
 				span.SetStatus(codes.Error, "failed to handle enumerated scan task")
 				return fmt.Errorf("failed to handle enumerated scan task: %w", err)
 			}
-			logger.Debug(ctx, "Enumerated scan task handled")
+			logger.Debug(ctx, "Enumerated scan task handled",
+				"task_id", translationRes.Task.ID,
+				"job_id", jobID,
+				"metadata", translationRes.Metadata,
+			)
 
 		case errVal, ok := <-result.ErrCh:
 			if !ok {

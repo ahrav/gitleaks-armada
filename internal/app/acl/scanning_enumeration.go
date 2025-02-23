@@ -71,8 +71,11 @@ func enrichTargetSpec(
 		if urlTarget == nil {
 			return fmt.Errorf("missing URL configuration for URL target")
 		}
+		// TODO: Handle other metadata fields.
+		meta := scanTarget.Metadata()
 		spec.SetURL(&enumeration.URLTargetSpec{
-			URLs: urlTarget.URLs(),
+			URLs:          urlTarget.URLs(),
+			ArchiveFormat: enumeration.ArchiveFormat(meta["archive_format"]),
 		})
 
 	default:

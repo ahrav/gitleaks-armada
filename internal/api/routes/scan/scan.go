@@ -78,8 +78,14 @@ type sourceAuth struct {
 
 // startResponse represents the response for starting a scan.
 type startResponse struct {
-	ID     string `json:"id"`     // The job ID
-	Status string `json:"status"` // Current status (e.g., "queued")
+	Jobs []JobInfo `json:"jobs"` // List of created jobs
+}
+
+// JobInfo contains information about a created job.
+type JobInfo struct {
+	ID         string `json:"id"`          // The job ID
+	Status     string `json:"status"`      // Current status
+	TargetType string `json:"target_type"` // Type of target for this job
 }
 
 // Encode implements the web.Encoder interface.
@@ -106,27 +112,30 @@ func start(cfg Config) web.HandlerFunc {
 			return errs.New(errs.InvalidArgument, err)
 		}
 
-		// Build a list of target configurations from the API request
-		// and merge global metadata from the request if needed.
-		var targets []config.TargetSpec
+		var jobs []JobInfo
+		// Create a separate job for each target.
 		for _, t := range req.Targets {
+			jobID := uuid.New()
+
 			tgt := buildTargetConfig(t)
-			tgt.Metadata = req.Metadata
-			targets = append(targets, tgt)
+			for k, v := range req.Metadata {
+				tgt.Metadata[k] = v
+			}
+
+			scanCfg := &config.Config{Targets: []config.TargetSpec{tgt}}
+			cmd := scanning.NewStartScanCommand(jobID, scanCfg, "system") // TODO: Use JWT user instead of "system" if available.
+			if err := cfg.CmdHandler.Handle(ctx, cmd); err != nil {
+				return errs.New(errs.Internal, err)
+			}
+
+			jobs = append(jobs, JobInfo{
+				ID:         jobID.String(),
+				Status:     scanDomain.JobStatusQueued.String(),
+				TargetType: t.Type,
+			})
 		}
 
-		// Create scan configuration with multiple targets.
-		scanCfg := &config.Config{Targets: targets}
-		jobID := uuid.New()
-		cmd := scanning.NewStartScanCommand(jobID, scanCfg, "system") // TODO: Use JWT user instead of "system" if available.
-		if err := cfg.CmdHandler.Handle(ctx, cmd); err != nil {
-			return errs.New(errs.Internal, err)
-		}
-
-		return startResponse{
-			ID:     jobID.String(),
-			Status: scanDomain.JobStatusQueued.String(),
-		}
+		return startResponse{Jobs: jobs}
 	}
 }
 
@@ -138,7 +147,12 @@ func buildTargetConfig(tr targetRequest) config.TargetSpec {
 		Metadata:   tr.Metadata,
 	}
 
-	// Set source authentication if provided.
+	// Initialize metadata map if nil
+	if target.Metadata == nil {
+		target.Metadata = make(map[string]string)
+	}
+
+	// Set source authentication if provided
 	if tr.SourceAuth != nil {
 		target.SourceAuth = &config.AuthConfig{
 			Type:        tr.SourceAuth.Type,
@@ -146,7 +160,7 @@ func buildTargetConfig(tr targetRequest) config.TargetSpec {
 		}
 	}
 
-	// Switch over the target type.
+	// Switch over the target type
 	switch shared.ParseSourceType(tr.Type) {
 	case shared.SourceTypeGitHub:
 		// Map GitHub-specific information.
@@ -156,12 +170,22 @@ func buildTargetConfig(tr targetRequest) config.TargetSpec {
 			// RepositoryPattern: tr.RepositoryPattern,
 		}
 	case shared.SourceTypeURL:
-		// Map URL-specific information.
+		// Map URL-specific information
 		target.URL = &config.URLTarget{
 			URLs:          tr.URLs,
 			ArchiveFormat: config.ArchiveFormat(tr.ArchiveFormat),
 			RateLimit:     tr.RateLimit,
 			Headers:       tr.Headers,
+		}
+
+		if tr.ArchiveFormat != "" {
+			target.Metadata["archive_format"] = tr.ArchiveFormat
+		}
+		if tr.RateLimit > 0 {
+			target.Metadata["rate_limit"] = fmt.Sprintf("%f", tr.RateLimit)
+		}
+		for key, value := range tr.Headers {
+			target.Metadata["header_"+key] = value
 		}
 	case shared.SourceTypeS3:
 		// Map S3-specific information.

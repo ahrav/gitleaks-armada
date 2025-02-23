@@ -54,6 +54,8 @@ func (e *Enumerator) Enumerate(
 	logger := e.logger.With(
 		"operation", "enumerate",
 		"url_count", len(e.urlConfig.URLs),
+		"archive_format", e.urlConfig.ArchiveFormat,
+		"rate_limit", e.urlConfig.RateLimit,
 	)
 	ctx, span := e.tracer.Start(ctx, "url_enumerator.enumerate",
 		trace.WithAttributes(
