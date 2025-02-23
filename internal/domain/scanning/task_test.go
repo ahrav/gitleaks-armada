@@ -496,7 +496,7 @@ func TestTask_MarkStale(t *testing.T) {
 				time.Time{},
 				0,
 			),
-			reason:  nil,
+			reason:  ReasonPtr(StallReasonNoProgress),
 			wantErr: true,
 		},
 		{
@@ -518,7 +518,7 @@ func TestTask_MarkStale(t *testing.T) {
 				time.Time{},
 				0,
 			),
-			reason:  nil,
+			reason:  ReasonPtr(StallReasonNoProgress),
 			wantErr: true,
 		},
 		{
@@ -540,7 +540,7 @@ func TestTask_MarkStale(t *testing.T) {
 				time.Time{},
 				0,
 			),
-			reason:  nil,
+			reason:  ReasonPtr(StallReasonNoProgress),
 			wantErr: true,
 		},
 	}
