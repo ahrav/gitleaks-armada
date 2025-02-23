@@ -186,15 +186,9 @@ func (s *Scanner) runURLScan(
 
 	logr.Info(ctx, "starting gitleaks detection for URL")
 	// Gitleaks can read from an io.Reader. (the decompressed or raw data)
-	findings, err := s.detector.DetectReader(reader, 32)
-	if err != nil {
-		detectSpan.RecordError(err)
-		detectSpan.End()
-		s.metrics.IncScanError(ctx, shared.ParseSourceType(string(scanReq.SourceType)))
-		return fmt.Errorf("failed to scan URL: %w", err)
-	}
+	findings, errs := s.detector.StreamDetectReader(reader, 32)
 
-	for _, f := range findings {
+	for f := range findings {
 		_ = f // TODO: Convert to our domain's representation.
 		select {
 		case findingsChan <- scanning.Finding{}:
@@ -202,6 +196,12 @@ func (s *Scanner) runURLScan(
 			detectSpan.End()
 			return ctx.Err()
 		}
+	}
+
+	for e := range errs {
+		s.metrics.IncScanError(ctx, shared.ParseSourceType(string(scanReq.SourceType)))
+		detectSpan.RecordError(e)
+		detectSpan.SetStatus(codes.Error, "gitleaks_detection_error")
 	}
 
 	s.metrics.ObserveScanFindings(ctx, shared.ParseSourceType(string(scanReq.SourceType)), len(findings))
