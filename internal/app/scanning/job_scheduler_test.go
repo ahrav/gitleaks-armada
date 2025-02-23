@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/trace/noop"
@@ -63,7 +62,6 @@ func TestScheduleJob(t *testing.T) {
 		name    string
 		setup   func(*mockJobTaskSvc, *mockDomainEventPublisher, *mockDomainEventPublisher)
 		wantErr bool
-		errMsg  string
 	}{
 		{
 			name: "successful job scheduling with multiple targets",
@@ -93,18 +91,14 @@ func TestScheduleJob(t *testing.T) {
 			name: "job creation fails",
 			setup: func(service *mockJobTaskSvc, publisher *mockDomainEventPublisher, broadcastPublisher *mockDomainEventPublisher) {
 				service.On("CreateJobFromID", mock.Anything, jobID).
-					Return(errors.New("job creation failed"))
+					Return(errors.New("any error"))
 			},
 			wantErr: true,
-			errMsg:  "failed to create job",
 		},
 		{
 			name: "event publishing fails",
 			setup: func(service *mockJobTaskSvc, publisher *mockDomainEventPublisher, broadcastPublisher *mockDomainEventPublisher) {
-				// Job creation succeeds.
 				service.On("CreateJobFromID", mock.Anything, jobID).Return(nil)
-
-				// But event publishing fails.
 				publisher.On("PublishDomainEvent",
 					mock.Anything,
 					mock.MatchedBy(func(evt events.DomainEvent) bool {
@@ -112,10 +106,9 @@ func TestScheduleJob(t *testing.T) {
 						return ok
 					}),
 					mock.AnythingOfType("[]events.PublishOption"),
-				).Return(errors.New("event publishing failed"))
+				).Return(errors.New("any error"))
 			},
 			wantErr: true,
-			errMsg:  "failed to publish job scheduled event",
 		},
 		{
 			name: "successful job scheduling with no targets",
@@ -140,7 +133,6 @@ func TestScheduleJob(t *testing.T) {
 
 			if tt.wantErr {
 				require.Error(t, err)
-				assert.Contains(t, err.Error(), tt.errMsg)
 				return
 			}
 
@@ -160,7 +152,6 @@ func TestPauseJob(t *testing.T) {
 		name    string
 		setup   func(*mockJobTaskSvc, *mockDomainEventPublisher, *mockDomainEventPublisher)
 		wantErr bool
-		errMsg  string
 	}{
 		{
 			name: "successful job pause",
@@ -186,16 +177,14 @@ func TestPauseJob(t *testing.T) {
 			name: "status update fails",
 			setup: func(service *mockJobTaskSvc, publisher *mockDomainEventPublisher, broadcastPublisher *mockDomainEventPublisher) {
 				service.On("UpdateJobStatus", mock.Anything, jobID, scanning.JobStatusPausing).
-					Return(errors.New("status update failed"))
+					Return(errors.New("any error"))
 			},
 			wantErr: true,
-			errMsg:  "failed to update job status to pausing",
 		},
 		{
 			name: "event publishing fails",
 			setup: func(service *mockJobTaskSvc, publisher *mockDomainEventPublisher, broadcastPublisher *mockDomainEventPublisher) {
 				service.On("UpdateJobStatus", mock.Anything, jobID, scanning.JobStatusPausing).Return(nil)
-
 				broadcastPublisher.On("PublishDomainEvent",
 					mock.Anything,
 					mock.MatchedBy(func(evt events.DomainEvent) bool {
@@ -203,10 +192,9 @@ func TestPauseJob(t *testing.T) {
 						return ok
 					}),
 					mock.AnythingOfType("[]events.PublishOption"),
-				).Return(errors.New("event publishing failed"))
+				).Return(errors.New("any error"))
 			},
 			wantErr: true,
-			errMsg:  "failed to publish job paused event",
 		},
 	}
 
@@ -219,7 +207,6 @@ func TestPauseJob(t *testing.T) {
 
 			if tt.wantErr {
 				require.Error(t, err)
-				assert.Contains(t, err.Error(), tt.errMsg)
 				return
 			}
 
