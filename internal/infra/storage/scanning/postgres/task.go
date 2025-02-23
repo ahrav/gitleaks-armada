@@ -314,10 +314,7 @@ func (s *taskStore) FindStaleTasks(ctx context.Context, controllerID string, cut
 
 		rows, err := s.q.FindStaleTasks(ctx, db.FindStaleTasksParams{
 			OwnerControllerID: controllerID,
-			LastHeartbeatAt: pgtype.Timestamptz{
-				Time:  cutoff,
-				Valid: true,
-			},
+			LastHeartbeatAt:   pgtype.Timestamptz{Time: cutoff, Valid: true},
 		})
 		if err != nil {
 			return fmt.Errorf("FindStaleTasks query error: %w", err)

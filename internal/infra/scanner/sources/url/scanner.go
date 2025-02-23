@@ -270,11 +270,11 @@ func NewScanContext(
 		archiveFormat: archiveFormat,
 		tracer:        tracer,
 	}
-	// Initialize with empty progress
+	// Initialize with empty progress.
 	sc.lastProgress.Store(domain.NewProgress(
 		taskID,
 		jobID,
-		0,
+		1,
 		time.Now(),
 		0,
 		0,
@@ -340,7 +340,26 @@ func (sc *ScanContext) HandlePause(ctx context.Context, reason string) error {
 	defer span.End()
 
 	lastProgress := sc.lastProgress.Load().(domain.Progress)
-	return sc.reporter.ReportPausedProgress(ctx, lastProgress)
+	newProgress := domain.NewProgress(
+		sc.taskID,
+		sc.jobID,
+		sc.nextSequence.Load(),
+		time.Now(),
+		lastProgress.ItemsProcessed(),
+		0,
+		"",
+		nil,
+		domain.NewCheckpoint(
+			sc.taskID,
+			[]byte(strconv.FormatInt(lastProgress.ItemsProcessed(), 10)),
+			map[string]string{
+				"file_index":     strconv.FormatInt(lastProgress.ItemsProcessed(), 10),
+				"archive_format": sc.archiveFormat,
+			},
+		),
+	)
+
+	return sc.reporter.ReportPausedProgress(ctx, newProgress)
 }
 
 // createArchiveReader performs an HTTP GET and then wraps the response Body

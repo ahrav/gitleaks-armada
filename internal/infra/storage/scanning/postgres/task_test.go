@@ -484,7 +484,7 @@ func TestTaskStore_FindStaleTasks(t *testing.T) {
 
 	job := createTestScanJob(t, jobStore, ctx)
 
-	// Use a fixed base time for all calculations
+	// Use a fixed base time for all calculations.
 	baseTime := time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
 	cutoff := baseTime.Add(-5 * time.Minute)
 	controllerID := "test-controller"
@@ -523,6 +523,13 @@ func TestTaskStore_FindStaleTasks(t *testing.T) {
 			status:        scanning.TaskStatusCompleted,
 			shouldBeStale: false,
 			count:         1,
+		},
+		{
+			name:          "stale heartbeat, paused task",
+			lastHeartbeat: &[]time.Time{baseTime.Add(-10 * time.Minute)}[0], // 10 min old
+			status:        scanning.TaskStatusPaused,
+			shouldBeStale: false,
+			count:         3,
 		},
 	}
 
