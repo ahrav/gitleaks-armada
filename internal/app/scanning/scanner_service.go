@@ -104,6 +104,7 @@ func NewScannerService(
 		ruleProvider:         ruleProvider,
 		enumACL:              acl.EnumerationACL{},
 		activeJobTasksCancel: make(map[uuid.UUID]map[uuid.UUID]context.CancelCauseFunc),
+		pausedJobs:           make(map[uuid.UUID]struct{}),
 		workers:              workerCount,
 		stopCh:               make(chan struct{}),
 		taskEvent:            make(chan *dtos.ScanRequest, workerCount*10),
@@ -381,9 +382,8 @@ func (s *ScannerService) handleTaskResumeEvent(
 }
 
 // handleJobPausedEvent processes job paused events and handles the task.
-// TODO: This needs to be fully implemented. We will need to track each job's task's ctx
-// and then cacnel them when the job is paused. We might also want to emit a new (PausedEvent)
-// with the checkpoint maybe?
+// TODO: How do we want to handle the scenario where the scanner gets killed.
+// We lose our in-memory paused job state.
 func (s *ScannerService) handleJobPausedEvent(
 	ctx context.Context,
 	evt events.EventEnvelope,
@@ -498,6 +498,9 @@ func (s *ScannerService) doWorkerLoop(ctx context.Context, workerID int, workerL
 					attribute.String("resource_uri", task.ResourceURI),
 				))
 
+			// Note: We have this check while consuming from taskEvent because it
+			// is possible the job was paused after the task was enqueued but before
+			// it was consumed.
 			s.mu.RLock()
 			if _, ok := s.pausedJobs[task.JobID]; ok {
 				s.mu.RUnlock()
