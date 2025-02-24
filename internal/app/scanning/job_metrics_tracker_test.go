@@ -131,19 +131,12 @@ func TestHandleJobMetrics_NewJob(t *testing.T) {
 	)
 
 	ackCalled := false
-	ackFunc := func(err error) {
-		ackCalled = true
-		require.NoError(t, err, "ack should have no error")
-	}
+	ackFunc := func(err error) { ackCalled = true; require.NoError(t, err) }
 
 	evt := events.EventEnvelope{
-		Type: "some_event",
-		Key:  "some_key",
-		Payload: scanning.TaskJobMetricEvent{
-			JobID:  jobID,
-			TaskID: taskID,
-			Status: domain.TaskStatusInProgress,
-		},
+		Type:     "some_event",
+		Key:      "some_key",
+		Payload:  scanning.TaskJobMetricEvent{JobID: jobID, TaskID: taskID, Status: domain.TaskStatusInProgress},
 		Metadata: events.EventMetadata{Partition: 1, Offset: 42},
 	}
 
@@ -189,16 +182,10 @@ func TestHandleJobMetrics_TaskNotFound(t *testing.T) {
 	)
 
 	ackCalled := false
-	ackFunc := func(err error) {
-		ackCalled = true
-	}
+	ackFunc := func(err error) { ackCalled = true; require.NoError(t, err) }
 
 	evt := events.EventEnvelope{
-		Payload: scanning.TaskJobMetricEvent{
-			JobID:  jobID,
-			TaskID: taskID,
-			Status: domain.TaskStatusInProgress,
-		},
+		Payload:  scanning.TaskJobMetricEvent{JobID: jobID, TaskID: taskID, Status: domain.TaskStatusInProgress},
 		Metadata: events.EventMetadata{Partition: 1, Offset: 100},
 	}
 
@@ -242,29 +229,16 @@ func TestProcessPendingMetrics_SucceedsOnSecondTry(t *testing.T) {
 		},
 	}
 
-	tracker := NewJobMetricsAggregator(
-		"controller-id",
-		repo,
-		nil,
-		logger.Noop(),
-		noop.NewTracerProvider().Tracer(""),
-	)
+	tracker := NewJobMetricsAggregator("controller-id", repo, nil, logger.Noop(), noop.NewTracerProvider().Tracer(""))
 
 	ackCalled := false
-	ackFunc := func(err error) {
-		ackCalled = true
-		require.NoError(t, err, "ack should have no error")
-	}
+	ackFunc := func(err error) { ackCalled = true; require.NoError(t, err) }
 
 	// Step 2: Send an event for a task that doesn't exist. Should go to pending.
 	evt := events.EventEnvelope{
-		Type: scanning.EventTypeTaskJobMetric,
-		Key:  jobID.String(),
-		Payload: scanning.TaskJobMetricEvent{
-			JobID:  jobID,
-			TaskID: taskID,
-			Status: domain.TaskStatusInProgress,
-		},
+		Type:     scanning.EventTypeTaskJobMetric,
+		Key:      jobID.String(),
+		Payload:  scanning.TaskJobMetricEvent{JobID: jobID, TaskID: taskID, Status: domain.TaskStatusInProgress},
 		Metadata: events.EventMetadata{Partition: 1, Offset: 100},
 	}
 
@@ -312,19 +286,12 @@ func TestFlushMetrics_CallsUpdateAndAck(t *testing.T) {
 	tracker := NewJobMetricsAggregator("controller-id", repo, nil, logger.Noop(), noop.NewTracerProvider().Tracer(""))
 
 	var ackCalledOffset int64
-	ackFunc := func(err error) {
-		require.NoError(t, err)
-		ackCalledOffset = 55
-	}
+	ackFunc := func(err error) { ackCalledOffset = 55; require.NoError(t, err) }
 
 	evt := events.EventEnvelope{
-		Type: scanning.EventTypeTaskJobMetric,
-		Key:  jobID.String(),
-		Payload: scanning.TaskJobMetricEvent{
-			JobID:  jobID,
-			TaskID: taskID,
-			Status: domain.TaskStatusInProgress,
-		},
+		Type:     scanning.EventTypeTaskJobMetric,
+		Key:      jobID.String(),
+		Payload:  scanning.TaskJobMetricEvent{JobID: jobID, TaskID: taskID, Status: domain.TaskStatusInProgress},
 		Metadata: events.EventMetadata{Partition: 1, Offset: 55},
 	}
 	err := tracker.HandleJobMetrics(ctx, evt, ackFunc)
@@ -425,21 +392,13 @@ func TestHandleEnumerationCompleted_MarksJobCompleted(t *testing.T) {
 	// Fire "TaskCompleted" for each, so aggregator increments st.completedCount.
 	// They can be "TaskJobMetricEvent" with status = TaskStatusCompleted.
 	evt1 := events.EventEnvelope{
-		Type: scanning.EventTypeTaskCompleted, // or custom type
-		Payload: scanning.TaskJobMetricEvent{
-			JobID:  jobID,
-			TaskID: uuid.New(),
-			Status: domain.TaskStatusCompleted,
-		},
+		Type:     scanning.EventTypeTaskCompleted, // or custom type
+		Payload:  scanning.TaskJobMetricEvent{JobID: jobID, TaskID: uuid.New(), Status: domain.TaskStatusCompleted},
 		Metadata: events.EventMetadata{Partition: 0, Offset: 10},
 	}
 	evt2 := events.EventEnvelope{
-		Type: scanning.EventTypeTaskCompleted,
-		Payload: scanning.TaskJobMetricEvent{
-			JobID:  jobID,
-			TaskID: uuid.New(),
-			Status: domain.TaskStatusCompleted,
-		},
+		Type:     scanning.EventTypeTaskCompleted,
+		Payload:  scanning.TaskJobMetricEvent{JobID: jobID, TaskID: uuid.New(), Status: domain.TaskStatusCompleted},
 		Metadata: events.EventMetadata{Partition: 0, Offset: 11},
 	}
 
@@ -454,12 +413,9 @@ func TestHandleEnumerationCompleted_MarksJobCompleted(t *testing.T) {
 
 	// Now call HandleEnumerationCompleted => aggregator sees finalTaskCount=2, completedCount=2 => job is done
 	evt := events.EventEnvelope{
-		Type: scanning.EventTypeJobEnumerationCompleted,
-		Key:  jobID.String(),
-		Payload: scanning.JobEnumerationCompletedEvent{
-			JobID:      jobID,
-			TotalTasks: 2,
-		},
+		Type:     scanning.EventTypeJobEnumerationCompleted,
+		Key:      jobID.String(),
+		Payload:  scanning.JobEnumerationCompletedEvent{JobID: jobID, TotalTasks: 2},
 		Metadata: events.EventMetadata{Partition: testPartition, Offset: testOffset},
 	}
 
@@ -495,4 +451,114 @@ func TestHandleEnumerationCompleted_MarksJobCompleted(t *testing.T) {
 	// Since the job is already finalized, aggregator should NOT call UpdateJobStatus again.
 	require.False(t, updateJobStatusCalled,
 		"UpdateJobStatus should NOT be called again, aggregator is idempotent")
+}
+
+func TestHandleJobMetrics_MarksJobPaused(t *testing.T) {
+	ctx := context.Background()
+	jobID := uuid.New()
+
+	var updateJobStatusCalled bool
+	var updateJobStatusArg domain.JobStatus
+
+	repo := &mockMetricsRepository{
+		// Return metrics with 3 tasks: 1 completed, 2 in progress.
+		getJobMetricsFn: func(ctx context.Context, id uuid.UUID) (*domain.JobMetrics, error) {
+			metrics := domain.NewJobMetrics()
+			metrics.OnTaskAdded(domain.TaskStatusCompleted)
+			metrics.OnTaskAdded(domain.TaskStatusInProgress)
+			metrics.OnTaskAdded(domain.TaskStatusInProgress)
+			return metrics, nil
+		},
+		updateJobStatusFn: func(ctx context.Context, id uuid.UUID, status domain.JobStatus) error {
+			updateJobStatusCalled = true
+			updateJobStatusArg = status
+			return nil
+		},
+		// Avoid ErrTaskNotFound by returning a dummy Task.
+		getTaskFn: func(ctx context.Context, id uuid.UUID) (*domain.Task, error) {
+			return &domain.Task{}, nil
+		},
+	}
+
+	aggregator := NewJobMetricsAggregator("controller-id", repo, nil, logger.Noop(), noop.NewTracerProvider().Tracer(""))
+
+	// First, send enumeration completed to set the total task count.
+	enumEvt := events.EventEnvelope{
+		Type: scanning.EventTypeJobEnumerationCompleted,
+		Key:  jobID.String(),
+		Payload: scanning.JobEnumerationCompletedEvent{
+			JobID:      jobID,
+			TotalTasks: 3, // 1 completed + 2 in progress
+		},
+		Metadata: events.EventMetadata{Partition: 0, Offset: 10},
+	}
+	require.NoError(t, aggregator.HandleEnumerationCompleted(ctx, enumEvt, func(err error) { require.NoError(t, err) }))
+
+	// Send event for the completed task first.
+	completedTaskID := uuid.New()
+	completedEvt := events.EventEnvelope{
+		Type:     scanning.EventTypeTaskJobMetric,
+		Payload:  scanning.TaskJobMetricEvent{JobID: jobID, TaskID: completedTaskID, Status: domain.TaskStatusCompleted},
+		Metadata: events.EventMetadata{Partition: 0, Offset: 11},
+	}
+	require.NoError(t, aggregator.HandleJobMetrics(ctx, completedEvt, func(err error) { require.NoError(t, err) }))
+
+	// Create two tasks that will transition from IN_PROGRESS to PAUSED
+	task1ID, task2ID := uuid.New(), uuid.New()
+
+	// First send events to mark tasks as in progress.
+	inProgressEvt1 := events.EventEnvelope{
+		Type:     scanning.EventTypeTaskJobMetric,
+		Payload:  scanning.TaskJobMetricEvent{JobID: jobID, TaskID: task1ID, Status: domain.TaskStatusInProgress},
+		Metadata: events.EventMetadata{Partition: 0, Offset: 12},
+	}
+	inProgressEvt2 := events.EventEnvelope{
+		Type:     scanning.EventTypeTaskJobMetric,
+		Payload:  scanning.TaskJobMetricEvent{JobID: jobID, TaskID: task2ID, Status: domain.TaskStatusInProgress},
+		Metadata: events.EventMetadata{Partition: 0, Offset: 13},
+	}
+
+	// Process in-progress events.
+	require.NoError(t, aggregator.HandleJobMetrics(ctx, inProgressEvt1, func(err error) { require.NoError(t, err) }))
+	require.NoError(t, aggregator.HandleJobMetrics(ctx, inProgressEvt2, func(err error) { require.NoError(t, err) }))
+
+	// Send events to pause both in-progress tasks.
+	pauseEvt1 := events.EventEnvelope{
+		Type:     scanning.EventTypeTaskJobMetric,
+		Payload:  scanning.TaskJobMetricEvent{JobID: jobID, TaskID: task1ID, Status: domain.TaskStatusPaused},
+		Metadata: events.EventMetadata{Partition: 0, Offset: 14},
+	}
+	pauseEvt2 := events.EventEnvelope{
+		Type:     scanning.EventTypeTaskJobMetric,
+		Payload:  scanning.TaskJobMetricEvent{JobID: jobID, TaskID: task2ID, Status: domain.TaskStatusPaused},
+		Metadata: events.EventMetadata{Partition: 0, Offset: 15},
+	}
+
+	// Process first pause - job shouldn't be paused yet.
+	require.NoError(t, aggregator.HandleJobMetrics(ctx, pauseEvt1, func(err error) { require.NoError(t, err) }))
+	require.False(t, updateJobStatusCalled, "Job should not be paused after first task")
+
+	// Process second pause - now job should be paused.
+	require.NoError(t, aggregator.HandleJobMetrics(ctx, pauseEvt2, func(err error) { require.NoError(t, err) }))
+	require.True(t, updateJobStatusCalled, "UpdateJobStatus must be called")
+	require.Equal(t, domain.JobStatusPaused, updateJobStatusArg, "Job should be marked as paused")
+
+	// Reset flag and try to pause again - should be idempotent.
+	updateJobStatusCalled = false
+	require.NoError(t, aggregator.HandleJobMetrics(ctx, pauseEvt2, func(err error) { require.NoError(t, err) }))
+	require.False(t, updateJobStatusCalled, "UpdateJobStatus should not be called again")
+
+	// Verify that resuming a task works.
+	resumeEvt := events.EventEnvelope{
+		Type:     scanning.EventTypeTaskJobMetric,
+		Payload:  scanning.TaskJobMetricEvent{JobID: jobID, TaskID: task1ID, Status: domain.TaskStatusInProgress},
+		Metadata: events.EventMetadata{Partition: 0, Offset: 16},
+	}
+	require.NoError(t, aggregator.HandleJobMetrics(ctx, resumeEvt, func(err error) { require.NoError(t, err) }))
+
+	// Now pause it again - should mark job as paused again.
+	updateJobStatusCalled = false
+	require.NoError(t, aggregator.HandleJobMetrics(ctx, pauseEvt1, func(err error) { require.NoError(t, err) }))
+	require.True(t, updateJobStatusCalled, "UpdateJobStatus should be called when re-pausing")
+	require.Equal(t, domain.JobStatusPaused, updateJobStatusArg, "Job should be marked as paused again")
 }

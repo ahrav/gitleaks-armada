@@ -47,11 +47,11 @@ type AggregatorJobState struct {
 	enumerationDone bool
 	finalTaskCount  int
 
-	completedCount  int
-	failedCount     int
-	pausedCount     int // Track number of paused tasks
-	inProgressCount int // Track number of in-progress tasks
-	jobFinalized    bool
+	completedCount int
+	failedCount    int
+	pausedCount    int // Track number of paused tasks
+	jobFinalized   bool
+	jobPaused      bool // Track if job has been paused
 }
 
 // updateTaskCounts updates the completed and failed task counts based on status transitions.
@@ -66,15 +66,10 @@ func (s *AggregatorJobState) updateTaskCounts(oldStatus, newStatus domain.TaskSt
 	}
 	if newStatus == domain.TaskStatusPaused && oldStatus != domain.TaskStatusPaused {
 		s.pausedCount++
-		if oldStatus == domain.TaskStatusInProgress {
-			s.inProgressCount--
-		}
 	}
-	if newStatus == domain.TaskStatusInProgress && oldStatus != domain.TaskStatusInProgress {
-		s.inProgressCount++
-		if oldStatus == domain.TaskStatusPaused {
-			s.pausedCount--
-		}
+	if oldStatus == domain.TaskStatusPaused && newStatus != domain.TaskStatusPaused {
+		s.pausedCount--
+		s.jobPaused = false // Reset jobPaused when a task transitions out of PAUSED state
 	}
 
 	// Handle status transitions away from terminal states.
@@ -94,8 +89,8 @@ func (s *AggregatorJobState) shouldPauseJob() bool {
 	// We should pause the job if:
 	// 1. We have at least one task (finalTaskCount > 0)
 	// 2. All non-terminal tasks are paused (pausedCount == activeTaskCount)
-	// where activeTaskCount = finalTaskCount - (completedCount + failedCount)
-	if s.finalTaskCount == 0 {
+	// 3. Job hasn't been paused yet
+	if s.finalTaskCount == 0 || s.jobPaused {
 		return false
 	}
 
@@ -794,20 +789,16 @@ func (t *jobMetricsAggregator) processMetric(ctx context.Context, evt scanning.T
 	st := t.updateTaskStatusAndMetrics(ctx, evt, jm, logger)
 
 	// Check if we need to update job status based on task state changes
-	if st.shouldPauseJob() {
-		if err := t.repository.UpdateJobStatus(ctx, evt.JobID, domain.JobStatusPaused); err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "failed to update job status to paused")
-			return fmt.Errorf("failed to update job status to paused for job %s: %w", evt.JobID, err)
-		}
-		span.AddEvent("job_paused")
-		logger.Info(ctx, "job paused", "job_id", evt.JobID.String())
-	} else if st.isDone() {
-		if err := t.tryFinalizeJobIfDone(ctx, st); err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "failed to finalize job")
-			return err
-		}
+	if err := t.tryPauseJobIfAllTasksPaused(ctx, st); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to check/update job pause status")
+		return fmt.Errorf("failed to check/update job pause status for job %s: %w", evt.JobID, err)
+	}
+
+	if err := t.tryFinalizeJobIfDone(ctx, st); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to finalize job")
+		return err
 	}
 
 	logger.Debug(ctx, "task metrics processed")
@@ -896,6 +887,31 @@ func (t *jobMetricsAggregator) updateTaskStatusAndMetrics(
 	span.AddEvent("job_state_updated")
 
 	return st
+}
+
+// tryPauseJobIfAllTasksPaused attempts to pause a job if all its non-terminal tasks
+// are in a paused state. It ensures proper locking and idempotency of the pause operation.
+func (t *jobMetricsAggregator) tryPauseJobIfAllTasksPaused(ctx context.Context, st *AggregatorJobState) error {
+	t.mu.Lock()
+	// Double-check: could have changed in the meantime.
+	if !st.shouldPauseJob() || st.jobPaused {
+		t.mu.Unlock()
+		return nil
+	}
+	st.jobPaused = true // We'll pause exactly once
+	jobID := st.jobID
+	t.mu.Unlock()
+
+	if err := t.repository.UpdateJobStatus(ctx, jobID, domain.JobStatusPaused); err != nil {
+		// Reset the flag if update fails.
+		t.mu.Lock()
+		st.jobPaused = false
+		t.mu.Unlock()
+		return fmt.Errorf("failed to pause job %s: %w", jobID, err)
+	}
+
+	t.logger.Info(ctx, "job is paused", "job_id", jobID.String())
+	return nil
 }
 
 // LaunchMetricsFlusher starts a separate goroutine that periodically invokes FlushMetrics.
