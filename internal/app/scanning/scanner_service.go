@@ -56,6 +56,7 @@ type ScannerService struct {
 	// We use this to cancel all tasks for a given job when it is paused.
 	mu                   sync.RWMutex
 	activeJobTasksCancel map[uuid.UUID]map[uuid.UUID]context.CancelCauseFunc
+	pausedJobs           map[uuid.UUID]struct{}
 
 	workers   int
 	stopCh    chan struct{}
@@ -357,6 +358,10 @@ func (s *ScannerService) handleTaskResumeEvent(
 	go func() {
 		defer func() { <-s.highPrioritySem }()
 
+		s.mu.Lock()
+		delete(s.pausedJobs, req.JobID)
+		s.mu.Unlock()
+
 		if err := s.executeScanTask(ctx, req, logger); err != nil {
 			logger.Error(ctx, "Failed to handle scan task", "err", err)
 			span.RecordError(err)
@@ -411,6 +416,7 @@ func (s *ScannerService) handleJobPausedEvent(
 
 	jobID := uuid.MustParse(jobPausedEvt.JobID)
 	s.mu.Lock()
+	s.pausedJobs[jobID] = struct{}{}
 	for taskID, cancel := range s.activeJobTasksCancel[jobID] {
 		cancel(fmt.Errorf("job paused"))
 		delete(s.activeJobTasksCancel[jobID], taskID)
@@ -485,13 +491,24 @@ func (s *ScannerService) doWorkerLoop(ctx context.Context, workerID int, workerL
 		case <-ctx.Done():
 			return
 		case task := <-s.taskEvent:
-			taskCtx, cancel := context.WithCancelCause(ctx)
-			taskCtx, taskSpan := s.tracer.Start(taskCtx, "scanner_service.worker.process_task",
+			taskCtx, taskSpan := s.tracer.Start(ctx, "scanner_service.worker.process_task",
 				trace.WithAttributes(
 					attribute.Int("worker_id", workerID),
 					attribute.String("task_id", task.TaskID.String()),
 					attribute.String("resource_uri", task.ResourceURI),
 				))
+
+			s.mu.RLock()
+			if _, ok := s.pausedJobs[task.JobID]; ok {
+				s.mu.RUnlock()
+				taskSpan.SetStatus(codes.Error, "job paused")
+				taskSpan.RecordError(fmt.Errorf("job paused"))
+				taskSpan.End()
+				continue
+			}
+			s.mu.RUnlock()
+
+			taskCtx, cancel := context.WithCancelCause(taskCtx)
 			s.mu.Lock()
 			if _, ok := s.activeJobTasksCancel[task.JobID]; !ok {
 				s.activeJobTasksCancel[task.JobID] = make(map[uuid.UUID]context.CancelCauseFunc)
