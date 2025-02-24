@@ -644,7 +644,7 @@ func TestPauseTask(t *testing.T) {
 			name:        "update task failure",
 			taskID:      uuid.New(),
 			requestedBy: "test-user",
-			progress:    domain.Progress{},
+			progress:    scanning.NewProgress(uuid.New(), uuid.New(), 1, time.Now(), 50, 100, "", nil, nil),
 			setupTask: func(task *scanning.Task) {
 				task.Start()
 			},
