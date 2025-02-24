@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/nlnwa/gowarc"
+	"github.com/nlnwa/gowarc/v2"
 	"github.com/zricethezav/gitleaks/v8/detect"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
