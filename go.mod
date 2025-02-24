@@ -12,7 +12,7 @@ require (
 	github.com/nlnwa/gowarc/v2 v2.0.1
 	github.com/spf13/viper v1.19.0
 	github.com/stretchr/testify v1.10.0
-	github.com/testcontainers/testcontainers-go v0.34.0
+	github.com/testcontainers/testcontainers-go v0.35.0
 	github.com/wasilibs/go-re2 v1.9.0
 	github.com/zricethezav/gitleaks/v8 v8.24.0
 	go.opentelemetry.io/otel v1.34.0
