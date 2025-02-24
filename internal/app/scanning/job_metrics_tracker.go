@@ -598,6 +598,7 @@ func (t *jobMetricsAggregator) HandleJobMetrics(ctx context.Context, evt events.
 // replayEvents replays historical events from a specific offset to rebuild metrics state
 // for the specified partition. This is typically invoked if the aggregator hasn't
 // seen job metrics for a while or upon startup.
+// TODO: This needs to be tested a lot more...
 func (t *jobMetricsAggregator) replayEvents(ctx context.Context, jobID uuid.UUID, partition int32, fromOffset int64) error {
 	logger := t.logger.With(
 		"operation", "replay_events",
