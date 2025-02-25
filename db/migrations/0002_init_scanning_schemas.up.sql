@@ -8,6 +8,8 @@ CREATE TYPE scan_job_status AS ENUM (
     'PAUSING',
     'PAUSED',
     'COMPLETED',
+    'CANCELLING',
+    'CANCELLED',
     'FAILED'
 );
 
