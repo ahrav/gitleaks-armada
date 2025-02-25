@@ -1,4 +1,3 @@
-// Package scanning provides services for coordinating and executing secret scanning operations.
 package scanning
 
 import (
@@ -8,33 +7,33 @@ import (
 	"github.com/google/uuid"
 )
 
-// jobStateData represents the state of a job and all its tasks with their cancel functions.
+// jobTaskCancellationRecord represents the state of a job and all its tasks with their cancel functions.
 // This is used to cancel all tasks for a given job when it is paused.
-type jobStateData struct {
+type jobTaskCancellationRecord struct {
 	paused bool
 	tasks  map[uuid.UUID]context.CancelCauseFunc
 }
 
-// JobStateManager encapsulates operations for tracking job and task state.
+// JobTaskStateController encapsulates operations for tracking job and task state.
 // It provides thread-safe methods for managing job pause states and task cancellation functions.
-type JobStateManager struct {
+type JobTaskStateController struct {
 	mu        sync.RWMutex
-	jobStates map[uuid.UUID]jobStateData
+	jobStates map[uuid.UUID]jobTaskCancellationRecord
 }
 
-// NewJobStateManager creates a new JobStateManager instance.
-func NewJobStateManager() *JobStateManager {
-	return &JobStateManager{jobStates: make(map[uuid.UUID]jobStateData)}
+// NewJobTaskStateController creates a new JobTaskStateController instance.
+func NewJobTaskStateController() *JobTaskStateController {
+	return &JobTaskStateController{jobStates: make(map[uuid.UUID]jobTaskCancellationRecord)}
 }
 
 // AddTask adds a task to a job with its cancellation function.
 // If the job doesn't exist, it will be created.
-func (j *JobStateManager) AddTask(jobID, taskID uuid.UUID, cancelFunc context.CancelCauseFunc) {
+func (j *JobTaskStateController) AddTask(jobID, taskID uuid.UUID, cancelFunc context.CancelCauseFunc) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 
 	if _, exists := j.jobStates[jobID]; !exists {
-		j.jobStates[jobID] = jobStateData{
+		j.jobStates[jobID] = jobTaskCancellationRecord{
 			paused: false,
 			tasks:  make(map[uuid.UUID]context.CancelCauseFunc),
 		}
@@ -44,7 +43,7 @@ func (j *JobStateManager) AddTask(jobID, taskID uuid.UUID, cancelFunc context.Ca
 }
 
 // RemoveTask removes a task from a job.
-func (j *JobStateManager) RemoveTask(jobID, taskID uuid.UUID) {
+func (j *JobTaskStateController) RemoveTask(jobID, taskID uuid.UUID) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 
@@ -56,7 +55,7 @@ func (j *JobStateManager) RemoveTask(jobID, taskID uuid.UUID) {
 
 // IsJobPaused checks if a job is paused.
 // Returns true if the job is paused or doesn't exist.
-func (j *JobStateManager) IsJobPaused(jobID uuid.UUID) bool {
+func (j *JobTaskStateController) IsJobPaused(jobID uuid.UUID) bool {
 	j.mu.RLock()
 	defer j.mu.RUnlock()
 
@@ -66,7 +65,7 @@ func (j *JobStateManager) IsJobPaused(jobID uuid.UUID) bool {
 
 // PauseJob marks a job as paused and cancels all of its tasks.
 // Returns the number of tasks that were cancelled.
-func (j *JobStateManager) PauseJob(jobID uuid.UUID, cause error) int {
+func (j *JobTaskStateController) PauseJob(jobID uuid.UUID, cause error) int {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 
@@ -90,13 +89,13 @@ func (j *JobStateManager) PauseJob(jobID uuid.UUID, cause error) int {
 
 // ResumeJob marks a job as not paused.
 // This creates a job state if it doesn't exist.
-func (j *JobStateManager) ResumeJob(jobID uuid.UUID) {
+func (j *JobTaskStateController) ResumeJob(jobID uuid.UUID) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 
 	js, exists := j.jobStates[jobID]
 	if !exists {
-		js = jobStateData{
+		js = jobTaskCancellationRecord{
 			tasks: make(map[uuid.UUID]context.CancelCauseFunc),
 		}
 	}

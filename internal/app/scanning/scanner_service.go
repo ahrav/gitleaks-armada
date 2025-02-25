@@ -54,7 +54,7 @@ type ScannerService struct {
 
 	// jobStateManager is used to track the state of jobs and its associated tasks.
 	// This is used to pause/resume jobs and tasks.
-	jobStateManager *JobStateManager
+	jobStateManager *JobTaskStateController
 
 	workers   int
 	stopCh    chan struct{}
@@ -101,7 +101,7 @@ func NewScannerService(
 		progressReporter:  pr,
 		ruleProvider:      ruleProvider,
 		enumACL:           acl.EnumerationACL{},
-		jobStateManager:   NewJobStateManager(),
+		jobStateManager:   NewJobTaskStateController(),
 		workers:           workerCount,
 		stopCh:            make(chan struct{}),
 		taskEvent:         make(chan *dtos.ScanRequest, workerCount*10),

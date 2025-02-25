@@ -11,12 +11,12 @@ import (
 )
 
 func TestJobStateManager_New(t *testing.T) {
-	manager := NewJobStateManager()
+	manager := NewJobTaskStateController()
 	assert.NotNil(t, manager)
 }
 
 func TestJobStateManager_AddTask_RemoveTask(t *testing.T) {
-	manager := NewJobStateManager()
+	manager := NewJobTaskStateController()
 	jobID := uuid.New()
 	taskID := uuid.New()
 	cancelCalled := false
@@ -50,7 +50,7 @@ func TestJobStateManager_AddTask_RemoveTask(t *testing.T) {
 }
 
 func TestJobStateManager_IsJobPaused(t *testing.T) {
-	manager := NewJobStateManager()
+	manager := NewJobTaskStateController()
 	jobID := uuid.New()
 
 	assert.True(t, manager.IsJobPaused(jobID))
@@ -63,7 +63,7 @@ func TestJobStateManager_IsJobPaused(t *testing.T) {
 }
 
 func TestJobStateManager_PauseJob(t *testing.T) {
-	manager := NewJobStateManager()
+	manager := NewJobTaskStateController()
 	jobID := uuid.New()
 
 	count := manager.PauseJob(jobID, errors.New("pause test"))
@@ -94,7 +94,7 @@ func TestJobStateManager_PauseJob(t *testing.T) {
 }
 
 func TestJobStateManager_ResumeJob(t *testing.T) {
-	manager := NewJobStateManager()
+	manager := NewJobTaskStateController()
 	jobID := uuid.New()
 
 	manager.ResumeJob(jobID)
@@ -108,7 +108,7 @@ func TestJobStateManager_ResumeJob(t *testing.T) {
 }
 
 func TestJobStateManager_Concurrency(t *testing.T) {
-	manager := NewJobStateManager()
+	manager := NewJobTaskStateController()
 	jobID := uuid.New()
 
 	var wg sync.WaitGroup
@@ -136,7 +136,7 @@ func TestJobStateManager_Concurrency(t *testing.T) {
 }
 
 func TestJobStateManager_CancelFunctionExecution(t *testing.T) {
-	manager := NewJobStateManager()
+	manager := NewJobTaskStateController()
 	jobID := uuid.New()
 	taskID := uuid.New()
 
