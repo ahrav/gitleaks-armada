@@ -43,8 +43,12 @@ enum ScanJobStatus {
   SCAN_JOB_STATUS_QUEUED = 1;
   SCAN_JOB_STATUS_ENUMERATING = 2;
   SCAN_JOB_STATUS_RUNNING = 3;
-  SCAN_JOB_STATUS_COMPLETED = 4;
-  SCAN_JOB_STATUS_FAILED = 5;
+  SCAN_JOB_STATUS_PAUSING = 4;
+  SCAN_JOB_STATUS_PAUSED = 5;
+  SCAN_JOB_STATUS_COMPLETED = 6;
+  SCAN_JOB_STATUS_CANCELLING = 7;
+  SCAN_JOB_STATUS_CANCELLED = 8;
+  SCAN_JOB_STATUS_FAILED = 9;
 }
 
 enum TaskStatus {
@@ -92,6 +96,22 @@ message JobPausedEvent {
   string job_id = 1;
   int64 timestamp = 2;
   int64 paused_at = 3;
+  string reason = 4;
+  string requested_by = 5;
+}
+
+// JobCancellingEvent signals that a job is in the process of being cancelled.
+message JobCancellingEvent {
+  string job_id = 1;
+  int64 timestamp = 2;
+  string requested_by = 3;
+}
+
+// JobCancelledEvent signals that a job has been successfully cancelled.
+message JobCancelledEvent {
+  string job_id = 1;
+  int64 timestamp = 2;
+  int64 cancelled_at = 3;
   string reason = 4;
   string requested_by = 5;
 }
