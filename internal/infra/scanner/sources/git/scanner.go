@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/zricethezav/gitleaks/v8/cmd/scm"
 	"github.com/zricethezav/gitleaks/v8/detect"
 	"github.com/zricethezav/gitleaks/v8/sources"
 	"go.opentelemetry.io/otel/attribute"
@@ -134,7 +135,7 @@ func (s *Scanner) runGitScan(
 
 	ctx, detectSpan := s.tracer.Start(ctx, "gitleaks_scanner.scanning.detect_secrets")
 	detectSpan.AddEvent("starting_secret_detection")
-	findings, err := s.detector.DetectGit(gitCmd, nil)
+	findings, err := s.detector.DetectGit(gitCmd, &detect.RemoteInfo{Platform: scm.NoPlatform})
 	if err != nil {
 		detectSpan.RecordError(err)
 		detectSpan.AddEvent("secret_detection_failed")
