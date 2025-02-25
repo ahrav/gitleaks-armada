@@ -355,6 +355,129 @@ func TestUpdateJobStatus(t *testing.T) {
 			targetStatus:  domain.JobStatusRunning,
 			wantErr:       true,
 		},
+
+		{
+			name: "valid transition from running to pausing",
+			setup: func(repo *mockJobRepository) {
+				job := domain.NewJobWithStatus(uuid.New(), domain.JobStatusRunning)
+				repo.On("GetJob", mock.Anything, mock.Anything).Return(job, nil)
+				repo.On("UpdateJob", mock.Anything, mock.MatchedBy(func(j *domain.Job) bool {
+					return j.Status() == domain.JobStatusPausing
+				})).Return(nil)
+			},
+			initialStatus: domain.JobStatusRunning,
+			targetStatus:  domain.JobStatusPausing,
+			wantErr:       false,
+		},
+		{
+			name: "valid transition from pausing to paused",
+			setup: func(repo *mockJobRepository) {
+				job := domain.NewJobWithStatus(uuid.New(), domain.JobStatusPausing)
+				repo.On("GetJob", mock.Anything, mock.Anything).Return(job, nil)
+				repo.On("UpdateJob", mock.Anything, mock.MatchedBy(func(j *domain.Job) bool {
+					return j.Status() == domain.JobStatusPaused
+				})).Return(nil)
+			},
+			initialStatus: domain.JobStatusPausing,
+			targetStatus:  domain.JobStatusPaused,
+			wantErr:       false,
+		},
+		{
+			name: "valid transition from paused to running",
+			setup: func(repo *mockJobRepository) {
+				job := domain.NewJobWithStatus(uuid.New(), domain.JobStatusPaused)
+				repo.On("GetJob", mock.Anything, mock.Anything).Return(job, nil)
+				repo.On("UpdateJob", mock.Anything, mock.MatchedBy(func(j *domain.Job) bool {
+					return j.Status() == domain.JobStatusRunning
+				})).Return(nil)
+			},
+			initialStatus: domain.JobStatusPaused,
+			targetStatus:  domain.JobStatusRunning,
+			wantErr:       false,
+		},
+		{
+			name: "invalid transition from queued to pausing",
+			setup: func(repo *mockJobRepository) {
+				job := domain.NewJobWithStatus(uuid.New(), domain.JobStatusQueued)
+				repo.On("GetJob", mock.Anything, mock.Anything).Return(job, nil)
+			},
+			initialStatus: domain.JobStatusQueued,
+			targetStatus:  domain.JobStatusPausing,
+			wantErr:       true,
+		},
+
+		{
+			name: "valid transition from running to cancelling",
+			setup: func(repo *mockJobRepository) {
+				job := domain.NewJobWithStatus(uuid.New(), domain.JobStatusRunning)
+				repo.On("GetJob", mock.Anything, mock.Anything).Return(job, nil)
+				repo.On("UpdateJob", mock.Anything, mock.MatchedBy(func(j *domain.Job) bool {
+					return j.Status() == domain.JobStatusCancelling
+				})).Return(nil)
+			},
+			initialStatus: domain.JobStatusRunning,
+			targetStatus:  domain.JobStatusCancelling,
+			wantErr:       false,
+		},
+		{
+			name: "valid transition from cancelling to cancelled",
+			setup: func(repo *mockJobRepository) {
+				job := domain.NewJobWithStatus(uuid.New(), domain.JobStatusCancelling)
+				repo.On("GetJob", mock.Anything, mock.Anything).Return(job, nil)
+				repo.On("UpdateJob", mock.Anything, mock.MatchedBy(func(j *domain.Job) bool {
+					return j.Status() == domain.JobStatusCancelled
+				})).Return(nil)
+			},
+			initialStatus: domain.JobStatusCancelling,
+			targetStatus:  domain.JobStatusCancelled,
+			wantErr:       false,
+		},
+		{
+			name: "valid transition from paused to cancelling",
+			setup: func(repo *mockJobRepository) {
+				job := domain.NewJobWithStatus(uuid.New(), domain.JobStatusPaused)
+				repo.On("GetJob", mock.Anything, mock.Anything).Return(job, nil)
+				repo.On("UpdateJob", mock.Anything, mock.MatchedBy(func(j *domain.Job) bool {
+					return j.Status() == domain.JobStatusCancelling
+				})).Return(nil)
+			},
+			initialStatus: domain.JobStatusPaused,
+			targetStatus:  domain.JobStatusCancelling,
+			wantErr:       false,
+		},
+		{
+			name: "valid transition from enumerating to cancelling",
+			setup: func(repo *mockJobRepository) {
+				job := domain.NewJobWithStatus(uuid.New(), domain.JobStatusEnumerating)
+				repo.On("GetJob", mock.Anything, mock.Anything).Return(job, nil)
+				repo.On("UpdateJob", mock.Anything, mock.MatchedBy(func(j *domain.Job) bool {
+					return j.Status() == domain.JobStatusCancelling
+				})).Return(nil)
+			},
+			initialStatus: domain.JobStatusEnumerating,
+			targetStatus:  domain.JobStatusCancelling,
+			wantErr:       false,
+		},
+		{
+			name: "invalid transition from cancelled to running",
+			setup: func(repo *mockJobRepository) {
+				job := domain.NewJobWithStatus(uuid.New(), domain.JobStatusCancelled)
+				repo.On("GetJob", mock.Anything, mock.Anything).Return(job, nil)
+			},
+			initialStatus: domain.JobStatusCancelled,
+			targetStatus:  domain.JobStatusRunning,
+			wantErr:       true,
+		},
+		{
+			name: "invalid transition from cancelled to completed",
+			setup: func(repo *mockJobRepository) {
+				job := domain.NewJobWithStatus(uuid.New(), domain.JobStatusCancelled)
+				repo.On("GetJob", mock.Anything, mock.Anything).Return(job, nil)
+			},
+			initialStatus: domain.JobStatusCancelled,
+			targetStatus:  domain.JobStatusCompleted,
+			wantErr:       true,
+		},
 	}
 
 	for _, tt := range tests {

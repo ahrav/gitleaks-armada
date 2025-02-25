@@ -134,3 +134,37 @@ func (s *jobScheduler) Pause(ctx context.Context, jobID uuid.UUID, requestedBy s
 
 	return nil
 }
+
+// Cancel initiates the cancellation of a job by transitioning it to the CANCELLING state
+// and publishing a JobCancelledEvent. The actual cancellation is handled asynchronously
+// by the JobMetricsTracker.
+func (s *jobScheduler) Cancel(ctx context.Context, jobID uuid.UUID, requestedBy string) error {
+	logger := s.logger.With("operation", "cancel_job", "job_id", jobID)
+	ctx, span := s.tracer.Start(ctx, "job_scheduler.cancel_job",
+		trace.WithAttributes(
+			attribute.String("controller_id", s.controllerID),
+			attribute.String("job_id", jobID.String()),
+			attribute.String("requested_by", requestedBy),
+		),
+	)
+	defer span.End()
+	logger.Debug(ctx, "Cancelling job")
+
+	if err := s.jobTaskService.UpdateJobStatus(ctx, jobID, domain.JobStatusCancelling); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to update job status to cancelling")
+		return fmt.Errorf("failed to update job status to cancelling (job_id: %s): %w", jobID, err)
+	}
+	span.AddEvent("job_status_updated_to_cancelling")
+
+	evt := domain.NewJobCancelledEvent(jobID.String(), requestedBy, "User requested cancellation")
+	if err := s.broadcastPublisher.PublishDomainEvent(ctx, evt, events.WithKey(jobID.String())); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to publish job cancelled event")
+		return fmt.Errorf("failed to publish job cancelled event (job_id: %s): %w", jobID, err)
+	}
+	span.AddEvent("job_cancelled_event_published")
+	span.SetStatus(codes.Ok, "job cancellation initiated successfully")
+
+	return nil
+}

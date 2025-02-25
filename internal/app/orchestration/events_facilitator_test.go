@@ -32,6 +32,11 @@ func (m *mockJobScheduler) Pause(ctx context.Context, jobID uuid.UUID, requested
 	return args.Error(0)
 }
 
+func (m *mockJobScheduler) Cancel(ctx context.Context, jobID uuid.UUID, requestedBy string) error {
+	args := m.Called(ctx, jobID, requestedBy)
+	return args.Error(0)
+}
+
 // Mock implementations.
 type mockExecutionTracker struct{ mock.Mock }
 
@@ -197,6 +202,164 @@ func TestHandleScanJobRequested(t *testing.T) {
 	}
 }
 
+// TODO: Add tests for HandleScanJobCreated.
+
+func TestHandleJobPausing(t *testing.T) {
+	validJobID := uuid.New()
+
+	tests := []struct {
+		name      string
+		setupMock func(m *mockJobScheduler)
+		payload   any
+		expectErr bool
+	}{
+		{
+			name: "success",
+			setupMock: func(m *mockJobScheduler) {
+				m.On("Pause", mock.Anything, validJobID, "test-user").Return(nil).Once()
+			},
+			payload: scanning.JobPausingEvent{
+				JobID:       validJobID.String(),
+				RequestedBy: "test-user",
+			},
+			expectErr: false,
+		},
+		{
+			name: "invalid payload type",
+			setupMock: func(m *mockJobScheduler) {
+				// No expectations, should fail before calling scheduler.
+			},
+			payload:   "invalid payload",
+			expectErr: true,
+		},
+		{
+			name: "invalid job ID",
+			setupMock: func(m *mockJobScheduler) {
+				// No expectations, should fail before calling scheduler.
+			},
+			payload: scanning.JobPausingEvent{
+				JobID:       "not-a-uuid",
+				RequestedBy: "test-user",
+			},
+			expectErr: true,
+		},
+		{
+			name: "job scheduler error",
+			setupMock: func(m *mockJobScheduler) {
+				m.On("Pause", mock.Anything, validJobID, "test-user").
+					Return(errors.New("scheduler error")).Once()
+			},
+			payload: scanning.JobPausingEvent{
+				JobID:       validJobID.String(),
+				RequestedBy: "test-user",
+			},
+			expectErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			facilitator, mockJobScheduler, _, _, _, _, _ := setupEventsFacilitatorTestSuite()
+			tt.setupMock(mockJobScheduler)
+
+			var ackCalled bool
+			ack := func(err error) { ackCalled = true }
+
+			err := facilitator.HandleJobPausing(
+				context.Background(),
+				events.EventEnvelope{Payload: tt.payload},
+				ack,
+			)
+
+			if tt.expectErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+			assert.True(t, ackCalled, "ack function should have been called")
+			mockJobScheduler.AssertExpectations(t)
+		})
+	}
+}
+
+func TestHandleJobCancelling(t *testing.T) {
+	validJobID := uuid.New()
+
+	tests := []struct {
+		name      string
+		setupMock func(m *mockJobScheduler)
+		payload   any
+		expectErr bool
+	}{
+		{
+			name: "success",
+			setupMock: func(m *mockJobScheduler) {
+				m.On("Cancel", mock.Anything, validJobID, "test-user").Return(nil).Once()
+			},
+			payload: scanning.JobCancellingEvent{
+				JobID:       validJobID.String(),
+				RequestedBy: "test-user",
+			},
+			expectErr: false,
+		},
+		{
+			name: "invalid payload type",
+			setupMock: func(m *mockJobScheduler) {
+				// No expectations, should fail before calling scheduler.
+			},
+			payload:   "invalid payload",
+			expectErr: true,
+		},
+		{
+			name: "invalid job ID",
+			setupMock: func(m *mockJobScheduler) {
+				// No expectations, should fail before calling scheduler.
+			},
+			payload: scanning.JobCancellingEvent{
+				JobID:       "not-a-uuid",
+				RequestedBy: "test-user",
+			},
+			expectErr: true,
+		},
+		{
+			name: "job scheduler error",
+			setupMock: func(m *mockJobScheduler) {
+				m.On("Cancel", mock.Anything, validJobID, "test-user").
+					Return(errors.New("scheduler error")).Once()
+			},
+			payload: scanning.JobCancellingEvent{
+				JobID:       validJobID.String(),
+				RequestedBy: "test-user",
+			},
+			expectErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			facilitator, mockJobScheduler, _, _, _, _, _ := setupEventsFacilitatorTestSuite()
+			tt.setupMock(mockJobScheduler)
+
+			var ackCalled bool
+			ack := func(err error) { ackCalled = true }
+
+			err := facilitator.HandleJobCancelling(
+				context.Background(),
+				events.EventEnvelope{Payload: tt.payload},
+				ack,
+			)
+
+			if tt.expectErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+			assert.True(t, ackCalled, "ack function should have been called")
+			mockJobScheduler.AssertExpectations(t)
+		})
+	}
+}
+
 func TestHandleTaskPaused(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -268,8 +431,6 @@ func TestHandleTaskPaused(t *testing.T) {
 		})
 	}
 }
-
-// TODO: Add tests for HandleScanJobCreated.
 
 func TestHandleTaskStarted(t *testing.T) {
 	startedEvt := scanning.TaskStartedEvent{

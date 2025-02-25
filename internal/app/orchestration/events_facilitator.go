@@ -261,8 +261,48 @@ func (ef *EventsFacilitator) HandleJobPausing(
 	}, ack)
 }
 
-// HandleTaskStarted processes a scanning.TaskStartedEvent and delegates
-// the start-tracking operation to the executionTracker. Acks on success or error.
+// HandleJobCancelling processes a scanning.JobCancellingEvent by transitioning all
+// in-progress tasks for the job to a terminal state, making them no longer process work.
+func (ef *EventsFacilitator) HandleJobCancelling(
+	ctx context.Context,
+	evt events.EventEnvelope,
+	ack events.AckFunc,
+) error {
+	return ef.withSpan(ctx, "events_facilitator.handle_job_cancelling", func(ctx context.Context, span trace.Span) error {
+		span.AddEvent("processing_job_cancelling")
+
+		cancellingEvt, ok := evt.Payload.(scanning.JobCancellingEvent)
+		if !ok {
+			return recordPayloadTypeError(span, evt.Payload)
+		}
+
+		span.AddEvent("job_cancelling_event_valid", trace.WithAttributes(
+			attribute.String("job_id", cancellingEvt.JobID),
+			attribute.String("requested_by", cancellingEvt.RequestedBy),
+		))
+
+		jobID, err := uuid.Parse(cancellingEvt.JobID)
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "invalid job ID")
+			return fmt.Errorf("invalid job ID: %w", err)
+		}
+
+		err = ef.jobScheduler.Cancel(ctx, jobID, cancellingEvt.RequestedBy)
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "failed to cancel job")
+			return fmt.Errorf("failed to cancel job (job_id: %s): %w", jobID, err)
+		}
+
+		span.AddEvent("job_cancellation_initiated")
+		span.SetStatus(codes.Ok, "job cancellation initiated")
+		return nil
+	}, ack)
+}
+
+// HandleTaskStarted processes a scanning.TaskStartedEvent by updating
+// the task's status to IN_PROGRESS and setting its start time.
 func (ef *EventsFacilitator) HandleTaskStarted(
 	ctx context.Context,
 	evt events.EventEnvelope,
