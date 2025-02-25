@@ -113,6 +113,8 @@ func NewEventBus(
 		scanning.EventTypeJobScheduled:            cfg.JobLifecycleTopic,     // controller -> controller
 		scanning.EventTypeJobPausing:              cfg.JobLifecycleTopic,     // controller -> controller
 		scanning.EventTypeJobPaused:               cfg.JobBroadcastTopic,     // controller -> scanner (broadcast)
+		scanning.EventTypeJobCancelling:           cfg.JobLifecycleTopic,     // controller -> controller
+		scanning.EventTypeJobCancelled:            cfg.JobBroadcastTopic,     // controller -> scanner (broadcast)
 		scanning.EventTypeTaskCreated:             cfg.TaskCreatedTopic,      // controller -> scanner
 		scanning.EventTypeJobEnumerationCompleted: cfg.JobLifecycleTopic,     // controller -> controller
 		scanning.EventTypeTaskStarted:             cfg.ScanningTaskTopic,     // scanner -> controller
