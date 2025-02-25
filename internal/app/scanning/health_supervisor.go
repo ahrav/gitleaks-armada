@@ -222,6 +222,8 @@ func (h *taskHealthSupervisor) checkForStaleTasks(ctx context.Context) {
 		)
 
 		staleEvt := scanning.NewTaskStaleEvent(t.JobID(), t.TaskID(), scanning.StallReasonNoProgress, now)
+		// TODO: We need to make sure that we don't mark a task stale if the job is pausing/paused.
+		// This could happen if a scanner gets killed prior to pausing its tasks related to a job.
 		if err := h.stateHandler.HandleTaskStale(ctx, staleEvt); err != nil {
 			ctxLogr.Error(ctx, "Task state transition to stale failed",
 				"stall_reason", scanning.StallReasonNoProgress,
