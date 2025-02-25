@@ -72,6 +72,36 @@ func TestValidateTransition_ValidTransitions(t *testing.T) {
 			current: JobStatusPaused,
 			target:  JobStatusFailed,
 		},
+		{
+			name:    "enumerating to cancelling",
+			current: JobStatusEnumerating,
+			target:  JobStatusCancelling,
+		},
+		{
+			name:    "running to cancelling",
+			current: JobStatusRunning,
+			target:  JobStatusCancelling,
+		},
+		{
+			name:    "pausing to cancelling",
+			current: JobStatusPausing,
+			target:  JobStatusCancelling,
+		},
+		{
+			name:    "paused to cancelling",
+			current: JobStatusPaused,
+			target:  JobStatusCancelling,
+		},
+		{
+			name:    "cancelling to cancelled",
+			current: JobStatusCancelling,
+			target:  JobStatusCancelled,
+		},
+		{
+			name:    "cancelling to failed",
+			current: JobStatusCancelling,
+			target:  JobStatusFailed,
+		},
 	}
 
 	for _, tt := range tests {
@@ -197,6 +227,36 @@ func TestValidateTransition_InvalidTransitions(t *testing.T) {
 			name:    "Paused to Paused is invalid",
 			current: JobStatusPaused,
 			target:  JobStatusPaused,
+		},
+		{
+			name:    "queued to cancelling",
+			current: JobStatusQueued,
+			target:  JobStatusCancelling,
+		},
+		{
+			name:    "completed to cancelling",
+			current: JobStatusCompleted,
+			target:  JobStatusCancelling,
+		},
+		{
+			name:    "cancelled to any state",
+			current: JobStatusCancelled,
+			target:  JobStatusRunning,
+		},
+		{
+			name:    "cancelling to running",
+			current: JobStatusCancelling,
+			target:  JobStatusRunning,
+		},
+		{
+			name:    "cancelling to paused",
+			current: JobStatusCancelling,
+			target:  JobStatusPaused,
+		},
+		{
+			name:    "cancelling to completed",
+			current: JobStatusCancelling,
+			target:  JobStatusCompleted,
 		},
 	}
 

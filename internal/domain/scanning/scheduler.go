@@ -18,4 +18,9 @@ type JobScheduler interface {
 	// and publishing a JobPausingEvent. The actual pause operation is handled asynchronously
 	// by the job coordinator.
 	Pause(ctx context.Context, jobID uuid.UUID, requestedBy string) error
+
+	// Cancel initiates the cancellation of a job by transitioning it to the CANCELLING state
+	// and publishing a JobCancelledEvent. The actual cancellation is handled asynchronously
+	// by the JobMetricsTracker.
+	Cancel(ctx context.Context, jobID uuid.UUID, requestedBy string) error
 }

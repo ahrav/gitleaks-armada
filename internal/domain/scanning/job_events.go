@@ -18,7 +18,8 @@ const (
 	EventTypeJobEnumerationCompleted events.EventType = "JobEnumerationCompleted"
 	EventTypeJobPausing              events.EventType = "JobPausing"
 	EventTypeJobPaused               events.EventType = "JobPaused"
-	// TODO: Add EventTypeJobCancelled, etc.
+	EventTypeJobCancelling           events.EventType = "JobCancelling"
+	EventTypeJobCancelled            events.EventType = "JobCancelled"
 )
 
 // JobRequestedEvent represents the event generated when a scan job is requested.
@@ -164,3 +165,46 @@ func NewJobPausedEvent(jobID, requestedBy, reason string) JobPausedEvent {
 
 func (e JobPausedEvent) EventType() events.EventType { return EventTypeJobPaused }
 func (e JobPausedEvent) OccurredAt() time.Time       { return e.occurredAt }
+
+// JobCancellingEvent signals that a job is in the process of cancelling.
+type JobCancellingEvent struct {
+	occurredAt  time.Time
+	JobID       string
+	RequestedBy string
+}
+
+// NewJobCancellingEvent creates a new job cancelling event.
+func NewJobCancellingEvent(jobID, requestedBy string) JobCancellingEvent {
+	return JobCancellingEvent{
+		occurredAt:  time.Now(),
+		JobID:       jobID,
+		RequestedBy: requestedBy,
+	}
+}
+
+func (e JobCancellingEvent) EventType() events.EventType { return EventTypeJobCancelling }
+func (e JobCancellingEvent) OccurredAt() time.Time       { return e.occurredAt }
+
+// JobCancelledEvent signals that a job has been successfully cancelled.
+type JobCancelledEvent struct {
+	occurredAt  time.Time
+	JobID       string
+	CancelledAt time.Time
+	Reason      string
+	RequestedBy string
+}
+
+// NewJobCancelledEvent creates a new job cancelled event.
+func NewJobCancelledEvent(jobID, requestedBy, reason string) JobCancelledEvent {
+	now := time.Now()
+	return JobCancelledEvent{
+		occurredAt:  now,
+		JobID:       jobID,
+		CancelledAt: now,
+		Reason:      reason,
+		RequestedBy: requestedBy,
+	}
+}
+
+func (e JobCancelledEvent) EventType() events.EventType { return EventTypeJobCancelled }
+func (e JobCancelledEvent) OccurredAt() time.Time       { return e.occurredAt }

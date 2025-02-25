@@ -27,7 +27,11 @@ const (
 	// JobStatusCompleted indicates all job tasks finished successfully.
 	JobStatusCompleted JobStatus = "COMPLETED"
 
-	// TODO: Add Cancelled and maybe Cancelling depending on how long it takes to cancel.
+	// JobStatusCancelling indicates a job is in the process of cancelling.
+	JobStatusCancelling JobStatus = "CANCELLING"
+
+	// JobStatusCancelled indicates a job has been cancelled.
+	JobStatusCancelled JobStatus = "CANCELLED"
 
 	// JobStatusFailed indicates the job encountered an unrecoverable error.
 	JobStatusFailed JobStatus = "FAILED"
@@ -50,8 +54,12 @@ func (s JobStatus) Int32() int32 {
 		return 5
 	case JobStatusCompleted:
 		return 6
-	case JobStatusFailed:
+	case JobStatusCancelling:
 		return 7
+	case JobStatusCancelled:
+		return 8
+	case JobStatusFailed:
+		return 9
 	default:
 		return 0
 	}
@@ -73,6 +81,10 @@ func (s JobStatus) ProtoString() string {
 		return "SCAN_JOB_STATUS_PAUSED"
 	case JobStatusCompleted:
 		return "SCAN_JOB_STATUS_COMPLETED"
+	case JobStatusCancelling:
+		return "SCAN_JOB_STATUS_CANCELLING"
+	case JobStatusCancelled:
+		return "SCAN_JOB_STATUS_CANCELLED"
 	case JobStatusFailed:
 		return "SCAN_JOB_STATUS_FAILED"
 	default:
@@ -96,6 +108,10 @@ func JobStatusFromInt32(i int32) JobStatus {
 	case 6:
 		return JobStatusCompleted
 	case 7:
+		return JobStatusCancelling
+	case 8:
+		return JobStatusCancelled
+	case 9:
 		return JobStatusFailed
 	default:
 		return "" // represents unspecified
@@ -117,6 +133,10 @@ func ParseJobStatus(s string) JobStatus {
 		return JobStatusPaused
 	case "COMPLETED", "SCAN_JOB_STATUS_COMPLETED":
 		return JobStatusCompleted
+	case "CANCELLING", "SCAN_JOB_STATUS_CANCELLING":
+		return JobStatusCancelling
+	case "CANCELLED", "SCAN_JOB_STATUS_CANCELLED":
+		return JobStatusCancelled
 	case "FAILED", "SCAN_JOB_STATUS_FAILED":
 		return JobStatusFailed
 	default:
@@ -140,18 +160,32 @@ func (s JobStatus) isValidTransition(target JobStatus) bool {
 		// From Queued, can only move to Enumerating.
 		return target == JobStatusEnumerating
 	case JobStatusEnumerating:
-		// From Enumerating, can move to Running, Failed, Completed, or Pausing.
-		return target == JobStatusRunning || target == JobStatusFailed || target == JobStatusCompleted || target == JobStatusPausing
+		// From Enumerating, can move to Running, Failed, Completed, Pausing, or Cancelling.
+		return target == JobStatusRunning ||
+			target == JobStatusFailed ||
+			target == JobStatusCompleted ||
+			target == JobStatusPausing ||
+			target == JobStatusCancelling
 	case JobStatusRunning:
-		// From Running, can move to Completed, Failed, or Pausing.
-		return target == JobStatusCompleted || target == JobStatusFailed || target == JobStatusPausing
+		// From Running, can move to Completed, Failed, Pausing, or Cancelling.
+		return target == JobStatusCompleted ||
+			target == JobStatusFailed ||
+			target == JobStatusPausing ||
+			target == JobStatusCancelling
 	case JobStatusPausing:
-		// From Pausing, can only move to Paused or Failed.
-		return target == JobStatusPaused || target == JobStatusFailed
+		// From Pausing, can move to Paused, Failed, or Cancelling.
+		return target == JobStatusPaused ||
+			target == JobStatusFailed ||
+			target == JobStatusCancelling
 	case JobStatusPaused:
-		// From Paused, can move to Running or Failed.
-		return target == JobStatusRunning || target == JobStatusFailed
-	case JobStatusCompleted, JobStatusFailed:
+		// From Paused, can move to Running, Failed, or Cancelling.
+		return target == JobStatusRunning ||
+			target == JobStatusFailed ||
+			target == JobStatusCancelling
+	case JobStatusCancelling:
+		// From Cancelling, can only move to Cancelled or Failed.
+		return target == JobStatusCancelled || target == JobStatusFailed
+	case JobStatusCompleted, JobStatusCancelled, JobStatusFailed:
 		// Terminal states - no further transitions allowed.
 		return false
 	default:
