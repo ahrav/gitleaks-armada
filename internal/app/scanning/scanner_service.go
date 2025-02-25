@@ -36,13 +36,6 @@ type RuleProvider interface {
 	GetRules(ctx context.Context) (<-chan rules.GitleaksRuleMessage, error)
 }
 
-// jobState represents the state of a job and all its tasks with their cancel functions.
-// This is used to cancel all tasks for a given job when it is paused.
-type jobState struct {
-	paused bool
-	tasks  map[uuid.UUID]context.CancelCauseFunc
-}
-
 // ScannerService coordinates the execution of secret scanning tasks across multiple workers.
 // It subscribes to enumeration events and distributes scanning work to maintain optimal
 // resource utilization.
@@ -59,8 +52,9 @@ type ScannerService struct {
 
 	ruleProvider RuleProvider // TODO: Figure out where this should live
 
-	mu       sync.RWMutex
-	jobState map[uuid.UUID]jobState
+	// jobStateManager is used to track the state of jobs and its associated tasks.
+	// This is used to pause/resume jobs and tasks.
+	jobStateManager *JobStateManager
 
 	workers   int
 	stopCh    chan struct{}
@@ -107,7 +101,7 @@ func NewScannerService(
 		progressReporter:  pr,
 		ruleProvider:      ruleProvider,
 		enumACL:           acl.EnumerationACL{},
-		jobState:          make(map[uuid.UUID]jobState),
+		jobStateManager:   NewJobStateManager(),
 		workers:           workerCount,
 		stopCh:            make(chan struct{}),
 		taskEvent:         make(chan *dtos.ScanRequest, workerCount*10),
@@ -362,9 +356,8 @@ func (s *ScannerService) handleTaskResumeEvent(
 	go func() {
 		defer func() { <-s.highPrioritySem }()
 
-		s.mu.Lock()
-		delete(s.jobState, req.JobID)
-		s.mu.Unlock()
+		// Remove the job from the paused state to allow it to be processed again
+		s.jobStateManager.ResumeJob(req.JobID)
 
 		if err := s.executeScanTask(ctx, req, logger); err != nil {
 			logger.Error(ctx, "Failed to handle scan task", "err", err)
@@ -418,21 +411,9 @@ func (s *ScannerService) handleJobPausedEvent(
 	logger.Info(ctx, "Handling job paused task")
 
 	jobID := uuid.MustParse(jobPausedEvt.JobID)
-	s.mu.Lock()
-	jobState, ok := s.jobState[jobID]
-	if !ok {
-		s.mu.Unlock()
-		logger.Info(ctx, "Job not found in active job tasks cancel map")
-		return nil
-	}
-	jobState.paused = true
+	cancelCount := s.jobStateManager.PauseJob(jobID, fmt.Errorf("job paused"))
 
-	for taskID, cancel := range jobState.tasks {
-		cancel(fmt.Errorf("job paused"))
-		delete(jobState.tasks, taskID)
-	}
-	s.mu.Unlock()
-
+	logger.Info(ctx, "Job paused tasks cancelled", "cancel_count", cancelCount)
 	span.AddEvent("job_paused_task_handled")
 	span.SetStatus(codes.Ok, "job_paused_task_handled")
 	logger.Info(ctx, "Job paused task handled")
@@ -511,26 +492,15 @@ func (s *ScannerService) doWorkerLoop(ctx context.Context, workerID int, workerL
 			// Note: We have this check while consuming from taskEvent because it
 			// is possible the job was paused after the task was enqueued but before
 			// it was consumed.
-			s.mu.RLock()
-			if js, ok := s.jobState[task.JobID]; !ok || js.paused {
-				s.mu.RUnlock()
+			if s.jobStateManager.IsJobPaused(task.JobID) {
 				taskSpan.SetStatus(codes.Error, "job paused")
 				taskSpan.RecordError(fmt.Errorf("job paused"))
 				taskSpan.End()
 				continue
 			}
-			s.mu.RUnlock()
 
 			taskCtx, cancel := context.WithCancelCause(taskCtx)
-			s.mu.Lock()
-			if _, ok := s.jobState[task.JobID]; !ok {
-				s.jobState[task.JobID] = jobState{
-					paused: false,
-					tasks:  make(map[uuid.UUID]context.CancelCauseFunc),
-				}
-			}
-			s.jobState[task.JobID].tasks[task.TaskID] = cancel
-			s.mu.Unlock()
+			s.jobStateManager.AddTask(task.JobID, task.TaskID, cancel)
 
 			workerLogger.Add(
 				"task_id", task.TaskID,
@@ -550,10 +520,8 @@ func (s *ScannerService) doWorkerLoop(ctx context.Context, workerID int, workerL
 			}
 			taskSpan.End()
 
-			s.mu.Lock()
 			cancel(nil)
-			delete(s.jobState[task.JobID].tasks, task.TaskID)
-			s.mu.Unlock()
+			s.jobStateManager.RemoveTask(task.JobID, task.TaskID)
 		}
 	}
 }
