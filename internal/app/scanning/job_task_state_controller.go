@@ -54,13 +54,13 @@ func (j *JobTaskStateController) RemoveTask(jobID, taskID uuid.UUID) {
 }
 
 // IsJobPaused checks if a job is paused.
-// Returns true if the job is paused or doesn't exist.
+// Returns true if the job is paused.
 func (j *JobTaskStateController) IsJobPaused(jobID uuid.UUID) bool {
 	j.mu.RLock()
 	defer j.mu.RUnlock()
 
 	js, exists := j.jobStates[jobID]
-	return !exists || js.paused
+	return exists && js.paused
 }
 
 // PauseJob marks a job as paused and cancels all of its tasks.

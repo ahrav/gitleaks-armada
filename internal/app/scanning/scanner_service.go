@@ -52,9 +52,9 @@ type ScannerService struct {
 
 	ruleProvider RuleProvider // TODO: Figure out where this should live
 
-	// jobStateManager is used to track the state of jobs and its associated tasks.
+	// jobStateController is used to track the state of jobs and its associated tasks.
 	// This is used to pause/resume jobs and tasks.
-	jobStateManager *JobTaskStateController
+	jobStateController *JobTaskStateController
 
 	workers   int
 	stopCh    chan struct{}
@@ -93,22 +93,22 @@ func NewScannerService(
 	ruleProvider, _ := scanner.(RuleProvider)
 
 	return &ScannerService{
-		scannerID:         id,
-		eventBus:          eventBus,
-		broadcastEventBus: broadcastEventBus,
-		domainPublisher:   dp,
-		secretScanner:     scanner,
-		progressReporter:  pr,
-		ruleProvider:      ruleProvider,
-		enumACL:           acl.EnumerationACL{},
-		jobStateManager:   NewJobTaskStateController(),
-		workers:           workerCount,
-		stopCh:            make(chan struct{}),
-		taskEvent:         make(chan *dtos.ScanRequest, workerCount*10),
-		highPrioritySem:   make(chan struct{}, workerCount), // TODO: Come back to this
-		logger:            logger,
-		metrics:           metrics,
-		tracer:            tracer,
+		scannerID:          id,
+		eventBus:           eventBus,
+		broadcastEventBus:  broadcastEventBus,
+		domainPublisher:    dp,
+		secretScanner:      scanner,
+		progressReporter:   pr,
+		ruleProvider:       ruleProvider,
+		enumACL:            acl.EnumerationACL{},
+		jobStateController: NewJobTaskStateController(),
+		workers:            workerCount,
+		stopCh:             make(chan struct{}),
+		taskEvent:          make(chan *dtos.ScanRequest, workerCount*10),
+		highPrioritySem:    make(chan struct{}, workerCount), // TODO: Come back to this
+		logger:             logger,
+		metrics:            metrics,
+		tracer:             tracer,
 	}
 }
 
@@ -357,7 +357,7 @@ func (s *ScannerService) handleTaskResumeEvent(
 		defer func() { <-s.highPrioritySem }()
 
 		// Remove the job from the paused state to allow it to be processed again
-		s.jobStateManager.ResumeJob(req.JobID)
+		s.jobStateController.ResumeJob(req.JobID)
 
 		if err := s.executeScanTask(ctx, req, logger); err != nil {
 			logger.Error(ctx, "Failed to handle scan task", "err", err)
@@ -411,7 +411,7 @@ func (s *ScannerService) handleJobPausedEvent(
 	logger.Info(ctx, "Handling job paused task")
 
 	jobID := uuid.MustParse(jobPausedEvt.JobID)
-	cancelCount := s.jobStateManager.PauseJob(jobID, fmt.Errorf("job paused"))
+	cancelCount := s.jobStateController.PauseJob(jobID, fmt.Errorf("job paused"))
 
 	logger.Info(ctx, "Job paused tasks cancelled", "cancel_count", cancelCount)
 	span.AddEvent("job_paused_task_handled")
@@ -492,7 +492,7 @@ func (s *ScannerService) doWorkerLoop(ctx context.Context, workerID int, workerL
 			// Note: We have this check while consuming from taskEvent because it
 			// is possible the job was paused after the task was enqueued but before
 			// it was consumed.
-			if s.jobStateManager.IsJobPaused(task.JobID) {
+			if s.jobStateController.IsJobPaused(task.JobID) {
 				taskSpan.SetStatus(codes.Error, "job paused")
 				taskSpan.RecordError(fmt.Errorf("job paused"))
 				taskSpan.End()
@@ -500,7 +500,7 @@ func (s *ScannerService) doWorkerLoop(ctx context.Context, workerID int, workerL
 			}
 
 			taskCtx, cancel := context.WithCancelCause(taskCtx)
-			s.jobStateManager.AddTask(task.JobID, task.TaskID, cancel)
+			s.jobStateController.AddTask(task.JobID, task.TaskID, cancel)
 
 			workerLogger.Add(
 				"task_id", task.TaskID,
@@ -521,7 +521,7 @@ func (s *ScannerService) doWorkerLoop(ctx context.Context, workerID int, workerL
 			taskSpan.End()
 
 			cancel(nil)
-			s.jobStateManager.RemoveTask(task.JobID, task.TaskID)
+			s.jobStateController.RemoveTask(task.JobID, task.TaskID)
 		}
 	}
 }

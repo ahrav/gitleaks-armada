@@ -10,12 +10,12 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestJobStateManager_New(t *testing.T) {
+func TestJobStateController_New(t *testing.T) {
 	manager := NewJobTaskStateController()
 	assert.NotNil(t, manager)
 }
 
-func TestJobStateManager_AddTask_RemoveTask(t *testing.T) {
+func TestJobStateController_AddTask_RemoveTask(t *testing.T) {
 	manager := NewJobTaskStateController()
 	jobID := uuid.New()
 	taskID := uuid.New()
@@ -49,11 +49,14 @@ func TestJobStateManager_AddTask_RemoveTask(t *testing.T) {
 	manager.RemoveTask(nonExistentJobID, taskID)
 }
 
-func TestJobStateManager_IsJobPaused(t *testing.T) {
+func TestJobStateController_IsJobPaused(t *testing.T) {
 	manager := NewJobTaskStateController()
 	jobID := uuid.New()
 
-	assert.True(t, manager.IsJobPaused(jobID))
+	assert.False(t, manager.IsJobPaused(jobID))
+
+	manager.AddTask(jobID, uuid.New(), func(cause error) {})
+	assert.False(t, manager.IsJobPaused(jobID))
 
 	manager.ResumeJob(jobID)
 	assert.False(t, manager.IsJobPaused(jobID))
@@ -62,7 +65,7 @@ func TestJobStateManager_IsJobPaused(t *testing.T) {
 	assert.True(t, manager.IsJobPaused(jobID))
 }
 
-func TestJobStateManager_PauseJob(t *testing.T) {
+func TestJobStateController_PauseJob(t *testing.T) {
 	manager := NewJobTaskStateController()
 	jobID := uuid.New()
 
@@ -93,7 +96,7 @@ func TestJobStateManager_PauseJob(t *testing.T) {
 	assert.True(t, manager.IsJobPaused(jobID))
 }
 
-func TestJobStateManager_ResumeJob(t *testing.T) {
+func TestJobStateController_ResumeJob(t *testing.T) {
 	manager := NewJobTaskStateController()
 	jobID := uuid.New()
 
@@ -107,7 +110,7 @@ func TestJobStateManager_ResumeJob(t *testing.T) {
 	assert.False(t, manager.IsJobPaused(jobID))
 }
 
-func TestJobStateManager_Concurrency(t *testing.T) {
+func TestJobStateController_Concurrency(t *testing.T) {
 	manager := NewJobTaskStateController()
 	jobID := uuid.New()
 
@@ -135,7 +138,7 @@ func TestJobStateManager_Concurrency(t *testing.T) {
 	assert.Equal(t, 100, count)
 }
 
-func TestJobStateManager_CancelFunctionExecution(t *testing.T) {
+func TestJobStateController_CancelFunctionExecution(t *testing.T) {
 	manager := NewJobTaskStateController()
 	jobID := uuid.New()
 	taskID := uuid.New()
