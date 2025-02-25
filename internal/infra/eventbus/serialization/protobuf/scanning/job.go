@@ -248,3 +248,41 @@ func ProtoToJobPausedEvent(event *pb.JobPausedEvent) (scanning.JobPausedEvent, e
 
 	return scanning.NewJobPausedEvent(event.JobId, event.RequestedBy, event.Reason), nil
 }
+
+// JobCancellingEventToProto converts a domain JobCancellingEvent to a protobuf message.
+func JobCancellingEventToProto(event scanning.JobCancellingEvent) *pb.JobCancellingEvent {
+	return &pb.JobCancellingEvent{
+		JobId:       event.JobID,
+		Timestamp:   event.OccurredAt().UnixNano(),
+		RequestedBy: event.RequestedBy,
+	}
+}
+
+// ProtoToJobCancellingEvent converts a protobuf message to a domain JobCancellingEvent.
+func ProtoToJobCancellingEvent(event *pb.JobCancellingEvent) (scanning.JobCancellingEvent, error) {
+	if event == nil {
+		return scanning.JobCancellingEvent{}, serializationerrors.ErrNilEvent{EventType: "JobCancellingEvent"}
+	}
+
+	return scanning.NewJobCancellingEvent(event.JobId, event.RequestedBy), nil
+}
+
+// JobCancelledEventToProto converts a domain JobCancelledEvent to a protobuf message.
+func JobCancelledEventToProto(event scanning.JobCancelledEvent) *pb.JobCancelledEvent {
+	return &pb.JobCancelledEvent{
+		JobId:       event.JobID,
+		Timestamp:   event.OccurredAt().UnixNano(),
+		CancelledAt: event.CancelledAt.UnixNano(),
+		Reason:      event.Reason,
+		RequestedBy: event.RequestedBy,
+	}
+}
+
+// ProtoToJobCancelledEvent converts a protobuf message to a domain JobCancelledEvent.
+func ProtoToJobCancelledEvent(event *pb.JobCancelledEvent) (scanning.JobCancelledEvent, error) {
+	if event == nil {
+		return scanning.JobCancelledEvent{}, serializationerrors.ErrNilEvent{EventType: "JobCancelledEvent"}
+	}
+
+	return scanning.NewJobCancelledEvent(event.JobId, event.RequestedBy, event.Reason), nil
+}

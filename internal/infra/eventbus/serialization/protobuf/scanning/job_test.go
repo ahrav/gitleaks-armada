@@ -365,3 +365,61 @@ func TestJobPausedEventConversion(t *testing.T) {
 		assert.IsType(t, serializationerrors.ErrNilEvent{}, err)
 	})
 }
+
+func TestJobCancellingEventConversion(t *testing.T) {
+	t.Run("successful conversion", func(t *testing.T) {
+		jobID := "test-job-id"
+		requestedBy := "test-user"
+		domainEvent := scanning.NewJobCancellingEvent(jobID, requestedBy)
+
+		// Test domain to proto conversion.
+		protoEvent := JobCancellingEventToProto(domainEvent)
+		require.NotNil(t, protoEvent)
+		assert.Equal(t, jobID, protoEvent.JobId)
+		assert.Equal(t, requestedBy, protoEvent.RequestedBy)
+		assert.Equal(t, domainEvent.OccurredAt().UnixNano(), protoEvent.Timestamp)
+
+		// Test proto to domain conversion.
+		convertedEvent, err := ProtoToJobCancellingEvent(protoEvent)
+		require.NoError(t, err)
+		assert.Equal(t, jobID, convertedEvent.JobID)
+		assert.Equal(t, requestedBy, convertedEvent.RequestedBy)
+	})
+
+	t.Run("nil event", func(t *testing.T) {
+		_, err := ProtoToJobCancellingEvent(nil)
+		require.Error(t, err)
+		assert.IsType(t, serializationerrors.ErrNilEvent{}, err)
+	})
+}
+
+func TestJobCancelledEventConversion(t *testing.T) {
+	t.Run("successful conversion", func(t *testing.T) {
+		jobID := "test-job-id"
+		requestedBy := "test-user"
+		reason := "user requested"
+		domainEvent := scanning.NewJobCancelledEvent(jobID, requestedBy, reason)
+
+		// Test domain to proto conversion.
+		protoEvent := JobCancelledEventToProto(domainEvent)
+		require.NotNil(t, protoEvent)
+		assert.Equal(t, jobID, protoEvent.JobId)
+		assert.Equal(t, requestedBy, protoEvent.RequestedBy)
+		assert.Equal(t, reason, protoEvent.Reason)
+		assert.Equal(t, domainEvent.OccurredAt().UnixNano(), protoEvent.Timestamp)
+		assert.Equal(t, domainEvent.CancelledAt.UnixNano(), protoEvent.CancelledAt)
+
+		// Test proto to domain conversion.
+		convertedEvent, err := ProtoToJobCancelledEvent(protoEvent)
+		require.NoError(t, err)
+		assert.Equal(t, jobID, convertedEvent.JobID)
+		assert.Equal(t, requestedBy, convertedEvent.RequestedBy)
+		assert.Equal(t, reason, convertedEvent.Reason)
+	})
+
+	t.Run("nil event", func(t *testing.T) {
+		_, err := ProtoToJobCancelledEvent(nil)
+		require.Error(t, err)
+		assert.IsType(t, serializationerrors.ErrNilEvent{}, err)
+	})
+}

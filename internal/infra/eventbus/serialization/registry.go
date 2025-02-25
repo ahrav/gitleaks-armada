@@ -130,6 +130,13 @@ func RegisterEventSerializers() {
 	RegisterSerializeFunc(scanning.EventTypeJobPaused, serializeJobPaused)
 	RegisterDeserializeFunc(scanning.EventTypeJobPaused, deserializeJobPaused)
 
+	// Job Cancelling/Cancelled events.
+	RegisterSerializeFunc(scanning.EventTypeJobCancelling, serializeJobCancelling)
+	RegisterDeserializeFunc(scanning.EventTypeJobCancelling, deserializeJobCancelling)
+
+	RegisterSerializeFunc(scanning.EventTypeJobCancelled, serializeJobCancelled)
+	RegisterDeserializeFunc(scanning.EventTypeJobCancelled, deserializeJobCancelled)
+
 	// Task events.
 	RegisterSerializeFunc(scanning.EventTypeTaskCreated, serializeTaskCreated)
 	RegisterDeserializeFunc(scanning.EventTypeTaskCreated, deserializeTaskCreated)
@@ -277,6 +284,58 @@ func deserializeJobPaused(data []byte) (any, error) {
 	}
 
 	event, err := serdeScanning.ProtoToJobPausedEvent(&pbEvent)
+	if err != nil {
+		return nil, fmt.Errorf("convert proto to domain event: %w", err)
+	}
+
+	return event, nil
+}
+
+// serializeJobCancelling converts a JobCancellingEvent to protobuf bytes.
+func serializeJobCancelling(payload any) ([]byte, error) {
+	event, ok := payload.(scanning.JobCancellingEvent)
+	if !ok {
+		return nil, fmt.Errorf("serializeJobCancelling: payload is not JobCancellingEvent, got %T", payload)
+	}
+
+	pbEvent := serdeScanning.JobCancellingEventToProto(event)
+	return proto.Marshal(pbEvent)
+}
+
+// deserializeJobCancelling converts protobuf bytes back into a JobCancellingEvent.
+func deserializeJobCancelling(data []byte) (any, error) {
+	var pbEvent pb.JobCancellingEvent
+	if err := proto.Unmarshal(data, &pbEvent); err != nil {
+		return nil, fmt.Errorf("unmarshal JobCancellingEvent: %w", err)
+	}
+
+	event, err := serdeScanning.ProtoToJobCancellingEvent(&pbEvent)
+	if err != nil {
+		return nil, fmt.Errorf("convert proto to domain event: %w", err)
+	}
+
+	return event, nil
+}
+
+// serializeJobCancelled converts a JobCancelledEvent to protobuf bytes.
+func serializeJobCancelled(payload any) ([]byte, error) {
+	event, ok := payload.(scanning.JobCancelledEvent)
+	if !ok {
+		return nil, fmt.Errorf("serializeJobCancelled: payload is not JobCancelledEvent, got %T", payload)
+	}
+
+	pbEvent := serdeScanning.JobCancelledEventToProto(event)
+	return proto.Marshal(pbEvent)
+}
+
+// deserializeJobCancelled converts protobuf bytes back into a JobCancelledEvent.
+func deserializeJobCancelled(data []byte) (any, error) {
+	var pbEvent pb.JobCancelledEvent
+	if err := proto.Unmarshal(data, &pbEvent); err != nil {
+		return nil, fmt.Errorf("unmarshal JobCancelledEvent: %w", err)
+	}
+
+	event, err := serdeScanning.ProtoToJobCancelledEvent(&pbEvent)
 	if err != nil {
 		return nil, fmt.Errorf("convert proto to domain event: %w", err)
 	}
