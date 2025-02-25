@@ -411,7 +411,7 @@ func (s *ScannerService) handleJobPausedEvent(
 	logger.Info(ctx, "Handling job paused task")
 
 	jobID := uuid.MustParse(jobPausedEvt.JobID)
-	cancelCount := s.jobStateController.PauseJob(jobID, fmt.Errorf("job paused"))
+	cancelCount := s.jobStateController.PauseJob(jobID)
 
 	logger.Info(ctx, "Job paused tasks cancelled", "cancel_count", cancelCount)
 	span.AddEvent("job_paused_task_handled")

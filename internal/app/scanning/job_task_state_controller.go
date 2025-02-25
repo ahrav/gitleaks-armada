@@ -7,6 +7,19 @@ import (
 	"github.com/google/uuid"
 )
 
+// terminationReason represents the reason a job was stopped.
+// It implements the error interface to allow it to be used as a cancellation cause.
+type terminationReason string
+
+func (r terminationReason) Error() string { return string(r) }
+
+const (
+	// PauseEvent indicates a job was paused.
+	PauseEvent = terminationReason("pause")
+	// CancelEvent indicates a job was cancelled.
+	CancelEvent = terminationReason("cancel")
+)
+
 // jobTaskCancellationRecord represents the state of a job and all its tasks with their cancel functions.
 // This is used to cancel all tasks for a given job when it is paused.
 type jobTaskCancellationRecord struct {
@@ -65,7 +78,7 @@ func (j *JobTaskStateController) IsJobPaused(jobID uuid.UUID) bool {
 
 // PauseJob marks a job as paused and cancels all of its tasks.
 // Returns the number of tasks that were cancelled.
-func (j *JobTaskStateController) PauseJob(jobID uuid.UUID, cause error) int {
+func (j *JobTaskStateController) PauseJob(jobID uuid.UUID) int {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 
@@ -79,7 +92,7 @@ func (j *JobTaskStateController) PauseJob(jobID uuid.UUID, cause error) int {
 
 	count := 0
 	for taskID, cancel := range js.tasks {
-		cancel(cause)
+		cancel(PauseEvent)
 		delete(js.tasks, taskID)
 		count++
 	}

@@ -2,7 +2,6 @@ package scanning
 
 import (
 	"context"
-	"errors"
 	"sync"
 	"testing"
 
@@ -27,7 +26,7 @@ func TestJobStateController_AddTask_RemoveTask(t *testing.T) {
 
 	manager.AddTask(jobID, taskID, cancelFunc)
 
-	count := manager.PauseJob(jobID, errors.New("test error"))
+	count := manager.PauseJob(jobID)
 	assert.Equal(t, 1, count)
 	assert.True(t, cancelCalled)
 
@@ -39,7 +38,7 @@ func TestJobStateController_AddTask_RemoveTask(t *testing.T) {
 
 	manager.RemoveTask(jobID, taskID2)
 
-	count = manager.PauseJob(jobID, errors.New("test error"))
+	count = manager.PauseJob(jobID)
 	assert.Equal(t, 0, count)
 
 	nonExistentTaskID := uuid.New()
@@ -61,7 +60,7 @@ func TestJobStateController_IsJobPaused(t *testing.T) {
 	manager.ResumeJob(jobID)
 	assert.False(t, manager.IsJobPaused(jobID))
 
-	manager.PauseJob(jobID, errors.New("pause test"))
+	manager.PauseJob(jobID)
 	assert.True(t, manager.IsJobPaused(jobID))
 }
 
@@ -69,7 +68,7 @@ func TestJobStateController_PauseJob(t *testing.T) {
 	manager := NewJobTaskStateController()
 	jobID := uuid.New()
 
-	count := manager.PauseJob(jobID, errors.New("pause test"))
+	count := manager.PauseJob(jobID)
 	assert.Equal(t, 0, count)
 
 	taskID1 := uuid.New()
@@ -78,15 +77,14 @@ func TestJobStateController_PauseJob(t *testing.T) {
 	cancelCount := 0
 	cancelFunc := func(cause error) {
 		cancelCount++
-		assert.Equal(t, "pause test", cause.Error())
+		assert.Equal(t, PauseEvent, cause)
 	}
 
 	manager.ResumeJob(jobID)
 	manager.AddTask(jobID, taskID1, cancelFunc)
 	manager.AddTask(jobID, taskID2, cancelFunc)
 
-	pauseErr := errors.New("pause test")
-	count = manager.PauseJob(jobID, pauseErr)
+	count = manager.PauseJob(jobID)
 
 	assert.Equal(t, 2, count)
 	assert.Equal(t, 2, cancelCount)
@@ -103,7 +101,7 @@ func TestJobStateController_ResumeJob(t *testing.T) {
 	manager.ResumeJob(jobID)
 	assert.False(t, manager.IsJobPaused(jobID))
 
-	manager.PauseJob(jobID, errors.New("pause test"))
+	manager.PauseJob(jobID)
 	assert.True(t, manager.IsJobPaused(jobID))
 
 	manager.ResumeJob(jobID)
@@ -134,7 +132,7 @@ func TestJobStateController_Concurrency(t *testing.T) {
 	wg.Wait()
 
 	manager.ResumeJob(jobID)
-	count := manager.PauseJob(jobID, errors.New("test"))
+	count := manager.PauseJob(jobID)
 	assert.Equal(t, 100, count)
 }
 
@@ -158,10 +156,9 @@ func TestJobStateController_CancelFunctionExecution(t *testing.T) {
 
 	manager.AddTask(jobID, taskID, cancel)
 
-	pauseErr := errors.New("job was paused")
-	manager.PauseJob(jobID, pauseErr)
+	manager.PauseJob(jobID)
 	wg.Wait()
 
 	assert.True(t, wasCanceled)
-	assert.Equal(t, pauseErr, cancelCause)
+	assert.Equal(t, PauseEvent, cancelCause)
 }
