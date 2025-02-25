@@ -30,8 +30,9 @@ type Config struct {
 // Routes binds all the scan endpoints.
 func Routes(app *web.App, cfg Config) {
 	app.HandlerFunc(http.MethodPost, "", "/v1/scan", start(cfg))
-	// TODO: Think through how we want to handle pausing a scan multiple times. (error, ignore, etc...)
+	// TODO: Handle users pausing multiple times. (error, ignore, etc...)
 	app.HandlerFunc(http.MethodPost, "", "/v1/scan/{id}/pause", pause(cfg))
+	app.HandlerFunc(http.MethodPost, "", "/v1/scan/bulk/pause", bulkPause(cfg))
 	// app.HandlerFunc(http.MethodGet, "", "/v1/scan/:id", status(cfg))
 }
 
@@ -226,25 +227,98 @@ func (pr pauseResponse) HTTPStatus() int { return http.StatusAccepted } // 202
 // pause handles the request to pause a scan job.
 func pause(cfg Config) web.HandlerFunc {
 	return func(ctx context.Context, r *http.Request) web.Encoder {
-		jobID, err := uuid.Parse(web.Param(r, "id"))
-		if err != nil {
-			return errs.New(errs.InvalidArgument, fmt.Errorf("invalid job ID: %w", err))
-		}
+		jobIDStr := web.Param(r, "id")
 
 		var req pauseRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
 			return errs.New(errs.InvalidArgument, err)
 		}
 
-		// Create and publish the JobPausingEvent
-		evt := scanDomain.NewJobPausingEvent(jobID.String(), "system") // TODO: Use JWT user instead of "system" if available.
-		if err := cfg.EventBus.PublishDomainEvent(ctx, evt, events.WithKey(jobID.String())); err != nil {
-			return errs.New(errs.Internal, fmt.Errorf("failed to publish pause event: %w", err))
+		response, err := pauseJob(ctx, jobIDStr, cfg.EventBus)
+		if err != nil {
+			return errs.New(errs.InvalidArgument, err)
 		}
 
-		return pauseResponse{
-			ID:     jobID.String(),
-			Status: scanDomain.JobStatusPausing.String(),
-		}
+		return response
 	}
+}
+
+// bulkPauseRequest represents the payload for pausing multiple scans.
+type bulkPauseRequest struct {
+	JobIDs []string `json:"job_ids" validate:"required,dive,uuid4"`
+	Reason string   `json:"reason,omitempty"`
+}
+
+// bulkPauseResponse represents the response for pausing multiple scans.
+type bulkPauseResponse struct {
+	Jobs []pauseResponse `json:"jobs"`
+}
+
+// Encode implements the web.Encoder interface.
+func (bpr bulkPauseResponse) Encode() ([]byte, string, error) {
+	data, err := json.Marshal(bpr)
+	if err != nil {
+		return nil, "", err
+	}
+	return data, "application/json", nil
+}
+
+// HTTPStatus implements the httpStatus interface to set the response status code.
+func (bpr bulkPauseResponse) HTTPStatus() int { return http.StatusAccepted } // 202
+
+// bulkPause handles the request to pause multiple scan jobs.
+func bulkPause(cfg Config) web.HandlerFunc {
+	return func(ctx context.Context, r *http.Request) web.Encoder {
+		var req bulkPauseRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			return errs.New(errs.InvalidArgument, err)
+		}
+
+		if err := errs.Check(req); err != nil {
+			return errs.New(errs.InvalidArgument, err)
+		}
+
+		var responses []pauseResponse
+		var processingErrors []error
+
+		for _, jobIDStr := range req.JobIDs {
+			response, err := pauseJob(ctx, jobIDStr, cfg.EventBus)
+			if err != nil {
+				processingErrors = append(processingErrors, fmt.Errorf("job %s: %w", jobIDStr, err))
+				continue
+			}
+			responses = append(responses, response)
+		}
+
+		// If there were any errors but we still have some successful responses,
+		// log the errors but still return the successful responses.
+		if len(processingErrors) > 0 && len(responses) > 0 {
+			// Log errors but continue with partial success
+			errMsg := fmt.Sprintf("Failed to pause %d out of %d jobs",
+				len(processingErrors), len(req.JobIDs))
+			cfg.Log.Error(ctx, errMsg, "errors", processingErrors)
+		} else if len(processingErrors) > 0 {
+			// If all jobs failed, return an error
+			return errs.New(errs.InvalidArgument, fmt.Errorf("failed to pause any jobs: %v", processingErrors))
+		}
+
+		return bulkPauseResponse{Jobs: responses}
+	}
+}
+
+// pauseJob handles the logic for pausing a single job and returns its response.
+// This is a helper function used by both single and bulk pause endpoints.
+func pauseJob(ctx context.Context, jobIDStr string, eventBus events.DomainEventPublisher) (pauseResponse, error) {
+	jobID, err := uuid.Parse(jobIDStr)
+	if err != nil {
+		return pauseResponse{}, fmt.Errorf("invalid job ID: %w", err)
+	}
+
+	// Create and publish the JobPausingEvent.
+	evt := scanDomain.NewJobPausingEvent(jobID.String(), "system") // TODO: Use JWT user instead of "system" if available.
+	if err := eventBus.PublishDomainEvent(ctx, evt, events.WithKey(jobID.String())); err != nil {
+		return pauseResponse{}, fmt.Errorf("failed to publish pause event: %w", err)
+	}
+
+	return pauseResponse{ID: jobID.String(), Status: scanDomain.JobStatusPausing.String()}, nil
 }
