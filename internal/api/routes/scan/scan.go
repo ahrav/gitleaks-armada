@@ -33,6 +33,8 @@ func Routes(app *web.App, cfg Config) {
 	// TODO: Handle users pausing multiple times. (error, ignore, etc...)
 	app.HandlerFunc(http.MethodPost, "", "/v1/scan/{id}/pause", pause(cfg))
 	app.HandlerFunc(http.MethodPost, "", "/v1/scan/bulk/pause", bulkPause(cfg))
+	app.HandlerFunc(http.MethodPost, "", "/v1/scan/{id}/cancel", cancel(cfg))
+	app.HandlerFunc(http.MethodPost, "", "/v1/scan/bulk/cancel", bulkCancel(cfg))
 	// app.HandlerFunc(http.MethodGet, "", "/v1/scan/:id", status(cfg))
 }
 
@@ -321,4 +323,121 @@ func pauseJob(ctx context.Context, jobIDStr string, eventBus events.DomainEventP
 	}
 
 	return pauseResponse{ID: jobID.String(), Status: scanDomain.JobStatusPausing.String()}, nil
+}
+
+// cancelRequest represents the payload for cancelling a scan.
+type cancelRequest struct {
+	Reason string `json:"reason,omitempty"`
+}
+
+// cancelResponse represents the response for cancelling a scan.
+type cancelResponse struct {
+	ID     string `json:"id"`     // The job ID
+	Status string `json:"status"` // Current status
+}
+
+// Encode implements the web.Encoder interface.
+func (cr cancelResponse) Encode() ([]byte, string, error) {
+	data, err := json.Marshal(cr)
+	if err != nil {
+		return nil, "", err
+	}
+
+	return data, "application/json", nil
+}
+
+// HTTPStatus implements the httpStatus interface to set the response status code.
+func (cr cancelResponse) HTTPStatus() int { return http.StatusAccepted } // 202
+
+// cancel handles the request to cancel a scan job.
+func cancel(cfg Config) web.HandlerFunc {
+	return func(ctx context.Context, r *http.Request) web.Encoder {
+		jobIDStr := web.Param(r, "id")
+
+		var req cancelRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+			return errs.New(errs.InvalidArgument, err)
+		}
+
+		response, err := cancelJob(ctx, jobIDStr, cfg.EventBus)
+		if err != nil {
+			return errs.New(errs.InvalidArgument, err)
+		}
+
+		return response
+	}
+}
+
+// bulkCancelRequest represents the payload for cancelling multiple scans.
+type bulkCancelRequest struct {
+	JobIDs []string `json:"job_ids" validate:"required,dive,uuid4"`
+	Reason string   `json:"reason,omitempty"`
+}
+
+// bulkCancelResponse represents the response for cancelling multiple scans.
+type bulkCancelResponse struct {
+	Jobs []cancelResponse `json:"jobs"`
+}
+
+// Encode implements the web.Encoder interface.
+func (bcr bulkCancelResponse) Encode() ([]byte, string, error) {
+	data, err := json.Marshal(bcr)
+	if err != nil {
+		return nil, "", err
+	}
+
+	return data, "application/json", nil
+}
+
+// HTTPStatus implements the httpStatus interface to set the response status code.
+func (bcr bulkCancelResponse) HTTPStatus() int { return http.StatusAccepted } // 202
+
+// bulkCancel handles the request to cancel multiple scan jobs.
+func bulkCancel(cfg Config) web.HandlerFunc {
+	return func(ctx context.Context, r *http.Request) web.Encoder {
+		var req bulkCancelRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			return errs.New(errs.InvalidArgument, err)
+		}
+
+		if err := errs.Check(req); err != nil {
+			return errs.New(errs.InvalidArgument, err)
+		}
+
+		var responses []cancelResponse
+		for _, jobIDStr := range req.JobIDs {
+			response, err := cancelJob(ctx, jobIDStr, cfg.EventBus)
+			if err != nil {
+				cfg.Log.Warn(ctx, "Failed to cancel job", "job_id", jobIDStr, "error", err)
+				responses = append(responses, cancelResponse{
+					ID:     jobIDStr,
+					Status: "ERROR", // Provide an error status
+				})
+				continue
+			}
+			responses = append(responses, response)
+		}
+
+		return bulkCancelResponse{Jobs: responses}
+	}
+}
+
+// cancelJob handles the logic of cancelling a single job and returns a response.
+func cancelJob(ctx context.Context, jobIDStr string, eventBus events.DomainEventPublisher) (cancelResponse, error) {
+	jobID, err := uuid.Parse(jobIDStr)
+	if err != nil {
+		return cancelResponse{}, fmt.Errorf("invalid job ID format: %w", err)
+	}
+
+	// Create and publish the event to cancel the job.
+	evt := scanDomain.NewJobCancellingEvent(jobIDStr, "User requested cancellation")
+	err = eventBus.PublishDomainEvent(ctx, evt, events.WithKey(jobID.String()))
+	if err != nil {
+		return cancelResponse{}, fmt.Errorf("failed to publish cancellation event: %w", err)
+	}
+
+	return cancelResponse{
+		ID:     jobIDStr,
+		Status: scanDomain.JobStatusCancelling.String(),
+	}, nil
 }
