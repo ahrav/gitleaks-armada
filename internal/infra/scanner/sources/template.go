@@ -21,7 +21,6 @@ type TemplateOptions struct {
 	OperationAttributes []attribute.KeyValue
 	HeartbeatInterval   time.Duration
 	OnPause             func(context.Context, *dtos.ScanRequest)
-	OnCancel            func(context.Context, *dtos.ScanRequest)
 }
 
 // ScanTemplate provides a reusable way to run streaming scans with channels,
@@ -112,12 +111,10 @@ func (st *ScanTemplate) ScanStreaming(
 						opts.OnPause(cleanupCtx, task)
 					}
 				case scanning.CancelEvent:
-					// Handle cancellation before shutting down.
-					// We don't need to report a final progress as a cancelled job
-					// can't be resumed.
-					if opts.OnCancel != nil {
-						opts.OnCancel(ctx, task)
-					}
+					st.logger.Info(ctx, "Scan cancelled",
+						"task_id", task.TaskID,
+						"job_id", task.JobID,
+					)
 				}
 				errChan <- ctx.Err()
 				return
