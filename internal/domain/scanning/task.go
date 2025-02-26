@@ -427,6 +427,26 @@ func (t *Task) Pause() error {
 	return t.UpdateStatus(TaskStatusPaused)
 }
 
+// Cancel transitions a task to CANCELLED status.
+func (t *Task) Cancel() error {
+	if t.status == TaskStatusCancelled {
+		return nil // idempotent
+	}
+
+	if t.status != TaskStatusPending &&
+		t.status != TaskStatusInProgress &&
+		t.status != TaskStatusStale &&
+		t.status != TaskStatusPaused {
+		return TaskInvalidStateError{
+			taskID: t.ID,
+			status: t.status,
+			reason: TaskInvalidStateReasonWrongStatus,
+		}
+	}
+
+	return t.UpdateStatus(TaskStatusCancelled)
+}
+
 // Resume transitions from PAUSED → IN_PROGRESS.
 func (t *Task) Resume() error {
 	if t.status != TaskStatusPaused {

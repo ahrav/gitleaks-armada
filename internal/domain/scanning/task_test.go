@@ -891,3 +891,179 @@ func TestUpdateTaskProgress(t *testing.T) {
 		})
 	}
 }
+
+func TestTask_Pause(t *testing.T) {
+	t.Parallel()
+
+	jobID := uuid.New()
+	taskID := uuid.New()
+	resourceURI := "git://github.com/owner/repo.git"
+
+	tests := []struct {
+		name            string
+		initialStatus   TaskStatus
+		expectedStatus  TaskStatus
+		expectedError   bool
+		expectedErrType error
+	}{
+		{
+			name:           "from pending",
+			initialStatus:  TaskStatusPending,
+			expectedStatus: TaskStatusPaused,
+			expectedError:  false,
+		},
+		{
+			name:           "from in progress",
+			initialStatus:  TaskStatusInProgress,
+			expectedStatus: TaskStatusPaused,
+			expectedError:  false,
+		},
+		{
+			name:           "from stale",
+			initialStatus:  TaskStatusStale,
+			expectedStatus: TaskStatusPaused,
+			expectedError:  false,
+		},
+		{
+			name:           "from paused",
+			initialStatus:  TaskStatusPaused,
+			expectedStatus: TaskStatusPaused,
+			expectedError:  false,
+		},
+		{
+			name:            "from completed",
+			initialStatus:   TaskStatusCompleted,
+			expectedStatus:  TaskStatusCompleted, // Should not change
+			expectedError:   true,
+			expectedErrType: TaskInvalidStateError{},
+		},
+		{
+			name:            "from failed",
+			initialStatus:   TaskStatusFailed,
+			expectedStatus:  TaskStatusFailed, // Should not change
+			expectedError:   true,
+			expectedErrType: TaskInvalidStateError{},
+		},
+		{
+			name:           "from cancelled (idempotent)",
+			initialStatus:  TaskStatusCancelled,
+			expectedStatus: TaskStatusCancelled,
+			expectedError:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create task with initial status
+			task := NewScanTask(jobID, shared.SourceTypeGit, taskID, resourceURI)
+
+			// Set the initial status directly for testing
+			err := task.UpdateStatus(tt.initialStatus)
+			require.NoError(t, err)
+
+			// Try to pause
+			err = task.Pause()
+
+			// Check error expectations
+			if tt.expectedError {
+				assert.Error(t, err)
+				if tt.expectedErrType != nil {
+					assert.IsType(t, tt.expectedErrType, err)
+				}
+			} else {
+				assert.NoError(t, err)
+			}
+
+			// Verify final status
+			assert.Equal(t, tt.expectedStatus, task.Status())
+		})
+	}
+}
+
+func TestTask_Cancel(t *testing.T) {
+	t.Parallel()
+
+	jobID := uuid.New()
+	taskID := uuid.New()
+	resourceURI := "git://github.com/owner/repo.git"
+
+	tests := []struct {
+		name            string
+		initialStatus   TaskStatus
+		expectedStatus  TaskStatus
+		expectedError   bool
+		expectedErrType error
+	}{
+		{
+			name:           "from pending",
+			initialStatus:  TaskStatusPending,
+			expectedStatus: TaskStatusCancelled,
+			expectedError:  false,
+		},
+		{
+			name:           "from in progress",
+			initialStatus:  TaskStatusInProgress,
+			expectedStatus: TaskStatusCancelled,
+			expectedError:  false,
+		},
+		{
+			name:           "from stale",
+			initialStatus:  TaskStatusStale,
+			expectedStatus: TaskStatusCancelled,
+			expectedError:  false,
+		},
+		{
+			name:           "from paused",
+			initialStatus:  TaskStatusPaused,
+			expectedStatus: TaskStatusCancelled,
+			expectedError:  false,
+		},
+		{
+			name:            "from completed",
+			initialStatus:   TaskStatusCompleted,
+			expectedStatus:  TaskStatusCompleted, // Should not change
+			expectedError:   true,
+			expectedErrType: TaskInvalidStateError{},
+		},
+		{
+			name:            "from failed",
+			initialStatus:   TaskStatusFailed,
+			expectedStatus:  TaskStatusFailed, // Should not change
+			expectedError:   true,
+			expectedErrType: TaskInvalidStateError{},
+		},
+		{
+			name:           "from cancelled (idempotent)",
+			initialStatus:  TaskStatusCancelled,
+			expectedStatus: TaskStatusCancelled,
+			expectedError:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create task with initial status
+			task := NewScanTask(jobID, shared.SourceTypeGit, taskID, resourceURI)
+
+			// Set the initial status directly for testing
+			err := task.UpdateStatus(tt.initialStatus)
+			require.NoError(t, err)
+
+			// Try to cancel
+			err = task.Cancel()
+
+			// Check error expectations
+			if tt.expectedError {
+				assert.Error(t, err)
+				if tt.expectedErrType != nil {
+					assert.IsType(t, tt.expectedErrType, err)
+				}
+			} else {
+				assert.NoError(t, err)
+			}
+
+			// Verify final status
+			assert.Equal(t, tt.expectedStatus, task.Status())
+		})
+	}
+}

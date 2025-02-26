@@ -21,6 +21,7 @@ const (
 	EventTypeTaskHeartbeat  events.EventType = "TaskHeartbeat"
 	EventTypeTaskJobMetric  events.EventType = "TaskJobMetric"
 	EventTypeTaskPaused     events.EventType = "TaskPaused"
+	EventTypeTaskCancelled  events.EventType = "TaskCancelled"
 )
 
 // TaskCreatedEvent indicates a new task was discovered and needs to be scanned
@@ -241,3 +242,26 @@ func NewTaskPausedEvent(jobID, taskID uuid.UUID, progress Progress, requestedBy 
 
 func (e TaskPausedEvent) EventType() events.EventType { return EventTypeTaskPaused }
 func (e TaskPausedEvent) OccurredAt() time.Time       { return e.occurredAt }
+
+// TaskCancelledEvent means the task has been cancelled.
+type TaskCancelledEvent struct {
+	occurredAt  time.Time
+	JobID       uuid.UUID
+	TaskID      uuid.UUID
+	CancelledAt time.Time
+	RequestedBy string
+}
+
+func NewTaskCancelledEvent(jobID, taskID uuid.UUID, requestedBy string) TaskCancelledEvent {
+	now := time.Now()
+	return TaskCancelledEvent{
+		occurredAt:  now,
+		JobID:       jobID,
+		TaskID:      taskID,
+		CancelledAt: now,
+		RequestedBy: requestedBy,
+	}
+}
+
+func (e TaskCancelledEvent) EventType() events.EventType { return EventTypeTaskCancelled }
+func (e TaskCancelledEvent) OccurredAt() time.Time       { return e.occurredAt }

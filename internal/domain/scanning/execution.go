@@ -92,6 +92,11 @@ type ExecutionTracker interface {
 	// and storing the final progress checkpoint for later resumption.
 	HandleTaskPaused(ctx context.Context, evt TaskPausedEvent) error
 
+	// HandleTaskCancelled handles task cancellation events, transitioning the task to CANCELLED status
+	// and preventing further work on it.
+	// This allows for explicit termination of tasks before completion.
+	HandleTaskCancelled(ctx context.Context, evt TaskCancelledEvent) error
+
 	// // GetJobProgress returns consolidated metrics for all tasks in a job, including
 	// // total tasks, completed tasks, failed tasks, and overall progress percentage.
 	// // This provides the data needed for job-level monitoring and reporting.

@@ -45,6 +45,11 @@ func TestTaskStatus_String(t *testing.T) {
 			expected: "PAUSED",
 		},
 		{
+			name:     "cancelled status",
+			status:   TaskStatusCancelled,
+			expected: "CANCELLED",
+		},
+		{
 			name:     "unspecified status",
 			status:   TaskStatusUnspecified,
 			expected: "UNSPECIFIED",
@@ -179,7 +184,7 @@ func TestTaskStatus_ValidateTransition(t *testing.T) {
 			wantErr:       false,
 		},
 
-		// Invalid transitions from PAUSED
+		// Invalid transitions from PAUSED.
 		{
 			name:          "paused to completed invalid",
 			currentStatus: TaskStatusPaused,
@@ -260,6 +265,31 @@ func TestTaskStatus_ValidateTransition(t *testing.T) {
 			targetStatus:  TaskStatus("UNKNOWN"),
 			wantErr:       true,
 		},
+
+		{
+			name:          "pending to cancelled",
+			currentStatus: TaskStatusPending,
+			targetStatus:  TaskStatusCancelled,
+			wantErr:       false,
+		},
+		{
+			name:          "in progress to cancelled",
+			currentStatus: TaskStatusInProgress,
+			targetStatus:  TaskStatusCancelled,
+			wantErr:       false,
+		},
+		{
+			name:          "stale to cancelled",
+			currentStatus: TaskStatusStale,
+			targetStatus:  TaskStatusCancelled,
+			wantErr:       false,
+		},
+		{
+			name:          "paused to cancelled",
+			currentStatus: TaskStatusPaused,
+			targetStatus:  TaskStatusCancelled,
+			wantErr:       false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -314,6 +344,19 @@ func TestTaskStatus_IsValidTransition(t *testing.T) {
 		TaskStatusFailed:      {},
 		TaskStatusUnspecified: {},
 		TaskStatus("INVALID"): {},
+	}
+
+	validTransitions[TaskStatusPending] = map[TaskStatus]bool{
+		TaskStatusCancelled: true,
+	}
+	validTransitions[TaskStatusInProgress] = map[TaskStatus]bool{
+		TaskStatusCancelled: true,
+	}
+	validTransitions[TaskStatusStale] = map[TaskStatus]bool{
+		TaskStatusCancelled: true,
+	}
+	validTransitions[TaskStatusPaused] = map[TaskStatus]bool{
+		TaskStatusCancelled: true,
 	}
 
 	for _, from := range statuses {
@@ -380,6 +423,11 @@ func TestTaskStatus_Int32(t *testing.T) {
 			expected: 6,
 		},
 		{
+			name:     "cancelled status",
+			status:   TaskStatusCancelled,
+			expected: 7,
+		},
+		{
 			name:     "unspecified status",
 			status:   TaskStatusUnspecified,
 			expected: 0,
@@ -439,6 +487,11 @@ func TestTaskStatus_ProtoString(t *testing.T) {
 			expected: "TASK_STATUS_PAUSED",
 		},
 		{
+			name:     "cancelled status",
+			status:   TaskStatusCancelled,
+			expected: "TASK_STATUS_CANCELLED",
+		},
+		{
 			name:     "unspecified status",
 			status:   TaskStatusUnspecified,
 			expected: "TASK_STATUS_UNSPECIFIED",
@@ -496,6 +549,11 @@ func TestTaskStatusFromInt32(t *testing.T) {
 			name:     "paused status",
 			input:    6,
 			expected: TaskStatusPaused,
+		},
+		{
+			name:     "cancelled status",
+			input:    7,
+			expected: TaskStatusCancelled,
 		},
 		{
 			name:     "invalid status",
@@ -580,6 +638,16 @@ func TestParseTaskStatus(t *testing.T) {
 			name:     "paused status proto",
 			input:    "TASK_STATUS_PAUSED",
 			expected: TaskStatusPaused,
+		},
+		{
+			name:     "cancelled status uppercase",
+			input:    "CANCELLED",
+			expected: TaskStatusCancelled,
+		},
+		{
+			name:     "cancelled status proto style",
+			input:    "TASK_STATUS_CANCELLED",
+			expected: TaskStatusCancelled,
 		},
 		{
 			name:     "invalid status",

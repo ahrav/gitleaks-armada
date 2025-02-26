@@ -31,6 +31,9 @@ const (
 	// TaskStatusPaused indicates a task has been temporarily halted.
 	TaskStatusPaused TaskStatus = "PAUSED"
 
+	// TaskStatusCancelled indicates a task was explicitly cancelled before completion.
+	TaskStatusCancelled TaskStatus = "CANCELLED"
+
 	// TODO: Add retrying, cancelled, timed out.
 	// No Paused on the task level. We either let the task finish, or kill it. (tbh)
 
@@ -56,6 +59,8 @@ func (s TaskStatus) Int32() int32 {
 		return 5
 	case TaskStatusPaused:
 		return 6
+	case TaskStatusCancelled:
+		return 7
 	default:
 		return 0
 	}
@@ -77,6 +82,8 @@ func (s TaskStatus) ProtoString() string {
 		return "TASK_STATUS_STALE"
 	case TaskStatusPaused:
 		return "TASK_STATUS_PAUSED"
+	case TaskStatusCancelled:
+		return "TASK_STATUS_CANCELLED"
 	default:
 		return "TASK_STATUS_UNSPECIFIED"
 	}
@@ -97,6 +104,8 @@ func TaskStatusFromInt32(i int32) TaskStatus {
 		return TaskStatusStale
 	case 6:
 		return TaskStatusPaused
+	case 7:
+		return TaskStatusCancelled
 	default:
 		return TaskStatusUnspecified
 	}
@@ -117,6 +126,8 @@ func ParseTaskStatus(s string) TaskStatus {
 		return TaskStatusStale
 	case "PAUSED", "TASK_STATUS_PAUSED":
 		return TaskStatusPaused
+	case "CANCELLED", "TASK_STATUS_CANCELLED":
+		return TaskStatusCancelled
 	default:
 		return TaskStatusUnspecified
 	}
@@ -135,18 +146,24 @@ func (s TaskStatus) validateTransition(target TaskStatus) error {
 func (s TaskStatus) isValidTransition(target TaskStatus) bool {
 	switch s {
 	case TaskStatusPending:
-		// From Pending, can only move to InProgress, Failed, or Paused.
-		return target == TaskStatusInProgress || target == TaskStatusFailed || target == TaskStatusPaused
+		// From Pending, can move to InProgress, Failed, Paused, or Cancelled.
+		return target == TaskStatusInProgress || target == TaskStatusFailed ||
+			target == TaskStatusPaused || target == TaskStatusCancelled
 	case TaskStatusInProgress:
-		// From InProgress, can move to Completed, Failed, Stale, or Paused.
-		return target == TaskStatusCompleted || target == TaskStatusFailed || target == TaskStatusStale || target == TaskStatusPaused
+		// From InProgress, can move to Completed, Failed, Stale, Paused, or Cancelled.
+		return target == TaskStatusCompleted || target == TaskStatusFailed ||
+			target == TaskStatusStale || target == TaskStatusPaused ||
+			target == TaskStatusCancelled
 	case TaskStatusStale:
-		// From Stale, can move to InProgress, Failed, Completed, or Paused.
-		return target == TaskStatusInProgress || target == TaskStatusFailed || target == TaskStatusCompleted || target == TaskStatusPaused
+		// From Stale, can move to InProgress, Failed, Completed, Paused, or Cancelled.
+		return target == TaskStatusInProgress || target == TaskStatusFailed ||
+			target == TaskStatusCompleted || target == TaskStatusPaused ||
+			target == TaskStatusCancelled
 	case TaskStatusPaused:
-		// From Paused, can move to InProgress, Failed, or Stale.
-		return target == TaskStatusInProgress || target == TaskStatusFailed || target == TaskStatusStale
-	case TaskStatusCompleted, TaskStatusFailed:
+		// From Paused, can move to InProgress, Failed, Stale, or Cancelled.
+		return target == TaskStatusInProgress || target == TaskStatusFailed ||
+			target == TaskStatusStale || target == TaskStatusCancelled
+	case TaskStatusCompleted, TaskStatusFailed, TaskStatusCancelled:
 		// Terminal states - no further transitions allowed.
 		return false
 	case TaskStatusUnspecified:

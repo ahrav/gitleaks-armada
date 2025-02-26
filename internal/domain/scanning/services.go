@@ -65,6 +65,10 @@ type JobTaskService interface {
 	// The task can later be resumed from this checkpoint.
 	PauseTask(ctx context.Context, taskID uuid.UUID, progress Progress, requestedBy string) (*Task, error)
 
+	// CancelTask transitions a task to CANCELLED status, preventing further work on it.
+	// This is a terminal state from which a task cannot be resumed.
+	CancelTask(ctx context.Context, taskID uuid.UUID, requestedBy string) (*Task, error)
+
 	// GetTaskSourceType retrieves the source type of a task.
 	// This is needed for task resume operations.
 	GetTaskSourceType(ctx context.Context, taskID uuid.UUID) (shared.SourceType, error)
