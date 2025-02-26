@@ -1301,3 +1301,94 @@ func TestUpdateMetricsAndCheckpoint(t *testing.T) {
 		})
 	}
 }
+
+func TestCancelTask(t *testing.T) {
+	jobID := uuid.MustParse("429735d7-ec1b-4d96-8749-938ca0a744be")
+	taskID := uuid.MustParse("b1f7eff4-2921-4e6c-9d88-da2de5707a2b")
+	requestedBy := "test-admin"
+
+	tests := []struct {
+		name        string
+		setup       func(*mockTaskRepository)
+		requestedBy string
+		wantErr     bool
+	}{
+		{
+			name: "successful task cancellation",
+			setup: func(repo *mockTaskRepository) {
+				// Create a task that's IN_PROGRESS (valid state for cancellation)
+				task := domain.NewScanTask(jobID, shared.SourceTypeGitHub, taskID, "https://example.com")
+				err := task.Start() // Transition to IN_PROGRESS first
+				require.NoError(t, err)
+
+				repo.On("GetTask", mock.Anything, taskID).
+					Return(task, nil)
+
+				repo.On("UpdateTask", mock.Anything, mock.MatchedBy(func(t *domain.Task) bool {
+					return t.Status() == domain.TaskStatusCancelled
+				})).Return(nil)
+			},
+			requestedBy: requestedBy,
+			wantErr:     false,
+		},
+		{
+			name: "task not found",
+			setup: func(repo *mockTaskRepository) {
+				repo.On("GetTask", mock.Anything, taskID).
+					Return(nil, assert.AnError)
+			},
+			requestedBy: requestedBy,
+			wantErr:     true,
+		},
+		{
+			name: "invalid state transition (already completed)",
+			setup: func(repo *mockTaskRepository) {
+				task := domain.NewScanTask(jobID, shared.SourceTypeGitHub, taskID, "https://example.com")
+				err := task.Start() // Transition to IN_PROGRESS first
+				require.NoError(t, err)
+				err = task.Complete() // Then complete it
+				require.NoError(t, err)
+
+				repo.On("GetTask", mock.Anything, taskID).
+					Return(task, nil)
+			},
+			requestedBy: requestedBy,
+			wantErr:     true,
+		},
+		{
+			name: "update task fails",
+			setup: func(repo *mockTaskRepository) {
+				task := domain.NewScanTask(jobID, shared.SourceTypeGitHub, taskID, "https://example.com")
+				err := task.Start() // Transition to IN_PROGRESS
+				require.NoError(t, err)
+
+				repo.On("GetTask", mock.Anything, taskID).
+					Return(task, nil)
+
+				repo.On("UpdateTask", mock.Anything, mock.MatchedBy(func(t *domain.Task) bool {
+					return t.Status() == domain.TaskStatusCancelled
+				})).Return(assert.AnError)
+			},
+			requestedBy: requestedBy,
+			wantErr:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			suite := newJobTaskService(t)
+			tt.setup(suite.taskRepo.(*mockTaskRepository))
+
+			task, err := suite.CancelTask(context.Background(), taskID, tt.requestedBy)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+			assert.NotNil(t, task)
+			assert.Equal(t, scanning.TaskStatusCancelled, task.Status())
+			suite.taskRepo.(*mockTaskRepository).AssertExpectations(t)
+		})
+	}
+}

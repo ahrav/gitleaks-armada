@@ -477,6 +477,57 @@ func TestExecutionTracker_MarkTaskFailure(t *testing.T) {
 	}
 }
 
+func TestExecutionTracker_HandleTaskCancelled(t *testing.T) {
+	tests := []struct {
+		name    string
+		setup   func(*mockJobTaskSvc)
+		event   scanning.TaskCancelledEvent
+		wantErr bool
+	}{
+		{
+			name: "successful task cancellation",
+			setup: func(m *mockJobTaskSvc) {
+				m.On("CancelTask", mock.Anything, mock.Anything, mock.Anything).
+					Return(new(scanning.Task), nil)
+			},
+			event: scanning.TaskCancelledEvent{
+				JobID:       uuid.New(),
+				TaskID:      uuid.New(),
+				RequestedBy: "test-user",
+			},
+			wantErr: false,
+		},
+		{
+			name: "error cancelling task",
+			setup: func(m *mockJobTaskSvc) {
+				m.On("CancelTask", mock.Anything, mock.Anything, mock.Anything).
+					Return(nil, errors.New("cancellation failed"))
+			},
+			event: scanning.TaskCancelledEvent{
+				JobID:       uuid.New(),
+				TaskID:      uuid.New(),
+				RequestedBy: "test-user",
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			suite := newTrackerTestSuite(t)
+			tt.setup(suite.jobTaskSvc)
+
+			err := suite.tracker.HandleTaskCancelled(context.Background(), tt.event)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			suite.jobTaskSvc.AssertExpectations(t)
+		})
+	}
+}
+
 func TestExecutionTracker_MarkTaskStale(t *testing.T) {
 	tests := []struct {
 		name    string

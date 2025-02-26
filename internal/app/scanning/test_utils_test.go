@@ -90,18 +90,26 @@ func (m *mockJobTaskSvc) FailTask(ctx context.Context, taskID uuid.UUID) (*scann
 
 func (m *mockJobTaskSvc) MarkTaskStale(ctx context.Context, taskID uuid.UUID, reason scanning.StallReason) (*scanning.Task, error) {
 	args := m.Called(ctx, taskID, reason)
-	if task := args.Get(0); task != nil {
-		return task.(*scanning.Task), args.Error(1)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
 	}
-	return nil, args.Error(1)
+	return args.Get(0).(*scanning.Task), args.Error(1)
+}
+
+func (m *mockJobTaskSvc) CancelTask(ctx context.Context, taskID uuid.UUID, requestedBy string) (*scanning.Task, error) {
+	args := m.Called(ctx, taskID, requestedBy)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*scanning.Task), args.Error(1)
 }
 
 func (m *mockJobTaskSvc) GetTask(ctx context.Context, taskID uuid.UUID) (*scanning.Task, error) {
 	args := m.Called(ctx, taskID)
-	if task := args.Get(0); task != nil {
-		return task.(*scanning.Task), args.Error(1)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
 	}
-	return nil, args.Error(1)
+	return args.Get(0).(*scanning.Task), args.Error(1)
 }
 
 func (m *mockJobTaskSvc) GetTaskSourceType(ctx context.Context, taskID uuid.UUID) (shared.SourceType, error) {

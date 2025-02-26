@@ -506,3 +506,34 @@ func (t *executionTracker) HandleTaskStale(ctx context.Context, evt scanning.Tas
 
 	return nil
 }
+
+// HandleTaskCancelled handles task cancellation events by transitioning the task to CANCELLED status
+// and storing the final progress checkpoint. It properly records the cancellation reason and requestor.
+func (t *executionTracker) HandleTaskCancelled(ctx context.Context, evt scanning.TaskCancelledEvent) error {
+	taskID := evt.TaskID
+	ctx, span := t.tracer.Start(ctx, "execution_tracker.cancel_task",
+		trace.WithAttributes(
+			attribute.String("controller_id", t.controllerID),
+			attribute.String("task_id", taskID.String()),
+			attribute.String("job_id", evt.JobID.String()),
+			attribute.String("requested_by", evt.RequestedBy),
+		))
+	defer span.End()
+
+	_, err := t.jobTaskSvc.CancelTask(ctx, evt.TaskID, evt.RequestedBy)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to cancel task")
+		return fmt.Errorf("failed to cancel task: %w", err)
+	}
+
+	span.AddEvent("task_cancelled")
+	span.SetStatus(codes.Ok, "task cancelled successfully")
+	t.logger.Info(ctx, "Task cancelled",
+		"task_id", taskID,
+		"job_id", evt.JobID,
+		"requested_by", evt.RequestedBy,
+	)
+
+	return nil
+}

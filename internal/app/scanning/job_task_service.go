@@ -723,3 +723,44 @@ func (s *jobTaskService) UpdateMetricsAndCheckpoint(
 
 	return nil
 }
+
+// CancelTask transitions a task to CANCELLED status.
+func (s *jobTaskService) CancelTask(
+	ctx context.Context,
+	taskID uuid.UUID,
+	requestedBy string,
+) (*domain.Task, error) {
+	ctx, span := s.tracer.Start(ctx, "job_task_service.scanning.cancel_task",
+		trace.WithAttributes(
+			attribute.String("controller_id", s.controllerID),
+			attribute.String("task_id", taskID.String()),
+			attribute.String("requested_by", requestedBy),
+		),
+	)
+	defer span.End()
+
+	task, err := s.loadTask(ctx, taskID)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to load task")
+		return nil, fmt.Errorf("failed to load task: %w", err)
+	}
+	span.AddEvent("task_loaded_for_cancellation")
+
+	if err := task.Cancel(); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to cancel task")
+		return nil, fmt.Errorf("failed to cancel task: %w", err)
+	}
+	span.AddEvent("task_cancelled")
+
+	if err := s.taskRepo.UpdateTask(ctx, task); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to persist cancelled task")
+		return nil, fmt.Errorf("failed to persist cancelled task: %w", err)
+	}
+	span.AddEvent("task_cancelled_persisted")
+	span.SetStatus(codes.Ok, "task cancelled successfully")
+
+	return task, nil
+}
