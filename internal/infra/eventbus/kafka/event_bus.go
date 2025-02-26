@@ -125,6 +125,7 @@ func NewEventBus(
 		scanning.EventTypeTaskHeartbeat:           cfg.ScanningTaskTopic,     // scanner -> controller
 		scanning.EventTypeTaskResume:              cfg.HighPriorityTaskTopic, // controller -> scanner
 		scanning.EventTypeTaskJobMetric:           cfg.JobLifecycleTopic,     // scanner -> controller && controller -> controller
+		scanning.EventTypeTaskCancelled:           cfg.ScanningTaskTopic,     // scanner -> controller
 	}
 
 	bus := &EventBus{

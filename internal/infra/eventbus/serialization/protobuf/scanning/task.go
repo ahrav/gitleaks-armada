@@ -469,3 +469,40 @@ func ProtoToTaskPausedEvent(event *pb.TaskPausedEvent) (scanning.TaskPausedEvent
 
 	return scanning.NewTaskPausedEvent(jobID, taskID, progressEvent.Progress, event.RequestedBy), nil
 }
+
+// TaskCancelledEventToProto converts a domain TaskCancelledEvent to a protobuf TaskCancelledEvent.
+func TaskCancelledEventToProto(event scanning.TaskCancelledEvent) *pb.TaskCancelledEvent {
+	return &pb.TaskCancelledEvent{
+		JobId:       event.JobID.String(),
+		TaskId:      event.TaskID.String(),
+		Timestamp:   event.OccurredAt().UnixNano(),
+		RequestedBy: event.RequestedBy,
+		CancelledAt: event.CancelledAt.UnixNano(),
+	}
+}
+
+// ProtoToTaskCancelledEvent converts a protobuf TaskCancelledEvent to a domain TaskCancelledEvent.
+func ProtoToTaskCancelledEvent(event *pb.TaskCancelledEvent) (scanning.TaskCancelledEvent, error) {
+	if event == nil {
+		return scanning.TaskCancelledEvent{}, serializationerrors.ErrNilEvent{EventType: "TaskCancelled"}
+	}
+
+	jobID, err := uuid.Parse(event.JobId)
+	if err != nil {
+		return scanning.TaskCancelledEvent{}, serializationerrors.ErrInvalidUUID{Field: "job ID", Err: err}
+	}
+
+	taskID, err := uuid.Parse(event.TaskId)
+	if err != nil {
+		return scanning.TaskCancelledEvent{}, serializationerrors.ErrInvalidUUID{Field: "task ID", Err: err}
+	}
+
+	// Create the domain event (reconstructing it with non-exported fields).
+	returnEvent := scanning.TaskCancelledEvent{
+		JobID:       jobID,
+		TaskID:      taskID,
+		RequestedBy: event.RequestedBy,
+	}
+
+	return returnEvent, nil
+}

@@ -169,6 +169,10 @@ func RegisterEventSerializers() {
 	RegisterSerializeFunc(scanning.EventTypeTaskPaused, serializeTaskPaused)
 	RegisterDeserializeFunc(scanning.EventTypeTaskPaused, deserializeTaskPaused)
 
+	// Task Cancelled events.
+	RegisterSerializeFunc(scanning.EventTypeTaskCancelled, serializeTaskCancelled)
+	RegisterDeserializeFunc(scanning.EventTypeTaskCancelled, deserializeTaskCancelled)
+
 	// Rules.
 	// ------------------------------------------------------------------------------------------------
 	RegisterSerializeFunc(rules.EventTypeRulesUpdated, serializeRuleUpdated)
@@ -604,6 +608,25 @@ func deserializeTaskPaused(data []byte) (any, error) {
 	}
 
 	return event, nil
+}
+
+// serializeTaskCancelled converts a TaskCancelledEvent to protobuf bytes.
+func serializeTaskCancelled(payload any) ([]byte, error) {
+	event, ok := payload.(scanning.TaskCancelledEvent)
+	if !ok {
+		return nil, fmt.Errorf("unexpected payload type: %T", payload)
+	}
+	protoEvent := serdeScanning.TaskCancelledEventToProto(event)
+	return proto.Marshal(protoEvent)
+}
+
+// deserializeTaskCancelled converts protobuf bytes back into a TaskCancelledEvent.
+func deserializeTaskCancelled(data []byte) (any, error) {
+	var protoEvent pb.TaskCancelledEvent
+	if err := proto.Unmarshal(data, &protoEvent); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal TaskCancelledEvent: %w", err)
+	}
+	return serdeScanning.ProtoToTaskCancelledEvent(&protoEvent)
 }
 
 // serializeRuleUpdated converts a RuleUpdatedEvent to protobuf bytes.

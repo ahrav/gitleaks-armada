@@ -418,3 +418,55 @@ func TestTaskPausedEventConversion(t *testing.T) {
 		}
 	})
 }
+
+func TestTaskCancelledEventConversion(t *testing.T) {
+	t.Parallel()
+
+	jobID := uuid.New()
+	taskID := uuid.New()
+	requestedBy := "test-user"
+
+	domainEvent := scanning.NewTaskCancelledEvent(jobID, taskID, requestedBy)
+
+	protoEvent := TaskCancelledEventToProto(domainEvent)
+
+	// Verify proto conversion.
+	assert.Equal(t, jobID.String(), protoEvent.JobId)
+	assert.Equal(t, taskID.String(), protoEvent.TaskId)
+	assert.Equal(t, requestedBy, protoEvent.RequestedBy)
+	assert.NotZero(t, protoEvent.Timestamp)
+	assert.NotZero(t, protoEvent.CancelledAt)
+
+	reconvertedEvent, err := ProtoToTaskCancelledEvent(protoEvent)
+	require.NoError(t, err)
+
+	// Verify domain conversion.
+	assert.Equal(t, jobID, reconvertedEvent.JobID)
+	assert.Equal(t, taskID, reconvertedEvent.TaskID)
+	assert.Equal(t, requestedBy, reconvertedEvent.RequestedBy)
+
+	t.Run("nil event", func(t *testing.T) {
+		_, err := ProtoToTaskCancelledEvent(nil)
+		assert.Error(t, err)
+	})
+
+	t.Run("invalid job ID", func(t *testing.T) {
+		invalidProto := &pb.TaskCancelledEvent{
+			JobId:  "invalid-uuid",
+			TaskId: taskID.String(),
+		}
+		_, err := ProtoToTaskCancelledEvent(invalidProto)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "job ID")
+	})
+
+	t.Run("invalid task ID", func(t *testing.T) {
+		invalidProto := &pb.TaskCancelledEvent{
+			JobId:  jobID.String(),
+			TaskId: "invalid-uuid",
+		}
+		_, err := ProtoToTaskCancelledEvent(invalidProto)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "task ID")
+	})
+}
