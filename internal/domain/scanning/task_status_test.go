@@ -319,6 +319,8 @@ func TestTaskStatus_IsValidTransition(t *testing.T) {
 		TaskStatusCompleted,
 		TaskStatusFailed,
 		TaskStatusStale,
+		TaskStatusPaused,
+		TaskStatusCancelled,
 		TaskStatusUnspecified,
 		TaskStatus("INVALID"),
 	}
@@ -328,35 +330,35 @@ func TestTaskStatus_IsValidTransition(t *testing.T) {
 		TaskStatusPending: {
 			TaskStatusInProgress: true,
 			TaskStatusFailed:     true,
+			TaskStatusPaused:     true,
+			TaskStatusCancelled:  true,
 		},
 		TaskStatusInProgress: {
 			TaskStatusCompleted: true,
 			TaskStatusFailed:    true,
 			TaskStatusStale:     true,
+			TaskStatusPaused:    true,
+			TaskStatusCancelled: true,
 		},
 		TaskStatusStale: {
 			TaskStatusInProgress: true,
 			TaskStatusFailed:     true,
 			TaskStatusCompleted:  true,
+			TaskStatusPaused:     true,
+			TaskStatusCancelled:  true,
+		},
+		TaskStatusPaused: {
+			TaskStatusInProgress: true,
+			TaskStatusFailed:     true,
+			TaskStatusStale:      true,
+			TaskStatusCancelled:  true,
 		},
 		// Terminal states and others have no valid transitions.
 		TaskStatusCompleted:   {},
 		TaskStatusFailed:      {},
+		TaskStatusCancelled:   {},
 		TaskStatusUnspecified: {},
 		TaskStatus("INVALID"): {},
-	}
-
-	validTransitions[TaskStatusPending] = map[TaskStatus]bool{
-		TaskStatusCancelled: true,
-	}
-	validTransitions[TaskStatusInProgress] = map[TaskStatus]bool{
-		TaskStatusCancelled: true,
-	}
-	validTransitions[TaskStatusStale] = map[TaskStatus]bool{
-		TaskStatusCancelled: true,
-	}
-	validTransitions[TaskStatusPaused] = map[TaskStatus]bool{
-		TaskStatusCancelled: true,
 	}
 
 	for _, from := range statuses {

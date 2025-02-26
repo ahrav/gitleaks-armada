@@ -901,81 +901,123 @@ func TestTask_Pause(t *testing.T) {
 
 	tests := []struct {
 		name            string
-		initialStatus   TaskStatus
+		setupTask       func() *Task
 		expectedStatus  TaskStatus
 		expectedError   bool
 		expectedErrType error
 	}{
 		{
-			name:           "from pending",
-			initialStatus:  TaskStatusPending,
+			name: "from in progress",
+			setupTask: func() *Task {
+				task := NewScanTask(jobID, shared.SourceTypeGitHub, taskID, resourceURI)
+				err := task.Start() // This transitions to IN_PROGRESS
+				require.NoError(t, err)
+				return task
+			},
 			expectedStatus: TaskStatusPaused,
 			expectedError:  false,
 		},
 		{
-			name:           "from in progress",
-			initialStatus:  TaskStatusInProgress,
-			expectedStatus: TaskStatusPaused,
-			expectedError:  false,
-		},
-		{
-			name:           "from stale",
-			initialStatus:  TaskStatusStale,
-			expectedStatus: TaskStatusPaused,
-			expectedError:  false,
-		},
-		{
-			name:           "from paused",
-			initialStatus:  TaskStatusPaused,
-			expectedStatus: TaskStatusPaused,
-			expectedError:  false,
-		},
-		{
-			name:            "from completed",
-			initialStatus:   TaskStatusCompleted,
-			expectedStatus:  TaskStatusCompleted, // Should not change
+			name: "from pending",
+			setupTask: func() *Task {
+				return NewScanTask(jobID, shared.SourceTypeGitHub, taskID, resourceURI)
+				// Default state is already TaskStatusPending
+			},
+			expectedStatus:  TaskStatusPending, // Doesn't change - not allowed
 			expectedError:   true,
 			expectedErrType: TaskInvalidStateError{},
 		},
 		{
-			name:            "from failed",
-			initialStatus:   TaskStatusFailed,
-			expectedStatus:  TaskStatusFailed, // Should not change
+			name: "from stale",
+			setupTask: func() *Task {
+				task := NewScanTask(jobID, shared.SourceTypeGitHub, taskID, resourceURI)
+				err := task.Start() // First transition to IN_PROGRESS
+				require.NoError(t, err)
+				err = task.MarkStale(ReasonPtr(StallReasonNoProgress)) // Then to STALE
+				require.NoError(t, err)
+				return task
+			},
+			expectedStatus:  TaskStatusStale, // Doesn't change - not allowed
 			expectedError:   true,
 			expectedErrType: TaskInvalidStateError{},
 		},
 		{
-			name:           "from cancelled (idempotent)",
-			initialStatus:  TaskStatusCancelled,
-			expectedStatus: TaskStatusCancelled,
-			expectedError:  false,
+			name: "from paused",
+			setupTask: func() *Task {
+				task := NewScanTask(jobID, shared.SourceTypeGitHub, taskID, resourceURI)
+				err := task.Start() // First transition to IN_PROGRESS
+				require.NoError(t, err)
+				err = task.Pause() // Then to PAUSED
+				require.NoError(t, err)
+				return task
+			},
+			expectedStatus:  TaskStatusPaused, // Doesn't change - not allowed
+			expectedError:   true,
+			expectedErrType: TaskInvalidStateError{},
+		},
+		{
+			name: "from completed",
+			setupTask: func() *Task {
+				task := NewScanTask(jobID, shared.SourceTypeGitHub, taskID, resourceURI)
+				err := task.Start() // First transition to IN_PROGRESS
+				require.NoError(t, err)
+				err = task.Complete() // Then to COMPLETED
+				require.NoError(t, err)
+				return task
+			},
+			expectedStatus:  TaskStatusCompleted, // Doesn't change - not allowed
+			expectedError:   true,
+			expectedErrType: TaskInvalidStateError{},
+		},
+		{
+			name: "from failed",
+			setupTask: func() *Task {
+				task := NewScanTask(jobID, shared.SourceTypeGitHub, taskID, resourceURI)
+				err := task.Start() // First transition to IN_PROGRESS
+				require.NoError(t, err)
+				err = task.Fail() // Then to FAILED
+				require.NoError(t, err)
+				return task
+			},
+			expectedStatus:  TaskStatusFailed, // Doesn't change - not allowed
+			expectedError:   true,
+			expectedErrType: TaskInvalidStateError{},
+		},
+		{
+			name: "from cancelled",
+			setupTask: func() *Task {
+				task := NewScanTask(jobID, shared.SourceTypeGitHub, taskID, resourceURI)
+				err := task.Cancel() // Directly to CANCELLED
+				require.NoError(t, err)
+				return task
+			},
+			expectedStatus:  TaskStatusCancelled, // Doesn't change - not allowed
+			expectedError:   true,
+			expectedErrType: TaskInvalidStateError{},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create task with initial status
-			task := NewScanTask(jobID, shared.SourceTypeGit, taskID, resourceURI)
+			t.Parallel()
 
-			// Set the initial status directly for testing
-			err := task.UpdateStatus(tt.initialStatus)
-			require.NoError(t, err)
+			task := tt.setupTask()
+			initialStatus := task.Status()
 
-			// Try to pause
-			err = task.Pause()
-
-			// Check error expectations
+			err := task.Pause()
 			if tt.expectedError {
 				assert.Error(t, err)
 				if tt.expectedErrType != nil {
 					assert.IsType(t, tt.expectedErrType, err)
 				}
+				// Status should not change when an error occurs.
+				assert.Equal(t, initialStatus, task.Status(), "status should not change on error")
 			} else {
 				assert.NoError(t, err)
+				assert.Equal(t, tt.expectedStatus, task.Status(), "final status should match expected")
+				// Only check pausedAt for successful transitions
+				assert.False(t, task.PausedAt().IsZero(), "pausedAt should be set for newly paused tasks")
 			}
-
-			// Verify final status
-			assert.Equal(t, tt.expectedStatus, task.Status())
 		})
 	}
 }
@@ -989,52 +1031,93 @@ func TestTask_Cancel(t *testing.T) {
 
 	tests := []struct {
 		name            string
-		initialStatus   TaskStatus
+		setupTask       func() *Task
 		expectedStatus  TaskStatus
 		expectedError   bool
 		expectedErrType error
 	}{
 		{
-			name:           "from pending",
-			initialStatus:  TaskStatusPending,
+			name: "from pending",
+			setupTask: func() *Task {
+				return NewScanTask(jobID, shared.SourceTypeGitHub, taskID, resourceURI)
+				// Default state is already TaskStatusPending
+			},
 			expectedStatus: TaskStatusCancelled,
 			expectedError:  false,
 		},
 		{
-			name:           "from in progress",
-			initialStatus:  TaskStatusInProgress,
+			name: "from in progress",
+			setupTask: func() *Task {
+				task := NewScanTask(jobID, shared.SourceTypeGitHub, taskID, resourceURI)
+				err := task.Start() // Proper transition to IN_PROGRESS
+				require.NoError(t, err)
+				return task
+			},
 			expectedStatus: TaskStatusCancelled,
 			expectedError:  false,
 		},
 		{
-			name:           "from stale",
-			initialStatus:  TaskStatusStale,
+			name: "from stale",
+			setupTask: func() *Task {
+				task := NewScanTask(jobID, shared.SourceTypeGitHub, taskID, resourceURI)
+				err := task.Start() // First get to IN_PROGRESS
+				require.NoError(t, err)
+				err = task.MarkStale(ReasonPtr(StallReasonNoProgress)) // Then mark as STALE
+				require.NoError(t, err)
+				return task
+			},
 			expectedStatus: TaskStatusCancelled,
 			expectedError:  false,
 		},
 		{
-			name:           "from paused",
-			initialStatus:  TaskStatusPaused,
+			name: "from paused",
+			setupTask: func() *Task {
+				task := NewScanTask(jobID, shared.SourceTypeGitHub, taskID, resourceURI)
+				err := task.Start() // First get to IN_PROGRESS
+				require.NoError(t, err)
+				err = task.Pause() // Then pause
+				require.NoError(t, err)
+				return task
+			},
 			expectedStatus: TaskStatusCancelled,
 			expectedError:  false,
 		},
 		{
-			name:            "from completed",
-			initialStatus:   TaskStatusCompleted,
+			name: "from completed",
+			setupTask: func() *Task {
+				task := NewScanTask(jobID, shared.SourceTypeGitHub, taskID, resourceURI)
+				err := task.Start() // First get to IN_PROGRESS
+				require.NoError(t, err)
+				err = task.Complete() // Then complete
+				require.NoError(t, err)
+				return task
+			},
 			expectedStatus:  TaskStatusCompleted, // Should not change
 			expectedError:   true,
 			expectedErrType: TaskInvalidStateError{},
 		},
 		{
-			name:            "from failed",
-			initialStatus:   TaskStatusFailed,
+			name: "from failed",
+			setupTask: func() *Task {
+				task := NewScanTask(jobID, shared.SourceTypeGitHub, taskID, resourceURI)
+				err := task.Start() // First get to IN_PROGRESS
+				require.NoError(t, err)
+				err = task.Fail() // Then fail
+				require.NoError(t, err)
+				return task
+			},
 			expectedStatus:  TaskStatusFailed, // Should not change
 			expectedError:   true,
 			expectedErrType: TaskInvalidStateError{},
 		},
 		{
-			name:           "from cancelled (idempotent)",
-			initialStatus:  TaskStatusCancelled,
+			name: "from cancelled (idempotent)",
+			setupTask: func() *Task {
+				task := NewScanTask(jobID, shared.SourceTypeGitHub, taskID, resourceURI)
+				err := task.Cancel() // Directly cancel
+				require.NoError(t, err)
+				return task
+			},
 			expectedStatus: TaskStatusCancelled,
 			expectedError:  false,
 		},
@@ -1042,17 +1125,19 @@ func TestTask_Cancel(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create task with initial status
-			task := NewScanTask(jobID, shared.SourceTypeGit, taskID, resourceURI)
+			t.Parallel()
 
-			// Set the initial status directly for testing
-			err := task.UpdateStatus(tt.initialStatus)
-			require.NoError(t, err)
+			task := tt.setupTask()
 
-			// Try to cancel
-			err = task.Cancel()
+			// Verify the task is in the expected initial state
+			// (useful for debugging, could be removed)
+			if tt.name == "from pending" {
+				assert.Equal(t, TaskStatusPending, task.Status(), "task should start in pending state")
+			} else if tt.name == "from in progress" {
+				assert.Equal(t, TaskStatusInProgress, task.Status(), "task should start in in_progress state")
+			}
 
-			// Check error expectations
+			err := task.Cancel()
 			if tt.expectedError {
 				assert.Error(t, err)
 				if tt.expectedErrType != nil {
@@ -1062,8 +1147,7 @@ func TestTask_Cancel(t *testing.T) {
 				assert.NoError(t, err)
 			}
 
-			// Verify final status
-			assert.Equal(t, tt.expectedStatus, task.Status())
+			assert.Equal(t, tt.expectedStatus, task.Status(), "final status should match expected")
 		})
 	}
 }
