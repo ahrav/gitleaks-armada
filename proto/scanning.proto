@@ -59,6 +59,7 @@ enum TaskStatus {
   TASK_STATUS_FAILED = 4;
   TASK_STATUS_STALE = 5;
   TASK_STATUS_PAUSED = 6;
+  TASK_STATUS_CANCELLED = 7;
 }
 
 // JobRequestedEvent represents a request to create a new scan job.
@@ -194,4 +195,12 @@ message TaskPausedEvent {
   int64 timestamp = 3;
   string requested_by = 4;
   TaskProgressedEvent progress = 5;
+}
+
+message TaskCancelledEvent {
+  string job_id = 1;
+  string task_id = 2;
+  int64 timestamp = 3;
+  string requested_by = 4;
+  int64 cancelled_at = 5;
 }
