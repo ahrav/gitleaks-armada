@@ -64,6 +64,7 @@ CREATE TYPE scan_task_status AS ENUM (
     'IN_PROGRESS',
     'PAUSED',
     'COMPLETED',
+    'CANCELLED',
     'FAILED',
     'STALE'
 );
