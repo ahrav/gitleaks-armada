@@ -7,15 +7,26 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"go.opentelemetry.io/otel/trace"
+
+	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
 
+func setupManager(t *testing.T) *JobTaskStateController {
+	t.Helper()
+
+	logger := logger.Noop()
+	tracer := trace.NewNoopTracerProvider().Tracer("test")
+	return NewJobTaskStateController("test", logger, tracer)
+}
+
 func TestJobStateController_New(t *testing.T) {
-	manager := NewJobTaskStateController()
+	manager := setupManager(t)
 	assert.NotNil(t, manager)
 }
 
 func TestJobStateController_AddTask_RemoveTask(t *testing.T) {
-	manager := NewJobTaskStateController()
+	manager := setupManager(t)
 	jobID := uuid.New()
 	taskID := uuid.New()
 	cancelCalled := false
@@ -94,7 +105,7 @@ func TestJobTaskStateController_ShouldRejectTask(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			controller := NewJobTaskStateController()
+			controller := setupManager(t)
 			jobID := tt.setupFunc(controller)
 
 			result := controller.ShouldRejectTask(jobID)
@@ -104,7 +115,7 @@ func TestJobTaskStateController_ShouldRejectTask(t *testing.T) {
 }
 
 func TestJobStateController_PauseJob(t *testing.T) {
-	manager := NewJobTaskStateController()
+	manager := setupManager(t)
 	jobID := uuid.New()
 
 	count := manager.PauseJob(jobID)
@@ -134,7 +145,7 @@ func TestJobStateController_PauseJob(t *testing.T) {
 }
 
 func TestJobStateController_ResumeJob(t *testing.T) {
-	manager := NewJobTaskStateController()
+	manager := setupManager(t)
 	jobID := uuid.New()
 
 	manager.ResumeJob(jobID)
@@ -148,7 +159,7 @@ func TestJobStateController_ResumeJob(t *testing.T) {
 }
 
 func TestJobStateController_Concurrency(t *testing.T) {
-	manager := NewJobTaskStateController()
+	manager := setupManager(t)
 	jobID := uuid.New()
 
 	var wg sync.WaitGroup
@@ -176,7 +187,7 @@ func TestJobStateController_Concurrency(t *testing.T) {
 }
 
 func TestJobStateController_CancelFunctionExecution(t *testing.T) {
-	manager := NewJobTaskStateController()
+	manager := setupManager(t)
 	jobID := uuid.New()
 	taskID := uuid.New()
 

@@ -5,6 +5,9 @@ import (
 	"sync"
 
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/trace"
+
+	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
 
 // terminationReason represents the reason a job was stopped.
@@ -31,13 +34,23 @@ type jobTaskState struct {
 // JobTaskStateController encapsulates operations for tracking job and task state.
 // It provides thread-safe methods for managing job pause states and task cancellation functions.
 type JobTaskStateController struct {
+	scannerID string
+
 	mu        sync.RWMutex
 	jobStates map[uuid.UUID]jobTaskState
+
+	logger *logger.Logger
+	tracer trace.Tracer
 }
 
 // NewJobTaskStateController creates a new JobTaskStateController instance.
-func NewJobTaskStateController() *JobTaskStateController {
-	return &JobTaskStateController{jobStates: make(map[uuid.UUID]jobTaskState)}
+func NewJobTaskStateController(scannerID string, logger *logger.Logger, tracer trace.Tracer) *JobTaskStateController {
+	return &JobTaskStateController{
+		scannerID: scannerID,
+		jobStates: make(map[uuid.UUID]jobTaskState),
+		logger:    logger.With("scanner_id", scannerID),
+		tracer:    tracer,
+	}
 }
 
 // AddTask adds a task to a job with its cancellation function.

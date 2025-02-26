@@ -101,7 +101,7 @@ func NewScannerService(
 		progressReporter:   pr,
 		ruleProvider:       ruleProvider,
 		enumACL:            acl.EnumerationACL{},
-		jobStateController: NewJobTaskStateController(),
+		jobStateController: NewJobTaskStateController(id, logger, tracer),
 		workers:            workerCount,
 		stopCh:             make(chan struct{}),
 		taskEvent:          make(chan *dtos.ScanRequest, workerCount*10),
