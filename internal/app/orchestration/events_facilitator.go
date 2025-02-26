@@ -460,6 +460,49 @@ func (ef *EventsFacilitator) HandleTaskFailed(
 	}, ack)
 }
 
+// HandleTaskCancelled processes a scanning.TaskCancelledEvent by updating the task's status
+// to CANCELLED in the execution tracker and preventing any further work on it.
+func (ef *EventsFacilitator) HandleTaskCancelled(
+	ctx context.Context,
+	evt events.EventEnvelope,
+	ack events.AckFunc,
+) error {
+	return ef.withSpan(ctx, "events_facilitator.handle_task_cancelled", func(ctx context.Context, span trace.Span) error {
+		span.AddEvent("processing_task_cancelled")
+
+		cancelledEvt, ok := evt.Payload.(scanning.TaskCancelledEvent)
+		if !ok {
+			return recordPayloadTypeError(span, evt.Payload)
+		}
+
+		jobID, err := uuid.Parse(cancelledEvt.JobID.String())
+		if err != nil {
+			return fmt.Errorf("invalid job ID: %w", err)
+		}
+
+		taskID, err := uuid.Parse(cancelledEvt.TaskID.String())
+		if err != nil {
+			return fmt.Errorf("invalid task ID: %w", err)
+		}
+
+		span.AddEvent("task_cancelled_event_valid", trace.WithAttributes(
+			attribute.String("job_id", jobID.String()),
+			attribute.String("task_id", taskID.String()),
+			attribute.String("requested_by", cancelledEvt.RequestedBy),
+		))
+
+		if err := ef.executionTracker.HandleTaskCancelled(ctx, cancelledEvt); err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "failed to handle task cancelled")
+			return fmt.Errorf("failed to handle task cancelled (task_id: %s): %w", taskID, err)
+		}
+
+		span.AddEvent("task_cancelled_successfully")
+		span.SetStatus(codes.Ok, "task cancelled successfully")
+		return nil
+	}, ack)
+}
+
 // HandleTaskJobMetric processes scanning.TaskJobMetricEvent by delegating metric
 // handling to jobMetricsAggregator. Note that this handler does NOT call ack
 // automatically, since offset commits are managed in jobMetricsAggregator.
@@ -522,49 +565,6 @@ func (ef *EventsFacilitator) HandleTaskHeartbeat(
 
 		span.AddEvent("task_heartbeat_processed")
 		span.SetStatus(codes.Ok, "task heartbeat processed")
-		return nil
-	}, ack)
-}
-
-// HandleTaskCancelled processes a scanning.TaskCancelledEvent by updating the task's status
-// to CANCELLED in the execution tracker and preventing any further work on it.
-func (ef *EventsFacilitator) HandleTaskCancelled(
-	ctx context.Context,
-	evt events.EventEnvelope,
-	ack events.AckFunc,
-) error {
-	return ef.withSpan(ctx, "events_facilitator.handle_task_cancelled", func(ctx context.Context, span trace.Span) error {
-		span.AddEvent("processing_task_cancelled")
-
-		cancelledEvt, ok := evt.Payload.(scanning.TaskCancelledEvent)
-		if !ok {
-			return recordPayloadTypeError(span, evt.Payload)
-		}
-
-		jobID, err := uuid.Parse(cancelledEvt.JobID.String())
-		if err != nil {
-			return fmt.Errorf("invalid job ID: %w", err)
-		}
-
-		taskID, err := uuid.Parse(cancelledEvt.TaskID.String())
-		if err != nil {
-			return fmt.Errorf("invalid task ID: %w", err)
-		}
-
-		span.AddEvent("task_cancelled_event_valid", trace.WithAttributes(
-			attribute.String("job_id", jobID.String()),
-			attribute.String("task_id", taskID.String()),
-			attribute.String("requested_by", cancelledEvt.RequestedBy),
-		))
-
-		if err := ef.executionTracker.HandleTaskCancelled(ctx, cancelledEvt); err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "failed to handle task cancelled")
-			return fmt.Errorf("failed to handle task cancelled (task_id: %s): %w", taskID, err)
-		}
-
-		span.AddEvent("task_cancelled_successfully")
-		span.SetStatus(codes.Ok, "task cancelled successfully")
 		return nil
 	}, ack)
 }
