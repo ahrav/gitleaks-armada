@@ -48,20 +48,59 @@ func TestJobStateController_AddTask_RemoveTask(t *testing.T) {
 	manager.RemoveTask(nonExistentJobID, taskID)
 }
 
-func TestJobStateController_IsJobPaused(t *testing.T) {
-	manager := NewJobTaskStateController()
-	jobID := uuid.New()
+func TestJobTaskStateController_ShouldRejectTask(t *testing.T) {
+	dummyCancel := func(cause error) {}
 
-	assert.False(t, manager.IsJobPaused(jobID))
+	tests := []struct {
+		name         string
+		setupFunc    func(controller *JobTaskStateController) uuid.UUID
+		expectReject bool
+	}{
+		{
+			name:         "job doesn't exist",
+			setupFunc:    func(controller *JobTaskStateController) uuid.UUID { return uuid.New() },
+			expectReject: false,
+		},
+		{
+			name: "job exists but not paused or cancelled",
+			setupFunc: func(controller *JobTaskStateController) uuid.UUID {
+				jobID := uuid.New()
+				controller.AddTask(jobID, uuid.New(), dummyCancel)
+				return jobID
+			},
+			expectReject: false,
+		},
+		{
+			name: "job exists and is paused",
+			setupFunc: func(controller *JobTaskStateController) uuid.UUID {
+				jobID := uuid.New()
+				controller.AddTask(jobID, uuid.New(), dummyCancel)
+				controller.PauseJob(jobID)
+				return jobID
+			},
+			expectReject: true,
+		},
+		{
+			name: "job exists and is cancelled",
+			setupFunc: func(controller *JobTaskStateController) uuid.UUID {
+				jobID := uuid.New()
+				controller.AddTask(jobID, uuid.New(), dummyCancel)
+				controller.CancelJob(jobID)
+				return jobID
+			},
+			expectReject: true,
+		},
+	}
 
-	manager.AddTask(jobID, uuid.New(), func(cause error) {})
-	assert.False(t, manager.IsJobPaused(jobID))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			controller := NewJobTaskStateController()
+			jobID := tt.setupFunc(controller)
 
-	manager.ResumeJob(jobID)
-	assert.False(t, manager.IsJobPaused(jobID))
-
-	manager.PauseJob(jobID)
-	assert.True(t, manager.IsJobPaused(jobID))
+			result := controller.ShouldRejectTask(jobID)
+			assert.Equal(t, tt.expectReject, result)
+		})
+	}
 }
 
 func TestJobStateController_PauseJob(t *testing.T) {
@@ -88,10 +127,10 @@ func TestJobStateController_PauseJob(t *testing.T) {
 
 	assert.Equal(t, 2, count)
 	assert.Equal(t, 2, cancelCount)
-	assert.True(t, manager.IsJobPaused(jobID))
+	assert.True(t, manager.ShouldRejectTask(jobID))
 
 	manager.AddTask(jobID, uuid.New(), cancelFunc)
-	assert.True(t, manager.IsJobPaused(jobID))
+	assert.True(t, manager.ShouldRejectTask(jobID))
 }
 
 func TestJobStateController_ResumeJob(t *testing.T) {
@@ -99,13 +138,13 @@ func TestJobStateController_ResumeJob(t *testing.T) {
 	jobID := uuid.New()
 
 	manager.ResumeJob(jobID)
-	assert.False(t, manager.IsJobPaused(jobID))
+	assert.False(t, manager.ShouldRejectTask(jobID))
 
 	manager.PauseJob(jobID)
-	assert.True(t, manager.IsJobPaused(jobID))
+	assert.True(t, manager.ShouldRejectTask(jobID))
 
 	manager.ResumeJob(jobID)
-	assert.False(t, manager.IsJobPaused(jobID))
+	assert.False(t, manager.ShouldRejectTask(jobID))
 }
 
 func TestJobStateController_Concurrency(t *testing.T) {
@@ -125,7 +164,7 @@ func TestJobStateController_Concurrency(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for range 100 {
-			_ = manager.IsJobPaused(jobID)
+			_ = manager.ShouldRejectTask(jobID)
 		}
 	}()
 

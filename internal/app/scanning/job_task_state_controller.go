@@ -23,8 +23,9 @@ const (
 // jobTaskCancellationRecord represents the state of a job and all its tasks with their cancel functions.
 // This is used to cancel all tasks for a given job when it is paused.
 type jobTaskCancellationRecord struct {
-	paused bool
-	tasks  map[uuid.UUID]context.CancelCauseFunc
+	paused    bool
+	cancelled bool
+	tasks     map[uuid.UUID]context.CancelCauseFunc
 }
 
 // JobTaskStateController encapsulates operations for tracking job and task state.
@@ -66,14 +67,14 @@ func (j *JobTaskStateController) RemoveTask(jobID, taskID uuid.UUID) {
 	}
 }
 
-// IsJobPaused checks if a job is paused.
-// Returns true if the job is paused.
-func (j *JobTaskStateController) IsJobPaused(jobID uuid.UUID) bool {
+// ShouldRejectTask determines if a job should reject a new task.
+// Returns true if the job is paused or cancelled.
+func (j *JobTaskStateController) ShouldRejectTask(jobID uuid.UUID) bool {
 	j.mu.RLock()
 	defer j.mu.RUnlock()
 
 	js, exists := j.jobStates[jobID]
-	return exists && js.paused
+	return exists && (js.paused || js.cancelled)
 }
 
 // PauseJob marks a job as paused and cancels all of its tasks.
@@ -93,6 +94,31 @@ func (j *JobTaskStateController) PauseJob(jobID uuid.UUID) int {
 	count := 0
 	for taskID, cancel := range js.tasks {
 		cancel(PauseEvent)
+		delete(js.tasks, taskID)
+		count++
+	}
+
+	return count
+}
+
+// CancelJob marks a job as cancelled and cancels all of its tasks.
+// Returns the number of tasks that were cancelled.
+func (j *JobTaskStateController) CancelJob(jobID uuid.UUID) int {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+
+	js, exists := j.jobStates[jobID]
+	if !exists {
+		return 0
+	}
+
+	js.paused = false
+	js.cancelled = true
+	j.jobStates[jobID] = js
+
+	count := 0
+	for taskID, cancel := range js.tasks {
+		cancel(CancelEvent)
 		delete(js.tasks, taskID)
 		count++
 	}

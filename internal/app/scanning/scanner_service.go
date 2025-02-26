@@ -492,7 +492,7 @@ func (s *ScannerService) doWorkerLoop(ctx context.Context, workerID int, workerL
 			// Note: We have this check while consuming from taskEvent because it
 			// is possible the job was paused after the task was enqueued but before
 			// it was consumed.
-			if s.jobStateController.IsJobPaused(task.JobID) {
+			if s.jobStateController.ShouldRejectTask(task.JobID) {
 				taskSpan.SetStatus(codes.Error, "job paused")
 				taskSpan.RecordError(fmt.Errorf("job paused"))
 				taskSpan.End()
