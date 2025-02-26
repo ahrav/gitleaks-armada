@@ -110,6 +110,8 @@ const (
 	ScanJobStatusPAUSING     ScanJobStatus = "PAUSING"
 	ScanJobStatusPAUSED      ScanJobStatus = "PAUSED"
 	ScanJobStatusCOMPLETED   ScanJobStatus = "COMPLETED"
+	ScanJobStatusCANCELLING  ScanJobStatus = "CANCELLING"
+	ScanJobStatusCANCELLED   ScanJobStatus = "CANCELLED"
 	ScanJobStatusFAILED      ScanJobStatus = "FAILED"
 )
 
@@ -198,6 +200,7 @@ const (
 	ScanTaskStatusINPROGRESS ScanTaskStatus = "IN_PROGRESS"
 	ScanTaskStatusPAUSED     ScanTaskStatus = "PAUSED"
 	ScanTaskStatusCOMPLETED  ScanTaskStatus = "COMPLETED"
+	ScanTaskStatusCANCELLED  ScanTaskStatus = "CANCELLED"
 	ScanTaskStatusFAILED     ScanTaskStatus = "FAILED"
 	ScanTaskStatusSTALE      ScanTaskStatus = "STALE"
 )
