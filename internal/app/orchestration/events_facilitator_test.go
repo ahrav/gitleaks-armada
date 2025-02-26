@@ -75,6 +75,11 @@ func (m *mockExecutionTracker) HandleTaskPaused(ctx context.Context, evt scannin
 	return args.Error(0)
 }
 
+func (m *mockExecutionTracker) HandleTaskCancelled(ctx context.Context, evt scanning.TaskCancelledEvent) error {
+	args := m.Called(ctx, evt)
+	return args.Error(0)
+}
+
 type mockTaskHealthMonitor struct{ mock.Mock }
 
 func (m *mockTaskHealthMonitor) Start(ctx context.Context) { m.Called(ctx) }
