@@ -20,6 +20,7 @@ type TemplateOptions struct {
 	OperationName       string
 	OperationAttributes []attribute.KeyValue
 	HeartbeatInterval   time.Duration
+	OnPause             func(context.Context, *dtos.ScanRequest)
 	OnCancel            func(context.Context, *dtos.ScanRequest)
 }
 
@@ -99,11 +100,24 @@ func (st *ScanTemplate) ScanStreaming(
 		for {
 			select {
 			case <-ctx.Done():
-				// Handle cancellation before shutting down. (final checkpoint)
-				if opts.OnCancel != nil {
-					cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-					defer cancel()
-					opts.OnCancel(cleanupCtx, task)
+				switch cause := context.Cause(ctx); cause {
+				case scanning.PauseEvent:
+					// Handle pause before shutting down.
+					// This should give the scanner the ability to report its
+					// final progress. This allows for resumption of the scan
+					// from the same point.
+					if opts.OnPause != nil {
+						cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+						defer cancel()
+						opts.OnPause(cleanupCtx, task)
+					}
+				case scanning.CancelEvent:
+					// Handle cancellation before shutting down.
+					// We don't need to report a final progress as a cancelled job
+					// can't be resumed.
+					if opts.OnCancel != nil {
+						opts.OnCancel(ctx, task)
+					}
 				}
 				errChan <- ctx.Err()
 				return

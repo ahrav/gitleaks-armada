@@ -85,8 +85,8 @@ func (s *Scanner) ScanStreaming(
 			attribute.String("url", scanReq.ResourceURI),
 		},
 		HeartbeatInterval: 5 * time.Second,
-		OnCancel: func(ctx context.Context, req *dtos.ScanRequest) {
-			if err := scanCtx.HandlePause(ctx, "scan_cancelled"); err != nil {
+		OnPause: func(ctx context.Context, req *dtos.ScanRequest) {
+			if err := scanCtx.HandlePause(ctx); err != nil {
 				s.logger.Error(ctx, "Failed to handle scan pause",
 					"error", err,
 					"task_id", req.TaskID,
@@ -337,7 +337,7 @@ func (sc *ScanContext) ReportProgress(ctx context.Context, itemsProcessed int64,
 }
 
 // HandlePause emits a TaskPausedEvent with the latest progress.
-func (sc *ScanContext) HandlePause(ctx context.Context, reason string) error {
+func (sc *ScanContext) HandlePause(ctx context.Context) error {
 	ctx, span := sc.tracer.Start(ctx, "scan_context.handle_pause")
 	defer span.End()
 
