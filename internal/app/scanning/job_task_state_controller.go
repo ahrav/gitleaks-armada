@@ -115,28 +115,28 @@ func (j *JobTaskStateController) PauseJob(jobID uuid.UUID) int {
 }
 
 // CancelJob marks a job as cancelled and cancels all of its tasks.
-// Returns the number of tasks that were cancelled.
-func (j *JobTaskStateController) CancelJob(jobID uuid.UUID) int {
+// Returns the list of taskIDs that were cancelled.
+func (j *JobTaskStateController) CancelJob(jobID uuid.UUID) []uuid.UUID {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 
 	js, exists := j.jobStates[jobID]
 	if !exists {
-		return 0
+		return nil
 	}
 
 	js.isPaused = false
 	js.isCancelled = true
 	j.jobStates[jobID] = js
 
-	count := 0
+	taskIDs := make([]uuid.UUID, 0, len(js.tasks))
 	for taskID, cancel := range js.tasks {
 		cancel(CancelEvent)
 		delete(js.tasks, taskID)
-		count++
+		taskIDs = append(taskIDs, taskID)
 	}
 
-	return count
+	return taskIDs
 }
 
 // ResumeJob marks a job as not paused.

@@ -150,6 +150,7 @@ func (s *ScannerService) Run(ctx context.Context) error {
 		ctx,
 		[]events.EventType{
 			scanning.EventTypeJobPaused,
+			scanning.EventTypeJobCancelled,
 		},
 		s.handleEvent,
 	); err != nil {
@@ -198,6 +199,8 @@ func (s *ScannerService) handleEvent(ctx context.Context, evt events.EventEnvelo
 		return s.handleRuleRequest(ctx, evt, ack)
 	case scanning.EventTypeJobPaused:
 		return s.handleJobPausedEvent(ctx, evt, ack)
+	case scanning.EventTypeJobCancelled:
+		return s.handleJobCancelledEvent(ctx, evt, ack)
 	default:
 		return fmt.Errorf("unknown event type: %s", evt.Type)
 	}
@@ -396,7 +399,7 @@ func (s *ScannerService) handleJobPausedEvent(
 			attribute.String("event_type", string(evt.Type)),
 		))
 	defer span.End()
-	defer ack(nil) // TODO: revist
+	defer ack(nil)
 
 	span.AddEvent("starting_job_paused_task")
 
@@ -417,6 +420,78 @@ func (s *ScannerService) handleJobPausedEvent(
 	span.AddEvent("job_paused_task_handled")
 	span.SetStatus(codes.Ok, "job_paused_task_handled")
 	logger.Info(ctx, "Job paused task handled")
+
+	return nil
+}
+
+// handleJobCancelledEvent processes job cancelled events by cancelling
+// all tasks associated with the job.
+// It publishes a TaskCancelledEvent and a TaskJobMetricEvent for each task.
+func (s *ScannerService) handleJobCancelledEvent(
+	ctx context.Context,
+	evt events.EventEnvelope,
+	ack events.AckFunc,
+) error {
+	logger := logger.NewLoggerContext(s.logger.With(
+		"operation", "handle_job_cancelled_event",
+		"event_type", string(evt.Type),
+	))
+	ctx, span := s.tracer.Start(ctx, "scanner_service.scanning.handle_job_cancelled_event",
+		trace.WithAttributes(
+			attribute.String("component", "scanner_service"),
+			attribute.String("scanner_id", s.scannerID),
+			attribute.String("event_type", string(evt.Type)),
+		))
+	defer span.End()
+	defer ack(nil)
+
+	span.AddEvent("starting_job_cancelled_task")
+
+	jobCancelledEvt, ok := evt.Payload.(scanning.JobCancelledEvent)
+	if !ok {
+		err := fmt.Errorf("invalid job cancelled event payload: %T", evt.Payload)
+		span.SetStatus(codes.Error, err.Error())
+		span.RecordError(err)
+		return err
+	}
+	logger.Add("job_id", jobCancelledEvt.JobID)
+	logger.Info(ctx, "Handling job cancelled task")
+
+	jobID := uuid.MustParse(jobCancelledEvt.JobID)
+	span.SetAttributes(attribute.String("job_id", jobID.String()))
+
+	taskIDs := s.jobStateController.CancelJob(jobID)
+	// TODO: Should we send individual task cancelled events or bulk?
+	for _, taskID := range taskIDs {
+		if err := s.domainPublisher.PublishDomainEvent(
+			ctx,
+			scanning.NewTaskCancelledEvent(jobID, taskID, "system"),
+			events.WithKey(taskID.String()),
+		); err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "failed to publish task cancelled event")
+			return fmt.Errorf("failed to publish task cancelled event: %w", err)
+		}
+		span.AddEvent("task_cancelled_event_published", trace.WithAttributes(
+			attribute.String("task_id", taskID.String()),
+		))
+
+		if err := s.domainPublisher.PublishDomainEvent(
+			ctx,
+			scanning.NewTaskJobMetricEvent(jobID, taskID, scanning.TaskStatusCancelled),
+			events.WithKey(jobID.String()),
+		); err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "failed to publish task job metric event")
+			return fmt.Errorf("failed to publish task job metric task cancelled event: %w", err)
+		}
+		span.AddEvent("task_job_metric_event_published")
+	}
+	span.AddEvent("job_tasks_cancelled", trace.WithAttributes(
+		attribute.Int("task_count", len(taskIDs)),
+	))
+	span.SetStatus(codes.Ok, "job_tasks_cancelled")
+	logger.Info(ctx, "Job tasks cancelled")
 
 	return nil
 }
