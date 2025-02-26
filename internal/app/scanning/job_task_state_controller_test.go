@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
-	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
 
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
@@ -16,7 +16,7 @@ func setupManager(t *testing.T) *JobTaskStateController {
 	t.Helper()
 
 	logger := logger.Noop()
-	tracer := trace.NewNoopTracerProvider().Tracer("test")
+	tracer := noop.NewTracerProvider().Tracer("test")
 	return NewJobTaskStateController("test", logger, tracer)
 }
 
@@ -211,4 +211,97 @@ func TestJobStateController_CancelFunctionExecution(t *testing.T) {
 
 	assert.True(t, wasCanceled)
 	assert.Equal(t, PauseEvent, cancelCause)
+}
+
+func TestJobStateController_CancelJob(t *testing.T) {
+	manager := setupManager(t)
+	jobID := uuid.New()
+
+	// Test cancelling non-existent job.
+	taskIDs := manager.CancelJob(jobID)
+	assert.Nil(t, taskIDs)
+	assert.False(t, manager.ShouldRejectTask(jobID)) // Job should be marked as cancelled
+
+	taskID1 := uuid.New()
+	taskID2 := uuid.New()
+
+	cancelCount := 0
+	cancelFunc := func(cause error) {
+		cancelCount++
+		assert.Equal(t, CancelEvent, cause)
+	}
+
+	manager.ResumeJob(jobID)
+	manager.AddTask(jobID, taskID1, cancelFunc)
+	manager.AddTask(jobID, taskID2, cancelFunc)
+
+	taskIDs = manager.CancelJob(jobID)
+
+	assert.Equal(t, 2, len(taskIDs))
+	assert.Equal(t, 2, cancelCount)
+	assert.True(t, manager.ShouldRejectTask(jobID))
+
+	taskIDMap := make(map[uuid.UUID]bool)
+	for _, id := range taskIDs {
+		taskIDMap[id] = true
+	}
+	assert.True(t, taskIDMap[taskID1])
+	assert.True(t, taskIDMap[taskID2])
+
+	// Test adding task to cancelled job.
+	taskID3 := uuid.New()
+	manager.AddTask(jobID, taskID3, cancelFunc)
+	assert.True(t, manager.ShouldRejectTask(jobID))
+}
+
+func TestJobStateController_CancelJob_ContextCancellation(t *testing.T) {
+	manager := setupManager(t)
+	jobID := uuid.New()
+	taskID := uuid.New()
+
+	ctx, cancel := context.WithCancelCause(context.Background())
+	var wasCanceled bool
+	var cancelCause error
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		<-ctx.Done()
+		wasCanceled = true
+		cancelCause = context.Cause(ctx)
+	}()
+
+	manager.AddTask(jobID, taskID, cancel)
+
+	manager.CancelJob(jobID)
+	wg.Wait()
+
+	assert.True(t, wasCanceled)
+	assert.Equal(t, CancelEvent, cancelCause)
+}
+
+func TestJobStateController_CancelAndPauseInteraction(t *testing.T) {
+	manager := setupManager(t)
+	jobID := uuid.New()
+
+	cancelCount := 0
+	cancelFunc := func(cause error) { cancelCount++ }
+
+	for range 5 {
+		manager.AddTask(jobID, uuid.New(), cancelFunc)
+	}
+
+	taskIDs := manager.CancelJob(jobID)
+	assert.Equal(t, 5, len(taskIDs))
+	assert.True(t, manager.ShouldRejectTask(jobID))
+
+	// Try to pause an already cancelled job.
+	pauseCount := manager.PauseJob(jobID)
+	assert.Equal(t, 0, pauseCount) // No tasks should be paused as they were already cancelled
+
+	// TODO: Think this through a little more. What happens if we get CancelEvent -> scanner crash -> Resume?
+	// Resume and verify state.
+	manager.ResumeJob(jobID)
+	assert.True(t, manager.ShouldRejectTask(jobID)) // Job should be reset to normal state
 }
