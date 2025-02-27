@@ -35,12 +35,14 @@ CREATE TABLE scan_job_metrics (
     completed_tasks INT NOT NULL DEFAULT 0,
     failed_tasks INT NOT NULL DEFAULT 0,
     stale_tasks INT NOT NULL DEFAULT 0,
+    cancelled_tasks INT NOT NULL DEFAULT 0,
+    paused_tasks INT NOT NULL DEFAULT 0,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Indexes
-CREATE INDEX idx_scan_job_metrics ON scan_job_metrics (job_id, total_tasks, pending_tasks, in_progress_tasks, completed_tasks, failed_tasks, stale_tasks);
+CREATE INDEX idx_scan_job_metrics ON scan_job_metrics (job_id, total_tasks, pending_tasks, in_progress_tasks, completed_tasks, failed_tasks, stale_tasks, cancelled_tasks, paused_tasks);
 
 -- Job Metrics Checkpoints Table
 CREATE TABLE job_metrics_checkpoints (

@@ -35,6 +35,8 @@ CREATE TABLE scan_job_metrics (
     completed_tasks INT NOT NULL DEFAULT 0,
     failed_tasks INT NOT NULL DEFAULT 0,
     stale_tasks INT NOT NULL DEFAULT 0,
+    cancelled_tasks INT NOT NULL DEFAULT 0,
+    paused_tasks INT NOT NULL DEFAULT 0,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
