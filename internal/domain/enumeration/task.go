@@ -1,7 +1,7 @@
 package enumeration
 
 import (
-	"github.com/google/uuid"
+	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 )

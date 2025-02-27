@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 )
 
 // Job coordinates and tracks a collection of related scanning tasks.

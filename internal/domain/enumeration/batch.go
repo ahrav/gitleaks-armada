@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/google/uuid"
+	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 )
 
 // BatchStatus represents the lifecycle state of an enumeration batch as a value object.

@@ -10,7 +10,7 @@ package enumeration
 import (
 	"context"
 
-	"github.com/google/uuid"
+	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 )
 
 // Service defines the behavior for running the enumeration process.

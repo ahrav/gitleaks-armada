@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -18,6 +17,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	"github.com/ahrav/gitleaks-armada/internal/infra/storage"
+	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 )
 
 // scanTargetRepository implements enumeration.ScanTargetRepository to provide
@@ -75,7 +75,7 @@ func (r *scanTargetRepository) Create(ctx context.Context, target *enumeration.S
 		return nil
 	})
 	if err != nil {
-		return uuid.Nil, err
+		return uuid.Nil(), err
 	}
 
 	return id.Bytes, nil

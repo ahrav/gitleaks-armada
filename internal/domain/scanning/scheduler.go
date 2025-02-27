@@ -3,7 +3,7 @@ package scanning
 import (
 	"context"
 
-	"github.com/google/uuid"
+	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 )
 
 // JobScheduler coordinates the creation and orchestration of new jobs within the scanning

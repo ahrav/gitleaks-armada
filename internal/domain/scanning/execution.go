@@ -4,7 +4,7 @@ package scanning
 import (
 	"context"
 
-	"github.com/google/uuid"
+	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 )
 
 // Execution tracking manages the lifecycle and progress of scanning tasks as they

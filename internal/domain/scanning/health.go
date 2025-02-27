@@ -5,7 +5,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 )
 
 // Health monitoring is a critical component of our distributed scanning system.

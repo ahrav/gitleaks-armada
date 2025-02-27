@@ -6,12 +6,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/infra/storage"
+	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 )
 
 func createTestCheckpoint(t *testing.T, ctx context.Context, store *checkpointStore, targetID uuid.UUID, data map[string]any) *enumeration.Checkpoint {
@@ -48,7 +48,7 @@ func setupTestState(t *testing.T, ctx context.Context, checkpointStore *checkpoi
 	err := state.MarkInProgress()
 	require.NoError(t, err)
 
-	if targetID != uuid.Nil {
+	if targetID != uuid.Nil() {
 		cp := createTestCheckpoint(t, ctx, checkpointStore, targetID, map[string]any{
 			"cursor": "abc123",
 			"nested": map[string]any{

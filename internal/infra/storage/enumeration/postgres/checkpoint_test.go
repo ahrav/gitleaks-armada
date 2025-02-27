@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 

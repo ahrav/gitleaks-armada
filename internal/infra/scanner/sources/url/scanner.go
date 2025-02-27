@@ -11,7 +11,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/nlnwa/gowarc/v2"
 	"github.com/zricethezav/gitleaks/v8/detect"
 	"go.opentelemetry.io/otel/attribute"
@@ -24,6 +23,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	srcs "github.com/ahrav/gitleaks-armada/internal/infra/scanner/sources"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
+	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 )
 
 // Scanner is an implementation of SecretScanner for URL-based sources.

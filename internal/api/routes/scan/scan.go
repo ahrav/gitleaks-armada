@@ -7,7 +7,7 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/google/uuid"
+	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 
 	"github.com/ahrav/gitleaks-armada/internal/api/errs"
 	"github.com/ahrav/gitleaks-armada/internal/app/commands"

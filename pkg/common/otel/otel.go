@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/google/uuid"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
@@ -20,6 +19,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
+	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 )
 
 // Config defines the information needed to init tracing.
@@ -163,7 +163,7 @@ func InjectTracing(ctx context.Context, tracer trace.Tracer) context.Context {
 
 	traceID := trace.SpanFromContext(ctx).SpanContext().TraceID().String()
 	if traceID == "00000000000000000000000000000000" {
-		traceID = uuid.NewString()
+		traceID = uuid.New().String()
 	}
 	ctx = setTraceID(ctx, traceID)
 

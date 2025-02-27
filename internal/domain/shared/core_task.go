@@ -2,7 +2,7 @@
 // for representing and processing security scanning operations.
 package shared
 
-import "github.com/google/uuid"
+import "github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 
 // CoreTask defines the fundamental properties required to identify and process
 // a security scan operation. It serves as a base type that can be embedded in

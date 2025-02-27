@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"

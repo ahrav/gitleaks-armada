@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -19,6 +18,7 @@ import (
 	domain "github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
+	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 )
 
 // metrics defines the interface for tracking enumeration-related metrics.
@@ -554,7 +554,7 @@ func (s *coordinator) processBatch(
 			s.metrics.IncEnumerationTasksFailedToEnqueue(ctx)
 			continue
 		}
-		if targetID != uuid.Nil {
+		if targetID != uuid.Nil() {
 			scanTargetIDs = append(scanTargetIDs, targetID)
 		}
 		processedCount++
@@ -631,7 +631,7 @@ func (s *coordinator) processTarget(ctx context.Context, target *enumeration.Tar
 	if !ok {
 		err := fmt.Errorf("no persister found for target type: %s", target.TargetType)
 		span.RecordError(err)
-		return uuid.Nil, err
+		return uuid.Nil(), err
 	}
 
 	resourceEntry := enumeration.ResourceEntry{
@@ -648,7 +648,7 @@ func (s *coordinator) processTarget(ctx context.Context, target *enumeration.Tar
 	result, err := persister.Persist(ctx, resourceEntry)
 	if err != nil {
 		span.RecordError(err)
-		return uuid.Nil, fmt.Errorf("failed to persist resource: %w", err)
+		return uuid.Nil(), fmt.Errorf("failed to persist resource: %w", err)
 	}
 
 	scanTargetID, err := s.createScanTarget(
@@ -660,7 +660,7 @@ func (s *coordinator) processTarget(ctx context.Context, target *enumeration.Tar
 	)
 	if err != nil {
 		span.RecordError(err)
-		return uuid.Nil, fmt.Errorf("failed to create scan target: %w", err)
+		return uuid.Nil(), fmt.Errorf("failed to create scan target: %w", err)
 	}
 
 	// We only return the newly created scanTargetID. The caller processes tasks separately.
@@ -686,13 +686,13 @@ func (s *coordinator) createScanTarget(
 	st, err := domain.NewScanTarget(name, targetType, targetID, metadata)
 	if err != nil {
 		span.RecordError(err)
-		return uuid.Nil, fmt.Errorf("failed to create scan target domain object: %w", err)
+		return uuid.Nil(), fmt.Errorf("failed to create scan target domain object: %w", err)
 	}
 
 	createdTargetID, err := s.scanTargetRepo.Create(ctx, st)
 	if err != nil {
 		span.RecordError(err)
-		return uuid.Nil, fmt.Errorf("failed to create scan target: %w", err)
+		return uuid.Nil(), fmt.Errorf("failed to create scan target: %w", err)
 	}
 
 	span.AddEvent("scan_target_created_successfully", trace.WithAttributes(

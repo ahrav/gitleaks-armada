@@ -3,7 +3,7 @@ package enumeration
 import (
 	"context"
 
-	"github.com/google/uuid"
+	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 )
 
 // EnumerationResult represents the outcome of an enumeration operation
