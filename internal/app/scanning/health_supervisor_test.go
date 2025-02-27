@@ -144,19 +144,15 @@ func TestHeartbeatMonitor_CheckForStaleTasks(t *testing.T) {
 			jobID:       uuid.New(),
 			expectStale: true,
 			setupStaleTasks: func() []scanning.StaleTaskInfo {
-				taskID := uuid.New()
-				jobID := uuid.New()
 				return []scanning.StaleTaskInfo{
-					scanning.NewStaleTaskInfo(taskID, jobID, "test-controller"),
+					scanning.NewStaleTaskInfo(uuid.New(), uuid.New(), "test-controller"),
 				}
 			},
 		},
 		{
-			name:        "no_stale_tasks",
-			expectStale: false,
-			setupStaleTasks: func() []scanning.StaleTaskInfo {
-				return nil
-			},
+			name:            "no_stale_tasks",
+			expectStale:     false,
+			setupStaleTasks: func() []scanning.StaleTaskInfo { return nil },
 		},
 	}
 
@@ -247,9 +243,7 @@ func TestHeartbeatMonitor_Start(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	t.Cleanup(func() {
-		heartbeatMonitor.Stop()
-	})
+	t.Cleanup(func() { heartbeatMonitor.Stop() })
 
 	heartbeatMonitor.Start(ctx)
 
@@ -322,16 +316,15 @@ func TestHeartbeatMonitor_ConcurrentAccess(t *testing.T) {
 
 	go func() {
 		defer wg.Done()
-		for i := 0; i < operations; i++ {
-			taskID := uuid.New() // Generate unique taskID for each heartbeat
-			heartbeatMonitor.HandleHeartbeat(context.Background(), scanning.TaskHeartbeatEvent{TaskID: taskID})
+		for range operations {
+			heartbeatMonitor.HandleHeartbeat(context.Background(), scanning.TaskHeartbeatEvent{TaskID: uuid.New()})
 			time.Sleep(time.Microsecond) // Small sleep to allow for flush
 		}
 	}()
 
 	go func() {
 		defer wg.Done()
-		for i := 0; i < operations; i++ {
+		for range operations {
 			heartbeatMonitor.checkForStaleTasks(context.Background())
 			time.Sleep(time.Microsecond) // Small sleep to prevent tight loop
 		}
