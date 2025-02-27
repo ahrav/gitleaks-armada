@@ -876,117 +876,114 @@ func (t *jobMetricsAggregator) updateTaskStatusAndMetrics(
 	return st
 }
 
+// jobStatusUpdateParams encapsulates the parameters needed for job status updates.
+// It provides a more organized structure for the commonly used job status update operation.
+type jobStatusUpdateParams struct {
+	// state represents the current state of the aggregator job.
+	state *AggregatorJobState
+
+	// shouldUpdate is a function that determines if the job status should be updated.
+	// Returns true when conditions for update are met.
+	shouldUpdate func() bool
+
+	// statusFlag points to the boolean flag that tracks if this operation has been performed.
+	// Used to ensure idempotency of status updates.
+	statusFlag *bool
+
+	// targetStatus is the job status to transition to if update conditions are met.
+	targetStatus domain.JobStatus
+}
+
+// tryUpdateJobStatus is a generic helper for updating job status based on a condition.
+// It handles mutex locking/unlocking, logging, tracing, and error handling.
+func (t *jobMetricsAggregator) tryUpdateJobStatus(
+	ctx context.Context,
+	params jobStatusUpdateParams,
+	operationName string, // Name for tracing and logging
+) error {
+	ctx, span := t.tracer.Start(ctx, "job_metrics_aggregator."+operationName,
+		trace.WithAttributes(
+			attribute.String("controller_id", t.controllerID),
+			attribute.String("job_id", params.state.jobID.String()),
+			attribute.Bool("should_update", params.shouldUpdate()),
+			attribute.Bool("status_flag", *params.statusFlag),
+		),
+	)
+	defer span.End()
+
+	t.mu.Lock()
+	// Double-check condition and flag.
+	// This could have changed in the meantime.
+	if !params.shouldUpdate() || *params.statusFlag {
+		span.AddEvent("job_not_eligible_or_already_updated")
+		t.mu.Unlock()
+		return nil
+	}
+
+	*params.statusFlag = true // Mark as processed to ensure we only do this once
+	jobID := params.state.jobID
+	t.mu.Unlock()
+
+	if err := t.repository.UpdateJobStatus(ctx, jobID, params.targetStatus); err != nil {
+		// TODO: Consider if we should retry.
+		// Reset the flag if update fails.
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to update job status")
+		t.mu.Lock()
+		*params.statusFlag = false
+		t.mu.Unlock()
+		return fmt.Errorf("failed to %s job %s: %w", operationName, jobID, err)
+	}
+
+	span.AddEvent(fmt.Sprintf("job_%s", operationName))
+	t.logger.Info(ctx, fmt.Sprintf("job is %s", params.targetStatus), "job_id", jobID.String())
+
+	return nil
+}
+
 // tryPauseJobIfAllTasksPaused attempts to pause a job if all its non-terminal tasks
 // are in a paused state. It ensures proper locking and idempotency of the pause operation.
 func (t *jobMetricsAggregator) tryPauseJobIfAllTasksPaused(ctx context.Context, st *AggregatorJobState) error {
-	ctx, span := t.tracer.Start(ctx, "job_metrics_aggregator.try_pause_job_if_all_tasks_paused",
-		trace.WithAttributes(
-			attribute.String("controller_id", t.controllerID),
-			attribute.String("job_id", st.jobID.String()),
-			attribute.Bool("should_pause", st.shouldPauseJob()),
-			attribute.Bool("job_paused", st.jobPaused),
-		),
+	return t.tryUpdateJobStatus(
+		ctx,
+		jobStatusUpdateParams{
+			state:        st,
+			shouldUpdate: st.shouldPauseJob,
+			statusFlag:   &st.jobPaused,
+			targetStatus: domain.JobStatusPaused,
+		},
+		"pause_job_if_all_tasks_paused",
 	)
-	defer span.End()
-
-	t.mu.Lock()
-	// Double-check: could have changed in the meantime.
-	if !st.shouldPauseJob() || st.jobPaused {
-		span.AddEvent("job_not_paused_or_already_paused")
-		t.mu.Unlock()
-		return nil
-	}
-	st.jobPaused = true // We'll pause exactly once
-	jobID := st.jobID
-	t.mu.Unlock()
-
-	if err := t.repository.UpdateJobStatus(ctx, jobID, domain.JobStatusPaused); err != nil {
-		// Reset the flag if update fails.
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to pause job")
-		t.mu.Lock()
-		st.jobPaused = false
-		t.mu.Unlock()
-		return fmt.Errorf("failed to pause job %s: %w", jobID, err)
-	}
-	span.AddEvent("job_paused")
-	t.logger.Info(ctx, "job is paused", "job_id", jobID.String())
-
-	return nil
 }
 
+// tryCancelJobIfAllTasksCancelled attempts to cancel a job if all its non-terminal tasks
+// are in a cancelled state. It ensures proper locking and idempotency of the cancellation operation.
 func (t *jobMetricsAggregator) tryCancelJobIfAllTasksCancelled(ctx context.Context, st *AggregatorJobState) error {
-	ctx, span := t.tracer.Start(ctx, "job_metrics_aggregator.try_cancel_job_if_all_tasks_cancelled",
-		trace.WithAttributes(
-			attribute.String("controller_id", t.controllerID),
-			attribute.String("job_id", st.jobID.String()),
-			attribute.Bool("should_cancel", st.shouldCancelJob()),
-			attribute.Bool("job_cancelled", st.jobCancelled),
-		),
+	return t.tryUpdateJobStatus(
+		ctx,
+		jobStatusUpdateParams{
+			state:        st,
+			shouldUpdate: st.shouldCancelJob,
+			statusFlag:   &st.jobCancelled,
+			targetStatus: domain.JobStatusCancelled,
+		},
+		"cancel_job_if_all_tasks_cancelled",
 	)
-	defer span.End()
-
-	t.mu.Lock()
-	// Double-check: could have changed in the meantime.
-	if !st.shouldCancelJob() || st.jobCancelled {
-		span.AddEvent("job_not_cancelled_or_already_cancelled")
-		t.mu.Unlock()
-		return nil
-	}
-	st.jobCancelled = true // We'll cancel exactly once
-	jobID := st.jobID
-	t.mu.Unlock()
-
-	if err := t.repository.UpdateJobStatus(ctx, jobID, domain.JobStatusCancelled); err != nil {
-		// Reset the flag if update fails.
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to cancel job")
-		t.mu.Lock()
-		st.jobCancelled = false
-		t.mu.Unlock()
-		return fmt.Errorf("failed to cancel job %s: %w", jobID, err)
-	}
-	span.AddEvent("job_cancelled")
-	t.logger.Info(ctx, "job is cancelled", "job_id", jobID.String())
-
-	return nil
 }
 
+// tryFinalizeJobIfDone attempts to finalize a job if all its non-terminal tasks
+// are in a completed state. It ensures proper locking and idempotency of the finalize operation.
 func (t *jobMetricsAggregator) tryFinalizeJobIfDone(ctx context.Context, st *AggregatorJobState) error {
-	ctx, span := t.tracer.Start(ctx, "job_metrics_aggregator.try_finalize_job_if_done",
-		trace.WithAttributes(
-			attribute.String("controller_id", t.controllerID),
-			attribute.String("job_id", st.jobID.String()),
-			attribute.Bool("is_done", st.isDone()),
-			attribute.Bool("job_finalized", st.jobFinalized),
-		),
+	return t.tryUpdateJobStatus(
+		ctx,
+		jobStatusUpdateParams{
+			state:        st,
+			shouldUpdate: st.isDone,
+			statusFlag:   &st.jobFinalized,
+			targetStatus: domain.JobStatusCompleted,
+		},
+		"finalize_job_if_done",
 	)
-	defer span.End()
-
-	t.mu.Lock()
-	// Double-check: could have changed in the meantime.
-	if !st.isDone() || st.jobFinalized {
-		span.AddEvent("job_not_done_or_already_finalized")
-		t.mu.Unlock()
-		return nil
-	}
-	st.jobFinalized = true // We'll finalize exactly once
-	jobID := st.jobID
-	t.mu.Unlock()
-
-	if err := t.repository.UpdateJobStatus(ctx, jobID, domain.JobStatusCompleted); err != nil {
-		// TODO: Maybe retry?
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to finalize job")
-		t.mu.Lock()
-		st.jobFinalized = false
-		t.mu.Unlock()
-		return fmt.Errorf("failed to finalize job %s: %w", jobID, err)
-	}
-	span.AddEvent("job_finalized")
-	t.logger.Info(ctx, "job is completed", "job_id", jobID.String())
-
-	return nil
 }
 
 // LaunchMetricsFlusher starts a separate goroutine that periodically invokes FlushMetrics.
