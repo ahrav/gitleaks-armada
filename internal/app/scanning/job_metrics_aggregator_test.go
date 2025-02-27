@@ -202,6 +202,7 @@ func TestProcessPendingMetrics_SucceedsOnSecondTry(t *testing.T) {
 	taskID := uuid.New()
 
 	// Step 1: First, the repository doesn't know about the task.
+	var mu sync.Mutex
 	var firstCall bool = true
 	var updateMetricsAndCheckpointCalled bool = false
 	repo := &mockMetricsRepository{
@@ -212,6 +213,8 @@ func TestProcessPendingMetrics_SucceedsOnSecondTry(t *testing.T) {
 			return nil, domain.ErrNoCheckpointsFound
 		},
 		getTaskFn: func(ctx context.Context, id uuid.UUID) (*domain.Task, error) {
+			mu.Lock()
+			defer mu.Unlock()
 			if firstCall {
 				// Simulate not found.
 				return nil, domain.ErrTaskNotFound
@@ -247,7 +250,9 @@ func TestProcessPendingMetrics_SucceedsOnSecondTry(t *testing.T) {
 	require.False(t, ackCalled, "ack should not be called yet")
 
 	// Step 3: Now the next time, the repo will say the task exists. Let's process pending.
+	mu.Lock()
 	firstCall = false // Flip so now getTask returns a valid task
+	mu.Unlock()
 
 	tracker.processPendingMetrics(ctx)
 
