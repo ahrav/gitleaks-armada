@@ -800,7 +800,14 @@ func (t *jobMetricsAggregator) processMetric(ctx context.Context, evt scanning.T
 }
 
 func (t *jobMetricsAggregator) loadJobMetrics(ctx context.Context, jobID uuid.UUID) (*domain.JobMetrics, error) {
-	span := trace.SpanFromContext(ctx)
+	ctx, span := t.tracer.Start(ctx, "job_metrics_aggregator.load_job_metrics",
+		trace.WithAttributes(
+			attribute.String("controller_id", t.controllerID),
+			attribute.String("job_id", jobID.String()),
+		),
+	)
+	defer span.End()
+
 	// Check under the lock if we already have JobMetrics loaded for this job.
 	t.mu.Lock()
 	jm, exists := t.metrics[jobID]
