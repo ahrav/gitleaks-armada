@@ -494,19 +494,10 @@ func (t *jobMetricsAggregator) HandleJobMetrics(ctx context.Context, evt events.
 		span.AddEvent("no_job_metrics_found_in_memory")
 		metrics, err := t.repository.GetJobMetrics(ctx, metricEvt.JobID)
 		if err != nil {
-			// TODO: This should get removed once job metrics creation is fully handled post enumeration.
-			if errors.Is(err, domain.ErrNoJobMetricsFound) {
-				span.AddEvent("no_metrics_found", trace.WithAttributes(
-					attribute.String("job_id", metricEvt.JobID.String()),
-				))
-				logger.Debug(ctx, "no job metrics found, creating new job metrics")
-				metrics = domain.NewJobMetrics()
-			} else {
-				span.RecordError(err)
-				span.SetStatus(codes.Error, "getting job metrics")
-				return fmt.Errorf("failed to retrieve job metrics for (job_id: %s, task_id: %s, status: %s): %w",
-					metricEvt.JobID, metricEvt.TaskID, metricEvt.Status, err)
-			}
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "getting job metrics")
+			return fmt.Errorf("failed to retrieve job metrics for (job_id: %s, task_id: %s, status: %s): %w",
+				metricEvt.JobID, metricEvt.TaskID, metricEvt.Status, err)
 		}
 		t.mu.Lock()
 		t.metrics[metricEvt.JobID] = metrics
