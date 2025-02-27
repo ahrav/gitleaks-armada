@@ -197,8 +197,6 @@ func (h *taskHealthSupervisor) checkForStaleTasks(ctx context.Context) {
 		attribute.String("cutoff_time", cutoff.Format(time.RFC3339)),
 	)
 
-	// TODO: We need to make sure that we don't mark a task stale if the job is pausing/paused.
-	// This could happen if a scanner gets killed prior to pausing its tasks related to a job.
 	staleTasks, err := h.healthSvc.FindStaleTasks(ctx, h.controllerID, cutoff)
 	if err != nil {
 		logr.Error(ctx, "Stale task detection failed",
