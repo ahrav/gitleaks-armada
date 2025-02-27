@@ -150,9 +150,11 @@ SELECT
     t.created_at,
     t.updated_at
 FROM scan_tasks t
+JOIN scan_jobs j ON t.job_id = j.job_id
 WHERE t.owner_controller_id = $1
   AND t.status = 'IN_PROGRESS'
   AND t.last_heartbeat_at < $2
+  AND j.status NOT IN ('PAUSED', 'PAUSING', 'CANCELLING', 'CANCELLED')
 `
 
 type FindStaleTasksParams struct {

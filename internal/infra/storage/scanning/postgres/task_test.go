@@ -43,6 +43,20 @@ func createTestScanJob(t *testing.T, store *jobStore, ctx context.Context) *scan
 	return job
 }
 
+// createTestScanJobWithStatus creates a job with the specified status.
+func createTestScanJobWithStatus(t *testing.T, store *jobStore, ctx context.Context, status scanning.JobStatus) *scanning.Job {
+	t.Helper()
+	job := scanning.ReconstructJob(
+		uuid.New(),
+		status,
+		scanning.NewTimeline(&mockTimeProvider{current: time.Now()}),
+	)
+
+	err := store.CreateJob(ctx, job)
+	require.NoError(t, err)
+	return job
+}
+
 func createTestTask(t *testing.T, store *taskStore, jobID uuid.UUID, status scanning.TaskStatus) *scanning.Task {
 	t.Helper()
 
@@ -583,6 +597,87 @@ func TestTaskStore_FindStaleTasks(t *testing.T) {
 			}
 		}
 		assert.True(t, found, "Expected stale task not found: %v", expected.TaskID())
+	}
+}
+
+// TestTaskStore_FindStaleTasks_JobStatusFiltering verifies that tasks belonging to jobs with
+// excluded statuses (PAUSED, PAUSING, CANCELLING, CANCELLED) are not returned as stale tasks
+// even if they have stale heartbeats.
+// TestTaskStore_FindStaleTasks_JobStatusFiltering verifies that tasks belonging to jobs with
+// excluded statuses (PAUSED, PAUSING, CANCELLING, CANCELLED) are not returned as stale tasks
+// even if they have stale heartbeats.
+func TestTaskStore_FindStaleTasks_JobStatusFiltering(t *testing.T) {
+	t.Parallel()
+	ctx, _, taskStore, jobStore, cleanup := setupTaskTest(t)
+	defer cleanup()
+
+	baseTime := time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
+	cutoff := baseTime.Add(-5 * time.Minute)
+	staleHeartbeatTime := baseTime.Add(-10 * time.Minute)
+	controllerID := "test-controller"
+
+	testCases := []struct {
+		name        string
+		jobStatus   scanning.JobStatus
+		taskStatus  scanning.TaskStatus
+		expectStale bool
+		reason      string
+	}{
+		// Jobs with statuses that should allow stale task detection.
+		{name: "QUEUED job, IN_PROGRESS task", jobStatus: scanning.JobStatusQueued, taskStatus: scanning.TaskStatusInProgress, expectStale: true, reason: "Tasks of QUEUED jobs should be detected as stale"},
+		{name: "RUNNING job, IN_PROGRESS task", jobStatus: scanning.JobStatusRunning, taskStatus: scanning.TaskStatusInProgress, expectStale: true, reason: "Tasks of RUNNING jobs should be detected as stale"},
+		{name: "COMPLETED job, IN_PROGRESS task", jobStatus: scanning.JobStatusCompleted, taskStatus: scanning.TaskStatusInProgress, expectStale: true, reason: "Tasks of COMPLETED jobs should be detected as stale"},
+		{name: "FAILED job, IN_PROGRESS task", jobStatus: scanning.JobStatusFailed, taskStatus: scanning.TaskStatusInProgress, expectStale: true, reason: "Tasks of FAILED jobs should be detected as stale"},
+
+		// Jobs with statuses that should exclude tasks from stale detection.
+		{name: "PAUSED job, IN_PROGRESS task", jobStatus: scanning.JobStatusPaused, taskStatus: scanning.TaskStatusInProgress, expectStale: false, reason: "Tasks of PAUSED jobs should not be detected as stale"},
+		{name: "PAUSING job, IN_PROGRESS task", jobStatus: scanning.JobStatusPausing, taskStatus: scanning.TaskStatusInProgress, expectStale: false, reason: "Tasks of PAUSING jobs should not be detected as stale"},
+		{name: "CANCELLED job, IN_PROGRESS task", jobStatus: scanning.JobStatusCancelled, taskStatus: scanning.TaskStatusInProgress, expectStale: false, reason: "Tasks of CANCELLED jobs should not be detected as stale"},
+		{name: "CANCELLING job, IN_PROGRESS task", jobStatus: scanning.JobStatusCancelling, taskStatus: scanning.TaskStatusInProgress, expectStale: false, reason: "Tasks of CANCELLING jobs should not be detected as stale"},
+
+		// Edge cases for task status.
+		{name: "RUNNING job, COMPLETED task", jobStatus: scanning.JobStatusRunning, taskStatus: scanning.TaskStatusCompleted, expectStale: false, reason: "COMPLETED tasks should never be detected as stale"},
+		{name: "PAUSED job, COMPLETED task", jobStatus: scanning.JobStatusPaused, taskStatus: scanning.TaskStatusCompleted, expectStale: false, reason: "Both job status and task status prevent stale detection"},
+	}
+
+	// Create all the test tasks and prepare heartbeats.
+	testTasks := make(map[string]*scanning.Task)
+	heartbeats := make(map[uuid.UUID]time.Time)
+
+	for _, tc := range testCases {
+		job := createTestScanJobWithStatus(t, jobStore, ctx, tc.jobStatus)
+
+		task := createTestTask(t, taskStore, job.JobID(), tc.taskStatus)
+		err := taskStore.CreateTask(ctx, task, controllerID)
+		require.NoError(t, err)
+
+		testTasks[tc.name] = task
+		heartbeats[task.TaskID()] = staleHeartbeatTime
+	}
+
+	rowsAffected, err := taskStore.BatchUpdateHeartbeats(ctx, heartbeats)
+	require.NoError(t, err)
+	assert.True(t, rowsAffected > 0, "Should update at least the IN_PROGRESS tasks")
+
+	staleTasks, err := taskStore.FindStaleTasks(ctx, controllerID, cutoff)
+	require.NoError(t, err)
+
+	for _, tc := range testCases {
+		task := testTasks[tc.name]
+		found := false
+
+		for _, staleTask := range staleTasks {
+			if staleTask.TaskID() == task.TaskID() {
+				found = true
+				break
+			}
+		}
+
+		if tc.expectStale {
+			assert.True(t, found, "Test case '%s': %s", tc.name, tc.reason)
+		} else {
+			assert.False(t, found, "Test case '%s': %s", tc.name, tc.reason)
+		}
 	}
 }
 
