@@ -83,7 +83,7 @@ CREATE UNIQUE INDEX idx_unique_stopwords_per_allowlist ON allowlist_stopwords (a
 
 -- Findings Table
 CREATE TABLE findings (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id UUID PRIMARY KEY,
     scan_job_id UUID NOT NULL REFERENCES scan_jobs (job_id),
     rule_id BIGINT NOT NULL REFERENCES rules (id),
     scan_target_id UUID NOT NULL REFERENCES scan_targets (id),

@@ -15,7 +15,7 @@ CREATE TYPE scan_job_status AS ENUM (
 
 -- Scan Jobs Table
 CREATE TABLE scan_jobs (
-    job_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    job_id UUID PRIMARY KEY,
     status scan_job_status NOT NULL,
     start_time TIMESTAMPTZ,
     end_time TIMESTAMPTZ,
