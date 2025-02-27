@@ -108,8 +108,7 @@ func TestHandleJobMetrics_NewJob(t *testing.T) {
 
 	repo := &mockMetricsRepository{
 		getJobMetricsFn: func(ctx context.Context, id uuid.UUID) (*domain.JobMetrics, error) {
-			// Simulate no metrics exist yet.
-			return nil, domain.ErrNoJobMetricsFound
+			return domain.NewJobMetrics(), nil
 		},
 		// Return a valid task so it's not "not found".
 		getTaskFn: func(ctx context.Context, id uuid.UUID) (*domain.Task, error) {
