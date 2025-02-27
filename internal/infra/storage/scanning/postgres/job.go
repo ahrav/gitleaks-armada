@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -17,6 +16,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/db"
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/internal/infra/storage"
+	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 )
 
 // jobStore implements scanning.JobRepository using PostgreSQL as the backing store.
@@ -364,17 +364,17 @@ func (r *jobStore) executeBatchUpdate(ctx context.Context, entries []jobEntry) (
 
 	now := time.Now().UTC()
 	// For each row, we have:
-	//   job_id + total_tasks + pending_tasks + in_progress_tasks + completed_tasks + failed_tasks + stale_tasks + created_at + updated_at
+	//   job_id + total_tasks + pending_tasks + in_progress_tasks + completed_tasks + failed_tasks + stale_tasks + cancelled_tasks + paused_tasks + created_at + updated_at
 	//
 	// We'll build a VALUES string with placeholders like:
-	//   ($1::uuid, $2::int, $3::int, $4::int, $5::int, $6::int, $7::int, $8::timestamptz, $9::timestamptz), ...
+	//   ($1::uuid, $2::int, $3::int, $4::int, $5::int, $6::int, $7::int, $8::int, $9::int, $10::timestamptz, $11::timestamptz), ...
 	values := make([]string, 0, len(entries))
-	args := make([]any, 0, len(entries)*9) // jobID + 6 metrics fields + 2 timestamps
+	args := make([]any, 0, len(entries)*11) // jobID + 8 metrics fields + 2 timestamps
 	i := 1
 
 	for _, e := range entries {
-		values = append(values, fmt.Sprintf("($%d::uuid, $%d::int, $%d::int, $%d::int, $%d::int, $%d::int, $%d::int, $%d::timestamptz, $%d::timestamptz)",
-			i, i+1, i+2, i+3, i+4, i+5, i+6, i+7, i+8))
+		values = append(values, fmt.Sprintf("($%d::uuid, $%d::int, $%d::int, $%d::int, $%d::int, $%d::int, $%d::int, $%d::int, $%d::int, $%d::timestamptz, $%d::timestamptz)",
+			i, i+1, i+2, i+3, i+4, i+5, i+6, i+7, i+8, i+9, i+10))
 		args = append(args,
 			e.jobID,
 			e.metrics.TotalTasks(),
@@ -383,10 +383,12 @@ func (r *jobStore) executeBatchUpdate(ctx context.Context, entries []jobEntry) (
 			e.metrics.CompletedTasks(),
 			e.metrics.FailedTasks(),
 			e.metrics.StaleTasks(),
+			e.metrics.CancelledTasks(),
+			e.metrics.PausedTasks(),
 			now, // created_at
 			now, // updated_at
 		)
-		i += 9
+		i += 11
 	}
 
 	query := fmt.Sprintf(`
@@ -398,6 +400,8 @@ func (r *jobStore) executeBatchUpdate(ctx context.Context, entries []jobEntry) (
 					completed_tasks,
 					failed_tasks,
 					stale_tasks,
+					cancelled_tasks,
+					paused_tasks,
 					created_at,
 					updated_at
 			) VALUES %s
@@ -408,6 +412,8 @@ func (r *jobStore) executeBatchUpdate(ctx context.Context, entries []jobEntry) (
 					completed_tasks = EXCLUDED.completed_tasks,
 					failed_tasks = EXCLUDED.failed_tasks,
 					stale_tasks = EXCLUDED.stale_tasks,
+					cancelled_tasks = EXCLUDED.cancelled_tasks,
+					paused_tasks = EXCLUDED.paused_tasks,
 					updated_at = NOW()
 	`, strings.Join(values, ","))
 
@@ -448,6 +454,8 @@ func (r *jobStore) GetJobMetrics(ctx context.Context, jobID uuid.UUID) (*scannin
 			int(metrics.CompletedTasks),
 			int(metrics.FailedTasks),
 			int(metrics.StaleTasks),
+			int(metrics.CancelledTasks),
+			int(metrics.PausedTasks),
 		)
 		return nil
 	})
@@ -514,6 +522,8 @@ func (r *jobStore) UpdateMetricsAndCheckpoint(
 			CompletedTasks:  int32(metrics.CompletedTasks()),
 			FailedTasks:     int32(metrics.FailedTasks()),
 			StaleTasks:      int32(metrics.StaleTasks()),
+			CancelledTasks:  int32(metrics.CancelledTasks()),
+			PausedTasks:     int32(metrics.PausedTasks()),
 		})
 		if err != nil {
 			return fmt.Errorf("update metrics and checkpoint error: %w", err)

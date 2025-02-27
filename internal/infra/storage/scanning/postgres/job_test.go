@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
@@ -17,6 +16,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	"github.com/ahrav/gitleaks-armada/internal/infra/storage"
 	"github.com/ahrav/gitleaks-armada/internal/infra/storage/enumeration/postgres"
+	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 )
 
 func setupJobTest(t *testing.T) (context.Context, *pgxpool.Pool, *jobStore, func()) {
@@ -310,6 +310,8 @@ func TestJobStore_BulkUpdateJobMetrics(t *testing.T) {
 			5*(i+1),  // completed tasks
 			2*(i+1),  // failed tasks
 			1*(i+1),  // stale tasks
+			i+1,      // cancelled tasks
+			i,        // paused tasks
 		)
 		jobMetrics[job.JobID()] = metrics
 	}
@@ -328,6 +330,8 @@ func TestJobStore_BulkUpdateJobMetrics(t *testing.T) {
 		assert.Equal(t, int32(expectedMetrics.CompletedTasks()), metrics.CompletedTasks)
 		assert.Equal(t, int32(expectedMetrics.FailedTasks()), metrics.FailedTasks)
 		assert.Equal(t, int32(expectedMetrics.StaleTasks()), metrics.StaleTasks)
+		assert.Equal(t, int32(expectedMetrics.CancelledTasks()), metrics.CancelledTasks)
+		assert.Equal(t, int32(expectedMetrics.PausedTasks()), metrics.PausedTasks)
 	}
 }
 
@@ -351,7 +355,7 @@ func TestJobStore_BulkUpdateJobMetrics_Upsert(t *testing.T) {
 	require.NoError(t, err)
 
 	// First update.
-	initialMetrics := scanning.ReconstructJobMetrics(10, 0, 0, 5, 2, 1)
+	initialMetrics := scanning.ReconstructJobMetrics(10, 0, 0, 5, 2, 1, 1, 1)
 	updates := map[uuid.UUID]*scanning.JobMetrics{
 		job.JobID(): initialMetrics,
 	}
@@ -365,9 +369,11 @@ func TestJobStore_BulkUpdateJobMetrics_Upsert(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int32(10), metrics.TotalTasks)
 	assert.Equal(t, int32(5), metrics.CompletedTasks)
+	assert.Equal(t, int32(1), metrics.CancelledTasks)
+	assert.Equal(t, int32(1), metrics.PausedTasks)
 
 	// Second update with different metrics.
-	updatedMetrics := scanning.ReconstructJobMetrics(20, 0, 0, 15, 3, 2)
+	updatedMetrics := scanning.ReconstructJobMetrics(20, 0, 0, 15, 3, 0, 2, 0)
 	updates[job.JobID()] = updatedMetrics
 
 	rowsAffected, err = store.BulkUpdateJobMetrics(ctx, updates)
@@ -379,7 +385,9 @@ func TestJobStore_BulkUpdateJobMetrics_Upsert(t *testing.T) {
 	assert.Equal(t, int32(20), metrics.TotalTasks)
 	assert.Equal(t, int32(15), metrics.CompletedTasks)
 	assert.Equal(t, int32(3), metrics.FailedTasks)
-	assert.Equal(t, int32(2), metrics.StaleTasks)
+	assert.Equal(t, int32(0), metrics.StaleTasks)
+	assert.Equal(t, int32(2), metrics.CancelledTasks)
+	assert.Equal(t, int32(0), metrics.PausedTasks)
 }
 
 func TestJobStore_GetJobMetrics_NonExistent(t *testing.T) {
@@ -401,7 +409,7 @@ func TestJobStore_GetJobMetrics_ExistingMetrics(t *testing.T) {
 	err := store.CreateJob(ctx, job)
 	require.NoError(t, err)
 
-	expectedMetrics := scanning.ReconstructJobMetrics(10, 0, 0, 5, 2, 1)
+	expectedMetrics := scanning.ReconstructJobMetrics(10, 0, 0, 5, 2, 1, 1, 1)
 	updates := map[uuid.UUID]*scanning.JobMetrics{
 		job.JobID(): expectedMetrics,
 	}
@@ -417,6 +425,8 @@ func TestJobStore_GetJobMetrics_ExistingMetrics(t *testing.T) {
 	assert.Equal(t, expectedMetrics.CompletedTasks(), metrics.CompletedTasks())
 	assert.Equal(t, expectedMetrics.FailedTasks(), metrics.FailedTasks())
 	assert.Equal(t, expectedMetrics.StaleTasks(), metrics.StaleTasks())
+	assert.Equal(t, expectedMetrics.CancelledTasks(), metrics.CancelledTasks())
+	assert.Equal(t, expectedMetrics.PausedTasks(), metrics.PausedTasks())
 }
 
 func TestJobStore_GetCheckpoints_NonExistentJob(t *testing.T) {
@@ -439,7 +449,7 @@ func TestJobStore_UpdateMetricsAndCheckpoint(t *testing.T) {
 	require.NoError(t, err)
 
 	// Update metrics and checkpoint atomically.
-	metrics := scanning.ReconstructJobMetrics(10, 2, 3, 4, 1, 0)
+	metrics := scanning.ReconstructJobMetrics(10, 2, 3, 1, 1, 0, 2, 1)
 	err = store.UpdateMetricsAndCheckpoint(ctx, job.JobID(), metrics, 0, 100)
 	require.NoError(t, err)
 
@@ -450,6 +460,8 @@ func TestJobStore_UpdateMetricsAndCheckpoint(t *testing.T) {
 	assert.Equal(t, metrics.CompletedTasks(), storedMetrics.CompletedTasks())
 	assert.Equal(t, metrics.FailedTasks(), storedMetrics.FailedTasks())
 	assert.Equal(t, metrics.StaleTasks(), storedMetrics.StaleTasks())
+	assert.Equal(t, metrics.CancelledTasks(), storedMetrics.CancelledTasks())
+	assert.Equal(t, metrics.PausedTasks(), storedMetrics.PausedTasks())
 
 	checkpoints, err := store.GetCheckpoints(ctx, job.JobID())
 	require.NoError(t, err)
@@ -461,7 +473,7 @@ func TestJobStore_UpdateMetricsAndCheckpoint_NonExistentJob(t *testing.T) {
 	ctx, _, store, cleanup := setupJobTest(t)
 	defer cleanup()
 
-	metrics := scanning.ReconstructJobMetrics(10, 2, 3, 4, 1, 0)
+	metrics := scanning.ReconstructJobMetrics(10, 2, 3, 4, 1, 0, 0, 0)
 	err := store.UpdateMetricsAndCheckpoint(ctx, uuid.New(), metrics, 0, 100)
 	require.Error(t, err)
 }
