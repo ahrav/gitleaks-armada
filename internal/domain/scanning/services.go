@@ -4,9 +4,9 @@ import (
 	"context"
 	"time"
 
-	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
-
+	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
+	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 )
 
 // JobTaskService provides the primary interface for managing scan operations in our distributed
@@ -90,4 +90,215 @@ type JobTaskService interface {
 	// // ListJobs retrieves a paginated list of jobs filtered by their status.
 	// // This supports system-wide job monitoring and management capabilities.
 	// ListJobs(ctx context.Context, status []domain.JobStatus, limit, offset int) ([]*domain.Job, error)
+}
+
+// TODO: Figure out how to make sure this maps to the correct topic.
+const (
+	JobLifecycleStreamType events.StreamType = "job-lifecycle"
+)
+
+// Metrics tracking provides real-time visibility into scanning operations across
+// the distributed system. It handles the collection, aggregation, and persistence
+// of metrics data for both individual tasks and overall jobs. The metrics system
+// balances the need for real-time updates with storage efficiency through periodic
+// persistence and in-memory caching.
+
+// JobMetricsAggregator handles aggregation and persistence of job-level metrics
+// across distributed task processing. It maintains in-memory state for real-time
+// updates while ensuring durability through periodic persistence.
+type JobMetricsAggregator interface {
+	// LaunchMetricsFlusher runs a metrics flushing loop that periodically persists
+	// metrics to storage. It blocks until the context is canceled or an error occurs.
+	// Callers typically run this in a separate goroutine:
+	//     go tracker.LaunchMetricsFlusher(10*time.Second)
+	// This allows us to batch updates to storage and reduce the number of round trips.
+	LaunchMetricsFlusher(interval time.Duration)
+
+	// HandleJobMetrics processes task-related events to update job metrics.
+	// It maintains both task status and aggregated job metrics in memory.
+	// The ack function is used to acknowledge the latest offset for the job's partition.
+	// This is handled manually to ensure we only commit the latest offset once the metrics
+	// have been successfully persisted.
+	HandleJobMetrics(ctx context.Context, evt events.EventEnvelope, ack events.AckFunc) error
+
+	// HandleEnumerationCompleted processes a JobEnumerationCompletedEvent, which signals
+	// that enumeration of tasks has finished for a specific job. The event conveys the
+	// total number of tasks discovered.
+	HandleEnumerationCompleted(ctx context.Context, evt events.EventEnvelope, ack events.AckFunc) error
+
+	// FlushMetrics persists the current state of job metrics to the backing store.
+	// This is typically called periodically to ensure durability of metrics.
+	FlushMetrics(ctx context.Context) error
+
+	// Stop stops the background goroutines and waits for them to finish.
+	Stop(ctx context.Context)
+}
+
+// MetricsRepository defines the persistence operations for job metrics tracking.
+// It provides efficient access to metrics data without requiring full entity loads,
+// supporting both real-time updates and historical queries.
+type MetricsRepository interface {
+	// GetJobMetrics retrieves the metrics for a specific job.
+	// Returns ErrJobNotFound if the job doesn't exist.
+	GetJobMetrics(ctx context.Context, jobID uuid.UUID) (*JobMetrics, error)
+
+	// GetTask retrieves a task's current state.
+	GetTask(ctx context.Context, taskID uuid.UUID) (*Task, error)
+
+	// GetCheckpoints retrieves all checkpoints for a job's metrics.
+	GetCheckpoints(ctx context.Context, jobID uuid.UUID) (map[int32]int64, error)
+
+	// UpdateJobStatus updates the status of a job.
+	UpdateJobStatus(ctx context.Context, jobID uuid.UUID, status JobStatus) error
+
+	// UpdateMetricsAndCheckpoint updates the metrics and checkpoint for a job.
+	UpdateMetricsAndCheckpoint(
+		ctx context.Context,
+		jobID uuid.UUID,
+		metrics *JobMetrics,
+		partition int32,
+		offset int64,
+	) error
+
+	// TODO: BulkUpdateMetricsAndCheckpoint.
+}
+
+// Health monitoring is a critical component of our distributed scanning system.
+// It ensures tasks remain responsive and enables automatic detection and recovery
+// of failed operations. The interfaces defined here establish the contract for
+// monitoring task health through heartbeats, detecting stale tasks, and managing
+// task state transitions when health issues are detected.
+
+// TaskHealthMonitor manages the health and liveness of distributed scanning tasks.
+// It provides heartbeat tracking and stale task detection to ensure reliable
+// operation of the distributed scanning system. When tasks become unresponsive
+// or fail silently, the monitor enables early detection and recovery.
+type TaskHealthMonitor interface {
+	// Start starts the health monitor.
+	Start(ctx context.Context)
+	// HandleHeartbeat handles a heartbeat event.
+	HandleHeartbeat(ctx context.Context, evt TaskHeartbeatEvent)
+	// Stop stops the health monitor.
+	Stop()
+}
+
+// TaskHealthService defines the persistence operations needed for health monitoring.
+// It abstracts the storage layer for task health data, allowing efficient tracking
+// and querying of task heartbeats without coupling to specific storage implementations.
+type TaskHealthService interface {
+	// UpdateHeartbeats updates the last_heartbeat_at timestamp for a list of tasks.
+	UpdateHeartbeats(ctx context.Context, heartbeats map[uuid.UUID]time.Time) (int64, error)
+
+	// FindStaleTasks retrieves tasks that have not sent a heartbeat since the given cutoff time.
+	FindStaleTasks(ctx context.Context, controllerID string, cutoff time.Time) ([]StaleTaskInfo, error)
+}
+
+// TaskStateHandler defines how the system reacts to task state changes,
+// particularly when tasks become unresponsive. It separates state change
+// detection from handling, enabling flexible recovery strategies and
+// consistent system responses to task health issues.
+type TaskStateHandler interface {
+	// HandleTaskStale handles a task that has become unresponsive or stopped reporting progress.
+	HandleTaskStale(ctx context.Context, evt TaskStaleEvent) error
+}
+
+// Execution tracking manages the lifecycle and progress of scanning tasks as they
+// move through the system. It provides the interfaces needed to monitor task
+// execution, handle state transitions, and maintain accurate progress information.
+// This component ensures reliable task execution and provides visibility into
+// scanning operations across the distributed system.
+
+// TranslationResult represents a single translated enumeration task in scanning-domain form.
+// It contains the resulting scanning Task, any associated authentication configuration (Auth),
+// and a set of metadata key/value pairs. This structure is typically produced by an ACL
+// translator that bridges the enumeration and scanning domains.
+type TranslationResult struct {
+	Task     *Task
+	Auth     Auth
+	Metadata map[string]string
+}
+
+// ScanningResult encapsulates the scanning-domain equivalents of enumerated data, exposing
+// channels of scanning-oriented objects. These channels emit:
+//
+//   - ScanTargetsCh: Discovered scan target IDs (UUIDs) that need to be linked to a job.
+//   - TasksCh:       TranslationResult objects, which include the scanning Task, credentials,
+//     and metadata derived from enumeration tasks.
+//   - ErrCh:         Errors encountered during enumeration or translation.
+//
+// By providing scanning-domain channels (instead of enumeration-domain types), this structure
+// avoids cross-domain dependencies and allows the scanning domain to consume data in its
+// native format without referencing enumeration logic.
+type ScanningResult struct {
+	ScanTargetsCh <-chan []uuid.UUID
+	TasksCh       <-chan TranslationResult
+	ErrCh         <-chan error
+}
+
+// ExecutionTracker manages the lifecycle and progress monitoring of scanning tasks
+// within jobs. It processes task-related domain events and coordinates with the
+// job service to maintain accurate system state and progress information.
+type ExecutionTracker interface {
+	// ProcessEnumerationStream consumes a stream of enumerated scan targets and tasks,
+	// converting them into scanning-domain entities, associating them with the specified
+	// job, and publishing the necessary domain events. Specifically, it:
+	//
+	//   • Reads discovered target IDs and links them to the job while tracking the total
+	//     number of tasks for progress monitoring.
+	//   • Translates enumerated tasks into scanning tasks (including any authorization or
+	//     metadata) and persists them in the scanning domain.
+	//   • Continuously listens for errors in the enumeration process, surfacing them as
+	//     appropriate.
+	//   • Signals the end of enumeration once all channels are exhausted, updating job
+	//     status and publishing a completion event.
+	//
+	// This method blocks until the incoming channels are closed (or until the context is
+	// canceled), ensuring all enumerated items are processed and the scanning domain's job
+	// lifecycle is accurately updated.
+	ProcessEnumerationStream(
+		ctx context.Context,
+		jobID uuid.UUID,
+		result *ScanningResult,
+	) error
+
+	// HandleTaskStart initializes tracking for a new task by registering it with the job service
+	// and setting up initial progress metrics. If this is the first task in a job, it will
+	// transition the job from QUEUED to RUNNING status.
+	HandleTaskStart(ctx context.Context, evt TaskStartedEvent) error
+
+	// HandleTaskProgress handles task progress events during scanning, updating metrics like
+	// items processed, processing rate, and error counts. This data is used to detect
+	// stalled tasks and calculate overall job progress.
+	HandleTaskProgress(ctx context.Context, evt TaskProgressedEvent) error
+
+	// HandleTaskCompletion handles successful task completion by updating job metrics,
+	// transitioning task status to COMPLETED, and potentially marking the job
+	// as COMPLETED if all tasks are done.
+	HandleTaskCompletion(ctx context.Context, evt TaskCompletedEvent) error
+
+	// HandleTaskFailure handles task failure scenarios by transitioning the task to FAILED status
+	// and updating job metrics. If all tasks in a job fail, the job will be marked as FAILED.
+	HandleTaskFailure(ctx context.Context, evt TaskFailedEvent) error
+
+	// HandleTaskStale marks a task as stale, indicating it has stopped reporting progress.
+	HandleTaskStale(ctx context.Context, evt TaskStaleEvent) error
+
+	// HandleTaskPaused handles task pause events, transitioning the task to PAUSED status
+	// and storing the final progress checkpoint for later resumption.
+	HandleTaskPaused(ctx context.Context, evt TaskPausedEvent) error
+
+	// HandleTaskCancelled handles task cancellation events, transitioning the task to CANCELLED status
+	// and preventing further work on it.
+	// This allows for explicit termination of tasks before completion.
+	HandleTaskCancelled(ctx context.Context, evt TaskCancelledEvent) error
+
+	// // GetJobProgress returns consolidated metrics for all tasks in a job, including
+	// // total tasks, completed tasks, failed tasks, and overall progress percentage.
+	// // This provides the data needed for job-level monitoring and reporting.
+	// GetJobProgress(ctx context.Context, jobID uuid.UUID) (*scanning.Progress, error)
+
+	// // GetTaskProgress returns detailed execution metrics for a specific task,
+	// // including items processed, processing rate, error counts, and duration.
+	// // This enables fine-grained monitoring of individual scanning operations.
+	// GetTaskProgress(ctx context.Context, taskID uuid.UUID) (*scanning.Progress, error)
 }

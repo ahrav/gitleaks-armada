@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -16,6 +15,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	domain "github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
+	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 )
 
 // taskStatusEntry tracks the latest known status of a task and when that status
