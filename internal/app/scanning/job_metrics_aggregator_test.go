@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/trace/noop"
 
@@ -15,6 +14,7 @@ import (
 	domain "github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
+	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 )
 
 // mockMetricsRepository is a minimal stub/mocking approach.
@@ -560,4 +560,100 @@ func TestHandleJobMetrics_MarksJobPaused(t *testing.T) {
 	require.NoError(t, aggregator.HandleJobMetrics(ctx, pauseEvt1, func(err error) { require.NoError(t, err) }))
 	require.True(t, updateJobStatusCalled, "UpdateJobStatus should be called when re-pausing")
 	require.Equal(t, domain.JobStatusPaused, updateJobStatusArg, "Job should be marked as paused again")
+}
+
+func TestHandleJobMetrics_MarksJobCancelled(t *testing.T) {
+	ctx := context.Background()
+	jobID := uuid.New()
+
+	var updateJobStatusCalled bool
+	var updateJobStatusArg domain.JobStatus
+
+	repo := &mockMetricsRepository{
+		// Return metrics with 3 tasks: 1 completed, 2 in progress.
+		getJobMetricsFn: func(ctx context.Context, id uuid.UUID) (*domain.JobMetrics, error) {
+			metrics := domain.NewJobMetrics()
+			metrics.OnTaskAdded(domain.TaskStatusCompleted)
+			metrics.OnTaskAdded(domain.TaskStatusInProgress)
+			metrics.OnTaskAdded(domain.TaskStatusInProgress)
+			return metrics, nil
+		},
+		updateJobStatusFn: func(ctx context.Context, id uuid.UUID, status domain.JobStatus) error {
+			updateJobStatusCalled = true
+			updateJobStatusArg = status
+			return nil
+		},
+		// Avoid ErrTaskNotFound by returning a dummy Task.
+		getTaskFn: func(ctx context.Context, id uuid.UUID) (*domain.Task, error) {
+			return &domain.Task{}, nil
+		},
+	}
+
+	aggregator := NewJobMetricsAggregator("controller-id", repo, nil, logger.Noop(), noop.NewTracerProvider().Tracer(""))
+
+	// First, send enumeration completed to set the total task count.
+	enumEvt := events.EventEnvelope{
+		Type: scanning.EventTypeJobEnumerationCompleted,
+		Key:  jobID.String(),
+		Payload: scanning.JobEnumerationCompletedEvent{
+			JobID:      jobID,
+			TotalTasks: 3, // 1 completed + 2 in progress
+		},
+		Metadata: events.EventMetadata{Partition: 0, Offset: 10},
+	}
+	require.NoError(t, aggregator.HandleEnumerationCompleted(ctx, enumEvt, func(err error) { require.NoError(t, err) }))
+
+	// Send event for the completed task first.
+	completedTaskID := uuid.New()
+	completedEvt := events.EventEnvelope{
+		Type:     scanning.EventTypeTaskJobMetric,
+		Payload:  scanning.TaskJobMetricEvent{JobID: jobID, TaskID: completedTaskID, Status: domain.TaskStatusCompleted},
+		Metadata: events.EventMetadata{Partition: 0, Offset: 11},
+	}
+	require.NoError(t, aggregator.HandleJobMetrics(ctx, completedEvt, func(err error) { require.NoError(t, err) }))
+
+	// Create two tasks that will transition from IN_PROGRESS to CANCELLED.
+	task1ID, task2ID := uuid.New(), uuid.New()
+
+	// First send events to mark tasks as in progress.
+	inProgressEvt1 := events.EventEnvelope{
+		Type:     scanning.EventTypeTaskJobMetric,
+		Payload:  scanning.TaskJobMetricEvent{JobID: jobID, TaskID: task1ID, Status: domain.TaskStatusInProgress},
+		Metadata: events.EventMetadata{Partition: 0, Offset: 12},
+	}
+	inProgressEvt2 := events.EventEnvelope{
+		Type:     scanning.EventTypeTaskJobMetric,
+		Payload:  scanning.TaskJobMetricEvent{JobID: jobID, TaskID: task2ID, Status: domain.TaskStatusInProgress},
+		Metadata: events.EventMetadata{Partition: 0, Offset: 13},
+	}
+
+	// Process in-progress events.
+	require.NoError(t, aggregator.HandleJobMetrics(ctx, inProgressEvt1, func(err error) { require.NoError(t, err) }))
+	require.NoError(t, aggregator.HandleJobMetrics(ctx, inProgressEvt2, func(err error) { require.NoError(t, err) }))
+
+	// Send events to cancel both in-progress tasks.
+	cancelEvt1 := events.EventEnvelope{
+		Type:     scanning.EventTypeTaskJobMetric,
+		Payload:  scanning.TaskJobMetricEvent{JobID: jobID, TaskID: task1ID, Status: domain.TaskStatusCancelled},
+		Metadata: events.EventMetadata{Partition: 0, Offset: 14},
+	}
+	cancelEvt2 := events.EventEnvelope{
+		Type:     scanning.EventTypeTaskJobMetric,
+		Payload:  scanning.TaskJobMetricEvent{JobID: jobID, TaskID: task2ID, Status: domain.TaskStatusCancelled},
+		Metadata: events.EventMetadata{Partition: 0, Offset: 15},
+	}
+
+	// Process first cancellation - job shouldn't be cancelled yet.
+	require.NoError(t, aggregator.HandleJobMetrics(ctx, cancelEvt1, func(err error) { require.NoError(t, err) }))
+	require.False(t, updateJobStatusCalled, "Job should not be cancelled after first task")
+
+	// Process second cancellation - now job should be cancelled.
+	require.NoError(t, aggregator.HandleJobMetrics(ctx, cancelEvt2, func(err error) { require.NoError(t, err) }))
+	require.True(t, updateJobStatusCalled, "UpdateJobStatus must be called")
+	require.Equal(t, domain.JobStatusCancelled, updateJobStatusArg, "Job should be marked as cancelled")
+
+	// Reset flag and try to cancel again - should be idempotent.
+	updateJobStatusCalled = false
+	require.NoError(t, aggregator.HandleJobMetrics(ctx, cancelEvt2, func(err error) { require.NoError(t, err) }))
+	require.False(t, updateJobStatusCalled, "UpdateJobStatus should not be called again")
 }

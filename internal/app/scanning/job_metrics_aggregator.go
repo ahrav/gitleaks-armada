@@ -49,9 +49,12 @@ type AggregatorJobState struct {
 
 	completedCount int
 	failedCount    int
-	pausedCount    int // Track number of paused tasks
-	jobFinalized   bool
-	jobPaused      bool // Track if job has been paused
+	pausedCount    int
+	cancelledCount int
+
+	jobFinalized bool
+	jobPaused    bool
+	jobCancelled bool
 }
 
 // updateTaskCounts updates the completed and failed task counts based on status transitions.
@@ -70,6 +73,9 @@ func (s *AggregatorJobState) updateTaskCounts(oldStatus, newStatus domain.TaskSt
 	if oldStatus == domain.TaskStatusPaused && newStatus != domain.TaskStatusPaused {
 		s.pausedCount--
 		s.jobPaused = false // Reset jobPaused when a task transitions out of PAUSED state
+	}
+	if newStatus == domain.TaskStatusCancelled && oldStatus != domain.TaskStatusCancelled {
+		s.cancelledCount++
 	}
 
 	// Handle status transitions away from terminal states.
@@ -96,6 +102,19 @@ func (s *AggregatorJobState) shouldPauseJob() bool {
 
 	activeTaskCount := s.finalTaskCount - (s.completedCount + s.failedCount)
 	return activeTaskCount > 0 && s.pausedCount == activeTaskCount
+}
+
+func (s *AggregatorJobState) shouldCancelJob() bool {
+	// We should cancel the job if:
+	// 1. We have at least one task (finalTaskCount > 0)
+	// 2. All non-terminal tasks are cancelled (cancelledCount == activeTaskCount)
+	// 3. Job hasn't been cancelled yet
+	if s.finalTaskCount == 0 || s.jobCancelled {
+		return false
+	}
+
+	activeTaskCount := s.finalTaskCount - (s.completedCount + s.failedCount)
+	return activeTaskCount > 0 && s.cancelledCount == activeTaskCount
 }
 
 // setEnumerationComplete marks the job's enumeration as complete and sets the final task count.
@@ -392,36 +411,6 @@ func (t *jobMetricsAggregator) HandleEnumerationCompleted(
 
 	t.mu.Unlock()
 	return t.tryFinalizeJobIfDone(ctx, st)
-}
-
-func (t *jobMetricsAggregator) tryFinalizeJobIfDone(
-	ctx context.Context,
-	st *AggregatorJobState,
-) error {
-	span := trace.SpanFromContext(ctx)
-
-	t.mu.Lock()
-	// Double-check: could have changed in the meantime.
-	if !st.isDone() || st.jobFinalized {
-		span.AddEvent("job_not_done_or_already_finalized")
-		t.mu.Unlock()
-		return nil
-	}
-	st.jobFinalized = true // We'll finalize exactly once
-	jobID := st.jobID
-	t.mu.Unlock()
-
-	if err := t.repository.UpdateJobStatus(ctx, jobID, domain.JobStatusCompleted); err != nil {
-		// TODO: Maybe retry?
-		span.RecordError(err)
-		t.mu.Lock()
-		st.jobFinalized = false
-		t.mu.Unlock()
-		return fmt.Errorf("failed to finalize job %s: %w", jobID, err)
-	}
-
-	t.logger.Info(ctx, "job is completed", "job_id", jobID.String())
-	return nil
 }
 
 // HandleJobMetrics processes any TaskJobMetricEvent related to scanning tasks (e.g.,
@@ -787,6 +776,12 @@ func (t *jobMetricsAggregator) processMetric(ctx context.Context, evt scanning.T
 		return fmt.Errorf("failed to check/update job pause status for job %s: %w", evt.JobID, err)
 	}
 
+	if err := t.tryCancelJobIfAllTasksCancelled(ctx, st); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to check/update job cancellation status")
+		return fmt.Errorf("failed to check/update job cancellation status for job %s: %w", evt.JobID, err)
+	}
+
 	if err := t.tryFinalizeJobIfDone(ctx, st); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to finalize job")
@@ -884,9 +879,20 @@ func (t *jobMetricsAggregator) updateTaskStatusAndMetrics(
 // tryPauseJobIfAllTasksPaused attempts to pause a job if all its non-terminal tasks
 // are in a paused state. It ensures proper locking and idempotency of the pause operation.
 func (t *jobMetricsAggregator) tryPauseJobIfAllTasksPaused(ctx context.Context, st *AggregatorJobState) error {
+	ctx, span := t.tracer.Start(ctx, "job_metrics_aggregator.try_pause_job_if_all_tasks_paused",
+		trace.WithAttributes(
+			attribute.String("controller_id", t.controllerID),
+			attribute.String("job_id", st.jobID.String()),
+			attribute.Bool("should_pause", st.shouldPauseJob()),
+			attribute.Bool("job_paused", st.jobPaused),
+		),
+	)
+	defer span.End()
+
 	t.mu.Lock()
 	// Double-check: could have changed in the meantime.
 	if !st.shouldPauseJob() || st.jobPaused {
+		span.AddEvent("job_not_paused_or_already_paused")
 		t.mu.Unlock()
 		return nil
 	}
@@ -896,13 +902,90 @@ func (t *jobMetricsAggregator) tryPauseJobIfAllTasksPaused(ctx context.Context, 
 
 	if err := t.repository.UpdateJobStatus(ctx, jobID, domain.JobStatusPaused); err != nil {
 		// Reset the flag if update fails.
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to pause job")
 		t.mu.Lock()
 		st.jobPaused = false
 		t.mu.Unlock()
 		return fmt.Errorf("failed to pause job %s: %w", jobID, err)
 	}
-
+	span.AddEvent("job_paused")
 	t.logger.Info(ctx, "job is paused", "job_id", jobID.String())
+
+	return nil
+}
+
+func (t *jobMetricsAggregator) tryCancelJobIfAllTasksCancelled(ctx context.Context, st *AggregatorJobState) error {
+	ctx, span := t.tracer.Start(ctx, "job_metrics_aggregator.try_cancel_job_if_all_tasks_cancelled",
+		trace.WithAttributes(
+			attribute.String("controller_id", t.controllerID),
+			attribute.String("job_id", st.jobID.String()),
+			attribute.Bool("should_cancel", st.shouldCancelJob()),
+			attribute.Bool("job_cancelled", st.jobCancelled),
+		),
+	)
+	defer span.End()
+
+	t.mu.Lock()
+	// Double-check: could have changed in the meantime.
+	if !st.shouldCancelJob() || st.jobCancelled {
+		span.AddEvent("job_not_cancelled_or_already_cancelled")
+		t.mu.Unlock()
+		return nil
+	}
+	st.jobCancelled = true // We'll cancel exactly once
+	jobID := st.jobID
+	t.mu.Unlock()
+
+	if err := t.repository.UpdateJobStatus(ctx, jobID, domain.JobStatusCancelled); err != nil {
+		// Reset the flag if update fails.
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to cancel job")
+		t.mu.Lock()
+		st.jobCancelled = false
+		t.mu.Unlock()
+		return fmt.Errorf("failed to cancel job %s: %w", jobID, err)
+	}
+	span.AddEvent("job_cancelled")
+	t.logger.Info(ctx, "job is cancelled", "job_id", jobID.String())
+
+	return nil
+}
+
+func (t *jobMetricsAggregator) tryFinalizeJobIfDone(ctx context.Context, st *AggregatorJobState) error {
+	ctx, span := t.tracer.Start(ctx, "job_metrics_aggregator.try_finalize_job_if_done",
+		trace.WithAttributes(
+			attribute.String("controller_id", t.controllerID),
+			attribute.String("job_id", st.jobID.String()),
+			attribute.Bool("is_done", st.isDone()),
+			attribute.Bool("job_finalized", st.jobFinalized),
+		),
+	)
+	defer span.End()
+
+	t.mu.Lock()
+	// Double-check: could have changed in the meantime.
+	if !st.isDone() || st.jobFinalized {
+		span.AddEvent("job_not_done_or_already_finalized")
+		t.mu.Unlock()
+		return nil
+	}
+	st.jobFinalized = true // We'll finalize exactly once
+	jobID := st.jobID
+	t.mu.Unlock()
+
+	if err := t.repository.UpdateJobStatus(ctx, jobID, domain.JobStatusCompleted); err != nil {
+		// TODO: Maybe retry?
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to finalize job")
+		t.mu.Lock()
+		st.jobFinalized = false
+		t.mu.Unlock()
+		return fmt.Errorf("failed to finalize job %s: %w", jobID, err)
+	}
+	span.AddEvent("job_finalized")
+	t.logger.Info(ctx, "job is completed", "job_id", jobID.String())
+
 	return nil
 }
 
