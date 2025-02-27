@@ -12,6 +12,8 @@ func TestNewJobMetrics(t *testing.T) {
 	assert.Equal(t, 0, metrics.TotalTasks())
 	assert.Equal(t, 0, metrics.CompletedTasks())
 	assert.Equal(t, 0, metrics.FailedTasks())
+	assert.Equal(t, 0, metrics.CancelledTasks())
+	assert.Equal(t, 0, metrics.PausedTasks())
 }
 
 func TestJobMetrics_SetTotalTasks(t *testing.T) {
@@ -190,6 +192,8 @@ func TestJobMetrics_Getters(t *testing.T) {
 	assert.Equal(t, 10, metrics.TotalTasks())
 	assert.Equal(t, 5, metrics.CompletedTasks())
 	assert.Equal(t, 2, metrics.FailedTasks())
+	assert.Equal(t, 0, metrics.CancelledTasks())
+	assert.Equal(t, 0, metrics.PausedTasks())
 }
 
 func TestJobMetrics_OnTaskAdded(t *testing.T) {
@@ -203,6 +207,8 @@ func TestJobMetrics_OnTaskAdded(t *testing.T) {
 		expectedCompleted  int
 		expectedFailed     int
 		expectedStale      int
+		expectedCancelled  int
+		expectedPaused     int
 	}
 
 	tests := []testCase{
@@ -214,6 +220,8 @@ func TestJobMetrics_OnTaskAdded(t *testing.T) {
 			expectedCompleted:  0,
 			expectedFailed:     0,
 			expectedStale:      0,
+			expectedCancelled:  0,
+			expectedPaused:     0,
 		},
 		{
 			name:               "Single COMPLETED",
@@ -223,6 +231,8 @@ func TestJobMetrics_OnTaskAdded(t *testing.T) {
 			expectedCompleted:  1,
 			expectedFailed:     0,
 			expectedStale:      0,
+			expectedCancelled:  0,
+			expectedPaused:     0,
 		},
 		{
 			name:               "Single FAILED",
@@ -232,6 +242,8 @@ func TestJobMetrics_OnTaskAdded(t *testing.T) {
 			expectedCompleted:  0,
 			expectedFailed:     1,
 			expectedStale:      0,
+			expectedCancelled:  0,
+			expectedPaused:     0,
 		},
 		{
 			name:               "Single STALE",
@@ -241,6 +253,30 @@ func TestJobMetrics_OnTaskAdded(t *testing.T) {
 			expectedCompleted:  0,
 			expectedFailed:     0,
 			expectedStale:      1,
+			expectedCancelled:  0,
+			expectedPaused:     0,
+		},
+		{
+			name:               "Single CANCELLED",
+			statusesToAdd:      []TaskStatus{TaskStatusCancelled},
+			expectedTotal:      1,
+			expectedInProgress: 0,
+			expectedCompleted:  0,
+			expectedFailed:     0,
+			expectedStale:      0,
+			expectedCancelled:  1,
+			expectedPaused:     0,
+		},
+		{
+			name:               "Single PAUSED",
+			statusesToAdd:      []TaskStatus{TaskStatusPaused},
+			expectedTotal:      1,
+			expectedInProgress: 0,
+			expectedCompleted:  0,
+			expectedFailed:     0,
+			expectedStale:      0,
+			expectedCancelled:  0,
+			expectedPaused:     1,
 		},
 		{
 			name: "Multiple Mixed",
@@ -250,17 +286,23 @@ func TestJobMetrics_OnTaskAdded(t *testing.T) {
 				TaskStatusCompleted,
 				TaskStatusFailed,
 				TaskStatusStale,
+				TaskStatusCancelled,
+				TaskStatusPaused,
 			},
-			// total = 5
+			// total = 7
 			// in-progress = 2 (two IN_PROGRESS)
 			// completed = 1
 			// failed = 1
 			// stale = 1
-			expectedTotal:      5,
+			// cancelled = 1
+			// paused = 1
+			expectedTotal:      7,
 			expectedInProgress: 2,
 			expectedCompleted:  1,
 			expectedFailed:     1,
 			expectedStale:      1,
+			expectedCancelled:  1,
+			expectedPaused:     1,
 		},
 	}
 
@@ -279,6 +321,8 @@ func TestJobMetrics_OnTaskAdded(t *testing.T) {
 			assert.Equal(t, tc.expectedCompleted, m.CompletedTasks())
 			assert.Equal(t, tc.expectedFailed, m.FailedTasks())
 			assert.Equal(t, tc.expectedStale, m.StaleTasks())
+			assert.Equal(t, tc.expectedCancelled, m.CancelledTasks())
+			assert.Equal(t, tc.expectedPaused, m.PausedTasks())
 		})
 	}
 }
@@ -296,6 +340,8 @@ func TestJobMetrics_OnTaskStatusChanged(t *testing.T) {
 		expectedCompleted  int
 		expectedFailed     int
 		expectedStale      int
+		expectedCancelled  int
+		expectedPaused     int
 	}
 
 	tests := []testCase{
@@ -304,13 +350,15 @@ func TestJobMetrics_OnTaskStatusChanged(t *testing.T) {
 			setupStatuses: []TaskStatus{TaskStatusInProgress},
 			oldStatus:     TaskStatusInProgress,
 			newStatus:     TaskStatusCompleted,
-			// Initially: total=1, inprogress=1, completed=0, failed=0, stale=0
+			// Initially: total=1, inprogress=1, completed=0, failed=0, stale=0, cancelled=0, paused=0
 			// After transition: inprogress=0, completed=1
 			expectedTotal:      1,
 			expectedInProgress: 0,
 			expectedCompleted:  1,
 			expectedFailed:     0,
 			expectedStale:      0,
+			expectedCancelled:  0,
+			expectedPaused:     0,
 		},
 		{
 			name: "Multiple Tasks, transition one from STALE->FAILED",
@@ -334,6 +382,8 @@ func TestJobMetrics_OnTaskStatusChanged(t *testing.T) {
 			expectedCompleted:  1,
 			expectedFailed:     2,
 			expectedStale:      0,
+			expectedCancelled:  0,
+			expectedPaused:     0,
 		},
 		{
 			name: "Multiple Tasks, transition an IN_PROGRESS to COMPLETED",
@@ -358,6 +408,48 @@ func TestJobMetrics_OnTaskStatusChanged(t *testing.T) {
 			expectedCompleted:  2,
 			expectedFailed:     1,
 			expectedStale:      1,
+			expectedCancelled:  0,
+			expectedPaused:     0,
+		},
+		{
+			name: "Transition IN_PROGRESS to CANCELLED",
+			setupStatuses: []TaskStatus{
+				TaskStatusInProgress,
+				TaskStatusInProgress,
+				TaskStatusCompleted,
+			},
+			oldStatus: TaskStatusInProgress,
+			newStatus: TaskStatusCancelled,
+			// Setup:
+			// total=3, inprogress=2, completed=1, cancelled=0
+			// After transition: inprogress=1, completed=1, cancelled=1
+			expectedTotal:      3,
+			expectedInProgress: 1,
+			expectedCompleted:  1,
+			expectedFailed:     0,
+			expectedStale:      0,
+			expectedCancelled:  1,
+			expectedPaused:     0,
+		},
+		{
+			name: "Transition IN_PROGRESS to PAUSED",
+			setupStatuses: []TaskStatus{
+				TaskStatusInProgress,
+				TaskStatusInProgress,
+				TaskStatusCompleted,
+			},
+			oldStatus: TaskStatusInProgress,
+			newStatus: TaskStatusPaused,
+			// Setup:
+			// total=3, inprogress=2, completed=1, paused=0
+			// After transition: inprogress=1, completed=1, paused=1
+			expectedTotal:      3,
+			expectedInProgress: 1,
+			expectedCompleted:  1,
+			expectedFailed:     0,
+			expectedStale:      0,
+			expectedCancelled:  0,
+			expectedPaused:     1,
 		},
 	}
 
@@ -381,6 +473,8 @@ func TestJobMetrics_OnTaskStatusChanged(t *testing.T) {
 			assert.Equal(t, tc.expectedCompleted, m.CompletedTasks())
 			assert.Equal(t, tc.expectedFailed, m.FailedTasks())
 			assert.Equal(t, tc.expectedStale, m.StaleTasks())
+			assert.Equal(t, tc.expectedCancelled, m.CancelledTasks())
+			assert.Equal(t, tc.expectedPaused, m.PausedTasks())
 		})
 	}
 }
@@ -400,6 +494,8 @@ func TestJobMetrics_IsCompleted(t *testing.T) {
 				pendingTasks:    0,
 				inProgressTasks: 0,
 				staleTasks:      0,
+				cancelledTasks:  0,
+				pausedTasks:     0,
 			},
 			expected: true,
 		},
@@ -412,6 +508,8 @@ func TestJobMetrics_IsCompleted(t *testing.T) {
 				pendingTasks:    3,
 				inProgressTasks: 0,
 				staleTasks:      0,
+				cancelledTasks:  0,
+				pausedTasks:     0,
 			},
 			expected: false,
 		},
@@ -424,6 +522,8 @@ func TestJobMetrics_IsCompleted(t *testing.T) {
 				pendingTasks:    0,
 				inProgressTasks: 2,
 				staleTasks:      0,
+				cancelledTasks:  0,
+				pausedTasks:     0,
 			},
 			expected: false,
 		},
@@ -436,8 +536,24 @@ func TestJobMetrics_IsCompleted(t *testing.T) {
 				pendingTasks:    0,
 				inProgressTasks: 0,
 				staleTasks:      1,
+				cancelledTasks:  0,
+				pausedTasks:     0,
 			},
 			expected: false,
+		},
+		{
+			name: "has cancelled and paused tasks but is still completed",
+			metrics: &JobMetrics{
+				totalTasks:      10,
+				completedTasks:  5,
+				failedTasks:     1,
+				pendingTasks:    0,
+				inProgressTasks: 0,
+				staleTasks:      0,
+				cancelledTasks:  3,
+				pausedTasks:     1,
+			},
+			expected: true,
 		},
 	}
 

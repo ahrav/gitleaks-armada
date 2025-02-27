@@ -397,6 +397,8 @@ type ScanJobMetric struct {
 	CompletedTasks  int32
 	FailedTasks     int32
 	StaleTasks      int32
+	CancelledTasks  int32
+	PausedTasks     int32
 	UpdatedAt       pgtype.Timestamptz
 	CreatedAt       pgtype.Timestamptz
 }

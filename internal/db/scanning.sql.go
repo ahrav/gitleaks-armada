@@ -309,7 +309,9 @@ SELECT
     in_progress_tasks,
     completed_tasks,
     failed_tasks,
-    stale_tasks
+    stale_tasks,
+    cancelled_tasks,
+    paused_tasks
 FROM scan_job_metrics
 WHERE job_id = $1
 `
@@ -321,6 +323,8 @@ type GetJobMetricsRow struct {
 	CompletedTasks  int32
 	FailedTasks     int32
 	StaleTasks      int32
+	CancelledTasks  int32
+	PausedTasks     int32
 }
 
 func (q *Queries) GetJobMetrics(ctx context.Context, jobID pgtype.UUID) (GetJobMetricsRow, error) {
@@ -333,6 +337,8 @@ func (q *Queries) GetJobMetrics(ctx context.Context, jobID pgtype.UUID) (GetJobM
 		&i.CompletedTasks,
 		&i.FailedTasks,
 		&i.StaleTasks,
+		&i.CancelledTasks,
+		&i.PausedTasks,
 	)
 	return i, err
 }
@@ -577,10 +583,12 @@ metrics_upsert AS (
         completed_tasks,
         failed_tasks,
         stale_tasks,
+        cancelled_tasks,
+        paused_tasks,
         created_at,
         updated_at
     ) VALUES (
-        $1, $4, $5, $6, $7, $8, NOW(), NOW()
+        $1, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW()
     )
     ON CONFLICT (job_id)
     DO UPDATE SET
@@ -589,6 +597,8 @@ metrics_upsert AS (
         completed_tasks = EXCLUDED.completed_tasks,
         failed_tasks = EXCLUDED.failed_tasks,
         stale_tasks = EXCLUDED.stale_tasks,
+        cancelled_tasks = EXCLUDED.cancelled_tasks,
+        paused_tasks = EXCLUDED.paused_tasks,
         updated_at = NOW()
     RETURNING job_id
 )
@@ -604,6 +614,8 @@ type UpdateJobMetricsAndCheckpointParams struct {
 	CompletedTasks  int32
 	FailedTasks     int32
 	StaleTasks      int32
+	CancelledTasks  int32
+	PausedTasks     int32
 }
 
 // Explicitly ignore total_tasks as it should not be updated
@@ -618,6 +630,8 @@ func (q *Queries) UpdateJobMetricsAndCheckpoint(ctx context.Context, arg UpdateJ
 		arg.CompletedTasks,
 		arg.FailedTasks,
 		arg.StaleTasks,
+		arg.CancelledTasks,
+		arg.PausedTasks,
 	)
 	return err
 }

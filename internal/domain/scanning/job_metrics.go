@@ -8,6 +8,8 @@ type JobMetrics struct {
 	completedTasks  int
 	failedTasks     int
 	staleTasks      int
+	cancelledTasks  int
+	pausedTasks     int
 }
 
 // NewJobMetrics creates a new JobMetrics instance.
@@ -15,7 +17,7 @@ func NewJobMetrics() *JobMetrics { return new(JobMetrics) }
 
 // ReconstructJobMetrics creates a JobMetrics instance from stored fields.
 func ReconstructJobMetrics(
-	totalTasks, pendingTasks, inProgressTasks, completedTasks, failedTasks, staleTasks int,
+	totalTasks, pendingTasks, inProgressTasks, completedTasks, failedTasks, staleTasks, cancelledTasks, pausedTasks int,
 ) *JobMetrics {
 	return &JobMetrics{
 		totalTasks:      totalTasks,
@@ -24,6 +26,8 @@ func ReconstructJobMetrics(
 		completedTasks:  completedTasks,
 		failedTasks:     failedTasks,
 		staleTasks:      staleTasks,
+		cancelledTasks:  cancelledTasks,
+		pausedTasks:     pausedTasks,
 	}
 }
 
@@ -36,12 +40,14 @@ func (m *JobMetrics) Clone() *JobMetrics {
 		completedTasks:  m.completedTasks,
 		failedTasks:     m.failedTasks,
 		staleTasks:      m.staleTasks,
+		cancelledTasks:  m.cancelledTasks,
+		pausedTasks:     m.pausedTasks,
 	}
 }
 
 // AllTasksTerminal returns true if there are no tasks in pending,
 // inProgress, or stale states. In other words, from the aggregator's
-// perspective, all tasks are completed or failed.
+// perspective, all tasks are completed, failed, cancelled, or paused.
 func (m *JobMetrics) AllTasksTerminal() bool {
 	return m.pendingTasks == 0 && m.inProgressTasks == 0 && m.staleTasks == 0
 }
@@ -57,6 +63,12 @@ func (m *JobMetrics) FailedTasks() int { return m.failedTasks }
 
 // StaleTasks returns the number of stale tasks.
 func (m *JobMetrics) StaleTasks() int { return m.staleTasks }
+
+// CancelledTasks returns the number of cancelled tasks.
+func (m *JobMetrics) CancelledTasks() int { return m.cancelledTasks }
+
+// PausedTasks returns the number of paused tasks.
+func (m *JobMetrics) PausedTasks() int { return m.pausedTasks }
 
 // SetTotalTasks updates the total number of tasks.
 func (m *JobMetrics) SetTotalTasks(total int) { m.totalTasks = total }
@@ -81,6 +93,10 @@ func (m *JobMetrics) OnTaskAdded(status TaskStatus) {
 		m.completedTasks++
 	case TaskStatusFailed:
 		m.failedTasks++
+	case TaskStatusCancelled:
+		m.cancelledTasks++
+	case TaskStatusPaused:
+		m.pausedTasks++
 	}
 }
 
@@ -94,6 +110,10 @@ func (m *JobMetrics) OnTaskRemoved(status TaskStatus) {
 		m.completedTasks--
 	case TaskStatusFailed:
 		m.failedTasks--
+	case TaskStatusCancelled:
+		m.cancelledTasks--
+	case TaskStatusPaused:
+		m.pausedTasks--
 	}
 }
 
@@ -111,6 +131,10 @@ func (m *JobMetrics) OnTaskStatusChanged(oldStatus, newStatus TaskStatus) {
 		m.failedTasks--
 	case TaskStatusStale:
 		m.staleTasks--
+	case TaskStatusCancelled:
+		m.cancelledTasks--
+	case TaskStatusPaused:
+		m.pausedTasks--
 	}
 	// Increment new
 	switch newStatus {
@@ -124,6 +148,10 @@ func (m *JobMetrics) OnTaskStatusChanged(oldStatus, newStatus TaskStatus) {
 		m.failedTasks++
 	case TaskStatusStale:
 		m.staleTasks++
+	case TaskStatusCancelled:
+		m.cancelledTasks++
+	case TaskStatusPaused:
+		m.pausedTasks++
 	}
 }
 

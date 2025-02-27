@@ -913,6 +913,10 @@ func (t *jobMetricsAggregator) tryUpdateJobStatus(
 			attribute.String("job_id", params.state.jobID.String()),
 			attribute.Bool("should_update", params.shouldUpdate()),
 			attribute.Bool("status_flag", *params.statusFlag),
+			attribute.Int("completed_count", params.state.completedCount),
+			attribute.Int("failed_count", params.state.failedCount),
+			attribute.Int("paused_count", params.state.pausedCount),
+			attribute.Int("cancelled_count", params.state.cancelledCount),
 		),
 	)
 	defer span.End()
