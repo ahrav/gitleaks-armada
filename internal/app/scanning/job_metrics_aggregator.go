@@ -27,9 +27,11 @@ type taskStatusEntry struct {
 
 // shouldBeCleanedUp returns whether a task in a terminal state has remained there
 // longer than the configured retention period, indicating it can be removed.
-// TODO: Add OnTaskStatusChanged to the metrics.
+// TODO: Do we need to consider anything else here?
 func (t *taskStatusEntry) shouldBeCleanedUp(tp timeProvider, retentionPeriod time.Duration) bool {
-	return (t.status == domain.TaskStatusCompleted || t.status == domain.TaskStatusFailed) &&
+	return (t.status == domain.TaskStatusCompleted ||
+		t.status == domain.TaskStatusFailed ||
+		t.status == domain.TaskStatusCancelled) &&
 		tp.Now().Sub(t.updatedAt) > retentionPeriod
 }
 
@@ -78,13 +80,10 @@ func (s *AggregatorJobState) updateTaskCounts(oldStatus, newStatus domain.TaskSt
 		s.cancelledCount++
 	}
 
-	// Handle status transitions away from terminal states.
-	// If a previously terminal task transitions away from completed/failed, decrement
+	// Handle status transitions away from retryable terminal states.
+	// If a previously terminal task transitions away from failed, decrement
 	// the relevant counter.
-	// TODO: This shouldn't happen, but leaving for now.
-	if oldStatus == domain.TaskStatusCompleted && newStatus != domain.TaskStatusCompleted {
-		s.completedCount--
-	}
+	// TODO: This will need to get updated once we support retrying tasks.
 	if oldStatus == domain.TaskStatusFailed && newStatus != domain.TaskStatusFailed {
 		s.failedCount--
 	}
