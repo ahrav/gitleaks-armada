@@ -3,10 +3,14 @@
 -- name: CreateJob :exec
 INSERT INTO scan_jobs (
     job_id,
-    status
+    status,
+    source_type,
+    config
 ) VALUES (
     $1, -- job_id UUID
-    $2  -- status scan_job_status
+    $2, -- status scan_job_status
+    $3, -- source_type VARCHAR
+    $4  -- config JSONB
 );
 
 -- name: UpdateJob :execrows
@@ -36,6 +40,8 @@ INSERT INTO scan_job_targets (
 SELECT
     j.job_id,
     j.status,
+    j.source_type,
+    j.config,
     j.start_time,
     j.end_time,
     j.updated_at,

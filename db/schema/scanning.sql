@@ -17,6 +17,8 @@ CREATE TYPE scan_job_status AS ENUM (
 CREATE TABLE scan_jobs (
     job_id UUID PRIMARY KEY,
     status scan_job_status NOT NULL,
+    source_type VARCHAR(32) NOT NULL,
+    config JSONB NOT NULL,
     start_time TIMESTAMPTZ,
     end_time TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
