@@ -130,6 +130,10 @@ func RegisterEventSerializers() {
 	RegisterSerializeFunc(scanning.EventTypeJobPaused, serializeJobPaused)
 	RegisterDeserializeFunc(scanning.EventTypeJobPaused, deserializeJobPaused)
 
+	// Job Resuming event.
+	RegisterSerializeFunc(scanning.EventTypeJobResuming, serializeJobResuming)
+	RegisterDeserializeFunc(scanning.EventTypeJobResuming, deserializeJobResuming)
+
 	// Job Cancelling/Cancelled events.
 	RegisterSerializeFunc(scanning.EventTypeJobCancelling, serializeJobCancelling)
 	RegisterDeserializeFunc(scanning.EventTypeJobCancelling, deserializeJobCancelling)
@@ -288,6 +292,32 @@ func deserializeJobPaused(data []byte) (any, error) {
 	}
 
 	event, err := serdeScanning.ProtoToJobPausedEvent(&pbEvent)
+	if err != nil {
+		return nil, fmt.Errorf("convert proto to domain event: %w", err)
+	}
+
+	return event, nil
+}
+
+// serializeJobResuming converts a JobResumingEvent to protobuf bytes.
+func serializeJobResuming(payload any) ([]byte, error) {
+	event, ok := payload.(scanning.JobResumingEvent)
+	if !ok {
+		return nil, fmt.Errorf("serializeJobResuming: payload is not JobResumingEvent, got %T", payload)
+	}
+
+	pbEvent := serdeScanning.JobResumingEventToProto(event)
+	return proto.Marshal(pbEvent)
+}
+
+// deserializeJobResuming converts protobuf bytes back into a JobResumingEvent.
+func deserializeJobResuming(data []byte) (any, error) {
+	var pbEvent pb.JobResumingEvent
+	if err := proto.Unmarshal(data, &pbEvent); err != nil {
+		return nil, fmt.Errorf("unmarshal JobResumingEvent: %w", err)
+	}
+
+	event, err := serdeScanning.ProtoToJobResumingEvent(&pbEvent)
 	if err != nil {
 		return nil, fmt.Errorf("convert proto to domain event: %w", err)
 	}

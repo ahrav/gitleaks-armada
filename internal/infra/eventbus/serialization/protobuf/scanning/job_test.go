@@ -3,13 +3,13 @@ package scanning
 import (
 	"testing"
 
-	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	serializationerrors "github.com/ahrav/gitleaks-armada/internal/infra/eventbus/serialization/errors"
+	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 	pb "github.com/ahrav/gitleaks-armada/proto"
 )
 
@@ -361,6 +361,33 @@ func TestJobPausedEventConversion(t *testing.T) {
 
 	t.Run("nil event", func(t *testing.T) {
 		_, err := ProtoToJobPausedEvent(nil)
+		require.Error(t, err)
+		assert.IsType(t, serializationerrors.ErrNilEvent{}, err)
+	})
+}
+
+func TestJobResumingEventConversion(t *testing.T) {
+	t.Run("successful conversion", func(t *testing.T) {
+		jobID := "test-job-id"
+		requestedBy := "test-user"
+		domainEvent := scanning.NewJobResumingEvent(jobID, requestedBy)
+
+		// Test domain to proto conversion.
+		protoEvent := JobResumingEventToProto(domainEvent)
+		require.NotNil(t, protoEvent)
+		assert.Equal(t, jobID, protoEvent.JobId)
+		assert.Equal(t, requestedBy, protoEvent.RequestedBy)
+		assert.Equal(t, domainEvent.OccurredAt().UnixNano(), protoEvent.Timestamp)
+
+		// Test proto to domain conversion.
+		convertedEvent, err := ProtoToJobResumingEvent(protoEvent)
+		require.NoError(t, err)
+		assert.Equal(t, jobID, convertedEvent.JobID)
+		assert.Equal(t, requestedBy, convertedEvent.RequestedBy)
+	})
+
+	t.Run("nil event", func(t *testing.T) {
+		_, err := ProtoToJobResumingEvent(nil)
 		require.Error(t, err)
 		assert.IsType(t, serializationerrors.ErrNilEvent{}, err)
 	})

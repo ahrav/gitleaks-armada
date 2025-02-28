@@ -3,11 +3,10 @@ package scanning
 import (
 	"fmt"
 
-	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
-
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	serializationerrors "github.com/ahrav/gitleaks-armada/internal/infra/eventbus/serialization/errors"
+	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 	pb "github.com/ahrav/gitleaks-armada/proto"
 )
 
@@ -247,6 +246,24 @@ func ProtoToJobPausedEvent(event *pb.JobPausedEvent) (scanning.JobPausedEvent, e
 	}
 
 	return scanning.NewJobPausedEvent(event.JobId, event.RequestedBy, event.Reason), nil
+}
+
+// JobResumingEventToProto converts a domain JobResumingEvent to its protobuf representation.
+func JobResumingEventToProto(event scanning.JobResumingEvent) *pb.JobResumingEvent {
+	return &pb.JobResumingEvent{
+		JobId:       event.JobID,
+		Timestamp:   event.OccurredAt().UnixNano(),
+		RequestedBy: event.RequestedBy,
+	}
+}
+
+// ProtoToJobResumingEvent converts a protobuf JobResumingEvent to its domain representation.
+func ProtoToJobResumingEvent(event *pb.JobResumingEvent) (scanning.JobResumingEvent, error) {
+	if event == nil {
+		return scanning.JobResumingEvent{}, serializationerrors.ErrNilEvent{EventType: "JobResumingEvent"}
+	}
+
+	return scanning.NewJobResumingEvent(event.JobId, event.RequestedBy), nil
 }
 
 // JobCancellingEventToProto converts a domain JobCancellingEvent to a protobuf message.
