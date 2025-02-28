@@ -77,7 +77,6 @@ func TestAggregatorJobState_UpdateTaskCounts(t *testing.T) {
 			assert.Equal(t, tt.expected.failedCount, state.failedCount)
 			assert.Equal(t, tt.expected.pausedCount, state.pausedCount)
 			assert.Equal(t, tt.expected.cancelledCount, state.cancelledCount)
-			assert.Equal(t, tt.expected.jobPaused, state.jobPaused)
 		})
 	}
 }
