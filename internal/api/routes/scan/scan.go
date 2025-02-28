@@ -32,6 +32,8 @@ func Routes(app *web.App, cfg Config) {
 	// TODO: Handle users pausing multiple times. (error, ignore, etc...)
 	app.HandlerFunc(http.MethodPost, "", "/v1/scan/{id}/pause", pause(cfg))
 	app.HandlerFunc(http.MethodPost, "", "/v1/scan/bulk/pause", bulkPause(cfg))
+	app.HandlerFunc(http.MethodPost, "", "/v1/scan/{id}/resume", resume(cfg))
+	app.HandlerFunc(http.MethodPost, "", "/v1/scan/bulk/resume", bulkResume(cfg))
 	app.HandlerFunc(http.MethodPost, "", "/v1/scan/{id}/cancel", cancel(cfg))
 	app.HandlerFunc(http.MethodPost, "", "/v1/scan/bulk/cancel", bulkCancel(cfg))
 	// app.HandlerFunc(http.MethodGet, "", "/v1/scan/:id", status(cfg))
@@ -328,6 +330,132 @@ func pauseJob(ctx context.Context, jobIDStr string, eventBus events.DomainEventP
 	}
 
 	return pauseResponse{ID: jobID.String(), Status: scanDomain.JobStatusPausing.String()}, nil
+}
+
+// resumeRequest represents the payload for resuming a scan.
+type resumeRequest struct {
+	Reason string `json:"reason,omitempty"`
+}
+
+// resumeResponse represents the response for resuming a scan.
+type resumeResponse struct {
+	ID     string `json:"id"`     // The job ID
+	Status string `json:"status"` // Current status
+}
+
+// Encode implements the web.Encoder interface.
+func (rr resumeResponse) Encode() ([]byte, string, error) {
+	data, err := json.Marshal(rr)
+	if err != nil {
+		return nil, "", err
+	}
+	return data, "application/json", nil
+}
+
+// HTTPStatus implements the httpStatus interface to set the response status code.
+func (rr resumeResponse) HTTPStatus() int { return http.StatusAccepted } // 202
+
+// resume handles the request to resume a scan job.
+func resume(cfg Config) web.HandlerFunc {
+	return func(ctx context.Context, r *http.Request) web.Encoder {
+		jobIDStr := web.Param(r, "id")
+
+		var req resumeRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+			return errs.New(errs.InvalidArgument, err)
+		}
+
+		response, err := resumeJob(ctx, jobIDStr, cfg.EventBus)
+		if err != nil {
+			return errs.New(errs.InvalidArgument, err)
+		}
+
+		return response
+	}
+}
+
+// bulkResumeRequest represents the payload for resuming multiple scans.
+type bulkResumeRequest struct {
+	JobIDs []string `json:"job_ids" validate:"required,dive,uuid4"`
+	Reason string   `json:"reason,omitempty"`
+}
+
+// bulkResumeResponse represents the response for resuming multiple scans.
+type bulkResumeResponse struct {
+	Jobs []resumeResponse `json:"jobs"`
+}
+
+// Encode implements the web.Encoder interface.
+func (bpr bulkResumeResponse) Encode() ([]byte, string, error) {
+	data, err := json.Marshal(bpr)
+	if err != nil {
+		return nil, "", err
+	}
+	return data, "application/json", nil
+}
+
+// HTTPStatus implements the httpStatus interface to set the response status code.
+func (bpr bulkResumeResponse) HTTPStatus() int { return http.StatusAccepted } // 202
+
+// bulkResume handles the request to resume multiple scan jobs.
+func bulkResume(cfg Config) web.HandlerFunc {
+	return func(ctx context.Context, r *http.Request) web.Encoder {
+		var req bulkResumeRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			return errs.New(errs.InvalidArgument, err)
+		}
+
+		if err := errs.Check(req); err != nil {
+			return errs.New(errs.InvalidArgument, err)
+		}
+
+		if len(req.JobIDs) > maxBulkJobCount {
+			return errs.New(errs.InvalidArgument, fmt.Errorf("too many job IDs: maximum allowed is %d", maxBulkJobCount))
+		}
+
+		var responses []resumeResponse
+		var processingErrors []error
+
+		for _, jobIDStr := range req.JobIDs {
+			response, err := resumeJob(ctx, jobIDStr, cfg.EventBus)
+			if err != nil {
+				processingErrors = append(processingErrors, fmt.Errorf("job %s: %w", jobIDStr, err))
+				continue
+			}
+			responses = append(responses, response)
+		}
+
+		// If there were any errors but we still have some successful responses,
+		// log the errors but still return the successful responses.
+		if len(processingErrors) > 0 && len(responses) > 0 {
+			// Log errors but continue with partial success.
+			errMsg := fmt.Sprintf("Failed to resume %d out of %d jobs",
+				len(processingErrors), len(req.JobIDs))
+			cfg.Log.Error(ctx, errMsg, "errors", processingErrors)
+		} else if len(processingErrors) > 0 {
+			// If all jobs failed, return an error.
+			return errs.New(errs.InvalidArgument, fmt.Errorf("failed to resume any jobs: %v", processingErrors))
+		}
+
+		return bulkResumeResponse{Jobs: responses}
+	}
+}
+
+// resumeJob handles the logic for resuming a single job and returns its response.
+// This is a helper function used by both single and bulk resume endpoints.
+func resumeJob(ctx context.Context, jobIDStr string, eventBus events.DomainEventPublisher) (resumeResponse, error) {
+	jobID, err := uuid.Parse(jobIDStr)
+	if err != nil {
+		return resumeResponse{}, fmt.Errorf("invalid job ID: %w", err)
+	}
+
+	// Create and publish the JobResumingEvent.
+	evt := scanDomain.NewJobResumingEvent(jobID.String(), "system") // TODO: Use JWT user instead of "system" if available.
+	if err := eventBus.PublishDomainEvent(ctx, evt, events.WithKey(jobID.String())); err != nil {
+		return resumeResponse{}, fmt.Errorf("failed to publish resume event: %w", err)
+	}
+
+	return resumeResponse{ID: jobID.String(), Status: scanDomain.JobStatusRunning.String()}, nil
 }
 
 // cancelRequest represents the payload for cancelling a scan.

@@ -132,6 +132,102 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /v1/scan/{jobId}/resume:
+    post:
+      summary: Resume a paused scan job
+      operationId: resumeScan
+      tags:
+        - Scanning
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: The ID of the scan job to resume
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResumeRequest'
+      responses:
+        '202':
+          description: Resume request accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResumeResponse'
+        '404':
+          description: Job not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '400':
+          description: Invalid request parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/scan/bulk/resume:
+    post:
+      summary: Resume multiple paused scan jobs
+      operationId: bulkResumeScan
+      tags:
+        - Scanning
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - job_ids
+              properties:
+                job_ids:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                  description: List of job IDs to resume (maximum 500)
+                  maxItems: 500
+                reason:
+                  type: string
+                  description: Optional reason for resuming the scans
+      responses:
+        '202':
+          description: Bulk resume request accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  jobs:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ResumeResponse'
+        '400':
+          description: Invalid request parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /v1/scan/{id}/cancel:
     post:
       summary: Cancel a scan job
@@ -419,3 +515,26 @@ components:
       example:
         id: "123e4567-e89b-12d3-a456-426614174000"
         status: "PAUSING"
+    ResumeRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          description: Optional reason for resuming the scan
+    ResumeResponse:
+      type: object
+      required:
+        - id
+        - status
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: The ID of the resumed job
+        status:
+          type: string
+          enum: [RESUMING]
+          description: The new status of the job
+      example:
+        id: "123e4567-e89b-12d3-a456-426614174000"
+        status: "RESUMING"
