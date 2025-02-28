@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -18,6 +17,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/rules"
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
+	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 )
 
 type mockJobScheduler struct{ mock.Mock }
@@ -33,6 +33,11 @@ func (m *mockJobScheduler) Pause(ctx context.Context, jobID uuid.UUID, requested
 }
 
 func (m *mockJobScheduler) Cancel(ctx context.Context, jobID uuid.UUID, requestedBy string) error {
+	args := m.Called(ctx, jobID, requestedBy)
+	return args.Error(0)
+}
+
+func (m *mockJobScheduler) Resume(ctx context.Context, jobID uuid.UUID, requestedBy string) error {
 	args := m.Called(ctx, jobID, requestedBy)
 	return args.Error(0)
 }
@@ -349,6 +354,84 @@ func TestHandleJobCancelling(t *testing.T) {
 			ack := func(err error) { ackCalled = true }
 
 			err := facilitator.HandleJobCancelling(
+				context.Background(),
+				events.EventEnvelope{Payload: tt.payload},
+				ack,
+			)
+
+			if tt.expectErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+			assert.True(t, ackCalled, "ack function should have been called")
+			mockJobScheduler.AssertExpectations(t)
+		})
+	}
+}
+
+func TestHandleJobResuming(t *testing.T) {
+	validJobID := uuid.New()
+
+	tests := []struct {
+		name      string
+		setupMock func(m *mockJobScheduler)
+		payload   any
+		expectErr bool
+	}{
+		{
+			name: "success",
+			setupMock: func(m *mockJobScheduler) {
+				m.On("Resume", mock.Anything, validJobID, "test-user").Return(nil).Once()
+			},
+			payload: scanning.JobResumingEvent{
+				JobID:       validJobID.String(),
+				RequestedBy: "test-user",
+			},
+			expectErr: false,
+		},
+		{
+			name: "invalid payload type",
+			setupMock: func(m *mockJobScheduler) {
+				// No expectations, should fail before calling scheduler.
+			},
+			payload:   "invalid payload",
+			expectErr: true,
+		},
+		{
+			name: "invalid job ID",
+			setupMock: func(m *mockJobScheduler) {
+				// No expectations, should fail before calling scheduler.
+			},
+			payload: scanning.JobResumingEvent{
+				JobID:       "not-a-uuid",
+				RequestedBy: "test-user",
+			},
+			expectErr: true,
+		},
+		{
+			name: "job scheduler error",
+			setupMock: func(m *mockJobScheduler) {
+				m.On("Resume", mock.Anything, validJobID, "test-user").
+					Return(errors.New("scheduler error")).Once()
+			},
+			payload: scanning.JobResumingEvent{
+				JobID:       validJobID.String(),
+				RequestedBy: "test-user",
+			},
+			expectErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			facilitator, mockJobScheduler, _, _, _, _, _ := setupEventsFacilitatorTestSuite()
+			tt.setupMock(mockJobScheduler)
+
+			var ackCalled bool
+			ack := func(err error) { ackCalled = true }
+
+			err := facilitator.HandleJobResuming(
 				context.Background(),
 				events.EventEnvelope{Payload: tt.payload},
 				ack,

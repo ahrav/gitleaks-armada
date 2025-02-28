@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -15,6 +14,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/rules"
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
+	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 )
 
 // EventsFacilitator orchestrates domain event handling across multiple bounded contexts
@@ -297,6 +297,46 @@ func (ef *EventsFacilitator) HandleJobCancelling(
 
 		span.AddEvent("job_cancellation_initiated")
 		span.SetStatus(codes.Ok, "job cancellation initiated")
+		return nil
+	}, ack)
+}
+
+// HandleJobResuming processes a scanning.JobResumingEvent by transitioning the job from PAUSED
+// to RUNNING and publishing TaskResumeEvents for each paused task.
+func (ef *EventsFacilitator) HandleJobResuming(
+	ctx context.Context,
+	evt events.EventEnvelope,
+	ack events.AckFunc,
+) error {
+	return ef.withSpan(ctx, "events_facilitator.handle_job_resuming", func(ctx context.Context, span trace.Span) error {
+		span.AddEvent("processing_job_resuming")
+
+		resumingEvt, ok := evt.Payload.(scanning.JobResumingEvent)
+		if !ok {
+			return recordPayloadTypeError(span, evt.Payload)
+		}
+
+		span.AddEvent("job_resuming_event_valid", trace.WithAttributes(
+			attribute.String("job_id", resumingEvt.JobID),
+			attribute.String("requested_by", resumingEvt.RequestedBy),
+		))
+
+		jobID, err := uuid.Parse(resumingEvt.JobID)
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "invalid job ID")
+			return fmt.Errorf("invalid job ID: %w", err)
+		}
+
+		err = ef.jobScheduler.Resume(ctx, jobID, resumingEvt.RequestedBy)
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "failed to resume job")
+			return fmt.Errorf("failed to resume job (job_id: %s): %w", jobID, err)
+		}
+
+		span.AddEvent("job_resumption_initiated")
+		span.SetStatus(codes.Ok, "job resumption initiated")
 		return nil
 	}, ack)
 }
