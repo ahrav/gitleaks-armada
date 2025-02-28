@@ -102,7 +102,8 @@ paths:
                   items:
                     type: string
                     format: uuid
-                  description: List of job IDs to pause
+                  description: List of job IDs to pause (maximum 500)
+                  maxItems: 500
                 reason:
                   type: string
                   description: Optional reason for pausing the scans
@@ -203,7 +204,8 @@ paths:
                   items:
                     type: string
                     format: uuid
-                  description: List of job IDs to cancel
+                  description: List of job IDs to cancel (maximum 500)
+                  maxItems: 500
                 reason:
                   type: string
                   description: Optional reason for cancelling the scans

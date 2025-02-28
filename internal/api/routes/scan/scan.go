@@ -7,8 +7,6 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
-
 	"github.com/ahrav/gitleaks-armada/internal/api/errs"
 	"github.com/ahrav/gitleaks-armada/internal/app/commands"
 	"github.com/ahrav/gitleaks-armada/internal/app/commands/scanning"
@@ -17,6 +15,7 @@ import (
 	scanDomain "github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
+	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 	"github.com/ahrav/gitleaks-armada/pkg/web"
 )
 
@@ -268,6 +267,8 @@ func (bpr bulkPauseResponse) Encode() ([]byte, string, error) {
 // HTTPStatus implements the httpStatus interface to set the response status code.
 func (bpr bulkPauseResponse) HTTPStatus() int { return http.StatusAccepted } // 202
 
+const maxBulkJobCount = 500
+
 // bulkPause handles the request to pause multiple scan jobs.
 func bulkPause(cfg Config) web.HandlerFunc {
 	return func(ctx context.Context, r *http.Request) web.Encoder {
@@ -278,6 +279,10 @@ func bulkPause(cfg Config) web.HandlerFunc {
 
 		if err := errs.Check(req); err != nil {
 			return errs.New(errs.InvalidArgument, err)
+		}
+
+		if len(req.JobIDs) > maxBulkJobCount {
+			return errs.New(errs.InvalidArgument, fmt.Errorf("too many job IDs: maximum allowed is %d", maxBulkJobCount))
 		}
 
 		var responses []pauseResponse
@@ -402,6 +407,10 @@ func bulkCancel(cfg Config) web.HandlerFunc {
 
 		if err := errs.Check(req); err != nil {
 			return errs.New(errs.InvalidArgument, err)
+		}
+
+		if len(req.JobIDs) > maxBulkJobCount {
+			return errs.New(errs.InvalidArgument, fmt.Errorf("too many job IDs: maximum allowed is %d", maxBulkJobCount))
 		}
 
 		var responses []cancelResponse
