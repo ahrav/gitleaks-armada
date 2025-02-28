@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -13,6 +12,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	domain "github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
+	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 )
 
 var _ scanning.ExecutionTracker = (*executionTracker)(nil)
@@ -117,8 +117,7 @@ func (t *executionTracker) ProcessEnumerationStream(
 				ctx,
 				jobID,
 				translationRes.Task,
-				translationRes.Auth,
-				translationRes.Metadata,
+				result,
 			); err != nil {
 				span.RecordError(err)
 				span.SetStatus(codes.Error, "failed to handle enumerated scan task")
@@ -127,7 +126,7 @@ func (t *executionTracker) ProcessEnumerationStream(
 			logger.Debug(ctx, "Enumerated scan task handled",
 				"task_id", translationRes.Task.ID,
 				"job_id", jobID,
-				"metadata", translationRes.Metadata,
+				"metadata", result.Metadata,
 			)
 
 		case errVal, ok := <-result.ErrCh:
@@ -228,8 +227,7 @@ func (t *executionTracker) handleEnumeratedScanTask(
 	ctx context.Context,
 	jobID uuid.UUID,
 	task *scanning.Task,
-	auth scanning.Auth,
-	metadata map[string]string,
+	scanResult *scanning.ScanningResult,
 ) error {
 	ctx, span := t.tracer.Start(ctx, "execution_tracker.scanning.handle_enumerated_task",
 		trace.WithAttributes(
@@ -253,8 +251,8 @@ func (t *executionTracker) handleEnumeratedScanTask(
 		task.ID,
 		task.SourceType,
 		task.ResourceURI(),
-		metadata,
-		auth,
+		scanResult.Metadata,
+		scanResult.Auth,
 	)
 
 	if err := t.publisher.PublishDomainEvent(

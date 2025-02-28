@@ -191,7 +191,6 @@ func (ef *EventsFacilitator) HandleScanJobScheduled(
 			attribute.String("job_id", jobEvt.JobID.String()),
 		))
 
-		// ACL check: convert scanning target to enumeration target.
 		targetSpec, err := ef.scanToEnumACL.ToEnumerationTargetSpec(jobEvt.Target)
 		if err != nil {
 			span.RecordError(err)
@@ -199,14 +198,17 @@ func (ef *EventsFacilitator) HandleScanJobScheduled(
 			return fmt.Errorf("failed to convert scanning target to enumeration spec: %w", err)
 		}
 
-		// Start enumeration (returns enumeration domain channels).
 		enumResult := ef.enumService.StartEnumeration(ctx, targetSpec)
 
-		// Translate enumeration domain channels -> scanning domain channels.
+		// Translate with job-level context.
+		auth := jobEvt.Target.Auth()
+		metadata := jobEvt.Target.Metadata()
 		scanningResult := ef.enumToScanACL.TranslateEnumerationResultToScanning(
 			ctx,
 			enumResult,
 			jobEvt.JobID,
+			*auth,
+			metadata,
 		)
 
 		err = ef.executionTracker.ProcessEnumerationStream(ctx, jobEvt.JobID, scanningResult)

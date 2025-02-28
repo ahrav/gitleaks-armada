@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/trace"
@@ -18,6 +17,7 @@ import (
 	domain "github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
+	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 )
 
 type trackerTestSuite struct {
@@ -109,15 +109,226 @@ func TestExecutionTracker_AssociateEnumeratedTargetsToJob(t *testing.T) {
 	}
 }
 
+func TestExecutionTracker_ProcessEnumerationStream(t *testing.T) {
+	tests := []struct {
+		name           string
+		setup          func(*mockJobTaskSvc, *mockDomainEventPublisher)
+		jobID          uuid.UUID
+		scanningResult func() *scanning.ScanningResult
+		simulateData   func(chan []uuid.UUID, chan scanning.TranslationResult, chan error)
+		wantErr        bool
+	}{
+		{
+			name: "successful enumeration processing with targets and tasks",
+			setup: func(m *mockJobTaskSvc, p *mockDomainEventPublisher) {
+				// Signal enumeration starting.
+				m.On("UpdateJobStatus", mock.Anything, mock.Anything, domain.JobStatusEnumerating).Return(nil)
+				// Process scan targets.
+				m.On("AssociateEnumeratedTargets", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+				// Process tasks - expect TaskCreatedEvent for each task.
+				m.On("CreateTask", mock.Anything, mock.Anything).Return(nil)
+				p.On("PublishDomainEvent",
+					mock.Anything,
+					mock.AnythingOfType("*scanning.TaskCreatedEvent"),
+					mock.Anything).Return(nil).Times(2) // Expect this to be called twice for our two tasks
+				// Signal enumeration completion - expect JobEnumerationCompletedEvent.
+				m.On("CompleteEnumeration", mock.Anything, mock.Anything).Return(&domain.JobMetrics{}, nil)
+				p.On("PublishDomainEvent",
+					mock.Anything,
+					mock.AnythingOfType("scanning.JobEnumerationCompletedEvent"),
+					mock.Anything).Return(nil).Once()
+			},
+			jobID: uuid.New(),
+			scanningResult: func() *scanning.ScanningResult {
+				return &scanning.ScanningResult{Auth: scanning.Auth{}, Metadata: map[string]string{"key": "value"}}
+			},
+			simulateData: func(targetCh chan []uuid.UUID, taskCh chan scanning.TranslationResult, errCh chan error) {
+				targetCh <- []uuid.UUID{uuid.New(), uuid.New()}
+				taskCh <- scanning.TranslationResult{
+					Task: scanning.NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com/repo1"),
+				}
+				taskCh <- scanning.TranslationResult{
+					Task: scanning.NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com/repo2"),
+				}
+
+				// Close channels to signal completion.
+				close(targetCh)
+				close(taskCh)
+				close(errCh)
+			},
+			wantErr: false,
+		},
+		{
+			name: "error from enumeration error channel",
+			setup: func(m *mockJobTaskSvc, p *mockDomainEventPublisher) {
+				// Signal enumeration starting.
+				m.On("UpdateJobStatus", mock.Anything, mock.Anything, domain.JobStatusEnumerating).Return(nil)
+				// We expect no further calls since we'll error early.
+			},
+			jobID: uuid.New(),
+			scanningResult: func() *scanning.ScanningResult {
+				return &scanning.ScanningResult{Auth: scanning.Auth{}, Metadata: map[string]string{"key": "value"}}
+			},
+			simulateData: func(targetCh chan []uuid.UUID, taskCh chan scanning.TranslationResult, errCh chan error) {
+				errCh <- errors.New("enumeration failed")
+
+				// Close channels to prevent test from hanging.
+				close(targetCh)
+				close(taskCh)
+				close(errCh)
+			},
+			wantErr: true,
+		},
+		{
+			name: "error when linking scan targets",
+			setup: func(m *mockJobTaskSvc, p *mockDomainEventPublisher) {
+				// Signal enumeration starting.
+				m.On("UpdateJobStatus", mock.Anything, mock.Anything, domain.JobStatusEnumerating).Return(nil)
+
+				// Return error when trying to link scan targets.
+				m.On("AssociateEnumeratedTargets", mock.Anything, mock.Anything, mock.Anything).
+					Return(errors.New("link failed"))
+			},
+			jobID: uuid.New(),
+			scanningResult: func() *scanning.ScanningResult {
+				return &scanning.ScanningResult{Auth: scanning.Auth{}, Metadata: map[string]string{"key": "value"}}
+			},
+			simulateData: func(targetCh chan []uuid.UUID, taskCh chan scanning.TranslationResult, errCh chan error) {
+				// Send data that will trigger the error.
+				targetCh <- []uuid.UUID{uuid.New()}
+
+				// Close channels to prevent test from hanging
+				close(targetCh)
+				close(taskCh)
+				close(errCh)
+			},
+			wantErr: true,
+		},
+		{
+			name: "error when creating task",
+			setup: func(m *mockJobTaskSvc, p *mockDomainEventPublisher) {
+				// Signal enumeration starting.
+				m.On("UpdateJobStatus", mock.Anything, mock.Anything, domain.JobStatusEnumerating).Return(nil)
+				// Process scan targets successful.
+				m.On("AssociateEnumeratedTargets", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+				// Return error when creating task.
+				m.On("CreateTask", mock.Anything, mock.Anything).
+					Return(errors.New("task creation failed"))
+			},
+			jobID: uuid.New(),
+			scanningResult: func() *scanning.ScanningResult {
+				return &scanning.ScanningResult{Auth: scanning.Auth{}, Metadata: map[string]string{"key": "value"}}
+			},
+			simulateData: func(targetCh chan []uuid.UUID, taskCh chan scanning.TranslationResult, errCh chan error) {
+				// Send data that passes linking but fails on task creation.
+				targetCh <- []uuid.UUID{uuid.New()}
+				taskCh <- scanning.TranslationResult{
+					Task: scanning.NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com/repo"),
+				}
+
+				// Close channels to prevent test from hanging.
+				close(targetCh)
+				close(taskCh)
+				close(errCh)
+			},
+			wantErr: true,
+		},
+		{
+			name: "error when publishing task event",
+			setup: func(m *mockJobTaskSvc, p *mockDomainEventPublisher) {
+				// Signal enumeration starting.
+				m.On("UpdateJobStatus", mock.Anything, mock.Anything, domain.JobStatusEnumerating).Return(nil)
+				// Process scan targets successful.
+				m.On("AssociateEnumeratedTargets", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+				// Task creation successful but event publish fails.
+				m.On("CreateTask", mock.Anything, mock.Anything).Return(nil)
+				p.On("PublishDomainEvent",
+					mock.Anything,
+					mock.AnythingOfType("*scanning.TaskCreatedEvent"),
+					mock.Anything).Return(errors.New("event publish failed")).Once()
+			},
+			jobID: uuid.New(),
+			scanningResult: func() *scanning.ScanningResult {
+				return &scanning.ScanningResult{Auth: scanning.Auth{}, Metadata: map[string]string{"key": "value"}}
+			},
+			simulateData: func(targetCh chan []uuid.UUID, taskCh chan scanning.TranslationResult, errCh chan error) {
+				// Send data that passes task creation but fails on event publishing.
+				targetCh <- []uuid.UUID{uuid.New()}
+				taskCh <- scanning.TranslationResult{
+					Task: scanning.NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com/repo"),
+				}
+
+				// Close channels to prevent test from hanging.
+				close(targetCh)
+				close(taskCh)
+				close(errCh)
+			},
+			wantErr: true,
+		},
+		{
+			name: "error at enumeration completion",
+			setup: func(m *mockJobTaskSvc, p *mockDomainEventPublisher) {
+				// Signal enumeration starting.
+				m.On("UpdateJobStatus", mock.Anything, mock.Anything, domain.JobStatusEnumerating).Return(nil)
+				// Complete enumeration fails.
+				m.On("CompleteEnumeration", mock.Anything, mock.Anything).
+					Return(nil, errors.New("completion failed"))
+			},
+			jobID: uuid.New(),
+			scanningResult: func() *scanning.ScanningResult {
+				return &scanning.ScanningResult{Auth: scanning.Auth{}, Metadata: map[string]string{"key": "value"}}
+			},
+			simulateData: func(targetCh chan []uuid.UUID, taskCh chan scanning.TranslationResult, errCh chan error) {
+				// No data, just close channels to trigger completion.
+				close(targetCh)
+				close(taskCh)
+				close(errCh)
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			suite := newTrackerTestSuite(t)
+			tt.setup(suite.jobTaskSvc, suite.domainPublisher)
+
+			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+			defer cancel()
+
+			scanTargetsCh := make(chan []uuid.UUID)
+			tasksCh := make(chan scanning.TranslationResult)
+			errCh := make(chan error)
+
+			scanResult := tt.scanningResult()
+			scanResult.ScanTargetsCh = scanTargetsCh
+			scanResult.TasksCh = tasksCh
+			scanResult.ErrCh = errCh
+
+			// Launch a goroutine to send test data through channels.
+			go tt.simulateData(scanTargetsCh, tasksCh, errCh)
+
+			err := suite.tracker.ProcessEnumerationStream(ctx, tt.jobID, scanResult)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+
+			suite.jobTaskSvc.AssertExpectations(t)
+			suite.domainPublisher.AssertExpectations(t)
+		})
+	}
+}
+
 func TestExecutionTracker_HandleEnumeratedScanTask(t *testing.T) {
 	tests := []struct {
-		name    string
-		setup   func(*mockJobTaskSvc, *mockDomainEventPublisher)
-		jobID   uuid.UUID
-		task    *scanning.Task
-		auth    scanning.Auth
-		meta    map[string]string
-		wantErr bool
+		name           string
+		setup          func(*mockJobTaskSvc, *mockDomainEventPublisher)
+		jobID          uuid.UUID
+		task           *scanning.Task
+		scanningResult *scanning.ScanningResult
+		wantErr        bool
 	}{
 		{
 			name: "successful task creation and event publish",
@@ -127,10 +338,12 @@ func TestExecutionTracker_HandleEnumeratedScanTask(t *testing.T) {
 				p.On("PublishDomainEvent", mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
 			},
-			jobID:   uuid.New(),
-			task:    scanning.NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com"),
-			auth:    scanning.Auth{},
-			meta:    map[string]string{"key": "value"},
+			jobID: uuid.New(),
+			task:  scanning.NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com"),
+			scanningResult: &scanning.ScanningResult{
+				Auth:     scanning.Auth{},
+				Metadata: map[string]string{"key": "value"},
+			},
 			wantErr: false,
 		},
 		{
@@ -139,10 +352,12 @@ func TestExecutionTracker_HandleEnumeratedScanTask(t *testing.T) {
 				m.On("CreateTask", mock.Anything, mock.Anything).
 					Return(errors.New("creation failed"))
 			},
-			jobID:   uuid.New(),
-			task:    scanning.NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com"),
-			auth:    scanning.Auth{},
-			meta:    map[string]string{"key": "value"},
+			jobID: uuid.New(),
+			task:  scanning.NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com"),
+			scanningResult: &scanning.ScanningResult{
+				Auth:     scanning.Auth{},
+				Metadata: map[string]string{"key": "value"},
+			},
 			wantErr: true,
 		},
 		{
@@ -153,10 +368,12 @@ func TestExecutionTracker_HandleEnumeratedScanTask(t *testing.T) {
 				p.On("PublishDomainEvent", mock.Anything, mock.Anything, mock.Anything).
 					Return(errors.New("publish failed"))
 			},
-			jobID:   uuid.New(),
-			task:    scanning.NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com"),
-			auth:    scanning.Auth{},
-			meta:    map[string]string{"key": "value"},
+			jobID: uuid.New(),
+			task:  scanning.NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com"),
+			scanningResult: &scanning.ScanningResult{
+				Auth:     scanning.Auth{},
+				Metadata: map[string]string{"key": "value"},
+			},
 			wantErr: true,
 		},
 	}
@@ -170,8 +387,7 @@ func TestExecutionTracker_HandleEnumeratedScanTask(t *testing.T) {
 				context.Background(),
 				tt.jobID,
 				tt.task,
-				tt.auth,
-				tt.meta,
+				tt.scanningResult,
 			)
 
 			if tt.wantErr {

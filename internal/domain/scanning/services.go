@@ -239,30 +239,40 @@ type TaskStateHandler interface {
 // scanning operations across the distributed system.
 
 // TranslationResult represents a single translated enumeration task in scanning-domain form.
-// It contains the resulting scanning Task, any associated authentication configuration (Auth),
-// and a set of metadata key/value pairs. This structure is typically produced by an ACL
-// translator that bridges the enumeration and scanning domains.
+// It contains the resulting scanning Task.
+// This structure is typically produced by an ACL translator that bridges the enumeration
+// and scanning domains.
 type TranslationResult struct {
-	Task     *Task
-	Auth     Auth
-	Metadata map[string]string
+	Task *Task
 }
 
 // ScanningResult encapsulates the scanning-domain equivalents of enumerated data, exposing
-// channels of scanning-oriented objects. These channels emit:
+// channels of scanning-oriented objects and job-level context. These channels emit:
 //
 //   - ScanTargetsCh: Discovered scan target IDs (UUIDs) that need to be linked to a job.
 //   - TasksCh:       TranslationResult objects, which include the scanning Task, credentials,
 //     and metadata derived from enumeration tasks.
 //   - ErrCh:         Errors encountered during enumeration or translation.
 //
+// Additionally, it provides job-level context that applies to all tasks:
+//
+//   - Auth:     Authentication configuration shared across all tasks in the job.
+//   - Metadata: Key-value pairs containing job-wide information that may influence
+//     task execution or provide context for result interpretation.
+//
 // By providing scanning-domain channels (instead of enumeration-domain types), this structure
 // avoids cross-domain dependencies and allows the scanning domain to consume data in its
-// native format without referencing enumeration logic.
+// native format without referencing enumeration logic. The job-level context fields enable
+// efficient sharing of common configuration across all tasks without duplicating this
+// information in each task.
 type ScanningResult struct {
 	ScanTargetsCh <-chan []uuid.UUID
 	TasksCh       <-chan TranslationResult
 	ErrCh         <-chan error
+
+	// Job-level context. (applies to all tasks)
+	Auth     Auth
+	Metadata map[string]string
 }
 
 // ExecutionTracker manages the lifecycle and progress monitoring of scanning tasks

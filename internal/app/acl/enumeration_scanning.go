@@ -12,50 +12,16 @@ import (
 // EnumerationToScanningTranslator converts enumeration domain objects to scanning domain objects.
 type EnumerationToScanningTranslator struct{}
 
-// Translate converts an enumeration Task to a scanning result.
-// The translation result contains the scanning task, auth configuration, and metadata.
-func (EnumerationToScanningTranslator) Translate(jobID uuid.UUID, enumTask *enumeration.Task) scanning.TranslationResult {
-	// Convert auth if present.
-	var auth scanning.Auth
-	if enumCreds := enumTask.Credentials(); enumCreds != nil {
-		auth = scanning.NewAuth(string(toScanningAuthType(enumCreds.Type)), enumCreds.Values)
-	}
-
-	// Create the core scanning task.
-	task := scanning.NewScanTask(jobID, enumTask.SourceType, enumTask.ID, enumTask.ResourceURI())
-	return scanning.TranslationResult{
-		Task:     task,
-		Auth:     auth,
-		Metadata: enumTask.Metadata(),
-	}
-}
-
-// toScanningAuthType maps enumeration auth types to scanning domain equivalents.
-func toScanningAuthType(ec enumeration.CredentialType) scanning.AuthType {
-	switch ec {
-	case enumeration.CredentialTypeNone:
-		return scanning.AuthTypeNone
-	case enumeration.CredentialTypeToken:
-		return scanning.AuthTypeToken
-	case enumeration.CredentialTypeAWS:
-		return scanning.AuthTypeAWS
-	case enumeration.CredentialTypeBasic:
-		return scanning.AuthTypeBasic
-	case enumeration.CredentialTypeOAuth:
-		return scanning.AuthTypeOAuth
-	default:
-		return scanning.AuthTypeUnknown
-	}
-}
-
 func (e EnumerationToScanningTranslator) TranslateEnumerationResultToScanning(
 	ctx context.Context,
 	enumResult enumeration.EnumerationResult,
 	jobID uuid.UUID,
+	auth scanning.Auth,
+	metadata map[string]string,
 ) *scanning.ScanningResult {
-	scanTargetsCh := make(chan []uuid.UUID, 1)
-	tasksCh := make(chan scanning.TranslationResult, 1)
-	errCh := make(chan error, 1)
+	scanTargetsCh := make(chan []uuid.UUID, 10)
+	tasksCh := make(chan scanning.TranslationResult, 10)
+	errCh := make(chan error, 10)
 
 	allChannelsClosed := func() bool {
 		return enumResult.ScanTargetsCh == nil && enumResult.TasksCh == nil && enumResult.ErrCh == nil
@@ -93,8 +59,11 @@ func (e EnumerationToScanningTranslator) TranslateEnumerationResultToScanning(
 					}
 					continue
 				}
-				// Translate from enumeration.Task → scanning.Task.
-				tasksCh <- e.Translate(jobID, enumTask)
+				// Only translate the task-specific field.
+				taskResult := scanning.TranslationResult{
+					Task: scanning.NewScanTask(jobID, enumTask.SourceType, enumTask.ID, enumTask.ResourceURI()),
+				}
+				tasksCh <- taskResult
 
 			case errVal, ok := <-enumResult.ErrCh:
 				if !ok {
@@ -113,5 +82,7 @@ func (e EnumerationToScanningTranslator) TranslateEnumerationResultToScanning(
 		ScanTargetsCh: scanTargetsCh,
 		TasksCh:       tasksCh,
 		ErrCh:         errCh,
+		Auth:          auth,
+		Metadata:      metadata,
 	}
 }
