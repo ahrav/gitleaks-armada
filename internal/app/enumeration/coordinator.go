@@ -187,7 +187,6 @@ func (s *coordinator) EnumerateTarget(ctx context.Context, target domain.TargetS
 		// span.AddEvent("credential_store_initialized")
 
 		state := domain.NewState(target.SourceType().String(), s.marshalConfig(ctx, target))
-
 		if err := s.processTargetEnumeration(ctx, state, target, pipes.scanTargetWriter, pipes.taskWriter); err != nil {
 			s.failEnumeration(ctx, span, pipes.errorWriter, "failed to process target enumeration", err)
 			return

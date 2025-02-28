@@ -1,5 +1,7 @@
 package scanning
 
+import "encoding/json"
+
 // AuthType identifies the type of authentication mechanism.
 type AuthType string
 
@@ -35,6 +37,19 @@ func NewAuth(authType string, credentials map[string]any) Auth {
 		authType:    AuthType(authType),
 		credentials: credentials,
 	}
+}
+
+// MarshalJSON implements json.Marshaler for Auth.
+func (a Auth) MarshalJSON() ([]byte, error) {
+	type authJSON struct {
+		AuthType    string         `json:"auth_type"`
+		Credentials map[string]any `json:"credentials,omitempty"`
+	}
+
+	return json.Marshal(authJSON{
+		AuthType:    string(a.authType),
+		Credentials: a.credentials,
+	})
 }
 
 // Type returns the authentication type.

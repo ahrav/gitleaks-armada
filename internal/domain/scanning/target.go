@@ -1,6 +1,10 @@
 package scanning
 
-import "github.com/ahrav/gitleaks-armada/internal/domain/shared"
+import (
+	"encoding/json"
+
+	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
+)
 
 // Target represents a scannable resource in the scanning domain.
 type Target struct {
@@ -48,6 +52,29 @@ func NewTarget(
 		s3:         config.S3,
 		url:        config.URL,
 	}
+}
+
+// MarshalJSON implements json.Marshaler for Target.
+func (t Target) MarshalJSON() ([]byte, error) {
+	type targetJSON struct {
+		Name       string            `json:"name"`
+		SourceType string            `json:"source_type"`
+		Auth       *Auth             `json:"auth,omitempty"`
+		Metadata   map[string]string `json:"metadata,omitempty"`
+		GitHub     *GitHubTarget     `json:"github,omitempty"`
+		S3         *S3Target         `json:"s3,omitempty"`
+		URL        *URLTarget        `json:"url,omitempty"`
+	}
+
+	return json.Marshal(targetJSON{
+		Name:       t.name,
+		SourceType: t.sourceType.String(),
+		Auth:       t.auth,
+		Metadata:   t.metadata,
+		GitHub:     t.github,
+		S3:         t.s3,
+		URL:        t.url,
+	})
 }
 
 // TargetConfig holds the type-specific configuration.
