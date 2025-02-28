@@ -80,6 +80,7 @@ CREATE INDEX idx_enumeration_batches_session_id ON enumeration_batches(session_i
 CREATE INDEX idx_enumeration_batches_status ON enumeration_batches(status);
 
 -- Tasks Table
+-- TODO: This is a shared domain table.
 CREATE TABLE tasks (
     task_id UUID PRIMARY KEY,
     source_type VARCHAR NOT NULL
