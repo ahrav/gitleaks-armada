@@ -1,6 +1,7 @@
 package scanning
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -10,17 +11,21 @@ import (
 // Job coordinates and tracks a collection of related scanning tasks.
 // It provides aggregated status and progress tracking across all child tasks.
 type Job struct {
-	jobID    uuid.UUID
-	status   JobStatus
-	timeline *Timeline
+	jobID      uuid.UUID
+	sourceType string
+	config     json.RawMessage
+	status     JobStatus
+	timeline   *Timeline
 }
 
-// NewJob creates a new ScanJob instance with the provided job ID.
-func NewJob(jobID uuid.UUID) *Job {
+// NewJob creates a new ScanJob instance with the provided job ID and configuration.
+func NewJob(jobID uuid.UUID, sourceType string, config json.RawMessage) *Job {
 	return &Job{
-		jobID:    jobID,
-		status:   JobStatusQueued,
-		timeline: NewTimeline(new(realTimeProvider)),
+		jobID:      jobID,
+		sourceType: sourceType,
+		config:     config,
+		status:     JobStatusQueued,
+		timeline:   NewTimeline(new(realTimeProvider)),
 	}
 }
 
@@ -38,13 +43,17 @@ func NewJobWithStatus(jobID uuid.UUID, status JobStatus) *Job {
 // This should only be used by repositories when loading from the DB.
 func ReconstructJob(
 	jobID uuid.UUID,
+	sourceType string,
+	config json.RawMessage,
 	status JobStatus,
 	timeline *Timeline,
 ) *Job {
 	job := &Job{
-		jobID:    jobID,
-		status:   status,
-		timeline: timeline,
+		jobID:      jobID,
+		sourceType: sourceType,
+		config:     config,
+		status:     status,
+		timeline:   timeline,
 	}
 
 	return job
@@ -70,6 +79,10 @@ func (j *Job) EndTime() (time.Time, bool) {
 	}
 	return time.Time{}, false
 }
+
+// Getters for the new fields.
+func (j *Job) SourceType() string      { return j.sourceType }
+func (j *Job) Config() json.RawMessage { return j.config }
 
 // LastUpdateTime returns when this job's state was last modified.
 // Access is synchronized to ensure thread-safe reads.
