@@ -770,22 +770,18 @@ func TestTaskStore_GetTasksToResume(t *testing.T) {
 	ctx, _, taskStore, jobStore, cleanup := setupTaskTest(t)
 	defer cleanup()
 
-	// Create a job with PAUSED status
 	job := createTestScanJobWithStatus(t, jobStore, ctx, scanning.JobStatusPaused)
 
-	// Create a few paused tasks
 	taskCount := 3
 	taskIDs := make([]uuid.UUID, taskCount)
 	for i := 0; i < taskCount; i++ {
 		task := createTestTask(t, taskStore, job.JobID(), scanning.TaskStatusPaused)
 
-		// Create a checkpoint and apply progress to update the task
 		taskID := task.TaskID()
 		resumeToken := []byte(fmt.Sprintf("token-%d", i))
 		metadata := map[string]string{"position": fmt.Sprintf("%d", i)}
 		checkpoint := scanning.NewCheckpoint(taskID, resumeToken, metadata)
 
-		// Create progress with the checkpoint and apply it
 		progress := scanning.NewProgress(
 			taskID,
 			job.JobID(),
@@ -803,41 +799,28 @@ func TestTaskStore_GetTasksToResume(t *testing.T) {
 		err = taskStore.CreateTask(ctx, task, "test-controller")
 		require.NoError(t, err)
 
-		// Update the task to persist the checkpoint
 		err = taskStore.UpdateTask(ctx, task)
 		require.NoError(t, err)
 
 		taskIDs[i] = task.TaskID()
 	}
 
-	// Add a non-paused task that shouldn't be returned
 	nonPausedTask := createTestTask(t, taskStore, job.JobID(), scanning.TaskStatusInProgress)
 	err := taskStore.CreateTask(ctx, nonPausedTask, "test-controller")
 	require.NoError(t, err)
 
-	// Get tasks to resume
 	resumeTasks, err := taskStore.GetTasksToResume(ctx, job.JobID())
 	require.NoError(t, err)
 
-	// Verify we got the right number of tasks
 	assert.Equal(t, taskCount, len(resumeTasks))
 
-	// Verify task properties
 	for _, resumeTask := range resumeTasks {
-		// Check that this is one of our expected task IDs
 		found := slices.Contains(taskIDs, resumeTask.TaskID())
 		assert.True(t, found, "Unexpected task ID returned")
 
-		// Verify source type matches what we expect
-		assert.Equal(t, shared.SourceTypeURL, resumeTask.SourceType())
-
-		// Verify we got a checkpoint
+		assert.Equal(t, shared.SourceTypeGitHub, resumeTask.SourceType())
 		assert.NotNil(t, resumeTask.Checkpoint())
-
-		// Verify sequence number is set correctly
 		assert.True(t, resumeTask.SequenceNum() >= 10, "Expected sequence number >= 10")
-
-		// Verify checkpoint has resume token
 		assert.NotEmpty(t, resumeTask.Checkpoint().ResumeToken(), "Checkpoint should have resume token")
 	}
 }

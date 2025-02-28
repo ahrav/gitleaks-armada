@@ -66,7 +66,7 @@ func TestJobCreatedEventConversion(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, job.JobID().String(), convertedEvent.JobID.String())
 		assert.Equal(t, targetSpec.Name(), convertedEvent.Target.Name())
-		assert.Equal(t, shared.SourceTypeGitHub.String(), convertedEvent.Target.SourceType())
+		assert.Equal(t, shared.SourceTypeGitHub, convertedEvent.Target.SourceType())
 		assert.Equal(t, metadata, convertedEvent.Target.Metadata())
 		require.True(t, convertedEvent.Target.HasAuth())
 		assert.Equal(t, auth.Type(), convertedEvent.Target.Auth().Type())

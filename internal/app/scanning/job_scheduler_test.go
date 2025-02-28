@@ -61,12 +61,15 @@ func TestScheduleJob(t *testing.T) {
 	tests := []struct {
 		name    string
 		setup   func(*mockJobTaskSvc, *mockDomainEventPublisher, *mockDomainEventPublisher)
+		targets []scanning.Target
 		wantErr bool
 	}{
 		{
 			name: "successful job scheduling with multiple targets",
 			setup: func(service *mockJobTaskSvc, publisher *mockDomainEventPublisher, broadcastPublisher *mockDomainEventPublisher) {
-				service.On("CreateJobFromID", mock.Anything, jobID).Return(nil)
+				service.On("CreateJob", mock.Anything, mock.MatchedBy(func(cmd scanning.CreateJobCommand) bool {
+					return cmd.JobID == jobID
+				})).Return(nil)
 
 				for _, target := range targets {
 					publisher.On("PublishDomainEvent",
@@ -84,20 +87,25 @@ func TestScheduleJob(t *testing.T) {
 					).Return(nil).Once()
 				}
 			},
+			targets: targets,
 			wantErr: false,
 		},
 		{
 			name: "job creation fails",
 			setup: func(service *mockJobTaskSvc, publisher *mockDomainEventPublisher, broadcastPublisher *mockDomainEventPublisher) {
-				service.On("CreateJobFromID", mock.Anything, jobID).
-					Return(errors.New("any error"))
+				service.On("CreateJob", mock.Anything, mock.MatchedBy(func(cmd scanning.CreateJobCommand) bool {
+					return cmd.JobID == jobID
+				})).Return(errors.New("any error"))
 			},
+			targets: targets,
 			wantErr: true,
 		},
 		{
 			name: "event publishing fails",
 			setup: func(service *mockJobTaskSvc, publisher *mockDomainEventPublisher, broadcastPublisher *mockDomainEventPublisher) {
-				service.On("CreateJobFromID", mock.Anything, jobID).Return(nil)
+				service.On("CreateJob", mock.Anything, mock.MatchedBy(func(cmd scanning.CreateJobCommand) bool {
+					return cmd.JobID == jobID
+				})).Return(nil)
 				publisher.On("PublishDomainEvent",
 					mock.Anything,
 					mock.MatchedBy(func(evt events.DomainEvent) bool {
@@ -107,14 +115,16 @@ func TestScheduleJob(t *testing.T) {
 					mock.AnythingOfType("[]events.PublishOption"),
 				).Return(errors.New("any error"))
 			},
+			targets: targets,
 			wantErr: true,
 		},
 		{
-			name: "successful job scheduling with no targets",
+			name: "job scheduling with no targets should fail",
 			setup: func(service *mockJobTaskSvc, publisher *mockDomainEventPublisher, broadcastPublisher *mockDomainEventPublisher) {
-				service.On("CreateJobFromID", mock.Anything, jobID).Return(nil)
+				// No setup needed as we expect early return with error.
 			},
-			wantErr: false,
+			targets: nil, // No targets provided.
+			wantErr: true,
 		},
 	}
 
@@ -123,13 +133,7 @@ func TestScheduleJob(t *testing.T) {
 			scheduler, mockService, mockPublisher, mockBroadcastPublisher := setupJobSchedulerTestSuite()
 			tt.setup(mockService, mockPublisher, mockBroadcastPublisher)
 
-			var testTargets []scanning.Target
-			if tt.name != "successful job scheduling with no targets" {
-				testTargets = targets
-			}
-
-			err := scheduler.Schedule(context.Background(), jobID, testTargets)
-
+			err := scheduler.Schedule(context.Background(), jobID, tt.targets)
 			if tt.wantErr {
 				require.Error(t, err)
 				return
@@ -142,7 +146,6 @@ func TestScheduleJob(t *testing.T) {
 		})
 	}
 }
-
 func TestPauseJob(t *testing.T) {
 	jobID := uuid.New()
 	requestedBy := "test-user"

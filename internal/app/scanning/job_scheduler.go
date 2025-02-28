@@ -68,6 +68,12 @@ func (s *jobScheduler) Schedule(ctx context.Context, jobID uuid.UUID, targets []
 	defer span.End()
 	logger.Debug(ctx, "Scheduling job")
 
+	if len(targets) == 0 {
+		span.AddEvent("no_targets_provided")
+		span.SetStatus(codes.Error, "no targets provided")
+		return fmt.Errorf("no targets provided")
+	}
+
 	config, err := marshalConfig(ctx, targets[0])
 	if err != nil {
 		span.RecordError(err)
