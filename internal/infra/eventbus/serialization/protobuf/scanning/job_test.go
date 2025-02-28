@@ -1,6 +1,7 @@
 package scanning
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -15,7 +16,7 @@ import (
 
 func TestJobCreatedEventConversion(t *testing.T) {
 	t.Run("successful conversions", func(t *testing.T) {
-		job := scanning.NewJob(uuid.New())
+		job := scanning.NewJob(uuid.New(), shared.SourceTypeGitHub.String(), json.RawMessage{})
 		auth := scanning.NewAuth(
 			string(scanning.AuthTypeToken),
 			map[string]any{
@@ -65,7 +66,7 @@ func TestJobCreatedEventConversion(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, job.JobID().String(), convertedEvent.JobID.String())
 		assert.Equal(t, targetSpec.Name(), convertedEvent.Target.Name())
-		assert.Equal(t, targetSpec.SourceType(), convertedEvent.Target.SourceType())
+		assert.Equal(t, shared.SourceTypeGitHub.String(), convertedEvent.Target.SourceType())
 		assert.Equal(t, metadata, convertedEvent.Target.Metadata())
 		require.True(t, convertedEvent.Target.HasAuth())
 		assert.Equal(t, auth.Type(), convertedEvent.Target.Auth().Type())
@@ -78,7 +79,7 @@ func TestJobCreatedEventConversion(t *testing.T) {
 	})
 
 	t.Run("S3 target conversion", func(t *testing.T) {
-		job := scanning.NewJob(uuid.New())
+		job := scanning.NewJob(uuid.New(), shared.SourceTypeS3.String(), json.RawMessage{})
 		metadata := map[string]string{
 			"region":     "us-west-2",
 			"department": "engineering",
@@ -124,7 +125,7 @@ func TestJobCreatedEventConversion(t *testing.T) {
 	})
 
 	t.Run("URL target conversion", func(t *testing.T) {
-		job := scanning.NewJob(uuid.New())
+		job := scanning.NewJob(uuid.New(), shared.SourceTypeURL.String(), json.RawMessage{})
 		metadata := map[string]string{
 			"scan_type": "web",
 			"priority":  "high",

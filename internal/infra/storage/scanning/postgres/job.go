@@ -51,6 +51,7 @@ func (r *jobStore) CreateJob(ctx context.Context, job *scanning.Job) error {
 		defaultDBAttributes,
 		attribute.String("job_id", job.JobID().String()),
 		attribute.String("status", string(job.Status())),
+		attribute.String("source_type", job.SourceType()),
 		attribute.String("start_time", job.StartTime().String()),
 	)
 
@@ -68,8 +69,10 @@ func (r *jobStore) CreateJob(ctx context.Context, job *scanning.Job) error {
 		qtx := r.q.WithTx(tx)
 
 		err = qtx.CreateJob(ctx, db.CreateJobParams{
-			JobID:  pgtype.UUID{Bytes: job.JobID(), Valid: true},
-			Status: db.ScanJobStatus(job.Status()),
+			JobID:      pgtype.UUID{Bytes: job.JobID(), Valid: true},
+			Status:     db.ScanJobStatus(job.Status()),
+			SourceType: job.SourceType(),
+			Config:     job.Config(),
 		})
 		if err != nil {
 			return fmt.Errorf("CreateJob insert error: %w", err)
@@ -217,6 +220,8 @@ func (r *jobStore) GetJob(ctx context.Context, jobID uuid.UUID) (*scanning.Job, 
 
 		job = scanning.ReconstructJob(
 			firstRow.JobID.Bytes,
+			firstRow.SourceType,
+			firstRow.Config,
 			scanning.JobStatus(firstRow.Status),
 			timeline,
 		)

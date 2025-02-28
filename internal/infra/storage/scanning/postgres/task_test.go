@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -17,6 +16,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	"github.com/ahrav/gitleaks-armada/internal/infra/storage"
+	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 )
 
 func setupTaskTest(t *testing.T) (context.Context, *pgxpool.Pool, *taskStore, *jobStore, func()) {
@@ -34,6 +34,8 @@ func createTestScanJob(t *testing.T, store *jobStore, ctx context.Context) *scan
 	t.Helper()
 	job := scanning.ReconstructJob(
 		uuid.New(),
+		shared.SourceTypeGitHub.String(),
+		json.RawMessage(`{}`),
 		scanning.JobStatusQueued,
 		scanning.NewTimeline(&mockTimeProvider{current: time.Now()}),
 	)
@@ -48,6 +50,8 @@ func createTestScanJobWithStatus(t *testing.T, store *jobStore, ctx context.Cont
 	t.Helper()
 	job := scanning.ReconstructJob(
 		uuid.New(),
+		shared.SourceTypeGitHub.String(),
+		json.RawMessage(`{}`),
 		status,
 		scanning.NewTimeline(&mockTimeProvider{current: time.Now()}),
 	)

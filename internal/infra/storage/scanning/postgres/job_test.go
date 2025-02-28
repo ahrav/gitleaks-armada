@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
@@ -33,6 +34,8 @@ func createTestJob(t *testing.T, status scanning.JobStatus) *scanning.Job {
 	t.Helper()
 	return scanning.ReconstructJob(
 		uuid.New(),
+		shared.SourceTypeGitHub.String(),
+		json.RawMessage(`{}`),
 		status,
 		scanning.NewTimeline(&mockTimeProvider{current: time.Now()}),
 	)
@@ -151,7 +154,13 @@ func TestJobStore_UpdateJob(t *testing.T) {
 	timeline := scanning.NewTimeline(mockTime)
 
 	// Initialize job with zero metrics.
-	job := scanning.ReconstructJob(uuid.New(), scanning.JobStatusQueued, timeline)
+	job := scanning.ReconstructJob(
+		uuid.New(),
+		shared.SourceTypeGitHub.String(),
+		json.RawMessage(`{}`),
+		scanning.JobStatusQueued,
+		timeline,
+	)
 
 	err := store.CreateJob(ctx, job)
 	require.NoError(t, err)
@@ -181,6 +190,8 @@ func TestJobStore_UpdateJob(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			job := scanning.ReconstructJob(
 				uuid.New(),
+				shared.SourceTypeGitHub.String(),
+				json.RawMessage(`{}`),
 				tc.initialStatus,
 				scanning.NewTimeline(&mockTimeProvider{current: time.Now()}),
 			)
@@ -189,6 +200,8 @@ func TestJobStore_UpdateJob(t *testing.T) {
 
 			updatedJob := scanning.ReconstructJob(
 				job.JobID(),
+				shared.SourceTypeGitHub.String(),
+				json.RawMessage(`{}`),
 				tc.targetStatus,
 				scanning.NewTimeline(&mockTimeProvider{current: time.Now()}),
 			)
