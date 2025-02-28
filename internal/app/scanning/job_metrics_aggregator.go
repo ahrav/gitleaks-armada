@@ -903,18 +903,48 @@ func (t *jobMetricsAggregator) tryCancelJobIfAllTasksCancelled(ctx context.Conte
 }
 
 // tryResumeJobIfAnyTaskResumed attempts to resume a job if any of its non-terminal tasks
-// have transitioned out of the paused state. It ensures proper locking and idempotency.
+// have transitioned out of the paused state.
+// TODO: This doesn't fit our pattern of using a generic tryUpdateJobStatus.
+// This is a code smell IMO and we should clean this up.
 func (t *jobMetricsAggregator) tryResumeJobIfAnyTaskResumed(ctx context.Context, st *AggregatorJobState) error {
-	return t.tryUpdateJobStatus(
-		ctx,
-		jobStatusUpdateParams{
-			state:        st,
-			shouldUpdate: st.shouldResumeJob,
-			statusFlag:   &st.jobPaused, // We'll flip this back to false
-			targetStatus: domain.JobStatusRunning,
-		},
-		"resume_job_if_any_task_resumed",
+	ctx, span := t.tracer.Start(ctx, "job_metrics_aggregator.try_resume_job",
+		trace.WithAttributes(
+			attribute.String("controller_id", t.controllerID),
+			attribute.String("job_id", st.jobID.String()),
+		),
 	)
+	defer span.End()
+
+	t.mu.Lock()
+	// We should resume if job is currently paused but not all active tasks are paused.
+	activeTaskCount := st.finalTaskCount - (st.completedCount + st.failedCount + st.cancelledCount)
+	shouldResume := st.jobPaused && activeTaskCount > 0 && st.pausedCount < activeTaskCount
+
+	if !shouldResume {
+		t.mu.Unlock()
+		return nil
+	}
+
+	// We're going to resume, mark job as not paused.
+	st.jobPaused = false
+	jobID := st.jobID
+	t.mu.Unlock()
+
+	if err := t.repository.UpdateJobStatus(ctx, jobID, domain.JobStatusRunning); err != nil {
+		// Reset flag if update fails.
+		t.mu.Lock()
+		st.jobPaused = true
+		t.mu.Unlock()
+
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to resume job")
+		return fmt.Errorf("failed to resume job %s: %w", jobID, err)
+	}
+
+	span.AddEvent("job_resumed")
+	t.logger.Info(ctx, "job resumed", "job_id", jobID.String())
+
+	return nil
 }
 
 // tryFinalizeJobIfDone attempts to finalize a job if all its non-terminal tasks
