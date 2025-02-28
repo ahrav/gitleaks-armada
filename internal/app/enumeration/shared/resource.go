@@ -16,7 +16,7 @@ type ResourceEntry struct {
 	ResourceType shared.TargetType // Type of resource (e.g. "github_repository") for routing
 	Name         string            // Display name of the resource
 	URL          string            // Unique URL/identifier for the resource
-	Metadata     map[string]any    // Additional resource-specific metadata
+	Metadata     map[string]any // Additional resource-specific metadata
 }
 
 // ResourceUpsertResult contains the outcome of persisting a ResourceEntry via a resourcePersister.

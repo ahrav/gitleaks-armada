@@ -632,10 +632,17 @@ func (s *coordinator) processTarget(ctx context.Context, target *enumeration.Tar
 		return uuid.Nil(), err
 	}
 
+	// TODO: Remove this later.
+	meta := make(map[string]any)
+	for k, v := range target.Metadata {
+		meta[k] = v
+	}
+
 	resourceEntry := enumeration.ResourceEntry{
 		ResourceType: target.TargetType,
 		Name:         target.ResourceURI,
 		URL:          target.ResourceURI,
+		Metadata:     meta,
 	}
 
 	span.SetAttributes(
