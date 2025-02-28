@@ -4,10 +4,9 @@ package acl
 import (
 	"context"
 
-	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
-
 	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
+	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 )
 
 // EnumerationToScanningTranslator converts enumeration domain objects to scanning domain objects.
@@ -19,21 +18,11 @@ func (EnumerationToScanningTranslator) Translate(jobID uuid.UUID, enumTask *enum
 	// Convert auth if present.
 	var auth scanning.Auth
 	if enumCreds := enumTask.Credentials(); enumCreds != nil {
-		domainAuth := scanning.NewAuth(
-			string(toScanningAuthType(enumCreds.Type)),
-			enumCreds.Values,
-		)
-		auth = domainAuth
+		auth = scanning.NewAuth(string(toScanningAuthType(enumCreds.Type)), enumCreds.Values)
 	}
 
 	// Create the core scanning task.
-	task := scanning.NewScanTask(
-		jobID,
-		enumTask.SourceType,
-		enumTask.ID,
-		enumTask.ResourceURI(),
-	)
-
+	task := scanning.NewScanTask(jobID, enumTask.SourceType, enumTask.ID, enumTask.ResourceURI())
 	return scanning.TranslationResult{
 		Task:     task,
 		Auth:     auth,

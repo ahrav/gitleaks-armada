@@ -1,6 +1,7 @@
 package enumeration
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
@@ -73,6 +74,27 @@ func NewTargetSpec(
 		sourceType: sourceType,
 		auth:       auth,
 	}
+}
+
+// MarshalJSON implements json.Marshaler for TargetSpec.
+func (t TargetSpec) MarshalJSON() ([]byte, error) {
+	type targetJSON struct {
+		Name       string            `json:"name"`
+		SourceType string            `json:"source_type"`
+		Auth       *AuthSpec         `json:"auth,omitempty"`
+		GitHub     *GitHubTargetSpec `json:"github,omitempty"`
+		S3         *S3TargetSpec     `json:"s3,omitempty"`
+		URL        *URLTargetSpec    `json:"url,omitempty"`
+	}
+
+	return json.Marshal(targetJSON{
+		Name:       t.name,
+		SourceType: t.sourceType.String(),
+		Auth:       t.auth,
+		GitHub:     t.github,
+		S3:         t.s3,
+		URL:        t.url,
+	})
 }
 
 func (t *TargetSpec) Name() string { return t.name }

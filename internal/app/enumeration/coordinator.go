@@ -219,15 +219,14 @@ func (s *coordinator) marshalConfig(
 	span := trace.SpanFromContext(ctx)
 	defer span.End()
 
-	completeConfig := struct {
-		domain.TargetSpec
+	cfg := struct {
+		// TODO: Come back and figure out if we should include TargetSpec here too.
 		Auth domain.AuthSpec `json:"auth,omitempty"`
 	}{
-		TargetSpec: target,
+		Auth: *target.Auth(),
 	}
-	completeConfig.Auth = *target.Auth()
 
-	data, err := json.Marshal(completeConfig)
+	data, err := json.Marshal(cfg)
 	if err != nil {
 		span.RecordError(err)
 		logger.Error(ctx, "Failed to marshal target config", "error", err)

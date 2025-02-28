@@ -1,6 +1,9 @@
 package enumeration
 
-import "fmt"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 // AuthSpec represents authentication configuration in the enumeration domain.
 type AuthSpec struct {
@@ -21,6 +24,17 @@ func (a AuthSpec) Config() map[string]any { return a.config }
 
 // CredentialType represents the supported authentication mechanisms.
 type CredentialType string
+
+// MarshalJSON implements the json.Marshaler interface.
+func (a AuthSpec) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		AuthType string         `json:"auth_type"`
+		Config   map[string]any `json:"config"`
+	}{
+		AuthType: a.authType,
+		Config:   a.config,
+	})
+}
 
 const (
 	// CredentialTypeUnknown indicates an unknown authentication type.

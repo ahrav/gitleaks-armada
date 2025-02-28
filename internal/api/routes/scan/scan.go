@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"maps"
 
 	"github.com/ahrav/gitleaks-armada/internal/api/errs"
 	"github.com/ahrav/gitleaks-armada/internal/app/commands"
@@ -123,9 +124,7 @@ func start(cfg Config) web.HandlerFunc {
 			jobID := uuid.New()
 
 			tgt := buildTargetConfig(t)
-			for k, v := range req.Metadata {
-				tgt.Metadata[k] = v
-			}
+			maps.Copy(tgt.Metadata, req.Metadata)
 
 			scanCfg := &config.Config{Targets: []config.TargetSpec{tgt}}
 			cmd := scanning.NewStartScanCommand(jobID, scanCfg, "system") // TODO: Use JWT user instead of "system" if available.
