@@ -55,21 +55,32 @@ const createJob = `-- name: CreateJob :exec
 
 INSERT INTO scan_jobs (
     job_id,
-    status
+    status,
+    source_type,
+    config
 ) VALUES (
     $1, -- job_id UUID
-    $2  -- status scan_job_status
+    $2, -- status scan_job_status
+    $3, -- source_type VARCHAR
+    $4  -- config JSONB
 )
 `
 
 type CreateJobParams struct {
-	JobID  pgtype.UUID
-	Status ScanJobStatus
+	JobID      pgtype.UUID
+	Status     ScanJobStatus
+	SourceType string
+	Config     []byte
 }
 
 // Scanning Domain Queries
 func (q *Queries) CreateJob(ctx context.Context, arg CreateJobParams) error {
-	_, err := q.db.Exec(ctx, createJob, arg.JobID, arg.Status)
+	_, err := q.db.Exec(ctx, createJob,
+		arg.JobID,
+		arg.Status,
+		arg.SourceType,
+		arg.Config,
+	)
 	return err
 }
 
@@ -226,6 +237,8 @@ const getJob = `-- name: GetJob :many
 SELECT
     j.job_id,
     j.status,
+    j.source_type,
+    j.config,
     j.start_time,
     j.end_time,
     j.updated_at,
@@ -238,6 +251,8 @@ WHERE j.job_id = $1
 type GetJobRow struct {
 	JobID        pgtype.UUID
 	Status       ScanJobStatus
+	SourceType   string
+	Config       []byte
 	StartTime    pgtype.Timestamptz
 	EndTime      pgtype.Timestamptz
 	UpdatedAt    pgtype.Timestamptz
@@ -256,6 +271,8 @@ func (q *Queries) GetJob(ctx context.Context, jobID pgtype.UUID) ([]GetJobRow, e
 		if err := rows.Scan(
 			&i.JobID,
 			&i.Status,
+			&i.SourceType,
+			&i.Config,
 			&i.StartTime,
 			&i.EndTime,
 			&i.UpdatedAt,

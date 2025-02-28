@@ -2,6 +2,7 @@ package scanning
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -69,7 +70,8 @@ func (s *jobTaskService) CreateJobFromID(ctx context.Context, jobID uuid.UUID) e
 	)
 	defer span.End()
 
-	job := domain.NewJob(jobID)
+	// TODO: Actually use correct source type and config.
+	job := domain.NewJob(jobID, "git", json.RawMessage{})
 	if err := s.jobRepo.CreateJob(ctx, job); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to create job")
