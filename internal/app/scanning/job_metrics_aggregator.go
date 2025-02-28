@@ -690,6 +690,12 @@ func (t *jobMetricsAggregator) processMetric(ctx context.Context, evt scanning.T
 		return fmt.Errorf("failed to check/update job pause status for job %s: %w", evt.JobID, err)
 	}
 
+	if err := t.tryResumeJobIfAnyTaskResumed(ctx, st); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to check/update job resume status")
+		return fmt.Errorf("failed to check/update job resume status for job %s: %w", evt.JobID, err)
+	}
+
 	if err := t.tryCancelJobIfAllTasksCancelled(ctx, st); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to check/update job cancellation status")
@@ -893,6 +899,21 @@ func (t *jobMetricsAggregator) tryCancelJobIfAllTasksCancelled(ctx context.Conte
 			targetStatus: domain.JobStatusCancelled,
 		},
 		"cancel_job_if_all_tasks_cancelled",
+	)
+}
+
+// tryResumeJobIfAnyTaskResumed attempts to resume a job if any of its non-terminal tasks
+// have transitioned out of the paused state. It ensures proper locking and idempotency.
+func (t *jobMetricsAggregator) tryResumeJobIfAnyTaskResumed(ctx context.Context, st *AggregatorJobState) error {
+	return t.tryUpdateJobStatus(
+		ctx,
+		jobStatusUpdateParams{
+			state:        st,
+			shouldUpdate: st.shouldResumeJob,
+			statusFlag:   &st.jobPaused, // We'll flip this back to false
+			targetStatus: domain.JobStatusRunning,
+		},
+		"resume_job_if_any_task_resumed",
 	)
 }
 

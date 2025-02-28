@@ -41,7 +41,6 @@ func (s *AggregatorJobState) updateTaskCounts(oldStatus, newStatus domain.TaskSt
 	}
 	if oldStatus == domain.TaskStatusPaused && newStatus != domain.TaskStatusPaused {
 		s.pausedCount--
-		s.jobPaused = false // Reset jobPaused when a task transitions out of PAUSED state
 	}
 	if newStatus == domain.TaskStatusCancelled && oldStatus != domain.TaskStatusCancelled {
 		s.cancelledCount++
@@ -86,6 +85,22 @@ func (s *AggregatorJobState) shouldCancelJob() bool {
 
 	activeTaskCount := s.finalTaskCount - (s.completedCount + s.failedCount)
 	return activeTaskCount > 0 && s.cancelledCount == activeTaskCount
+}
+
+// shouldResumeJob determines if the job should transition back to in-progress state.
+// Returns true when at least one task has transitioned from paused to a non-terminal state
+// and the job is currently paused.
+func (s *AggregatorJobState) shouldResumeJob() bool {
+	// We should resume the job if:
+	// 1. The job is currently marked as paused
+	// 2. There are active tasks
+	// 3. Not all active tasks are paused anymore
+	if !s.jobPaused || s.finalTaskCount == 0 {
+		return false
+	}
+
+	activeTaskCount := s.finalTaskCount - (s.completedCount + s.failedCount + s.cancelledCount)
+	return activeTaskCount > 0 && s.pausedCount < activeTaskCount
 }
 
 // setEnumerationComplete marks the job's enumeration phase as complete and sets the final task count.

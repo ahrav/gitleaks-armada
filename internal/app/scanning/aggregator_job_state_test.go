@@ -200,6 +200,100 @@ func TestAggregatorJobState_ShouldCancelJob(t *testing.T) {
 	}
 }
 
+func TestAggregatorJobState_ShouldResumeJob(t *testing.T) {
+	tests := []struct {
+		name     string
+		state    AggregatorJobState
+		expected bool
+	}{
+		{
+			name: "job not paused",
+			state: AggregatorJobState{
+				finalTaskCount: 5,
+				pausedCount:    3,
+				jobPaused:      false,
+			},
+			expected: false,
+		},
+		{
+			name: "no tasks yet",
+			state: AggregatorJobState{
+				finalTaskCount: 0,
+				pausedCount:    0,
+				jobPaused:      true,
+			},
+			expected: false,
+		},
+		{
+			name: "all active tasks still paused",
+			state: AggregatorJobState{
+				finalTaskCount: 10,
+				completedCount: 2,
+				failedCount:    3,
+				cancelledCount: 0,
+				pausedCount:    5, // All 5 remaining active tasks are paused
+				jobPaused:      true,
+			},
+			expected: false,
+		},
+		{
+			name: "some active tasks resumed",
+			state: AggregatorJobState{
+				finalTaskCount: 10,
+				completedCount: 2,
+				failedCount:    3,
+				cancelledCount: 0,
+				pausedCount:    4, // Only 4 of 5 active tasks are paused
+				jobPaused:      true,
+			},
+			expected: true,
+		},
+		{
+			name: "all active tasks resumed",
+			state: AggregatorJobState{
+				finalTaskCount: 10,
+				completedCount: 5,
+				failedCount:    3,
+				cancelledCount: 0,
+				pausedCount:    0, // No tasks paused
+				jobPaused:      true,
+			},
+			expected: true,
+		},
+		{
+			name: "no active tasks, all complete or failed",
+			state: AggregatorJobState{
+				finalTaskCount: 10,
+				completedCount: 6,
+				failedCount:    4,
+				cancelledCount: 0,
+				pausedCount:    0,
+				jobPaused:      true,
+			},
+			expected: false,
+		},
+		{
+			name: "with cancelled tasks",
+			state: AggregatorJobState{
+				finalTaskCount: 10,
+				completedCount: 3,
+				failedCount:    2,
+				cancelledCount: 3,
+				pausedCount:    1, // 1 of 2 remaining active tasks still paused
+				jobPaused:      true,
+			},
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.state.shouldResumeJob()
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
 func TestAggregatorJobState_SetEnumerationComplete(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -417,4 +511,42 @@ func TestAggregatorJobState_CancelWorkflow(t *testing.T) {
 	// 5. Mark job as cancelled.
 	state.jobCancelled = true
 	assert.False(t, state.shouldCancelJob())
+}
+
+func TestAggregatorJobState_ResumeWorkflow(t *testing.T) {
+	// Test a workflow that gets paused and then resumed.
+	state := AggregatorJobState{jobID: uuid.New()}
+
+	// 1. Set enumeration complete with 3 tasks.
+	state.setEnumerationComplete(3)
+	assert.False(t, state.shouldPauseJob())
+	assert.False(t, state.shouldResumeJob())
+
+	// 2. Pause all tasks to trigger job pause.
+	state.updateTaskCounts(domain.TaskStatusInProgress, domain.TaskStatusPaused)
+	state.updateTaskCounts(domain.TaskStatusInProgress, domain.TaskStatusPaused)
+	state.updateTaskCounts(domain.TaskStatusInProgress, domain.TaskStatusPaused)
+	assert.Equal(t, 3, state.pausedCount)
+	assert.True(t, state.shouldPauseJob())
+
+	// 3. Simulate job being marked as paused externally.
+	state.jobPaused = true
+	assert.False(t, state.shouldPauseJob())  // Already paused
+	assert.False(t, state.shouldResumeJob()) // All tasks still paused
+
+	// 4. Resume one task.
+	state.updateTaskCounts(domain.TaskStatusPaused, domain.TaskStatusInProgress)
+	assert.Equal(t, 2, state.pausedCount)
+	assert.True(t, state.shouldResumeJob())
+
+	// 5. Simulate job being resumed externally.
+	state.jobPaused = false
+	assert.False(t, state.shouldResumeJob()) // Already resumed
+
+	// 6. Resume all tasks.
+	state.updateTaskCounts(domain.TaskStatusPaused, domain.TaskStatusInProgress)
+	state.updateTaskCounts(domain.TaskStatusPaused, domain.TaskStatusInProgress)
+	assert.Equal(t, 0, state.pausedCount)
+	assert.False(t, state.shouldPauseJob())
+	assert.False(t, state.shouldResumeJob())
 }
