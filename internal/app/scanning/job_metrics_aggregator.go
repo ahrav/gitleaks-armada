@@ -911,6 +911,10 @@ func (t *jobMetricsAggregator) tryFinalizeJobIfDone(ctx context.Context, st *Agg
 	)
 }
 
+// ------------------------------------------------------------------------------
+// Flushing
+// ------------------------------------------------------------------------------
+
 // LaunchMetricsFlusher starts a separate goroutine that periodically invokes FlushMetrics.
 // This ensures that in-memory metrics are regularly persisted to the database.
 func (t *jobMetricsAggregator) LaunchMetricsFlusher(interval time.Duration) {
