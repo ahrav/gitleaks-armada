@@ -4,12 +4,12 @@ import (
 	"context"
 	"time"
 
-	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 	"github.com/stretchr/testify/mock"
 
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
+	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 )
 
 // mockDomainEventPublisher implements events.DomainEventPublisher for testing.
@@ -146,4 +146,14 @@ func (m *mockJobTaskSvc) GetCheckpoints(ctx context.Context, jobID uuid.UUID) (m
 func (m *mockJobTaskSvc) UpdateMetricsAndCheckpoint(ctx context.Context, jobID uuid.UUID, metrics *scanning.JobMetrics, partition int32, offset int64) error {
 	args := m.Called(ctx, jobID, metrics, partition, offset)
 	return args.Error(0)
+}
+
+func (m *mockJobTaskSvc) ListTasksByJobAndStatus(ctx context.Context, jobID uuid.UUID, status scanning.TaskStatus) ([]*scanning.Task, error) {
+	args := m.Called(ctx, jobID, status)
+	return args.Get(0).([]*scanning.Task), args.Error(1)
+}
+
+func (m *mockJobTaskSvc) GetTasksToResume(ctx context.Context, jobID uuid.UUID) ([]*scanning.Task, error) {
+	args := m.Called(ctx, jobID)
+	return args.Get(0).([]*scanning.Task), args.Error(1)
 }

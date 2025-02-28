@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -13,6 +12,7 @@ import (
 	domain "github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
+	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 )
 
 var _ domain.JobTaskService = (*jobTaskService)(nil)
@@ -636,6 +636,46 @@ func (s *jobTaskService) FindStaleTasks(
 	span.SetStatus(codes.Ok, "stale tasks found successfully")
 
 	return staleTasks, nil
+}
+
+// GetTasksToResume retrieves all PAUSED tasks for a job that need to be resumed.
+// This method validates that the job is in a PAUSED state before fetching the tasks.
+func (s *jobTaskService) GetTasksToResume(ctx context.Context, jobID uuid.UUID) ([]*domain.Task, error) {
+	ctx, span := s.tracer.Start(ctx, "job_task_service.scanning.get_tasks_to_resume",
+		trace.WithAttributes(
+			attribute.String("controller_id", s.controllerID),
+			attribute.String("job_id", jobID.String()),
+		),
+	)
+	defer span.End()
+
+	job, err := s.loadJob(ctx, jobID)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to load job")
+		return nil, fmt.Errorf("failed to load job: %w", err)
+	}
+
+	if job.Status() != domain.JobStatusPaused { // Verify the job is in PAUSED state
+		err := fmt.Errorf("job is not in PAUSED state, current state: %s", job.Status())
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "job not in PAUSED state")
+		return nil, err
+	}
+	span.AddEvent("job_state_verified_as_paused")
+
+	tasks, err := s.taskRepo.ListTasksByJobAndStatus(ctx, jobID, domain.TaskStatusPaused)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to list paused tasks")
+		return nil, fmt.Errorf("failed to list paused tasks for job %s: %w", jobID, err)
+	}
+	span.AddEvent("paused_tasks_retrieved", trace.WithAttributes(
+		attribute.Int("task_count", len(tasks)),
+	))
+	span.SetStatus(codes.Ok, "paused tasks retrieved successfully")
+
+	return tasks, nil
 }
 
 // GetJobMetrics fetches high-level statistics for a job, such as total tasks or
