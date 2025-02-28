@@ -2,12 +2,12 @@ package scanning
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -17,6 +17,7 @@ import (
 	domain "github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
+	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 )
 
 // mockJobRepository helps test coordinator interactions with job persistence.
@@ -115,6 +116,11 @@ func (m *mockTaskRepository) BatchUpdateHeartbeats(ctx context.Context, heartbea
 	return args.Get(0).(int64), args.Error(1)
 }
 
+func (m *mockTaskRepository) GetTasksToResume(ctx context.Context, jobID uuid.UUID) ([]scanning.ResumeTaskInfo, error) {
+	args := m.Called(ctx, jobID)
+	return args.Get(0).([]scanning.ResumeTaskInfo), args.Error(1)
+}
+
 func newJobTaskService(t *testing.T) *jobTaskService {
 	t.Helper()
 	jobRepo := new(mockJobRepository)
@@ -126,20 +132,33 @@ func newJobTaskService(t *testing.T) *jobTaskService {
 func TestCreateJob(t *testing.T) {
 	tests := []struct {
 		name    string
+		cmd     domain.CreateJobCommand
 		setup   func(*mockJobRepository)
 		wantErr bool
 	}{
 		{
 			name: "successful job creation",
+			cmd: domain.CreateJobCommand{
+				JobID:      uuid.New(),
+				SourceType: "github",
+				Config:     json.RawMessage(`{"token": "test-token"}`),
+			},
 			setup: func(repo *mockJobRepository) {
 				repo.On("CreateJob", mock.Anything, mock.MatchedBy(func(job *scanning.Job) bool {
-					return job.Status() == scanning.JobStatusQueued
+					return job.Status() == scanning.JobStatusQueued &&
+						job.SourceType() == "github" &&
+						string(job.Config()) == `{"token": "test-token"}`
 				})).Return(nil)
 			},
 			wantErr: false,
 		},
 		{
 			name: "repository error",
+			cmd: domain.CreateJobCommand{
+				JobID:      uuid.New(),
+				SourceType: "github",
+				Config:     json.RawMessage(`{}`),
+			},
 			setup: func(repo *mockJobRepository) {
 				repo.On("CreateJob", mock.Anything, mock.Anything).
 					Return(assert.AnError)
@@ -155,7 +174,7 @@ func TestCreateJob(t *testing.T) {
 			suite := newJobTaskService(t)
 			tt.setup(suite.jobRepo.(*mockJobRepository))
 
-			err := suite.CreateJobFromID(context.Background(), uuid.New())
+			err := suite.CreateJob(context.Background(), tt.cmd)
 			if tt.wantErr {
 				require.Error(t, err)
 				return
@@ -1388,6 +1407,129 @@ func TestCancelTask(t *testing.T) {
 			require.NoError(t, err)
 			assert.NotNil(t, task)
 			assert.Equal(t, scanning.TaskStatusCancelled, task.Status())
+			suite.taskRepo.(*mockTaskRepository).AssertExpectations(t)
+		})
+	}
+}
+
+func TestGetTasksToResume(t *testing.T) {
+	jobID := uuid.MustParse("429735d7-ec1b-4d96-8749-938ca0a744be")
+
+	tests := []struct {
+		name        string
+		jobID       uuid.UUID
+		setupJob    func(*mockJobRepository)
+		setupTask   func(*mockTaskRepository)
+		wantErr     bool
+		expectedLen int
+	}{
+		{
+			name:  "successfully get paused tasks",
+			jobID: jobID,
+			setupJob: func(repo *mockJobRepository) {
+				// Return a job in PAUSED state.
+				job := domain.NewJobWithStatus(jobID, domain.JobStatusPaused)
+				repo.On("GetJob", mock.Anything, jobID).Return(job, nil)
+			},
+			setupTask: func(repo *mockTaskRepository) {
+				// Create 3 sample ResumeTaskInfo objects.
+				tasks := []domain.ResumeTaskInfo{
+					domain.NewResumeTaskInfo(
+						uuid.New(),
+						jobID,
+						shared.SourceTypeGitHub,
+						"https://github.com/org/repo1",
+						10,
+						domain.NewCheckpoint(uuid.New(), []byte("token1"), map[string]string{"pos": "1"}),
+					),
+					domain.NewResumeTaskInfo(
+						uuid.New(),
+						jobID,
+						shared.SourceTypeGitHub,
+						"https://github.com/org/repo2",
+						20,
+						domain.NewCheckpoint(uuid.New(), []byte("token2"), map[string]string{"pos": "2"}),
+					),
+					domain.NewResumeTaskInfo(
+						uuid.New(),
+						jobID,
+						shared.SourceTypeGitHub,
+						"https://github.com/org/repo3",
+						30,
+						domain.NewCheckpoint(uuid.New(), []byte("token3"), map[string]string{"pos": "3"}),
+					),
+				}
+				repo.On("GetTasksToResume", mock.Anything, jobID).Return(tasks, nil)
+			},
+			wantErr:     false,
+			expectedLen: 3,
+		},
+		{
+			name:  "job not in paused state",
+			jobID: jobID,
+			setupJob: func(repo *mockJobRepository) {
+				// Return a job in RUNNING state, which should cause validation to fail.
+				job := domain.NewJobWithStatus(jobID, domain.JobStatusRunning)
+				repo.On("GetJob", mock.Anything, jobID).Return(job, nil)
+			},
+			setupTask: func(repo *mockTaskRepository) {
+				// Expect no calls to GetTasksToResume.
+			},
+			wantErr:     true,
+			expectedLen: 0,
+		},
+		{
+			name:  "job not found",
+			jobID: jobID,
+			setupJob: func(repo *mockJobRepository) {
+				// Simulate job not found.
+				repo.On("GetJob", mock.Anything, jobID).Return(nil, domain.ErrJobNotFound)
+			},
+			setupTask: func(repo *mockTaskRepository) {
+				// Expect no calls to GetTasksToResume.
+			},
+			wantErr:     true,
+			expectedLen: 0,
+		},
+		{
+			name:  "task repository error",
+			jobID: jobID,
+			setupJob: func(repo *mockJobRepository) {
+				// Return a job in PAUSED state.
+				job := domain.NewJobWithStatus(jobID, domain.JobStatusPaused)
+				repo.On("GetJob", mock.Anything, jobID).Return(job, nil)
+			},
+			setupTask: func(repo *mockTaskRepository) {
+				repo.On("GetTasksToResume", mock.Anything, jobID).Return([]domain.ResumeTaskInfo{}, assert.AnError)
+			},
+			wantErr:     true,
+			expectedLen: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			suite := newJobTaskService(t)
+
+			tt.setupJob(suite.jobRepo.(*mockJobRepository))
+			tt.setupTask(suite.taskRepo.(*mockTaskRepository))
+
+			tasks, err := suite.GetTasksToResume(context.Background(), tt.jobID)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.expectedLen, len(tasks))
+
+			for _, task := range tasks {
+				assert.Equal(t, tt.jobID, task.JobID())
+				assert.NotNil(t, task.Checkpoint(), "Checkpoint should not be nil")
+				assert.NotZero(t, task.SequenceNum(), "Sequence number should not be zero")
+			}
+
+			suite.jobRepo.(*mockJobRepository).AssertExpectations(t)
 			suite.taskRepo.(*mockTaskRepository).AssertExpectations(t)
 		})
 	}

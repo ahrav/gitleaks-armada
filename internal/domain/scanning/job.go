@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 )
 
@@ -12,7 +13,7 @@ import (
 // It provides aggregated status and progress tracking across all child tasks.
 type Job struct {
 	jobID      uuid.UUID
-	sourceType string
+	sourceType shared.SourceType
 	config     json.RawMessage
 	status     JobStatus
 	timeline   *Timeline
@@ -22,7 +23,7 @@ type Job struct {
 func NewJob(jobID uuid.UUID, sourceType string, config json.RawMessage) *Job {
 	return &Job{
 		jobID:      jobID,
-		sourceType: sourceType,
+		sourceType: shared.ParseSourceType(sourceType),
 		config:     config,
 		status:     JobStatusQueued,
 		timeline:   NewTimeline(new(realTimeProvider)),
@@ -50,7 +51,7 @@ func ReconstructJob(
 ) *Job {
 	job := &Job{
 		jobID:      jobID,
-		sourceType: sourceType,
+		sourceType: shared.ParseSourceType(sourceType),
 		config:     config,
 		status:     status,
 		timeline:   timeline,
@@ -81,7 +82,7 @@ func (j *Job) EndTime() (time.Time, bool) {
 }
 
 // Getters for the new fields.
-func (j *Job) SourceType() string      { return j.sourceType }
+func (j *Job) SourceType() string      { return j.sourceType.String() }
 func (j *Job) Config() json.RawMessage { return j.config }
 
 // LastUpdateTime returns when this job's state was last modified.

@@ -439,6 +439,57 @@ func (q *Queries) GetTaskSourceType(ctx context.Context, taskID pgtype.UUID) (st
 	return source_type, err
 }
 
+const getTasksToResume = `-- name: GetTasksToResume :many
+SELECT
+    t.task_id,
+    t.job_id,
+    j.source_type,
+    t.resource_uri,
+    t.last_sequence_num,
+    t.last_checkpoint
+FROM scan_tasks t
+JOIN scan_jobs j ON t.job_id = j.job_id
+WHERE t.job_id = $1
+  AND t.status = 'PAUSED'
+ORDER BY t.created_at ASC
+`
+
+type GetTasksToResumeRow struct {
+	TaskID          pgtype.UUID
+	JobID           pgtype.UUID
+	SourceType      string
+	ResourceUri     string
+	LastSequenceNum int64
+	LastCheckpoint  []byte
+}
+
+func (q *Queries) GetTasksToResume(ctx context.Context, jobID pgtype.UUID) ([]GetTasksToResumeRow, error) {
+	rows, err := q.db.Query(ctx, getTasksToResume, jobID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetTasksToResumeRow
+	for rows.Next() {
+		var i GetTasksToResumeRow
+		if err := rows.Scan(
+			&i.TaskID,
+			&i.JobID,
+			&i.SourceType,
+			&i.ResourceUri,
+			&i.LastSequenceNum,
+			&i.LastCheckpoint,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const incrementTotalTasks = `-- name: IncrementTotalTasks :execrows
 UPDATE scan_job_metrics
 SET total_tasks = total_tasks + $2,
@@ -457,94 +508,6 @@ func (q *Queries) IncrementTotalTasks(ctx context.Context, arg IncrementTotalTas
 		return 0, err
 	}
 	return result.RowsAffected(), nil
-}
-
-const listScanTasksByJobAndStatus = `-- name: ListScanTasksByJobAndStatus :many
-SELECT
-    t.task_id,
-    t.job_id,
-    t.status,
-    t.resource_uri,
-    t.last_sequence_num,
-    t.start_time,
-    t.end_time,
-    t.items_processed,
-    t.progress_details,
-    t.last_checkpoint,
-    t.stall_reason,
-    t.stalled_at,
-    t.paused_at,
-    t.recovery_attempts,
-    t.last_heartbeat_at,
-    t.created_at,
-    t.updated_at
-FROM scan_tasks t
-WHERE t.job_id = $1
-  AND t.status = $2
-ORDER BY t.created_at ASC
-`
-
-type ListScanTasksByJobAndStatusParams struct {
-	JobID  pgtype.UUID
-	Status ScanTaskStatus
-}
-
-type ListScanTasksByJobAndStatusRow struct {
-	TaskID           pgtype.UUID
-	JobID            pgtype.UUID
-	Status           ScanTaskStatus
-	ResourceUri      string
-	LastSequenceNum  int64
-	StartTime        pgtype.Timestamptz
-	EndTime          pgtype.Timestamptz
-	ItemsProcessed   int64
-	ProgressDetails  []byte
-	LastCheckpoint   []byte
-	StallReason      NullScanTaskStallReason
-	StalledAt        pgtype.Timestamptz
-	PausedAt         pgtype.Timestamptz
-	RecoveryAttempts int32
-	LastHeartbeatAt  pgtype.Timestamptz
-	CreatedAt        pgtype.Timestamptz
-	UpdatedAt        pgtype.Timestamptz
-}
-
-func (q *Queries) ListScanTasksByJobAndStatus(ctx context.Context, arg ListScanTasksByJobAndStatusParams) ([]ListScanTasksByJobAndStatusRow, error) {
-	rows, err := q.db.Query(ctx, listScanTasksByJobAndStatus, arg.JobID, arg.Status)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListScanTasksByJobAndStatusRow
-	for rows.Next() {
-		var i ListScanTasksByJobAndStatusRow
-		if err := rows.Scan(
-			&i.TaskID,
-			&i.JobID,
-			&i.Status,
-			&i.ResourceUri,
-			&i.LastSequenceNum,
-			&i.StartTime,
-			&i.EndTime,
-			&i.ItemsProcessed,
-			&i.ProgressDetails,
-			&i.LastCheckpoint,
-			&i.StallReason,
-			&i.StalledAt,
-			&i.PausedAt,
-			&i.RecoveryAttempts,
-			&i.LastHeartbeatAt,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }
 
 const updateJob = `-- name: UpdateJob :execrows

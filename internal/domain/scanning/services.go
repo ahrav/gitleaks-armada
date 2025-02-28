@@ -43,9 +43,9 @@ type JobTaskService interface {
 	// Job-level operations
 	// ---------------------------
 
-	// CreateJobFromID initializes a new scanning operation in the system
-	// from an existing job ID.
-	CreateJobFromID(ctx context.Context, jobID uuid.UUID) error
+	// CreateJob initializes a new scanning operation in the system.
+	// It uses a command object to encapsulate all required information.
+	CreateJob(ctx context.Context, cmd CreateJobCommand) error
 
 	// AssociateEnumeratedTargets links the provided scan targets to the specified job
 	// and updates the job's total task count in a single atomic operation. This ensures
@@ -103,6 +103,10 @@ type JobTaskService interface {
 	// FindStaleTasks retrieves tasks that have not sent a heartbeat since the given cutoff time.
 	FindStaleTasks(ctx context.Context, controllerID string, cutoff time.Time) ([]StaleTaskInfo, error)
 
+	// GetTasksToResume retrieves all PAUSED tasks for a job that need to be resumed.
+	// This is used when resuming a job that was previously paused.
+	GetTasksToResume(ctx context.Context, jobID uuid.UUID) ([]ResumeTaskInfo, error)
+
 	// // RecoverTask attempts to resume execution of a previously stalled task.
 	// // It uses the last recorded checkpoint to restart the task from its last known good state.
 	// RecoverTask(ctx context.Context, jobID, taskID uuid.UUID) error
@@ -114,10 +118,6 @@ type JobTaskService interface {
 	// // ListJobs retrieves a paginated list of jobs filtered by their status.
 	// // This supports system-wide job monitoring and management capabilities.
 	// ListJobs(ctx context.Context, status []domain.JobStatus, limit, offset int) ([]*domain.Job, error)
-
-	// GetTasksToResume retrieves all PAUSED tasks for a job that need to be resumed.
-	// This is used when resuming a job that was previously paused.
-	GetTasksToResume(ctx context.Context, jobID uuid.UUID) ([]*Task, error)
 
 	// TODO: BulkUpdateMetricsAndCheckpoint.
 }

@@ -2,7 +2,6 @@ package scanning
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -60,18 +59,19 @@ func NewJobTaskService(
 	}
 }
 
-// CreateJobFromID creates a new Job in the repository, using the provided jobID.
-// Returns the created Job on success.
-func (s *jobTaskService) CreateJobFromID(ctx context.Context, jobID uuid.UUID) error {
+// CreateJob creates a new Job in the repository using the provided command.
+// Returns an error if the job could not be created.
+func (s *jobTaskService) CreateJob(ctx context.Context, cmd domain.CreateJobCommand) error {
 	ctx, span := s.tracer.Start(ctx, "job_task_service.scanning.create_job",
 		trace.WithAttributes(
 			attribute.String("controller_id", s.controllerID),
+			attribute.String("job_id", cmd.JobID.String()),
+			attribute.String("source_type", cmd.SourceType),
 		),
 	)
 	defer span.End()
 
-	// TODO: Actually use correct source type and config.
-	job := domain.NewJob(jobID, "git", json.RawMessage{})
+	job := domain.NewJob(cmd.JobID, cmd.SourceType, cmd.Config)
 	if err := s.jobRepo.CreateJob(ctx, job); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to create job")
@@ -642,7 +642,7 @@ func (s *jobTaskService) FindStaleTasks(
 
 // GetTasksToResume retrieves all PAUSED tasks for a job that need to be resumed.
 // This method validates that the job is in a PAUSED state before fetching the tasks.
-func (s *jobTaskService) GetTasksToResume(ctx context.Context, jobID uuid.UUID) ([]*domain.Task, error) {
+func (s *jobTaskService) GetTasksToResume(ctx context.Context, jobID uuid.UUID) ([]domain.ResumeTaskInfo, error) {
 	ctx, span := s.tracer.Start(ctx, "job_task_service.scanning.get_tasks_to_resume",
 		trace.WithAttributes(
 			attribute.String("controller_id", s.controllerID),
@@ -666,16 +666,16 @@ func (s *jobTaskService) GetTasksToResume(ctx context.Context, jobID uuid.UUID) 
 	}
 	span.AddEvent("job_state_verified_as_paused")
 
-	tasks, err := s.taskRepo.ListTasksByJobAndStatus(ctx, jobID, domain.TaskStatusPaused)
+	tasks, err := s.taskRepo.GetTasksToResume(ctx, jobID)
 	if err != nil {
 		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to list paused tasks")
-		return nil, fmt.Errorf("failed to list paused tasks for job %s: %w", jobID, err)
+		span.SetStatus(codes.Error, "failed to get tasks to resume")
+		return nil, fmt.Errorf("failed to get tasks to resume for job %s: %w", jobID, err)
 	}
-	span.AddEvent("paused_tasks_retrieved", trace.WithAttributes(
+	span.AddEvent("tasks_to_resume_retrieved", trace.WithAttributes(
 		attribute.Int("task_count", len(tasks)),
 	))
-	span.SetStatus(codes.Ok, "paused tasks retrieved successfully")
+	span.SetStatus(codes.Ok, "tasks to resume retrieved successfully")
 
 	return tasks, nil
 }

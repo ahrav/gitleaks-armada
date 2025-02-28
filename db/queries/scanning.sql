@@ -106,28 +106,18 @@ SET
     updated_at = NOW()
 WHERE task_id = $1;
 
--- name: ListScanTasksByJobAndStatus :many
+-- name: GetTasksToResume :many
 SELECT
     t.task_id,
     t.job_id,
-    t.status,
+    j.source_type,
     t.resource_uri,
     t.last_sequence_num,
-    t.start_time,
-    t.end_time,
-    t.items_processed,
-    t.progress_details,
-    t.last_checkpoint,
-    t.stall_reason,
-    t.stalled_at,
-    t.paused_at,
-    t.recovery_attempts,
-    t.last_heartbeat_at,
-    t.created_at,
-    t.updated_at
+    t.last_checkpoint
 FROM scan_tasks t
+JOIN scan_jobs j ON t.job_id = j.job_id
 WHERE t.job_id = $1
-  AND t.status = $2
+  AND t.status = 'PAUSED'
 ORDER BY t.created_at ASC;
 
 -- name: GetTaskSourceType :one

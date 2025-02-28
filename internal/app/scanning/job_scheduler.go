@@ -2,9 +2,9 @@ package scanning
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
-	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -12,6 +12,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	domain "github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
+	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 )
 
 var _ domain.JobScheduler = (*jobScheduler)(nil)
@@ -67,7 +68,17 @@ func (s *jobScheduler) Schedule(ctx context.Context, jobID uuid.UUID, targets []
 	defer span.End()
 	logger.Debug(ctx, "Scheduling job")
 
-	if err := s.jobTaskService.CreateJobFromID(ctx, jobID); err != nil {
+	config, err := marshalConfig(ctx, targets[0])
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to marshal target & auth config")
+		return fmt.Errorf("failed to marshal target & auth config: %w", err)
+	}
+
+	// All the targets have the same source type, so we can use the first one.
+	cmd := domain.NewCreateJobCommand(jobID, targets[0].SourceType().String(), config)
+
+	if err := s.jobTaskService.CreateJob(ctx, cmd); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to create job")
 		return fmt.Errorf("failed to create job (job_id: %s): %w", jobID, err)
@@ -101,6 +112,25 @@ func (s *jobScheduler) Schedule(ctx context.Context, jobID uuid.UUID, targets []
 	return nil
 }
 
+// marshalConfig serializes the target & auth config for storage in the job.
+func marshalConfig(ctx context.Context, target domain.Target) (json.RawMessage, error) {
+	span := trace.SpanFromContext(ctx)
+	completeConfig := struct {
+		domain.Target
+		Auth domain.Auth `json:"auth,omitempty"`
+	}{Target: target}
+	completeConfig.Auth = *target.Auth()
+
+	data, err := json.Marshal(completeConfig)
+	if err != nil {
+		span.RecordError(err)
+		return nil, fmt.Errorf("failed to marshal target & auth config: %w", err)
+	}
+	span.AddEvent("target_auth_config_marshalled")
+
+	return data, nil
+}
+
 // Pause initiates the pausing of a job by transitioning it to the PAUSED state
 // and publishing a JobPausedEvent. The actual pause operation is handled asynchronously
 // by the job coordinator.
@@ -131,6 +161,66 @@ func (s *jobScheduler) Pause(ctx context.Context, jobID uuid.UUID, requestedBy s
 	}
 	span.AddEvent("job_paused_event_published")
 	span.SetStatus(codes.Ok, "job pause initiated successfully")
+
+	return nil
+}
+
+// Resume initiates the resumption of a job by transitioning it from PAUSED
+// to RUNNING and publishing TaskResumeEvents for each paused task.
+func (s *jobScheduler) Resume(ctx context.Context, jobID uuid.UUID, requestedBy string) error {
+	logger := s.logger.With("operation", "resume_job", "job_id", jobID)
+	ctx, span := s.tracer.Start(ctx, "job_scheduler.resume_job",
+		trace.WithAttributes(
+			attribute.String("controller_id", s.controllerID),
+			attribute.String("job_id", jobID.String()),
+			attribute.String("requested_by", requestedBy),
+		),
+	)
+	defer span.End()
+	logger.Debug(ctx, "Resuming job")
+
+	tasks, err := s.jobTaskService.GetTasksToResume(ctx, jobID)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to get tasks to resume")
+		return fmt.Errorf("failed to get tasks to resume (job_id: %s): %w", jobID, err)
+	}
+	span.AddEvent("tasks_to_resume_retrieved", trace.WithAttributes(
+		attribute.Int("task_count", len(tasks)),
+	))
+
+	// Publish resume events for each task.
+	// TODO:  Maybe bulk publish these?
+	for _, task := range tasks {
+		resumeEvent := domain.NewTaskResumeEvent(
+			jobID,
+			task.TaskID(),
+			task.SourceType(),
+			task.ResourceURI(),
+			int(task.SequenceNum()),
+			task.Checkpoint(),
+		)
+
+		if err := s.publisher.PublishDomainEvent(
+			ctx, resumeEvent, events.WithKey(task.TaskID().String()),
+		); err != nil {
+			span.RecordError(err)
+			// TODO: We need to figure out what to do if this fails.
+			// Retry? Inform client? etc.
+			logger.Error(ctx, "Failed to publish task resume event",
+				"task_id", task.TaskID(),
+				"error", err,
+			)
+			continue
+		}
+
+		span.AddEvent("task_resume_event_published", trace.WithAttributes(
+			attribute.String("task_id", task.TaskID().String()),
+		))
+	}
+
+	span.AddEvent("job_resumption_initiated")
+	span.SetStatus(codes.Ok, "job resumption initiated successfully")
 
 	return nil
 }

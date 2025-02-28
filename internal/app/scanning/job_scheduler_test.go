@@ -5,7 +5,6 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/trace/noop"
@@ -14,6 +13,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
+	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 )
 
 func setupJobSchedulerTestSuite() (
@@ -276,6 +276,112 @@ func TestCancelJob(t *testing.T) {
 
 			err := scheduler.Cancel(context.Background(), jobID, requestedBy)
 
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+			mockService.AssertExpectations(t)
+			mockPublisher.AssertExpectations(t)
+			mockBroadcastPublisher.AssertExpectations(t)
+		})
+	}
+}
+
+func TestResumeJob(t *testing.T) {
+	jobID := uuid.New()
+	requestedBy := "test-user"
+
+	task1ID := uuid.New()
+	task2ID := uuid.New()
+
+	checkpoint1 := scanning.NewCheckpoint(task1ID, []byte("resume-token-1"), map[string]string{"position": "HEAD"})
+	checkpoint2 := scanning.NewCheckpoint(task2ID, []byte("resume-token-2"), map[string]string{"position": "main"})
+
+	mockTasks := []scanning.ResumeTaskInfo{
+		scanning.NewResumeTaskInfo(task1ID, jobID, shared.SourceTypeGitHub, "https://github.com/org/repo1", 1, checkpoint1),
+		scanning.NewResumeTaskInfo(task2ID, jobID, shared.SourceTypeGitHub, "https://github.com/org/repo2", 2, checkpoint2),
+	}
+
+	tests := []struct {
+		name    string
+		setup   func(*mockJobTaskSvc, *mockDomainEventPublisher, *mockDomainEventPublisher)
+		wantErr bool
+	}{
+		{
+			name: "successful job resume with multiple tasks",
+			setup: func(service *mockJobTaskSvc, publisher *mockDomainEventPublisher, broadcastPublisher *mockDomainEventPublisher) {
+				service.On("GetTasksToResume", mock.Anything, jobID).Return(mockTasks, nil)
+
+				for _, task := range mockTasks {
+					publisher.On("PublishDomainEvent",
+						mock.Anything,
+						mock.MatchedBy(func(evt events.DomainEvent) bool {
+							resumeEvt, ok := evt.(*scanning.TaskResumeEvent)
+							return ok &&
+								resumeEvt.JobID.String() == jobID.String() &&
+								resumeEvt.TaskID.String() == task.TaskID().String() &&
+								resumeEvt.SourceType == task.SourceType() &&
+								resumeEvt.ResourceURI == task.ResourceURI() &&
+								resumeEvt.SequenceNum == int(task.SequenceNum())
+						}),
+						mock.AnythingOfType("[]events.PublishOption"),
+					).Return(nil).Once()
+				}
+			},
+			wantErr: false,
+		},
+		{
+			name: "getting tasks to resume fails",
+			setup: func(service *mockJobTaskSvc, publisher *mockDomainEventPublisher, broadcastPublisher *mockDomainEventPublisher) {
+				service.On("GetTasksToResume", mock.Anything, jobID).
+					Return([]scanning.ResumeTaskInfo{}, errors.New("failed to get tasks to resume"))
+			},
+			wantErr: true,
+		},
+		{
+			name: "publishing task resume event fails",
+			setup: func(service *mockJobTaskSvc, publisher *mockDomainEventPublisher, broadcastPublisher *mockDomainEventPublisher) {
+				service.On("GetTasksToResume", mock.Anything, jobID).Return(mockTasks, nil)
+
+				// First event publish succeeds.
+				publisher.On("PublishDomainEvent",
+					mock.Anything,
+					mock.MatchedBy(func(evt events.DomainEvent) bool {
+						resumeEvt, ok := evt.(*scanning.TaskResumeEvent)
+						return ok && resumeEvt.TaskID.String() == mockTasks[0].TaskID().String()
+					}),
+					mock.AnythingOfType("[]events.PublishOption"),
+				).Return(nil).Once()
+
+				// Second event publish fails.
+				publisher.On("PublishDomainEvent",
+					mock.Anything,
+					mock.MatchedBy(func(evt events.DomainEvent) bool {
+						resumeEvt, ok := evt.(*scanning.TaskResumeEvent)
+						return ok && resumeEvt.TaskID.String() == mockTasks[1].TaskID().String()
+					}),
+					mock.AnythingOfType("[]events.PublishOption"),
+				).Return(errors.New("failed to publish event")).Once()
+			},
+			wantErr: false, // Not returning error because the method continues on event publish failure.
+		},
+		{
+			name: "successful job resume with no tasks",
+			setup: func(service *mockJobTaskSvc, publisher *mockDomainEventPublisher, broadcastPublisher *mockDomainEventPublisher) {
+				service.On("GetTasksToResume", mock.Anything, jobID).Return([]scanning.ResumeTaskInfo{}, nil)
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			scheduler, mockService, mockPublisher, mockBroadcastPublisher := setupJobSchedulerTestSuite()
+			tt.setup(mockService, mockPublisher, mockBroadcastPublisher)
+
+			err := scheduler.Resume(context.Background(), jobID, requestedBy)
 			if tt.wantErr {
 				require.Error(t, err)
 				return

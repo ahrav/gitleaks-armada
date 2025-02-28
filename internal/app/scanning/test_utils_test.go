@@ -23,8 +23,8 @@ func (m *mockDomainEventPublisher) PublishDomainEvent(ctx context.Context, event
 // mockJobTaskSvc implements domain.JobTaskService for testing.
 type mockJobTaskSvc struct{ mock.Mock }
 
-func (m *mockJobTaskSvc) CreateJobFromID(ctx context.Context, jobID uuid.UUID) error {
-	args := m.Called(ctx, jobID)
+func (m *mockJobTaskSvc) CreateJob(ctx context.Context, cmd scanning.CreateJobCommand) error {
+	args := m.Called(ctx, cmd)
 	return args.Error(0)
 }
 
@@ -153,7 +153,7 @@ func (m *mockJobTaskSvc) ListTasksByJobAndStatus(ctx context.Context, jobID uuid
 	return args.Get(0).([]*scanning.Task), args.Error(1)
 }
 
-func (m *mockJobTaskSvc) GetTasksToResume(ctx context.Context, jobID uuid.UUID) ([]*scanning.Task, error) {
+func (m *mockJobTaskSvc) GetTasksToResume(ctx context.Context, jobID uuid.UUID) ([]scanning.ResumeTaskInfo, error) {
 	args := m.Called(ctx, jobID)
-	return args.Get(0).([]*scanning.Task), args.Error(1)
+	return args.Get(0).([]scanning.ResumeTaskInfo), args.Error(1)
 }

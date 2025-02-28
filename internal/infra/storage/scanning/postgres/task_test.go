@@ -3,6 +3,8 @@ package postgres
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"slices"
 	"testing"
 	"time"
 
@@ -197,39 +199,6 @@ func TestTaskStore_UpdateTask_WithCompletion(t *testing.T) {
 	assert.False(t, loaded.EndTime().IsZero(), "End time should be set")
 }
 
-func TestTaskStore_ListTasksByJobAndStatus(t *testing.T) {
-	t.Parallel()
-	ctx, _, taskStore, jobStore, cleanup := setupTaskTest(t)
-	defer cleanup()
-
-	job := createTestScanJob(t, jobStore, ctx)
-	jobID := job.JobID()
-	status := scanning.TaskStatusInProgress
-
-	// Create multiple tasks.
-	tasks := make([]*scanning.Task, 3)
-	for i := 0; i < 3; i++ {
-		task := createTestTask(t, taskStore, jobID, status)
-		tasks[i] = task
-		err := taskStore.CreateTask(ctx, task, "test-controller")
-		require.NoError(t, err)
-	}
-
-	// Create a task with different status.
-	differentStatusTask := createTestTask(t, taskStore, jobID, scanning.TaskStatusCompleted)
-	err := taskStore.CreateTask(ctx, differentStatusTask, "test-controller")
-	require.NoError(t, err)
-
-	listed, err := taskStore.ListTasksByJobAndStatus(ctx, jobID, status)
-	require.NoError(t, err)
-	assert.Len(t, listed, 3)
-
-	for _, task := range listed {
-		assert.Equal(t, jobID, task.JobID())
-		assert.Equal(t, status, task.Status())
-	}
-}
-
 func TestTaskStore_GetNonExistent(t *testing.T) {
 	t.Parallel()
 	ctx, _, taskStore, _, cleanup := setupTaskTest(t)
@@ -268,18 +237,6 @@ func TestTaskStore_UpdateNonExistent(t *testing.T) {
 	task := createTestTask(t, taskStore, job.JobID(), scanning.TaskStatusCompleted)
 	err := taskStore.UpdateTask(ctx, task)
 	require.Error(t, err)
-}
-
-func TestTaskStore_ListTasksByJobAndStatus_EmptyResult(t *testing.T) {
-	t.Parallel()
-	ctx, _, taskStore, jobStore, cleanup := setupTaskTest(t)
-	defer cleanup()
-
-	job := createTestScanJob(t, jobStore, ctx)
-
-	listed, err := taskStore.ListTasksByJobAndStatus(ctx, job.JobID(), scanning.TaskStatusInProgress)
-	require.NoError(t, err)
-	assert.Empty(t, listed)
 }
 
 func TestTaskStore_CreateTask_NonExistentJob(t *testing.T) {
@@ -806,4 +763,81 @@ func TestTaskStore_UpdateTask_PauseAndResume(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, scanning.TaskStatusInProgress, updatedTask.Status())
 	assert.True(t, updatedTask.PausedAt().IsZero(), "Paused time should be cleared after resume")
+}
+
+func TestTaskStore_GetTasksToResume(t *testing.T) {
+	t.Parallel()
+	ctx, _, taskStore, jobStore, cleanup := setupTaskTest(t)
+	defer cleanup()
+
+	// Create a job with PAUSED status
+	job := createTestScanJobWithStatus(t, jobStore, ctx, scanning.JobStatusPaused)
+
+	// Create a few paused tasks
+	taskCount := 3
+	taskIDs := make([]uuid.UUID, taskCount)
+	for i := 0; i < taskCount; i++ {
+		task := createTestTask(t, taskStore, job.JobID(), scanning.TaskStatusPaused)
+
+		// Create a checkpoint and apply progress to update the task
+		taskID := task.TaskID()
+		resumeToken := []byte(fmt.Sprintf("token-%d", i))
+		metadata := map[string]string{"position": fmt.Sprintf("%d", i)}
+		checkpoint := scanning.NewCheckpoint(taskID, resumeToken, metadata)
+
+		// Create progress with the checkpoint and apply it
+		progress := scanning.NewProgress(
+			taskID,
+			job.JobID(),
+			int64(i+10), // sequence number
+			time.Now(),
+			int64(i*100), // items processed
+			0,            // error count
+			"",           // message
+			nil,          // progress details
+			checkpoint,
+		)
+		err := task.ApplyProgress(progress)
+		require.NoError(t, err)
+
+		err = taskStore.CreateTask(ctx, task, "test-controller")
+		require.NoError(t, err)
+
+		// Update the task to persist the checkpoint
+		err = taskStore.UpdateTask(ctx, task)
+		require.NoError(t, err)
+
+		taskIDs[i] = task.TaskID()
+	}
+
+	// Add a non-paused task that shouldn't be returned
+	nonPausedTask := createTestTask(t, taskStore, job.JobID(), scanning.TaskStatusInProgress)
+	err := taskStore.CreateTask(ctx, nonPausedTask, "test-controller")
+	require.NoError(t, err)
+
+	// Get tasks to resume
+	resumeTasks, err := taskStore.GetTasksToResume(ctx, job.JobID())
+	require.NoError(t, err)
+
+	// Verify we got the right number of tasks
+	assert.Equal(t, taskCount, len(resumeTasks))
+
+	// Verify task properties
+	for _, resumeTask := range resumeTasks {
+		// Check that this is one of our expected task IDs
+		found := slices.Contains(taskIDs, resumeTask.TaskID())
+		assert.True(t, found, "Unexpected task ID returned")
+
+		// Verify source type matches what we expect
+		assert.Equal(t, shared.SourceTypeURL, resumeTask.SourceType())
+
+		// Verify we got a checkpoint
+		assert.NotNil(t, resumeTask.Checkpoint())
+
+		// Verify sequence number is set correctly
+		assert.True(t, resumeTask.SequenceNum() >= 10, "Expected sequence number >= 10")
+
+		// Verify checkpoint has resume token
+		assert.NotEmpty(t, resumeTask.Checkpoint().ResumeToken(), "Checkpoint should have resume token")
+	}
 }

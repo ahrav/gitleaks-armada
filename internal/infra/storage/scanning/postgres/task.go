@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -19,6 +18,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	"github.com/ahrav/gitleaks-armada/internal/infra/storage"
+	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 )
 
 // Ensure taskStore implements scanning.TaskRepository at compile time.
@@ -207,73 +207,6 @@ func (s *taskStore) UpdateTask(ctx context.Context, task *scanning.Task) error {
 	})
 }
 
-// ListTasksByJobAndStatus retrieves tasks associated with a job and matching a specific status.
-// This enables monitoring of task groups and coordination of multi-task operations.
-func (s *taskStore) ListTasksByJobAndStatus(
-	ctx context.Context,
-	jobID uuid.UUID,
-	status scanning.TaskStatus,
-) ([]*scanning.Task, error) {
-	dbAttrs := append(
-		defaultDBAttributes,
-		attribute.String("job_id", jobID.String()),
-		attribute.String("status", string(status)),
-	)
-
-	var results []*scanning.Task
-
-	err := storage.ExecuteAndTrace(ctx, s.tracer, "postgres.list_tasks_by_job_and_status", dbAttrs, func(ctx context.Context) error {
-		sqlcStatus := db.ScanTaskStatus(status)
-		rows, err := s.q.ListScanTasksByJobAndStatus(ctx, db.ListScanTasksByJobAndStatusParams{
-			JobID:  pgtype.UUID{Bytes: jobID, Valid: true},
-			Status: sqlcStatus,
-		})
-		if err != nil {
-			return fmt.Errorf("ListScanTasksByJobAndStatus error: %w", err)
-		}
-
-		for _, row := range rows {
-			var checkpoint *scanning.Checkpoint
-			if len(row.LastCheckpoint) > 0 {
-				var cp scanning.Checkpoint
-				if jerr := json.Unmarshal(row.LastCheckpoint, &cp); jerr == nil {
-					checkpoint = &cp
-				}
-			}
-
-			var pausedAt pgtype.Timestamptz
-			if row.PausedAt.Valid {
-				pausedAt = pgtype.Timestamptz{Time: row.PausedAt.Time, Valid: true}
-			}
-
-			t := scanning.ReconstructTask(
-				row.TaskID.Bytes,
-				row.JobID.Bytes,
-				row.ResourceUri,
-				scanning.TaskStatus(row.Status),
-				row.LastSequenceNum,
-				row.LastHeartbeatAt.Time,
-				row.StartTime.Time,
-				row.EndTime.Time,
-				row.ItemsProcessed,
-				row.ProgressDetails,
-				checkpoint,
-				scanning.ReasonPtr(scanning.StallReason(row.StallReason.ScanTaskStallReason)),
-				row.StalledAt.Time,
-				pausedAt.Time,
-				int(row.RecoveryAttempts),
-			)
-			results = append(results, t)
-		}
-		return nil
-	})
-
-	if err != nil {
-		return nil, err
-	}
-	return results, nil
-}
-
 // GetTaskSourceType retrieves the source type for a given task ID.
 func (s *taskStore) GetTaskSourceType(ctx context.Context, taskID uuid.UUID) (shared.SourceType, error) {
 	dbAttrs := append(
@@ -374,4 +307,51 @@ func (s *taskStore) BatchUpdateHeartbeats(ctx context.Context, heartbeats map[uu
 	})
 
 	return rowsAffected, err
+}
+
+// GetTasksToResume efficiently retrieves the minimal data needed for resuming tasks
+// from a PAUSED job in a single database query. It joins scan_tasks with scan_jobs
+// to get the source_type directly, eliminating the need for separate GetTaskSourceType queries.
+func (s *taskStore) GetTasksToResume(ctx context.Context, jobID uuid.UUID) ([]scanning.ResumeTaskInfo, error) {
+	dbAttrs := append(
+		defaultDBAttributes,
+		attribute.String("job_id", jobID.String()),
+	)
+
+	var results []scanning.ResumeTaskInfo
+
+	err := storage.ExecuteAndTrace(ctx, s.tracer, "postgres.get_tasks_to_resume", dbAttrs, func(ctx context.Context) error {
+		rows, err := s.q.GetTasksToResume(ctx, pgtype.UUID{Bytes: jobID, Valid: true})
+		if err != nil {
+			return fmt.Errorf("GetTasksToResume error: %w", err)
+		}
+
+		for _, row := range rows {
+			var checkpoint *scanning.Checkpoint
+			if len(row.LastCheckpoint) > 0 {
+				var cp scanning.Checkpoint
+				if jerr := json.Unmarshal(row.LastCheckpoint, &cp); jerr == nil {
+					checkpoint = &cp
+				}
+			}
+
+			sourceType := shared.ParseSourceType(row.SourceType)
+
+			info := scanning.NewResumeTaskInfo(
+				row.TaskID.Bytes,
+				row.JobID.Bytes,
+				sourceType,
+				row.ResourceUri,
+				row.LastSequenceNum,
+				checkpoint,
+			)
+			results = append(results, info)
+		}
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+	return results, nil
 }

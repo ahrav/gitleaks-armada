@@ -8,9 +8,8 @@ import (
 	"errors"
 	"time"
 
-	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
-
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
+	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 )
 
 var (
@@ -87,6 +86,8 @@ type TaskRepository interface {
 	// BatchUpdateHeartbeats updates each task's last_heartbeat_at timestamp.
 	BatchUpdateHeartbeats(ctx context.Context, heartbeats map[uuid.UUID]time.Time) (int64, error)
 
-	// ListTasksByJobAndStatus retrieves tasks associated with a job and matching a specific status.
-	ListTasksByJobAndStatus(ctx context.Context, jobID uuid.UUID, status TaskStatus) ([]*Task, error)
+	// GetTasksToResume efficiently retrieves the minimal data needed for resuming tasks
+	// from a paused job in a single database query, joining with the jobs table to get
+	// the source_type without additional queries.
+	GetTasksToResume(ctx context.Context, jobID uuid.UUID) ([]ResumeTaskInfo, error)
 }
