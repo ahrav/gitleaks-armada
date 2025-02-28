@@ -22,6 +22,11 @@ type JobScheduler interface {
 	// by the job coordinator.
 	Pause(ctx context.Context, jobID uuid.UUID, requestedBy string) error
 
+	// Resume initiates the resumption of a job by transitioning it from the PAUSED state
+	// to the RUNNING state and publishing TaskResumeEvents for each paused task. This allows
+	// tasks to continue from their last checkpoint.
+	Resume(ctx context.Context, jobID uuid.UUID, requestedBy string) error
+
 	// Cancel initiates the cancellation of a job by transitioning it to the CANCELLING state
 	// and publishing a JobCancelledEvent. The actual cancellation is handled asynchronously
 	// by the JobMetricsTracker.
@@ -109,6 +114,12 @@ type JobTaskService interface {
 	// // ListJobs retrieves a paginated list of jobs filtered by their status.
 	// // This supports system-wide job monitoring and management capabilities.
 	// ListJobs(ctx context.Context, status []domain.JobStatus, limit, offset int) ([]*domain.Job, error)
+
+	// GetTasksToResume retrieves all PAUSED tasks for a job that need to be resumed.
+	// This is used when resuming a job that was previously paused.
+	GetTasksToResume(ctx context.Context, jobID uuid.UUID) ([]*Task, error)
+
+	// TODO: BulkUpdateMetricsAndCheckpoint.
 }
 
 // TODO: Figure out how to make sure this maps to the correct topic.

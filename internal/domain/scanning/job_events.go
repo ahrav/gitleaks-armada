@@ -3,9 +3,8 @@ package scanning
 import (
 	"time"
 
-	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
-
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
+	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 )
 
 // Event types relevant to Jobs:
@@ -18,6 +17,7 @@ const (
 	EventTypeJobEnumerationCompleted events.EventType = "JobEnumerationCompleted"
 	EventTypeJobPausing              events.EventType = "JobPausing"
 	EventTypeJobPaused               events.EventType = "JobPaused"
+	EventTypeJobResuming             events.EventType = "JobResuming"
 	EventTypeJobCancelling           events.EventType = "JobCancelling"
 	EventTypeJobCancelled            events.EventType = "JobCancelled"
 )
@@ -165,6 +165,25 @@ func NewJobPausedEvent(jobID, requestedBy, reason string) JobPausedEvent {
 
 func (e JobPausedEvent) EventType() events.EventType { return EventTypeJobPaused }
 func (e JobPausedEvent) OccurredAt() time.Time       { return e.occurredAt }
+
+// JobResumingEvent signals that a job is in the process of resuming.
+type JobResumingEvent struct {
+	occurredAt  time.Time
+	JobID       string
+	RequestedBy string
+}
+
+// NewJobResumingEvent creates a new job resuming event.
+func NewJobResumingEvent(jobID, requestedBy string) JobResumingEvent {
+	return JobResumingEvent{
+		occurredAt:  time.Now(),
+		JobID:       jobID,
+		RequestedBy: requestedBy,
+	}
+}
+
+func (e JobResumingEvent) EventType() events.EventType { return EventTypeJobResuming }
+func (e JobResumingEvent) OccurredAt() time.Time       { return e.occurredAt }
 
 // JobCancellingEvent signals that a job is in the process of cancelling.
 type JobCancellingEvent struct {
