@@ -155,7 +155,7 @@ func NewJobConfigInfo(jobID uuid.UUID, sourceType string, config json.RawMessage
 func (j *JobConfigInfo) JobID() uuid.UUID { return j.jobID }
 
 // SourceType returns the source type for this job configuration.
-func (j *JobConfigInfo) SourceType() string { return j.sourceType.String() }
+func (j *JobConfigInfo) SourceType() shared.SourceType { return j.sourceType }
 
 // Config returns the raw configuration for this job.
 func (j *JobConfigInfo) Config() json.RawMessage { return j.config }

@@ -286,7 +286,7 @@ func TestJobStore_GetJobConfigInfo(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, job.JobID(), configInfo.JobID())
-	assert.Equal(t, shared.SourceTypeGitHub.String(), configInfo.SourceType())
+	assert.Equal(t, shared.SourceTypeGitHub, configInfo.SourceType())
 	assert.JSONEq(t, string(config), string(configInfo.Config()))
 }
 

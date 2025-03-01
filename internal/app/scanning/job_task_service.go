@@ -142,7 +142,7 @@ func (s *jobTaskService) GetJobConfigInfo(ctx context.Context, jobID uuid.UUID) 
 	}
 
 	span.AddEvent("job_config_info_retrieved", trace.WithAttributes(
-		attribute.String("source_type", configInfo.SourceType()),
+		attribute.String("source_type", configInfo.SourceType().String()),
 	))
 	span.SetStatus(codes.Ok, "job config info retrieved successfully")
 

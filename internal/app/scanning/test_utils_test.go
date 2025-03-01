@@ -33,6 +33,14 @@ func (m *mockJobTaskSvc) AssociateEnumeratedTargets(ctx context.Context, jobID u
 	return args.Error(0)
 }
 
+func (m *mockJobTaskSvc) GetJobConfigInfo(ctx context.Context, jobID uuid.UUID) (*scanning.JobConfigInfo, error) {
+	args := m.Called(ctx, jobID)
+	if configInfo := args.Get(0); configInfo != nil {
+		return configInfo.(*scanning.JobConfigInfo), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
 func (m *mockJobTaskSvc) UpdateJobStatus(ctx context.Context, jobID uuid.UUID, status scanning.JobStatus) error {
 	args := m.Called(ctx, jobID, status)
 	return args.Error(0)

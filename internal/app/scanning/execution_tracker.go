@@ -443,9 +443,8 @@ func (t *executionTracker) HandleTaskFailure(ctx context.Context, evt scanning.T
 	return nil
 }
 
-// HandleTaskStale marks a task as STALE, publishes a TaskResumeEvent for possible
-// continuation, and logs relevant telemetry. This is used when a task appears
-// unresponsive or stalled.
+// HandleTaskStale processes a task stale event by marking the task as stale
+// and retrieving the job configuration to prepare for task resumption.
 func (t *executionTracker) HandleTaskStale(ctx context.Context, evt scanning.TaskStaleEvent) error {
 	ctx, span := t.tracer.Start(ctx, "execution_tracker.markTaskStale",
 		trace.WithAttributes(
@@ -465,26 +464,31 @@ func (t *executionTracker) HandleTaskStale(ctx context.Context, evt scanning.Tas
 			evt.Reason, evt.StalledSince, err)
 	}
 
-	sourceType, err := t.jobTaskSvc.GetTaskSourceType(ctx, task.TaskID())
+	jobConfigInfo, err := t.jobTaskSvc.GetJobConfigInfo(ctx, evt.JobID)
 	if err != nil {
 		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to get task source type")
-		return fmt.Errorf("get task source type failed (task_id: %s): %w",
-			task.TaskID(), err)
+		span.SetStatus(codes.Error, "failed to get job config info")
+		return fmt.Errorf("failed to get job config information: %w", err)
 	}
-	span.AddEvent("task_source_type_retrieved", trace.WithAttributes(
-		attribute.String("source_type", string(sourceType)),
+	span.AddEvent("job_config_info_retrieved", trace.WithAttributes(
+		attribute.String("source_type", string(jobConfigInfo.SourceType())),
 	))
 
-	// TODO: We still need to handle getting auth creds for the task.
-	// We should probably use our Target type here similar to when we create a JobScheduledEvent.
+	auth, err := domain.UnmarshalConfigAuth(jobConfigInfo.Config())
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to extract auth from job config")
+		return fmt.Errorf("failed to extract auth from job config: %w", err)
+	}
+
 	resumeEvent := scanning.NewTaskResumeEvent(
 		task.JobID(),
 		task.TaskID(),
-		sourceType,
+		jobConfigInfo.SourceType(),
 		task.ResourceURI(),
 		int(task.LastSequenceNum()),
 		task.LastCheckpoint(),
+		auth,
 	)
 	if err := t.publisher.PublishDomainEvent(
 		ctx, resumeEvent, events.WithKey(evt.TaskID.String()),
@@ -492,7 +496,7 @@ func (t *executionTracker) HandleTaskStale(ctx context.Context, evt scanning.Tas
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to publish task resume event")
 		return fmt.Errorf("publish resume event failed (source_type: %s): %w",
-			sourceType, err)
+			jobConfigInfo.SourceType(), err)
 	}
 	span.AddEvent("task_marked_stale_and_resume_task_event_published")
 	span.SetStatus(codes.Ok, "task marked stale and resume task event published")

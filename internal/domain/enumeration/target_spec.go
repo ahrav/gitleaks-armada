@@ -97,6 +97,31 @@ func (t TargetSpec) MarshalJSON() ([]byte, error) {
 	})
 }
 
+// UnmarshalJSON implements json.Unmarshaler for TargetSpec.
+func (t *TargetSpec) UnmarshalJSON(data []byte) error {
+	var targetJSON struct {
+		Name       string            `json:"name"`
+		SourceType string            `json:"source_type"`
+		Auth       *AuthSpec         `json:"auth,omitempty"`
+		GitHub     *GitHubTargetSpec `json:"github,omitempty"`
+		S3         *S3TargetSpec     `json:"s3,omitempty"`
+		URL        *URLTargetSpec    `json:"url,omitempty"`
+	}
+
+	if err := json.Unmarshal(data, &targetJSON); err != nil {
+		return err
+	}
+
+	t.name = targetJSON.Name
+	t.sourceType = shared.ParseSourceType(targetJSON.SourceType)
+	t.auth = targetJSON.Auth
+	t.github = targetJSON.GitHub
+	t.s3 = targetJSON.S3
+	t.url = targetJSON.URL
+
+	return nil
+}
+
 func (t *TargetSpec) Name() string { return t.name }
 
 func (t *TargetSpec) SourceType() shared.SourceType { return t.sourceType }

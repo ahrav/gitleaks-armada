@@ -1,6 +1,9 @@
 package scanning
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 // AuthType identifies the type of authentication mechanism.
 type AuthType string
@@ -50,6 +53,37 @@ func (a Auth) MarshalJSON() ([]byte, error) {
 		AuthType:    string(a.authType),
 		Credentials: a.credentials,
 	})
+}
+
+// UnmarshalJSON implements json.Unmarshaler for Auth.
+func (a *Auth) UnmarshalJSON(data []byte) error {
+	var authJSON struct {
+		AuthType    string         `json:"auth_type"`
+		Credentials map[string]any `json:"credentials,omitempty"`
+	}
+
+	if err := json.Unmarshal(data, &authJSON); err != nil {
+		return err
+	}
+
+	a.authType = AuthType(authJSON.AuthType)
+	a.credentials = authJSON.Credentials
+	return nil
+}
+
+// UnmarshalConfigAuth extracts an Auth object from a job or target config.
+// This is a domain-level helper that handles the common pattern of extracting
+// auth information from larger configuration objects.
+func UnmarshalConfigAuth(config json.RawMessage) (Auth, error) {
+	var configWithAuth struct {
+		Auth Auth `json:"auth"`
+	}
+
+	if err := json.Unmarshal(config, &configWithAuth); err != nil {
+		return Auth{}, fmt.Errorf("failed to unmarshal auth from config: %w", err)
+	}
+
+	return configWithAuth.Auth, nil
 }
 
 // Type returns the authentication type.

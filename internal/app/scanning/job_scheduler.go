@@ -185,6 +185,26 @@ func (s *jobScheduler) Resume(ctx context.Context, jobID uuid.UUID, requestedBy 
 	defer span.End()
 	logger.Debug(ctx, "Resuming job")
 
+	jobConfigInfo, err := s.jobTaskService.GetJobConfigInfo(ctx, jobID)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to get job config info")
+		return fmt.Errorf("failed to get job config information: %w", err)
+	}
+	span.AddEvent("job_config_info_retrieved", trace.WithAttributes(
+		attribute.String("source_type", string(jobConfigInfo.SourceType())),
+	))
+
+	auth, err := domain.UnmarshalConfigAuth(jobConfigInfo.Config())
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to extract auth from job config")
+		return fmt.Errorf("failed to extract auth from job config: %w", err)
+	}
+	span.AddEvent("auth_extracted_from_job_config", trace.WithAttributes(
+		attribute.String("auth_type", string(auth.Type())),
+	))
+
 	tasks, err := s.jobTaskService.GetTasksToResume(ctx, jobID)
 	if err != nil {
 		span.RecordError(err)
@@ -205,6 +225,7 @@ func (s *jobScheduler) Resume(ctx context.Context, jobID uuid.UUID, requestedBy 
 			task.ResourceURI(),
 			int(task.SequenceNum()),
 			task.Checkpoint(),
+			auth,
 		)
 
 		if err := s.publisher.PublishDomainEvent(

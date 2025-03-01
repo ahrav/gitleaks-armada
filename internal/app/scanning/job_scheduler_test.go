@@ -2,6 +2,7 @@ package scanning
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -315,6 +316,10 @@ func TestResumeJob(t *testing.T) {
 		{
 			name: "successful job resume with multiple tasks",
 			setup: func(service *mockJobTaskSvc, publisher *mockDomainEventPublisher, broadcastPublisher *mockDomainEventPublisher) {
+				// Mock JobConfigInfo for the resume operation
+				mockConfigInfo := scanning.NewJobConfigInfo(jobID, shared.SourceTypeGitHub.String(), json.RawMessage(`{"authType":"token","token":"test-token"}`))
+				service.On("GetJobConfigInfo", mock.Anything, jobID).Return(mockConfigInfo, nil)
+
 				service.On("GetTasksToResume", mock.Anything, jobID).Return(mockTasks, nil)
 
 				for _, task := range mockTasks {
@@ -336,8 +341,20 @@ func TestResumeJob(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "getting job config info fails",
+			setup: func(service *mockJobTaskSvc, publisher *mockDomainEventPublisher, broadcastPublisher *mockDomainEventPublisher) {
+				service.On("GetJobConfigInfo", mock.Anything, jobID).
+					Return(nil, errors.New("failed to get job config info"))
+			},
+			wantErr: true,
+		},
+		{
 			name: "getting tasks to resume fails",
 			setup: func(service *mockJobTaskSvc, publisher *mockDomainEventPublisher, broadcastPublisher *mockDomainEventPublisher) {
+				// Mock JobConfigInfo for the resume operation
+				mockConfigInfo := scanning.NewJobConfigInfo(jobID, shared.SourceTypeGitHub.String(), json.RawMessage(`{"authType":"token","token":"test-token"}`))
+				service.On("GetJobConfigInfo", mock.Anything, jobID).Return(mockConfigInfo, nil)
+
 				service.On("GetTasksToResume", mock.Anything, jobID).
 					Return([]scanning.ResumeTaskInfo{}, errors.New("failed to get tasks to resume"))
 			},
@@ -346,6 +363,10 @@ func TestResumeJob(t *testing.T) {
 		{
 			name: "publishing task resume event fails",
 			setup: func(service *mockJobTaskSvc, publisher *mockDomainEventPublisher, broadcastPublisher *mockDomainEventPublisher) {
+				// Mock JobConfigInfo for the resume operation
+				mockConfigInfo := scanning.NewJobConfigInfo(jobID, shared.SourceTypeGitHub.String(), json.RawMessage(`{"authType":"token","token":"test-token"}`))
+				service.On("GetJobConfigInfo", mock.Anything, jobID).Return(mockConfigInfo, nil)
+
 				service.On("GetTasksToResume", mock.Anything, jobID).Return(mockTasks, nil)
 
 				// First event publish succeeds.
@@ -373,6 +394,10 @@ func TestResumeJob(t *testing.T) {
 		{
 			name: "successful job resume with no tasks",
 			setup: func(service *mockJobTaskSvc, publisher *mockDomainEventPublisher, broadcastPublisher *mockDomainEventPublisher) {
+				// Mock JobConfigInfo for the resume operation
+				mockConfigInfo := scanning.NewJobConfigInfo(jobID, shared.SourceTypeGitHub.String(), json.RawMessage(`{"authType":"token","token":"test-token"}`))
+				service.On("GetJobConfigInfo", mock.Anything, jobID).Return(mockConfigInfo, nil)
+
 				service.On("GetTasksToResume", mock.Anything, jobID).Return([]scanning.ResumeTaskInfo{}, nil)
 			},
 			wantErr: false,

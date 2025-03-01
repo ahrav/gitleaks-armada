@@ -2,6 +2,7 @@ package scanning
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"testing"
@@ -747,67 +748,180 @@ func TestExecutionTracker_HandleTaskCancelled(t *testing.T) {
 func TestExecutionTracker_MarkTaskStale(t *testing.T) {
 	tests := []struct {
 		name    string
-		setup   func(*mockJobTaskSvc, *mockDomainEventPublisher)
+		setup   func(*mockJobTaskSvc, *mockDomainEventPublisher, uuid.UUID, uuid.UUID)
 		event   scanning.TaskStaleEvent
 		wantErr bool
 	}{
 		{
 			name: "successful stale task marking",
-			setup: func(m *mockJobTaskSvc, p *mockDomainEventPublisher) {
-				m.On("MarkTaskStale", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-					Return(new(scanning.Task), nil)
-				m.On("GetTaskSourceType", mock.Anything, mock.Anything).
-					Return(shared.SourceTypeGitHub, nil)
+			setup: func(m *mockJobTaskSvc, p *mockDomainEventPublisher, taskID, jobID uuid.UUID) {
+				// First, mark the task as stale - prepare a return value for MarkTaskStale.
+				task := domain.ReconstructTask(
+					taskID,
+					jobID,
+					"https://example.com/repo",
+					domain.TaskStatusStale,
+					5,           // lastSequenceNum
+					time.Now(),  // lastHeartbeatAt
+					time.Now(),  // startTime
+					time.Time{}, // endTime
+					100,         // itemsProcessed
+					nil,         // progressDetails
+					domain.NewCheckpoint(taskID, []byte(`{"position":"HEAD"}`), nil), // checkpoint
+					func() *domain.StallReason { // stallReason
+						r := domain.StallReasonNoProgress
+						return &r
+					}(),
+					time.Now(),  // stalledAt
+					time.Time{}, // pausedAt
+					0,           // recoveryAttempts
+				)
+
+				m.On("MarkTaskStale", mock.Anything, taskID, mock.Anything).
+					Return(task, nil)
+
+				// Second, get job configuration info - prepare return value for GetJobConfigInfo.
+				m.On("GetJobConfigInfo", mock.Anything, jobID).
+					Return(domain.NewJobConfigInfo(
+						jobID,
+						shared.SourceTypeGitHub.String(),
+						json.RawMessage(`{"auth":{"type":"token","token":"test-token"}}`),
+					), nil)
+
+				// Finally, expect a call to publish the resume event.
 				p.On("PublishDomainEvent",
 					mock.Anything,
 					mock.MatchedBy(func(event events.DomainEvent) bool {
-						_, ok := event.(*scanning.TaskResumeEvent)
-						return ok
+						resumeEvent, ok := event.(*domain.TaskResumeEvent)
+						return ok &&
+							resumeEvent.SourceType == shared.SourceTypeGitHub &&
+							resumeEvent.SequenceNum == 5
 					}),
 					mock.Anything,
 				).Return(nil)
 			},
-			event: scanning.TaskStaleEvent{
-				JobID:  uuid.New(),
-				TaskID: uuid.New(),
-				Reason: scanning.StallReason("task timeout"),
-			},
+			event: func() scanning.TaskStaleEvent {
+				taskID := uuid.New()
+				jobID := uuid.New()
+				return scanning.TaskStaleEvent{
+					JobID:        jobID,
+					TaskID:       taskID,
+					Reason:       scanning.StallReasonNoProgress,
+					StalledSince: time.Now(),
+				}
+			}(),
 			wantErr: false,
 		},
 		{
 			name: "error marking task as stale",
-			setup: func(m *mockJobTaskSvc, p *mockDomainEventPublisher) {
-				m.On("MarkTaskStale", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-					Return(new(scanning.Task), errors.New("stale marking failed"))
+			setup: func(m *mockJobTaskSvc, p *mockDomainEventPublisher, taskID, jobID uuid.UUID) {
+				m.On("MarkTaskStale", mock.Anything, taskID, mock.Anything).
+					Return(nil, errors.New("stale marking failed"))
 			},
-			event: scanning.TaskStaleEvent{
-				JobID:  uuid.New(),
-				TaskID: uuid.New(),
-				Reason: scanning.StallReason("task timeout"),
+			event: func() scanning.TaskStaleEvent {
+				taskID := uuid.New()
+				jobID := uuid.New()
+				return scanning.TaskStaleEvent{
+					JobID:        jobID,
+					TaskID:       taskID,
+					Reason:       scanning.StallReasonNoProgress,
+					StalledSince: time.Now(),
+				}
+			}(),
+			wantErr: true,
+		},
+		{
+			name: "error getting job config info",
+			setup: func(m *mockJobTaskSvc, p *mockDomainEventPublisher, taskID, jobID uuid.UUID) {
+				task := domain.ReconstructTask(
+					taskID,
+					jobID,
+					"https://example.com/repo",
+					domain.TaskStatusStale,
+					5,           // lastSequenceNum
+					time.Now(),  // lastHeartbeatAt
+					time.Now(),  // startTime
+					time.Time{}, // endTime
+					100,         // itemsProcessed
+					nil,         // progressDetails
+					nil,         // checkpoint
+					func() *domain.StallReason { // stallReason
+						r := domain.StallReasonNoProgress
+						return &r
+					}(),
+					time.Now(),  // stalledAt
+					time.Time{}, // pausedAt
+					0,           // recoveryAttempts
+				)
+
+				m.On("MarkTaskStale", mock.Anything, taskID, mock.Anything).
+					Return(task, nil)
+
+				m.On("GetJobConfigInfo", mock.Anything, jobID).
+					Return(nil, errors.New("config info retrieval failed"))
 			},
+			event: func() scanning.TaskStaleEvent {
+				taskID := uuid.New()
+				jobID := uuid.New()
+				return scanning.TaskStaleEvent{
+					JobID:        jobID,
+					TaskID:       taskID,
+					Reason:       scanning.StallReasonNoProgress,
+					StalledSince: time.Now(),
+				}
+			}(),
 			wantErr: true,
 		},
 		{
 			name: "error publishing resume event",
-			setup: func(m *mockJobTaskSvc, p *mockDomainEventPublisher) {
-				m.On("MarkTaskStale", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-					Return(new(scanning.Task), nil)
-				m.On("GetTaskSourceType", mock.Anything, mock.Anything).
-					Return(shared.SourceTypeGitHub, nil)
+			setup: func(m *mockJobTaskSvc, p *mockDomainEventPublisher, taskID, jobID uuid.UUID) {
+				task := domain.ReconstructTask(
+					taskID,
+					jobID,
+					"https://example.com/repo",
+					domain.TaskStatusStale,
+					5,           // lastSequenceNum
+					time.Now(),  // lastHeartbeatAt
+					time.Now(),  // startTime
+					time.Time{}, // endTime
+					100,         // itemsProcessed
+					nil,         // progressDetails
+					nil,         // checkpoint
+					func() *domain.StallReason { // stallReason
+						r := domain.StallReasonNoProgress
+						return &r
+					}(),
+					time.Now(),  // stalledAt
+					time.Time{}, // pausedAt
+					0,           // recoveryAttempts
+				)
+
+				m.On("MarkTaskStale", mock.Anything, taskID, mock.Anything).
+					Return(task, nil)
+
+				m.On("GetJobConfigInfo", mock.Anything, jobID).
+					Return(domain.NewJobConfigInfo(
+						jobID,
+						shared.SourceTypeGitHub.String(),
+						json.RawMessage(`{"auth":{"type":"token","token":"test-token"}}`),
+					), nil)
+
 				p.On("PublishDomainEvent",
 					mock.Anything,
-					mock.MatchedBy(func(event events.DomainEvent) bool {
-						_, ok := event.(*scanning.TaskResumeEvent)
-						return ok
-					}),
+					mock.Anything,
 					mock.Anything,
 				).Return(errors.New("publish failed"))
 			},
-			event: scanning.TaskStaleEvent{
-				JobID:  uuid.New(),
-				TaskID: uuid.New(),
-				Reason: scanning.StallReason("task timeout"),
-			},
+			event: func() scanning.TaskStaleEvent {
+				taskID := uuid.New()
+				jobID := uuid.New()
+				return scanning.TaskStaleEvent{
+					JobID:        jobID,
+					TaskID:       taskID,
+					Reason:       scanning.StallReasonNoProgress,
+					StalledSince: time.Now(),
+				}
+			}(),
 			wantErr: true,
 		},
 	}
@@ -815,7 +929,7 @@ func TestExecutionTracker_MarkTaskStale(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			suite := newTrackerTestSuite(t)
-			tt.setup(suite.jobTaskSvc, suite.domainPublisher)
+			tt.setup(suite.jobTaskSvc, suite.domainPublisher, tt.event.TaskID, tt.event.JobID)
 
 			err := suite.tracker.HandleTaskStale(context.Background(), tt.event)
 			if tt.wantErr {

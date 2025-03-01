@@ -303,7 +303,7 @@ func TestGetJobConfigInfo(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, configInfo)
 			assert.Equal(t, jobID, configInfo.JobID())
-			assert.Equal(t, shared.SourceTypeGitHub.String(), configInfo.SourceType())
+			assert.Equal(t, shared.SourceTypeGitHub, configInfo.SourceType())
 			assert.NotEmpty(t, configInfo.Config())
 			suite.jobRepo.(*mockJobRepository).AssertExpectations(t)
 		})
