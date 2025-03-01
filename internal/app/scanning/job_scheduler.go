@@ -174,6 +174,7 @@ func (s *jobScheduler) Pause(ctx context.Context, jobID uuid.UUID, requestedBy s
 
 // Resume initiates the resumption of a job by transitioning it from PAUSED
 // to RUNNING and publishing TaskResumeEvents for each paused task.
+// TODO: This could be further optimized by caching the job config info and source type.
 func (s *jobScheduler) Resume(ctx context.Context, jobID uuid.UUID, requestedBy string) error {
 	logger := s.logger.With("operation", "resume_job", "job_id", jobID)
 	ctx, span := s.tracer.Start(ctx, "job_scheduler.resume_job",

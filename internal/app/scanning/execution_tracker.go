@@ -447,6 +447,7 @@ func (t *executionTracker) HandleTaskFailure(ctx context.Context, evt scanning.T
 
 // HandleTaskStale processes a task stale event by marking the task as stale
 // and retrieving the job configuration to prepare for task resumption.
+// TODO: This could be further optimized by caching the job config info and source type.
 func (t *executionTracker) HandleTaskStale(ctx context.Context, evt scanning.TaskStaleEvent) error {
 	ctx, span := t.tracer.Start(ctx, "execution_tracker.markTaskStale",
 		trace.WithAttributes(
