@@ -267,6 +267,7 @@ func TestFlushMetrics_CallsUpdateAndAck(t *testing.T) {
 	jobID := uuid.New()
 	taskID := uuid.New()
 
+	var mu sync.Mutex
 	calledPartitions := make(map[int32]int64)
 	repo := &mockMetricsRepository{
 		getJobMetricsFn: func(ctx context.Context, id uuid.UUID) (*domain.JobMetrics, error) {
@@ -282,6 +283,8 @@ func TestFlushMetrics_CallsUpdateAndAck(t *testing.T) {
 			partition int32,
 			offset int64,
 		) error {
+			mu.Lock()
+			defer mu.Unlock()
 			calledPartitions[partition] = offset
 			return nil
 		},
@@ -289,8 +292,14 @@ func TestFlushMetrics_CallsUpdateAndAck(t *testing.T) {
 
 	tracker := NewJobMetricsAggregator("controller-id", repo, nil, logger.Noop(), noop.NewTracerProvider().Tracer(""))
 
+	var ackMu sync.Mutex
 	var ackCalledOffset int64
-	ackFunc := func(err error) { ackCalledOffset = 55; require.NoError(t, err) }
+	ackFunc := func(err error) {
+		ackMu.Lock()
+		defer ackMu.Unlock()
+		ackCalledOffset = 55
+		require.NoError(t, err)
+	}
 
 	evt := events.EventEnvelope{
 		Type:     scanning.EventTypeTaskJobMetric,
@@ -305,10 +314,18 @@ func TestFlushMetrics_CallsUpdateAndAck(t *testing.T) {
 	err = tracker.FlushMetrics(ctx)
 	require.NoError(t, err, "flush should succeed")
 
-	require.Len(t, calledPartitions, 1)
-	require.Equal(t, int64(55), calledPartitions[1], "offset must match event offset")
+	mu.Lock()
+	partitionCount := len(calledPartitions)
+	partitionOffset := calledPartitions[1]
+	mu.Unlock()
 
-	require.Equal(t, int64(55), ackCalledOffset, "AckFunc offset indicates ack was triggered")
+	require.Equal(t, 1, partitionCount)
+	require.Equal(t, int64(55), partitionOffset, "offset must match event offset")
+
+	ackMu.Lock()
+	actualAckOffset := ackCalledOffset
+	ackMu.Unlock()
+	require.Equal(t, int64(55), actualAckOffset, "AckFunc offset indicates ack was triggered")
 }
 
 func TestCleanupTaskStatus_RemovesOldTerminalStatus(t *testing.T) {
@@ -351,6 +368,7 @@ func TestHandleEnumerationCompleted_MarksJobCompleted(t *testing.T) {
 	ctx := context.Background()
 	jobID := uuid.New()
 
+	var mu sync.Mutex
 	var updateJobStatusCalled bool
 	var updateJobStatusArg domain.JobStatus
 	var updateMetricsAndCheckpointCalled bool
@@ -366,6 +384,8 @@ func TestHandleEnumerationCompleted_MarksJobCompleted(t *testing.T) {
 			return metrics, nil
 		},
 		updateJobStatusFn: func(ctx context.Context, id uuid.UUID, status domain.JobStatus) error {
+			mu.Lock()
+			defer mu.Unlock()
 			updateJobStatusCalled = true
 			updateJobStatusArg = status
 			return nil
@@ -381,6 +401,8 @@ func TestHandleEnumerationCompleted_MarksJobCompleted(t *testing.T) {
 			partition int32,
 			offset int64,
 		) error {
+			mu.Lock()
+			defer mu.Unlock()
 			updateMetricsAndCheckpointCalled = true
 			updateMetricsAndCheckpointPartition = partition
 			updateMetricsAndCheckpointOffset = offset
@@ -390,8 +412,14 @@ func TestHandleEnumerationCompleted_MarksJobCompleted(t *testing.T) {
 
 	aggregator := NewJobMetricsAggregator("controller-id", repo, nil, logger.Noop(), noop.NewTracerProvider().Tracer(""))
 
-	ackCalled := false
-	ackFunc := func(err error) { ackCalled = true; require.NoError(t, err) }
+	var ackMu sync.Mutex
+	var ackCalled bool
+	ackFunc := func(err error) {
+		ackMu.Lock()
+		defer ackMu.Unlock()
+		ackCalled = true
+		require.NoError(t, err)
+	}
 
 	// Fire "TaskCompleted" for each, so aggregator increments st.completedCount.
 	// They can be "TaskJobMetricEvent" with status = TaskStatusCompleted.
@@ -429,31 +457,54 @@ func TestHandleEnumerationCompleted_MarksJobCompleted(t *testing.T) {
 
 	// Job should be immediately recognized as done (2 tasks completed)
 	// => aggregator finalizes it => calls UpdateJobStatus(JobStatusCompleted).
-	require.True(t, updateJobStatusCalled, "UpdateJobStatus must be called the first time")
-	require.Equal(t, domain.JobStatusCompleted, updateJobStatusArg, "job should be marked as completed")
+	mu.Lock()
+	statusCalledValue := updateJobStatusCalled
+	statusArgValue := updateJobStatusArg
+	mu.Unlock()
+
+	require.True(t, statusCalledValue, "UpdateJobStatus must be called the first time")
+	require.Equal(t, domain.JobStatusCompleted, statusArgValue, "job should be marked as completed")
 
 	// Because we haven't flushed yet, aggregator hasn't acked the event.
-	require.False(t, ackCalled, "Ack should not be called until we flush")
+	ackMu.Lock()
+	ackCalledValue := ackCalled
+	ackMu.Unlock()
+	require.False(t, ackCalledValue, "Ack should not be called until we flush")
 
 	// --- 2) Flush metrics => This should call UpdateMetricsAndCheckpoint + ack.
 	err = aggregator.FlushMetrics(ctx)
 	require.NoError(t, err, "FlushMetrics should succeed")
 
-	require.True(t, ackCalled, "Ack should be called after flush")
-	require.True(t, updateMetricsAndCheckpointCalled,
-		"UpdateMetricsAndCheckpoint must be called during flush")
+	ackMu.Lock()
+	ackCalledValue = ackCalled
+	ackMu.Unlock()
+	require.True(t, ackCalledValue, "Ack should be called after flush")
 
-	require.Equal(t, testPartition, updateMetricsAndCheckpointPartition)
-	require.Equal(t, testOffset, updateMetricsAndCheckpointOffset)
+	mu.Lock()
+	updateMetricsCalledValue := updateMetricsAndCheckpointCalled
+	updatePartitionValue := updateMetricsAndCheckpointPartition
+	updateOffsetValue := updateMetricsAndCheckpointOffset
+	mu.Unlock()
+
+	require.True(t, updateMetricsCalledValue,
+		"UpdateMetricsAndCheckpoint must be called during flush")
+	require.Equal(t, testPartition, updatePartitionValue)
+	require.Equal(t, testOffset, updateOffsetValue)
 
 	// --- 3) Second call to HandleEnumerationCompleted with the same event.
 	// The aggregator has already marked the job as finalized => no need to finalize again.
+	mu.Lock()
 	updateJobStatusCalled = false // reset to see if aggregator calls it again.
+	mu.Unlock()
+
 	err = aggregator.HandleEnumerationCompleted(ctx, evt, ackFunc)
 	require.NoError(t, err, "HandleEnumerationCompleted should succeed idempotently")
 
 	// Since the job is already finalized, aggregator should NOT call UpdateJobStatus again.
-	require.False(t, updateJobStatusCalled,
+	mu.Lock()
+	statusCalledValue = updateJobStatusCalled
+	mu.Unlock()
+	require.False(t, statusCalledValue,
 		"UpdateJobStatus should NOT be called again, aggregator is idempotent")
 }
 
@@ -461,6 +512,7 @@ func TestHandleJobMetrics_MarksJobPaused(t *testing.T) {
 	ctx := context.Background()
 	jobID := uuid.New()
 
+	var mu sync.Mutex
 	var updateJobStatusCalled bool
 	var updateJobStatusArg domain.JobStatus
 
@@ -474,6 +526,8 @@ func TestHandleJobMetrics_MarksJobPaused(t *testing.T) {
 			return metrics, nil
 		},
 		updateJobStatusFn: func(ctx context.Context, id uuid.UUID, status domain.JobStatus) error {
+			mu.Lock()
+			defer mu.Unlock()
 			updateJobStatusCalled = true
 			updateJobStatusArg = status
 			return nil
@@ -540,17 +594,33 @@ func TestHandleJobMetrics_MarksJobPaused(t *testing.T) {
 
 	// Process first pause - job shouldn't be paused yet.
 	require.NoError(t, aggregator.HandleJobMetrics(ctx, pauseEvt1, func(err error) { require.NoError(t, err) }))
-	require.False(t, updateJobStatusCalled, "Job should not be paused after first task")
+
+	mu.Lock()
+	statusCalledValue := updateJobStatusCalled
+	mu.Unlock()
+	require.False(t, statusCalledValue, "Job should not be paused after first task")
 
 	// Process second pause - now job should be paused.
 	require.NoError(t, aggregator.HandleJobMetrics(ctx, pauseEvt2, func(err error) { require.NoError(t, err) }))
-	require.True(t, updateJobStatusCalled, "UpdateJobStatus must be called")
-	require.Equal(t, domain.JobStatusPaused, updateJobStatusArg, "Job should be marked as paused")
+
+	mu.Lock()
+	statusCalledValue = updateJobStatusCalled
+	statusArgValue := updateJobStatusArg
+	mu.Unlock()
+	require.True(t, statusCalledValue, "UpdateJobStatus must be called")
+	require.Equal(t, domain.JobStatusPaused, statusArgValue, "Job should be marked as paused")
 
 	// Reset flag and try to pause again - should be idempotent.
+	mu.Lock()
 	updateJobStatusCalled = false
+	mu.Unlock()
+
 	require.NoError(t, aggregator.HandleJobMetrics(ctx, pauseEvt2, func(err error) { require.NoError(t, err) }))
-	require.False(t, updateJobStatusCalled, "UpdateJobStatus should not be called again")
+
+	mu.Lock()
+	statusCalledValue = updateJobStatusCalled
+	mu.Unlock()
+	require.False(t, statusCalledValue, "UpdateJobStatus should not be called again")
 
 	// Verify that resuming a task works.
 	resumeEvt := events.EventEnvelope{
@@ -561,16 +631,25 @@ func TestHandleJobMetrics_MarksJobPaused(t *testing.T) {
 	require.NoError(t, aggregator.HandleJobMetrics(ctx, resumeEvt, func(err error) { require.NoError(t, err) }))
 
 	// Now pause it again - should mark job as paused again.
+	mu.Lock()
 	updateJobStatusCalled = false
+	mu.Unlock()
+
 	require.NoError(t, aggregator.HandleJobMetrics(ctx, pauseEvt1, func(err error) { require.NoError(t, err) }))
-	require.True(t, updateJobStatusCalled, "UpdateJobStatus should be called when re-pausing")
-	require.Equal(t, domain.JobStatusPaused, updateJobStatusArg, "Job should be marked as paused again")
+
+	mu.Lock()
+	statusCalledValue = updateJobStatusCalled
+	statusArgValue = updateJobStatusArg
+	mu.Unlock()
+	require.True(t, statusCalledValue, "UpdateJobStatus should be called when re-pausing")
+	require.Equal(t, domain.JobStatusPaused, statusArgValue, "Job should be marked as paused again")
 }
 
 func TestHandleJobMetrics_MarksJobCancelled(t *testing.T) {
 	ctx := context.Background()
 	jobID := uuid.New()
 
+	var mu sync.Mutex
 	var updateJobStatusCalled bool
 	var updateJobStatusArg domain.JobStatus
 
@@ -584,6 +663,8 @@ func TestHandleJobMetrics_MarksJobCancelled(t *testing.T) {
 			return metrics, nil
 		},
 		updateJobStatusFn: func(ctx context.Context, id uuid.UUID, status domain.JobStatus) error {
+			mu.Lock()
+			defer mu.Unlock()
 			updateJobStatusCalled = true
 			updateJobStatusArg = status
 			return nil
@@ -650,15 +731,31 @@ func TestHandleJobMetrics_MarksJobCancelled(t *testing.T) {
 
 	// Process first cancellation - job shouldn't be cancelled yet.
 	require.NoError(t, aggregator.HandleJobMetrics(ctx, cancelEvt1, func(err error) { require.NoError(t, err) }))
-	require.False(t, updateJobStatusCalled, "Job should not be cancelled after first task")
+
+	mu.Lock()
+	statusCalledValue := updateJobStatusCalled
+	mu.Unlock()
+	require.False(t, statusCalledValue, "Job should not be cancelled after first task")
 
 	// Process second cancellation - now job should be cancelled.
 	require.NoError(t, aggregator.HandleJobMetrics(ctx, cancelEvt2, func(err error) { require.NoError(t, err) }))
-	require.True(t, updateJobStatusCalled, "UpdateJobStatus must be called")
-	require.Equal(t, domain.JobStatusCancelled, updateJobStatusArg, "Job should be marked as cancelled")
+
+	mu.Lock()
+	statusCalledValue = updateJobStatusCalled
+	statusArgValue := updateJobStatusArg
+	mu.Unlock()
+	require.True(t, statusCalledValue, "UpdateJobStatus must be called")
+	require.Equal(t, domain.JobStatusCancelled, statusArgValue, "Job should be marked as cancelled")
 
 	// Reset flag and try to cancel again - should be idempotent.
+	mu.Lock()
 	updateJobStatusCalled = false
+	mu.Unlock()
+
 	require.NoError(t, aggregator.HandleJobMetrics(ctx, cancelEvt2, func(err error) { require.NoError(t, err) }))
-	require.False(t, updateJobStatusCalled, "UpdateJobStatus should not be called again")
+
+	mu.Lock()
+	statusCalledValue = updateJobStatusCalled
+	mu.Unlock()
+	require.False(t, statusCalledValue, "UpdateJobStatus should not be called again")
 }

@@ -233,7 +233,7 @@ func (q *Queries) FindStaleTasks(ctx context.Context, arg FindStaleTasksParams) 
 	return items, nil
 }
 
-const getJob = `-- name: GetJob :many
+const getJob = `-- name: GetJob :one
 SELECT
     j.job_id,
     j.status,
@@ -241,51 +241,34 @@ SELECT
     j.config,
     j.start_time,
     j.end_time,
-    j.updated_at,
-    t.scan_target_id
+    j.updated_at
 FROM scan_jobs j
-LEFT JOIN scan_job_targets t ON j.job_id = t.job_id
 WHERE j.job_id = $1
 `
 
 type GetJobRow struct {
-	JobID        pgtype.UUID
-	Status       ScanJobStatus
-	SourceType   string
-	Config       []byte
-	StartTime    pgtype.Timestamptz
-	EndTime      pgtype.Timestamptz
-	UpdatedAt    pgtype.Timestamptz
-	ScanTargetID pgtype.UUID
+	JobID      pgtype.UUID
+	Status     ScanJobStatus
+	SourceType string
+	Config     []byte
+	StartTime  pgtype.Timestamptz
+	EndTime    pgtype.Timestamptz
+	UpdatedAt  pgtype.Timestamptz
 }
 
-func (q *Queries) GetJob(ctx context.Context, jobID pgtype.UUID) ([]GetJobRow, error) {
-	rows, err := q.db.Query(ctx, getJob, jobID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []GetJobRow
-	for rows.Next() {
-		var i GetJobRow
-		if err := rows.Scan(
-			&i.JobID,
-			&i.Status,
-			&i.SourceType,
-			&i.Config,
-			&i.StartTime,
-			&i.EndTime,
-			&i.UpdatedAt,
-			&i.ScanTargetID,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
+func (q *Queries) GetJob(ctx context.Context, jobID pgtype.UUID) (GetJobRow, error) {
+	row := q.db.QueryRow(ctx, getJob, jobID)
+	var i GetJobRow
+	err := row.Scan(
+		&i.JobID,
+		&i.Status,
+		&i.SourceType,
+		&i.Config,
+		&i.StartTime,
+		&i.EndTime,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const getJobCheckpoints = `-- name: GetJobCheckpoints :many

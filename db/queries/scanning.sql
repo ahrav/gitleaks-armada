@@ -36,7 +36,7 @@ INSERT INTO scan_job_targets (
     scan_target_id
 ) VALUES ($1, $2);
 
--- name: GetJob :many
+-- name: GetJob :one
 SELECT
     j.job_id,
     j.status,
@@ -44,10 +44,8 @@ SELECT
     j.config,
     j.start_time,
     j.end_time,
-    j.updated_at,
-    t.scan_target_id
+    j.updated_at
 FROM scan_jobs j
-LEFT JOIN scan_job_targets t ON j.job_id = t.job_id
 WHERE j.job_id = $1;
 
 -- name: CreateScanTask :exec

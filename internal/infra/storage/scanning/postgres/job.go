@@ -192,37 +192,20 @@ func (r *jobStore) GetJob(ctx context.Context, jobID uuid.UUID) (*scanning.Job, 
 
 	var job *scanning.Job
 	err := storage.ExecuteAndTrace(ctx, r.tracer, "postgres.get_job", dbAttrs, func(ctx context.Context) error {
-		rows, err := r.q.GetJob(ctx, pgtype.UUID{Bytes: jobID, Valid: true})
+		row, err := r.q.GetJob(ctx, pgtype.UUID{Bytes: jobID, Valid: true})
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
-				return nil
+				return scanning.ErrJobNotFound
 			}
 			return fmt.Errorf("GetJob query error: %w", err)
 		}
-		if len(rows) == 0 {
-			return scanning.ErrJobNotFound
-		}
 
-		var targetIDs []uuid.UUID
-		firstRow := rows[0] // Use first row for job details
-
-		for _, row := range rows {
-			if row.ScanTargetID.Valid {
-				targetIDs = append(targetIDs, row.ScanTargetID.Bytes)
-			}
-		}
-
-		timeline := scanning.ReconstructTimeline(
-			firstRow.StartTime.Time,
-			firstRow.EndTime.Time,
-			firstRow.UpdatedAt.Time,
-		)
-
+		timeline := scanning.ReconstructTimeline(row.StartTime.Time, row.EndTime.Time, row.UpdatedAt.Time)
 		job = scanning.ReconstructJob(
-			firstRow.JobID.Bytes,
-			firstRow.SourceType,
-			firstRow.Config,
-			scanning.JobStatus(firstRow.Status),
+			row.JobID.Bytes,
+			row.SourceType,
+			row.Config,
+			scanning.JobStatus(row.Status),
 			timeline,
 		)
 		return nil
