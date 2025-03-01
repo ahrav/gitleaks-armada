@@ -53,6 +53,10 @@ type JobTaskService interface {
 	// job's overall task tally, preserving data consistency if any step fails.
 	AssociateEnumeratedTargets(ctx context.Context, jobID uuid.UUID, targetIDs []uuid.UUID) error
 
+	// GetJobConfigInfo retrieves just the source type and configuration for a job.
+	// This is useful for lightweight access to job configuration without loading the full job.
+	GetJobConfigInfo(ctx context.Context, jobID uuid.UUID) (*JobConfigInfo, error)
+
 	// UpdateJobStatus updates the status of a job.
 	UpdateJobStatus(ctx context.Context, jobID uuid.UUID, status JobStatus) error
 
