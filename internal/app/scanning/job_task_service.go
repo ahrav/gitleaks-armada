@@ -121,6 +121,34 @@ func (s *jobTaskService) AssociateEnumeratedTargets(
 	return nil
 }
 
+// GetJobConfigInfo retrieves just the source type and configuration for a job
+// without loading the entire job entity. This provides a more efficient way to
+// access job configuration for scenarios that don't require the complete job state.
+// Ex: resuming tasks for a job.
+func (s *jobTaskService) GetJobConfigInfo(ctx context.Context, jobID uuid.UUID) (*domain.JobConfigInfo, error) {
+	ctx, span := s.tracer.Start(ctx, "job_task_service.scanning.get_job_config_info",
+		trace.WithAttributes(
+			attribute.String("controller_id", s.controllerID),
+			attribute.String("job_id", jobID.String()),
+		),
+	)
+	defer span.End()
+
+	configInfo, err := s.jobRepo.GetJobConfigInfo(ctx, jobID)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to get job config info")
+		return nil, fmt.Errorf("failed to get job config information: %w", err)
+	}
+
+	span.AddEvent("job_config_info_retrieved", trace.WithAttributes(
+		attribute.String("source_type", configInfo.SourceType()),
+	))
+	span.SetStatus(codes.Ok, "job config info retrieved successfully")
+
+	return configInfo, nil
+}
+
 // loadJob retrieves a job from the repository.
 func (s *jobTaskService) loadJob(ctx context.Context, jobID uuid.UUID) (*domain.Job, error) {
 	ctx, span := s.tracer.Start(ctx, "job_task_service.scanning.load_job",

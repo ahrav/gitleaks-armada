@@ -61,6 +61,12 @@ type JobRepository interface {
 		partitionID int32,
 		offset int64,
 	) error
+
+	// GetJobSourceTypeConfig retrieves just the source type and configuration for a job.
+	// This provides a lightweight way to access job configuration without loading the full job.
+	// This is primarily used for resuming tasks for a job and need the source type
+	// and auth information in the config.
+	GetJobConfigInfo(ctx context.Context, jobID uuid.UUID) (*JobConfigInfo, error)
 }
 
 // TaskRepository defines the persistence operations for scan tasks.

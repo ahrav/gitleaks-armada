@@ -130,3 +130,32 @@ func (j *Job) UpdateStatus(newStatus JobStatus) error {
 	j.status = newStatus
 	return nil
 }
+
+// JobConfigInfo encapsulates the configuration information of a job.
+// It provides a lightweight representation of job configuration without
+// including execution status, metrics, or timeline information.
+// This is primarily used for resuming tasks for a job and need the source type
+// and auth information in the config.
+type JobConfigInfo struct {
+	jobID      uuid.UUID
+	sourceType shared.SourceType
+	config     json.RawMessage
+}
+
+// NewJobConfigInfo creates a new JobConfigInfo value object.
+func NewJobConfigInfo(jobID uuid.UUID, sourceType string, config json.RawMessage) *JobConfigInfo {
+	return &JobConfigInfo{
+		jobID:      jobID,
+		sourceType: shared.ParseSourceType(sourceType),
+		config:     config,
+	}
+}
+
+// JobID returns the unique identifier for this job configuration.
+func (j *JobConfigInfo) JobID() uuid.UUID { return j.jobID }
+
+// SourceType returns the source type for this job configuration.
+func (j *JobConfigInfo) SourceType() string { return j.sourceType.String() }
+
+// Config returns the raw configuration for this job.
+func (j *JobConfigInfo) Config() json.RawMessage { return j.config }
