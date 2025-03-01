@@ -817,6 +817,14 @@ func TestExecutionTracker_MarkTaskStale(t *testing.T) {
 			setup: func(m *mockJobTaskSvc, p *mockDomainEventPublisher, taskID, jobID uuid.UUID) {
 				m.On("MarkTaskStale", mock.Anything, taskID, mock.Anything).
 					Return(nil, errors.New("stale marking failed"))
+
+				// Need to add this since the concurrent call will still happen
+				m.On("GetJobConfigInfo", mock.Anything, jobID).
+					Return(domain.NewJobConfigInfo(
+						jobID,
+						shared.SourceTypeGitHub.String(),
+						json.RawMessage(`{"auth":{"type":"token","token":"test-token"}}`),
+					), nil)
 			},
 			event: func() scanning.TaskStaleEvent {
 				taskID := uuid.New()

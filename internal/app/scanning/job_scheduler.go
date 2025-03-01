@@ -8,6 +8,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	domain "github.com/ahrav/gitleaks-armada/internal/domain/scanning"
@@ -185,35 +186,67 @@ func (s *jobScheduler) Resume(ctx context.Context, jobID uuid.UUID, requestedBy 
 	defer span.End()
 	logger.Debug(ctx, "Resuming job")
 
-	jobConfigInfo, err := s.jobTaskService.GetJobConfigInfo(ctx, jobID)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to get job config info")
-		return fmt.Errorf("failed to get job config information: %w", err)
-	}
-	span.AddEvent("job_config_info_retrieved", trace.WithAttributes(
-		attribute.String("source_type", string(jobConfigInfo.SourceType())),
-	))
+	var jobConfigInfo *domain.JobConfigInfo
+	var auth domain.Auth
+	var tasks []domain.ResumeTaskInfo
 
-	auth, err := domain.UnmarshalConfigAuth(jobConfigInfo.Config())
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to extract auth from job config")
-		return fmt.Errorf("failed to extract auth from job config: %w", err)
-	}
-	span.AddEvent("auth_extracted_from_job_config", trace.WithAttributes(
-		attribute.String("auth_type", string(auth.Type())),
-	))
+	// Concurrently retrieve job config info and tasks to resume
+	// since they are independent of each other.
+	// Bail out early if any of the operations fail.
+	// TODO: Looks to make this a little more robust/ alert the user if
+	// any of the operations fail.
+	g, ctx := errgroup.WithContext(ctx)
 
-	tasks, err := s.jobTaskService.GetTasksToResume(ctx, jobID)
-	if err != nil {
+	// Start job config retrieval.
+	g.Go(func() error {
+		var err error
+		jobConfigInfo, err = s.jobTaskService.GetJobConfigInfo(ctx, jobID)
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "failed to get job config info")
+			return fmt.Errorf("failed to get job config information: %w", err)
+		}
+
+		span.AddEvent("job_config_info_retrieved", trace.WithAttributes(
+			attribute.String("source_type", string(jobConfigInfo.SourceType())),
+		))
+
+		auth, err = domain.UnmarshalConfigAuth(jobConfigInfo.Config())
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "failed to extract auth from job config")
+			return fmt.Errorf("failed to extract auth from job config: %w", err)
+		}
+
+		span.AddEvent("auth_extracted_from_job_config", trace.WithAttributes(
+			attribute.String("auth_type", string(auth.Type())),
+		))
+
+		return nil
+	})
+
+	// Start tasks retrieval.
+	g.Go(func() error {
+		var err error
+		tasks, err = s.jobTaskService.GetTasksToResume(ctx, jobID)
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "failed to get tasks to resume")
+			return fmt.Errorf("failed to get tasks to resume (job_id: %s): %w", jobID, err)
+		}
+
+		span.AddEvent("tasks_to_resume_retrieved", trace.WithAttributes(
+			attribute.Int("task_count", len(tasks)),
+		))
+
+		return nil
+	})
+
+	if err := g.Wait(); err != nil {
 		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to get tasks to resume")
-		return fmt.Errorf("failed to get tasks to resume (job_id: %s): %w", jobID, err)
+		span.SetStatus(codes.Error, "failed to retrieve job config info and tasks to resume")
+		return err // Error is already logged and recorded in span
 	}
-	span.AddEvent("tasks_to_resume_retrieved", trace.WithAttributes(
-		attribute.Int("task_count", len(tasks)),
-	))
 
 	// Publish resume events for each task.
 	// TODO:  Maybe bulk publish these?

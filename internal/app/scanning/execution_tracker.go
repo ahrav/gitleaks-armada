@@ -7,10 +7,12 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	domain "github.com/ahrav/gitleaks-armada/internal/domain/scanning"
+	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 )
@@ -456,35 +458,64 @@ func (t *executionTracker) HandleTaskStale(ctx context.Context, evt scanning.Tas
 		))
 	defer span.End()
 
-	task, err := t.jobTaskSvc.MarkTaskStale(ctx, evt.TaskID, evt.Reason)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to mark task as stale")
-		return fmt.Errorf("mark task stale failed (reason: %s, stalled_since: %s): %w",
-			evt.Reason, evt.StalledSince, err)
-	}
+	// Concurrently retrieve job config info and mark task as stale
+	// since they are independent of each other.
+	// Bail out early if any of the operations fail.
+	// TODO: Looks to make this a little more robust/ alert the user if
+	// any of the operations fail.
+	g, ctx := errgroup.WithContext(ctx)
 
-	jobConfigInfo, err := t.jobTaskSvc.GetJobConfigInfo(ctx, evt.JobID)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to get job config info")
-		return fmt.Errorf("failed to get job config information: %w", err)
-	}
-	span.AddEvent("job_config_info_retrieved", trace.WithAttributes(
-		attribute.String("source_type", string(jobConfigInfo.SourceType())),
-	))
+	var task *domain.Task
+	// Start marking task as stale.
+	g.Go(func() error {
+		var err error
+		task, err = t.jobTaskSvc.MarkTaskStale(ctx, evt.TaskID, evt.Reason)
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "failed to mark task as stale")
+			return fmt.Errorf("mark task stale failed (reason: %s, stalled_since: %s): %w",
+				evt.Reason, evt.StalledSince, err)
+		}
+		span.AddEvent("task_marked_stale")
+		return nil
+	})
 
-	auth, err := domain.UnmarshalConfigAuth(jobConfigInfo.Config())
-	if err != nil {
+	var (
+		auth       domain.Auth
+		sourceType shared.SourceType
+	)
+	// Retrieve job config info.
+	g.Go(func() error {
+		jobConfigInfo, err := t.jobTaskSvc.GetJobConfigInfo(ctx, evt.JobID)
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "failed to get job config info")
+			return fmt.Errorf("failed to get job config information: %w", err)
+		}
+		sourceType = jobConfigInfo.SourceType()
+		span.AddEvent("job_config_info_retrieved", trace.WithAttributes(
+			attribute.String("source_type", string(sourceType)),
+		))
+
+		auth, err = domain.UnmarshalConfigAuth(jobConfigInfo.Config())
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "failed to extract auth from job config")
+			return fmt.Errorf("failed to extract auth from job config: %w", err)
+		}
+		return nil
+	})
+
+	if err := g.Wait(); err != nil {
 		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to extract auth from job config")
-		return fmt.Errorf("failed to extract auth from job config: %w", err)
+		span.SetStatus(codes.Error, "failed to retrieve job config info and mark task as stale")
+		return fmt.Errorf("failed to retrieve job config info and mark task as stale: %w", err)
 	}
 
 	resumeEvent := scanning.NewTaskResumeEvent(
 		task.JobID(),
 		task.TaskID(),
-		jobConfigInfo.SourceType(),
+		sourceType,
 		task.ResourceURI(),
 		int(task.LastSequenceNum()),
 		task.LastCheckpoint(),
@@ -496,7 +527,7 @@ func (t *executionTracker) HandleTaskStale(ctx context.Context, evt scanning.Tas
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to publish task resume event")
 		return fmt.Errorf("publish resume event failed (source_type: %s): %w",
-			jobConfigInfo.SourceType(), err)
+			sourceType, err)
 	}
 	span.AddEvent("task_marked_stale_and_resume_task_event_published")
 	span.SetStatus(codes.Ok, "task marked stale and resume task event published")
