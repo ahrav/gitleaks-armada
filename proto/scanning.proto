@@ -187,6 +187,7 @@ message TaskResumeEvent {
   string resource_uri = 5;
   int64 sequence_num = 6;
   Checkpoint checkpoint = 7;
+  shared.Auth auth = 8;
 }
 
 message TaskJobMetricEvent {
