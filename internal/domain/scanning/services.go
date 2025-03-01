@@ -20,17 +20,17 @@ type JobScheduler interface {
 	// Pause initiates the pausing of a job by transitioning it to the PAUSING state
 	// and publishing a JobPausingEvent. The actual pause operation is handled asynchronously
 	// by the job coordinator.
-	Pause(ctx context.Context, jobID uuid.UUID, requestedBy string) error
+	Pause(ctx context.Context, cmd JobControlCommand) error
 
 	// Resume initiates the resumption of a job by transitioning it from the PAUSED state
 	// to the RUNNING state and publishing TaskResumeEvents for each paused task. This allows
 	// tasks to continue from their last checkpoint.
-	Resume(ctx context.Context, jobID uuid.UUID, requestedBy string) error
+	Resume(ctx context.Context, cmd JobControlCommand) error
 
 	// Cancel initiates the cancellation of a job by transitioning it to the CANCELLING state
 	// and publishing a JobCancelledEvent. The actual cancellation is handled asynchronously
 	// by the JobMetricsTracker.
-	Cancel(ctx context.Context, jobID uuid.UUID, requestedBy string) error
+	Cancel(ctx context.Context, cmd JobControlCommand) error
 }
 
 // JobTaskService provides the primary interface for managing scan operations in our distributed

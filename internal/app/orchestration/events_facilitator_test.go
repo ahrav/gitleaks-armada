@@ -27,18 +27,18 @@ func (m *mockJobScheduler) Schedule(ctx context.Context, jobID uuid.UUID, target
 	return args.Error(0)
 }
 
-func (m *mockJobScheduler) Pause(ctx context.Context, jobID uuid.UUID, requestedBy string) error {
-	args := m.Called(ctx, jobID, requestedBy)
+func (m *mockJobScheduler) Pause(ctx context.Context, cmd scanning.JobControlCommand) error {
+	args := m.Called(ctx, cmd)
 	return args.Error(0)
 }
 
-func (m *mockJobScheduler) Cancel(ctx context.Context, jobID uuid.UUID, requestedBy string) error {
-	args := m.Called(ctx, jobID, requestedBy)
+func (m *mockJobScheduler) Cancel(ctx context.Context, cmd scanning.JobControlCommand) error {
+	args := m.Called(ctx, cmd)
 	return args.Error(0)
 }
 
-func (m *mockJobScheduler) Resume(ctx context.Context, jobID uuid.UUID, requestedBy string) error {
-	args := m.Called(ctx, jobID, requestedBy)
+func (m *mockJobScheduler) Resume(ctx context.Context, cmd scanning.JobControlCommand) error {
+	args := m.Called(ctx, cmd)
 	return args.Error(0)
 }
 
@@ -216,6 +216,7 @@ func TestHandleScanJobRequested(t *testing.T) {
 
 func TestHandleJobPausing(t *testing.T) {
 	validJobID := uuid.New()
+	cmd := scanning.NewJobControlCommand(validJobID, "test-user")
 
 	tests := []struct {
 		name      string
@@ -226,7 +227,7 @@ func TestHandleJobPausing(t *testing.T) {
 		{
 			name: "success",
 			setupMock: func(m *mockJobScheduler) {
-				m.On("Pause", mock.Anything, validJobID, "test-user").Return(nil).Once()
+				m.On("Pause", mock.Anything, cmd).Return(nil).Once()
 			},
 			payload: scanning.JobPausingEvent{
 				JobID:       validJobID.String(),
@@ -256,7 +257,7 @@ func TestHandleJobPausing(t *testing.T) {
 		{
 			name: "job scheduler error",
 			setupMock: func(m *mockJobScheduler) {
-				m.On("Pause", mock.Anything, validJobID, "test-user").
+				m.On("Pause", mock.Anything, cmd).
 					Return(errors.New("scheduler error")).Once()
 			},
 			payload: scanning.JobPausingEvent{
@@ -294,6 +295,7 @@ func TestHandleJobPausing(t *testing.T) {
 
 func TestHandleJobCancelling(t *testing.T) {
 	validJobID := uuid.New()
+	cmd := scanning.NewJobControlCommand(validJobID, "test-user")
 
 	tests := []struct {
 		name      string
@@ -304,7 +306,7 @@ func TestHandleJobCancelling(t *testing.T) {
 		{
 			name: "success",
 			setupMock: func(m *mockJobScheduler) {
-				m.On("Cancel", mock.Anything, validJobID, "test-user").Return(nil).Once()
+				m.On("Cancel", mock.Anything, cmd).Return(nil).Once()
 			},
 			payload: scanning.JobCancellingEvent{
 				JobID:       validJobID.String(),
@@ -334,7 +336,7 @@ func TestHandleJobCancelling(t *testing.T) {
 		{
 			name: "job scheduler error",
 			setupMock: func(m *mockJobScheduler) {
-				m.On("Cancel", mock.Anything, validJobID, "test-user").
+				m.On("Cancel", mock.Anything, cmd).
 					Return(errors.New("scheduler error")).Once()
 			},
 			payload: scanning.JobCancellingEvent{
@@ -372,6 +374,7 @@ func TestHandleJobCancelling(t *testing.T) {
 
 func TestHandleJobResuming(t *testing.T) {
 	validJobID := uuid.New()
+	cmd := scanning.NewJobControlCommand(validJobID, "test-user")
 
 	tests := []struct {
 		name      string
@@ -382,7 +385,7 @@ func TestHandleJobResuming(t *testing.T) {
 		{
 			name: "success",
 			setupMock: func(m *mockJobScheduler) {
-				m.On("Resume", mock.Anything, validJobID, "test-user").Return(nil).Once()
+				m.On("Resume", mock.Anything, cmd).Return(nil).Once()
 			},
 			payload: scanning.JobResumingEvent{
 				JobID:       validJobID.String(),
@@ -412,7 +415,7 @@ func TestHandleJobResuming(t *testing.T) {
 		{
 			name: "job scheduler error",
 			setupMock: func(m *mockJobScheduler) {
-				m.On("Resume", mock.Anything, validJobID, "test-user").
+				m.On("Resume", mock.Anything, cmd).
 					Return(errors.New("scheduler error")).Once()
 			},
 			payload: scanning.JobResumingEvent{

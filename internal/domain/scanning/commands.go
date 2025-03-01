@@ -6,6 +6,17 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 )
 
+// JobControlCommand encapsulates all information needed to control a job's lifecycle.
+type JobControlCommand struct {
+	JobID       uuid.UUID
+	RequestedBy string
+}
+
+// NewJobControlCommand creates a new JobControlCommand.
+func NewJobControlCommand(jobID uuid.UUID, requestedBy string) JobControlCommand {
+	return JobControlCommand{JobID: jobID, RequestedBy: requestedBy}
+}
+
 // CreateJobCommand encapsulates all information needed to create a new scanning job.
 // It follows the command pattern to express the intent of the operation while
 // maintaining proper domain responsibility boundaries.

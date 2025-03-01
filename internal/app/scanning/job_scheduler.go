@@ -141,30 +141,30 @@ func marshalConfig(ctx context.Context, target domain.Target) (json.RawMessage, 
 // Pause initiates the pausing of a job by transitioning it to the PAUSED state
 // and publishing a JobPausedEvent. The actual pause operation is handled asynchronously
 // by the job coordinator.
-func (s *jobScheduler) Pause(ctx context.Context, jobID uuid.UUID, requestedBy string) error {
-	logger := s.logger.With("operation", "pause_job", "job_id", jobID)
+func (s *jobScheduler) Pause(ctx context.Context, cmd domain.JobControlCommand) error {
+	logger := s.logger.With("operation", "pause_job", "job_id", cmd.JobID)
 	ctx, span := s.tracer.Start(ctx, "job_scheduler.pause_job",
 		trace.WithAttributes(
 			attribute.String("controller_id", s.controllerID),
-			attribute.String("job_id", jobID.String()),
-			attribute.String("requested_by", requestedBy),
+			attribute.String("job_id", cmd.JobID.String()),
+			attribute.String("requested_by", cmd.RequestedBy),
 		),
 	)
 	defer span.End()
 	logger.Debug(ctx, "Pausing job")
 
-	if err := s.jobTaskService.UpdateJobStatus(ctx, jobID, domain.JobStatusPausing); err != nil {
+	if err := s.jobTaskService.UpdateJobStatus(ctx, cmd.JobID, domain.JobStatusPausing); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to update job status to paused")
-		return fmt.Errorf("failed to update job status to paused (job_id: %s): %w", jobID, err)
+		return fmt.Errorf("failed to update job status to paused (job_id: %s): %w", cmd.JobID, err)
 	}
 	span.AddEvent("job_status_updated_to_paused")
 
-	evt := domain.NewJobPausedEvent(jobID.String(), requestedBy, "User requested pause")
-	if err := s.broadcastPublisher.PublishDomainEvent(ctx, evt, events.WithKey(jobID.String())); err != nil {
+	evt := domain.NewJobPausedEvent(cmd.JobID.String(), cmd.RequestedBy, "User requested pause")
+	if err := s.broadcastPublisher.PublishDomainEvent(ctx, evt, events.WithKey(cmd.JobID.String())); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to publish job paused event")
-		return fmt.Errorf("failed to publish job paused event (job_id: %s): %w", jobID, err)
+		return fmt.Errorf("failed to publish job paused event (job_id: %s): %w", cmd.JobID, err)
 	}
 	span.AddEvent("job_paused_event_published")
 	span.SetStatus(codes.Ok, "job pause initiated successfully")
@@ -175,13 +175,13 @@ func (s *jobScheduler) Pause(ctx context.Context, jobID uuid.UUID, requestedBy s
 // Resume initiates the resumption of a job by transitioning it from PAUSED
 // to RUNNING and publishing TaskResumeEvents for each paused task.
 // TODO: This could be further optimized by caching the job config info and source type.
-func (s *jobScheduler) Resume(ctx context.Context, jobID uuid.UUID, requestedBy string) error {
-	logger := s.logger.With("operation", "resume_job", "job_id", jobID)
+func (s *jobScheduler) Resume(ctx context.Context, cmd domain.JobControlCommand) error {
+	logger := s.logger.With("operation", "resume_job", "job_id", cmd.JobID)
 	ctx, span := s.tracer.Start(ctx, "job_scheduler.resume_job",
 		trace.WithAttributes(
 			attribute.String("controller_id", s.controllerID),
-			attribute.String("job_id", jobID.String()),
-			attribute.String("requested_by", requestedBy),
+			attribute.String("job_id", cmd.JobID.String()),
+			attribute.String("requested_by", cmd.RequestedBy),
 		),
 	)
 	defer span.End()
@@ -201,7 +201,7 @@ func (s *jobScheduler) Resume(ctx context.Context, jobID uuid.UUID, requestedBy 
 	// Start job config retrieval.
 	g.Go(func() error {
 		var err error
-		jobConfigInfo, err = s.jobTaskService.GetJobConfigInfo(ctx, jobID)
+		jobConfigInfo, err = s.jobTaskService.GetJobConfigInfo(ctx, cmd.JobID)
 		if err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "failed to get job config info")
@@ -229,11 +229,11 @@ func (s *jobScheduler) Resume(ctx context.Context, jobID uuid.UUID, requestedBy 
 	// Start tasks retrieval.
 	g.Go(func() error {
 		var err error
-		tasks, err = s.jobTaskService.GetTasksToResume(ctx, jobID)
+		tasks, err = s.jobTaskService.GetTasksToResume(ctx, cmd.JobID)
 		if err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "failed to get tasks to resume")
-			return fmt.Errorf("failed to get tasks to resume (job_id: %s): %w", jobID, err)
+			return fmt.Errorf("failed to get tasks to resume (job_id: %s): %w", cmd.JobID, err)
 		}
 
 		span.AddEvent("tasks_to_resume_retrieved", trace.WithAttributes(
@@ -253,7 +253,7 @@ func (s *jobScheduler) Resume(ctx context.Context, jobID uuid.UUID, requestedBy 
 	// TODO:  Maybe bulk publish these?
 	for _, task := range tasks {
 		resumeEvent := domain.NewTaskResumeEvent(
-			jobID,
+			cmd.JobID,
 			task.TaskID(),
 			task.SourceType(),
 			task.ResourceURI(),
@@ -289,30 +289,30 @@ func (s *jobScheduler) Resume(ctx context.Context, jobID uuid.UUID, requestedBy 
 // Cancel initiates the cancellation of a job by transitioning it to the CANCELLING state
 // and publishing a JobCancelledEvent. The actual cancellation is handled asynchronously
 // by the JobMetricsTracker.
-func (s *jobScheduler) Cancel(ctx context.Context, jobID uuid.UUID, requestedBy string) error {
-	logger := s.logger.With("operation", "cancel_job", "job_id", jobID)
+func (s *jobScheduler) Cancel(ctx context.Context, cmd domain.JobControlCommand) error {
+	logger := s.logger.With("operation", "cancel_job", "job_id", cmd.JobID)
 	ctx, span := s.tracer.Start(ctx, "job_scheduler.cancel_job",
 		trace.WithAttributes(
 			attribute.String("controller_id", s.controllerID),
-			attribute.String("job_id", jobID.String()),
-			attribute.String("requested_by", requestedBy),
+			attribute.String("job_id", cmd.JobID.String()),
+			attribute.String("requested_by", cmd.RequestedBy),
 		),
 	)
 	defer span.End()
 	logger.Debug(ctx, "Cancelling job")
 
-	if err := s.jobTaskService.UpdateJobStatus(ctx, jobID, domain.JobStatusCancelling); err != nil {
+	if err := s.jobTaskService.UpdateJobStatus(ctx, cmd.JobID, domain.JobStatusCancelling); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to update job status to cancelling")
-		return fmt.Errorf("failed to update job status to cancelling (job_id: %s): %w", jobID, err)
+		return fmt.Errorf("failed to update job status to cancelling (job_id: %s): %w", cmd.JobID, err)
 	}
 	span.AddEvent("job_status_updated_to_cancelling")
 
-	evt := domain.NewJobCancelledEvent(jobID.String(), requestedBy, "User requested cancellation")
-	if err := s.broadcastPublisher.PublishDomainEvent(ctx, evt, events.WithKey(jobID.String())); err != nil {
+	evt := domain.NewJobCancelledEvent(cmd.JobID.String(), cmd.RequestedBy, "User requested cancellation")
+	if err := s.broadcastPublisher.PublishDomainEvent(ctx, evt, events.WithKey(cmd.JobID.String())); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to publish job cancelled event")
-		return fmt.Errorf("failed to publish job cancelled event (job_id: %s): %w", jobID, err)
+		return fmt.Errorf("failed to publish job cancelled event (job_id: %s): %w", cmd.JobID, err)
 	}
 	span.AddEvent("job_cancelled_event_published")
 	span.SetStatus(codes.Ok, "job cancellation initiated successfully")

@@ -251,7 +251,8 @@ func (ef *EventsFacilitator) HandleJobPausing(
 			attribute.String("requested_by", pausingEvt.RequestedBy),
 		))
 
-		if err := ef.jobScheduler.Pause(ctx, jobID, pausingEvt.RequestedBy); err != nil {
+		cmd := scanning.NewJobControlCommand(jobID, pausingEvt.RequestedBy)
+		if err := ef.jobScheduler.Pause(ctx, cmd); err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "failed to pause job")
 			return fmt.Errorf("failed to pause job (job_id: %s): %w", jobID, err)
@@ -290,8 +291,8 @@ func (ef *EventsFacilitator) HandleJobCancelling(
 			return fmt.Errorf("invalid job ID: %w", err)
 		}
 
-		err = ef.jobScheduler.Cancel(ctx, jobID, cancellingEvt.RequestedBy)
-		if err != nil {
+		cmd := scanning.NewJobControlCommand(jobID, cancellingEvt.RequestedBy)
+		if err := ef.jobScheduler.Cancel(ctx, cmd); err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "failed to cancel job")
 			return fmt.Errorf("failed to cancel job (job_id: %s): %w", jobID, err)
@@ -330,8 +331,8 @@ func (ef *EventsFacilitator) HandleJobResuming(
 			return fmt.Errorf("invalid job ID: %w", err)
 		}
 
-		err = ef.jobScheduler.Resume(ctx, jobID, resumingEvt.RequestedBy)
-		if err != nil {
+		cmd := scanning.NewJobControlCommand(jobID, resumingEvt.RequestedBy)
+		if err := ef.jobScheduler.Resume(ctx, cmd); err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "failed to resume job")
 			return fmt.Errorf("failed to resume job (job_id: %s): %w", jobID, err)

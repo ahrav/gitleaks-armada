@@ -206,7 +206,8 @@ func TestPauseJob(t *testing.T) {
 			scheduler, mockService, mockPublisher, mockBroadcastPublisher := setupJobSchedulerTestSuite()
 			tt.setup(mockService, mockPublisher, mockBroadcastPublisher)
 
-			err := scheduler.Pause(context.Background(), jobID, requestedBy)
+			cmd := scanning.NewJobControlCommand(jobID, requestedBy)
+			err := scheduler.Pause(context.Background(), cmd)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -278,7 +279,8 @@ func TestCancelJob(t *testing.T) {
 			scheduler, mockService, mockPublisher, mockBroadcastPublisher := setupJobSchedulerTestSuite()
 			tt.setup(mockService, mockPublisher, mockBroadcastPublisher)
 
-			err := scheduler.Cancel(context.Background(), jobID, requestedBy)
+			cmd := scanning.NewJobControlCommand(jobID, requestedBy)
+			err := scheduler.Cancel(context.Background(), cmd)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -409,7 +411,8 @@ func TestResumeJob(t *testing.T) {
 			scheduler, mockService, mockPublisher, mockBroadcastPublisher := setupJobSchedulerTestSuite()
 			tt.setup(mockService, mockPublisher, mockBroadcastPublisher)
 
-			err := scheduler.Resume(context.Background(), jobID, requestedBy)
+			cmd := scanning.NewJobControlCommand(jobID, requestedBy)
+			err := scheduler.Resume(context.Background(), cmd)
 			if tt.wantErr {
 				require.Error(t, err)
 				return
