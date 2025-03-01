@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	serializationerrors "github.com/ahrav/gitleaks-armada/internal/infra/eventbus/serialization/errors"
+	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 	pb "github.com/ahrav/gitleaks-armada/proto"
 )
 
@@ -381,6 +381,16 @@ func ProtoToTaskResumeEvent(event *pb.TaskResumeEvent) (*scanning.TaskResumeEven
 		return nil, serializationerrors.ErrInvalidSourceType{Value: event.SourceType}
 	}
 
+	// TODO: Consolidate into helper.
+	var auth scanning.Auth
+	if event.Auth != nil {
+		domainAuth := scanning.NewAuth(
+			event.Auth.Type,
+			fromProtoAny(event.Auth.Credentials),
+		)
+		auth = domainAuth
+	}
+
 	result := scanning.NewTaskResumeEvent(
 		jobID,
 		taskID,
@@ -388,6 +398,7 @@ func ProtoToTaskResumeEvent(event *pb.TaskResumeEvent) (*scanning.TaskResumeEven
 		event.ResourceUri,
 		int(event.SequenceNum),
 		checkpoint,
+		auth,
 	)
 	return result, nil
 }

@@ -5,13 +5,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	serializationerrors "github.com/ahrav/gitleaks-armada/internal/infra/eventbus/serialization/errors"
+	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 	pb "github.com/ahrav/gitleaks-armada/proto"
 )
 
@@ -201,6 +201,7 @@ func TestTaskResumeEventConversion(t *testing.T) {
 		taskID := uuid.New()
 		resourceURI := "test://resource"
 		sequenceNum := 5
+		auth := scanning.NewAuth(string(scanning.AuthTypeNone), map[string]any{"username": "testuser", "password": "testpass"})
 
 		domainEvent := scanning.NewTaskResumeEvent(
 			jobID,
@@ -209,6 +210,7 @@ func TestTaskResumeEventConversion(t *testing.T) {
 			resourceURI,
 			sequenceNum,
 			nil,
+			auth,
 		)
 
 		// Test domain to proto conversion.
