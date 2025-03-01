@@ -3,10 +3,9 @@ package scanning
 import (
 	"time"
 
-	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
-
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
+	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 )
 
 // Event types relevant to Tasks:
@@ -121,6 +120,7 @@ type TaskResumeEvent struct {
 	ResourceURI string
 	SequenceNum int
 	Checkpoint  *Checkpoint
+	Auth        Auth
 }
 
 func NewTaskResumeEvent(
@@ -129,6 +129,7 @@ func NewTaskResumeEvent(
 	resourceURI string,
 	sequenceNum int,
 	checkpoint *Checkpoint,
+	auth Auth,
 ) *TaskResumeEvent {
 	return &TaskResumeEvent{
 		occurredAt:  time.Now(),
@@ -138,6 +139,7 @@ func NewTaskResumeEvent(
 		ResourceURI: resourceURI,
 		SequenceNum: sequenceNum,
 		Checkpoint:  checkpoint,
+		Auth:        auth,
 	}
 }
 
