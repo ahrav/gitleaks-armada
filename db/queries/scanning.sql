@@ -48,6 +48,13 @@ SELECT
 FROM scan_jobs j
 WHERE j.job_id = $1;
 
+-- name: GetJobSourceTypeConfig :one
+SELECT
+    source_type,
+    config
+FROM scan_jobs
+WHERE job_id = $1;
+
 -- name: CreateScanTask :exec
 INSERT INTO scan_tasks (
     task_id,

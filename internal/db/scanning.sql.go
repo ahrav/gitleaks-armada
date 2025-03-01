@@ -343,6 +343,26 @@ func (q *Queries) GetJobMetrics(ctx context.Context, jobID pgtype.UUID) (GetJobM
 	return i, err
 }
 
+const getJobSourceTypeConfig = `-- name: GetJobSourceTypeConfig :one
+SELECT
+    source_type,
+    config
+FROM scan_jobs
+WHERE job_id = $1
+`
+
+type GetJobSourceTypeConfigRow struct {
+	SourceType string
+	Config     []byte
+}
+
+func (q *Queries) GetJobSourceTypeConfig(ctx context.Context, jobID pgtype.UUID) (GetJobSourceTypeConfigRow, error) {
+	row := q.db.QueryRow(ctx, getJobSourceTypeConfig, jobID)
+	var i GetJobSourceTypeConfigRow
+	err := row.Scan(&i.SourceType, &i.Config)
+	return i, err
+}
+
 const getScanTask = `-- name: GetScanTask :one
 SELECT
     task_id,
