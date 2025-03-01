@@ -117,7 +117,7 @@ func TestExecutionTracker_ProcessEnumerationStream(t *testing.T) {
 		setup          func(*mockJobTaskSvc, *mockDomainEventPublisher)
 		jobID          uuid.UUID
 		scanningResult func() *scanning.ScanningResult
-		simulateData   func(chan []uuid.UUID, chan scanning.TranslationResult, chan error)
+		simulateData   func(chan []uuid.UUID, chan *scanning.Task, chan error)
 		wantErr        bool
 	}{
 		{
@@ -146,14 +146,10 @@ func TestExecutionTracker_ProcessEnumerationStream(t *testing.T) {
 			scanningResult: func() *scanning.ScanningResult {
 				return &scanning.ScanningResult{Auth: scanning.Auth{}, Metadata: map[string]string{"key": "value"}}
 			},
-			simulateData: func(targetCh chan []uuid.UUID, taskCh chan scanning.TranslationResult, errCh chan error) {
+			simulateData: func(targetCh chan []uuid.UUID, taskCh chan *scanning.Task, errCh chan error) {
 				targetCh <- []uuid.UUID{uuid.New(), uuid.New()}
-				taskCh <- scanning.TranslationResult{
-					Task: scanning.NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com/repo1"),
-				}
-				taskCh <- scanning.TranslationResult{
-					Task: scanning.NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com/repo2"),
-				}
+				taskCh <- scanning.NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com/repo1")
+				taskCh <- scanning.NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com/repo2")
 
 				// Close channels to signal completion.
 				close(targetCh)
@@ -173,7 +169,7 @@ func TestExecutionTracker_ProcessEnumerationStream(t *testing.T) {
 			scanningResult: func() *scanning.ScanningResult {
 				return &scanning.ScanningResult{Auth: scanning.Auth{}, Metadata: map[string]string{"key": "value"}}
 			},
-			simulateData: func(targetCh chan []uuid.UUID, taskCh chan scanning.TranslationResult, errCh chan error) {
+			simulateData: func(targetCh chan []uuid.UUID, taskCh chan *scanning.Task, errCh chan error) {
 				errCh <- errors.New("enumeration failed")
 
 				// Close channels to prevent test from hanging.
@@ -197,7 +193,7 @@ func TestExecutionTracker_ProcessEnumerationStream(t *testing.T) {
 			scanningResult: func() *scanning.ScanningResult {
 				return &scanning.ScanningResult{Auth: scanning.Auth{}, Metadata: map[string]string{"key": "value"}}
 			},
-			simulateData: func(targetCh chan []uuid.UUID, taskCh chan scanning.TranslationResult, errCh chan error) {
+			simulateData: func(targetCh chan []uuid.UUID, taskCh chan *scanning.Task, errCh chan error) {
 				// Send data that will trigger the error.
 				targetCh <- []uuid.UUID{uuid.New()}
 
@@ -216,21 +212,19 @@ func TestExecutionTracker_ProcessEnumerationStream(t *testing.T) {
 				// Process scan targets successful.
 				m.On("AssociateEnumeratedTargets", mock.Anything, mock.MatchedBy(func(cmd domain.AssociateEnumeratedTargetsCommand) bool {
 					return true
-				})).Return(nil)
+				})).Return(nil).Once()
 				// Return error when creating task.
 				m.On("CreateTask", mock.Anything, mock.Anything).
-					Return(errors.New("task creation failed"))
+					Return(errors.New("task creation failed")).Once()
 			},
 			jobID: uuid.New(),
 			scanningResult: func() *scanning.ScanningResult {
 				return &scanning.ScanningResult{Auth: scanning.Auth{}, Metadata: map[string]string{"key": "value"}}
 			},
-			simulateData: func(targetCh chan []uuid.UUID, taskCh chan scanning.TranslationResult, errCh chan error) {
+			simulateData: func(targetCh chan []uuid.UUID, taskCh chan *scanning.Task, errCh chan error) {
 				// Send data that passes linking but fails on task creation.
 				targetCh <- []uuid.UUID{uuid.New()}
-				taskCh <- scanning.TranslationResult{
-					Task: scanning.NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com/repo"),
-				}
+				taskCh <- scanning.NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com/repo")
 
 				// Close channels to prevent test from hanging.
 				close(targetCh)
@@ -259,12 +253,10 @@ func TestExecutionTracker_ProcessEnumerationStream(t *testing.T) {
 			scanningResult: func() *scanning.ScanningResult {
 				return &scanning.ScanningResult{Auth: scanning.Auth{}, Metadata: map[string]string{"key": "value"}}
 			},
-			simulateData: func(targetCh chan []uuid.UUID, taskCh chan scanning.TranslationResult, errCh chan error) {
+			simulateData: func(targetCh chan []uuid.UUID, taskCh chan *scanning.Task, errCh chan error) {
 				// Send data that passes task creation but fails on event publishing.
 				targetCh <- []uuid.UUID{uuid.New()}
-				taskCh <- scanning.TranslationResult{
-					Task: scanning.NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com/repo"),
-				}
+				taskCh <- scanning.NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "https://example.com/repo")
 
 				// Close channels to prevent test from hanging.
 				close(targetCh)
@@ -286,7 +278,7 @@ func TestExecutionTracker_ProcessEnumerationStream(t *testing.T) {
 			scanningResult: func() *scanning.ScanningResult {
 				return &scanning.ScanningResult{Auth: scanning.Auth{}, Metadata: map[string]string{"key": "value"}}
 			},
-			simulateData: func(targetCh chan []uuid.UUID, taskCh chan scanning.TranslationResult, errCh chan error) {
+			simulateData: func(targetCh chan []uuid.UUID, taskCh chan *scanning.Task, errCh chan error) {
 				// No data, just close channels to trigger completion.
 				close(targetCh)
 				close(taskCh)
@@ -305,7 +297,7 @@ func TestExecutionTracker_ProcessEnumerationStream(t *testing.T) {
 			defer cancel()
 
 			scanTargetsCh := make(chan []uuid.UUID)
-			tasksCh := make(chan scanning.TranslationResult)
+			tasksCh := make(chan *scanning.Task)
 			errCh := make(chan error)
 
 			scanResult := tt.scanningResult()

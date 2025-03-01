@@ -19,9 +19,9 @@ func (e EnumerationToScanningTranslator) TranslateEnumerationResultToScanning(
 	auth scanning.Auth,
 	metadata map[string]string,
 ) *scanning.ScanningResult {
-	scanTargetsCh := make(chan []uuid.UUID, 10)
-	tasksCh := make(chan scanning.TranslationResult, 10)
-	errCh := make(chan error, 10)
+	scanTargetsCh := make(chan []uuid.UUID, 1)
+	tasksCh := make(chan *scanning.Task, 1)
+	errCh := make(chan error, 1)
 
 	allChannelsClosed := func() bool {
 		return enumResult.ScanTargetsCh == nil && enumResult.TasksCh == nil && enumResult.ErrCh == nil
@@ -59,11 +59,7 @@ func (e EnumerationToScanningTranslator) TranslateEnumerationResultToScanning(
 					}
 					continue
 				}
-				// Only translate the task-specific field.
-				taskResult := scanning.TranslationResult{
-					Task: scanning.NewScanTask(jobID, enumTask.SourceType, enumTask.ID, enumTask.ResourceURI()),
-				}
-				tasksCh <- taskResult
+				tasksCh <- scanning.NewScanTask(jobID, enumTask.SourceType, enumTask.ID, enumTask.ResourceURI())
 
 			case errVal, ok := <-enumResult.ErrCh:
 				if !ok {

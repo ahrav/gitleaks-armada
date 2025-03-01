@@ -231,20 +231,6 @@ type TaskStateHandler interface {
 	HandleTaskStale(ctx context.Context, evt TaskStaleEvent) error
 }
 
-// Execution tracking manages the lifecycle and progress of scanning tasks as they
-// move through the system. It provides the interfaces needed to monitor task
-// execution, handle state transitions, and maintain accurate progress information.
-// This component ensures reliable task execution and provides visibility into
-// scanning operations across the distributed system.
-
-// TranslationResult represents a single translated enumeration task in scanning-domain form.
-// It contains the resulting scanning Task.
-// This structure is typically produced by an ACL translator that bridges the enumeration
-// and scanning domains.
-type TranslationResult struct {
-	Task *Task
-}
-
 // ScanningResult encapsulates the scanning-domain equivalents of enumerated data, exposing
 // channels of scanning-oriented objects and job-level context. These channels emit:
 //
@@ -266,7 +252,7 @@ type TranslationResult struct {
 // information in each task.
 type ScanningResult struct {
 	ScanTargetsCh <-chan []uuid.UUID
-	TasksCh       <-chan TranslationResult
+	TasksCh       <-chan *Task
 	ErrCh         <-chan error
 
 	// Job-level context. (applies to all tasks)

@@ -106,7 +106,7 @@ func (t *executionTracker) ProcessEnumerationStream(
 			}
 			logger.Debug(ctx, "Enumerated targets linked to job")
 
-		case translationRes, ok := <-result.TasksCh:
+		case task, ok := <-result.TasksCh:
 			if !ok {
 				result.TasksCh = nil
 				logger.Debug(ctx, "TasksCh closed, setting to nil")
@@ -118,7 +118,7 @@ func (t *executionTracker) ProcessEnumerationStream(
 			if err := t.handleEnumeratedScanTask(
 				ctx,
 				jobID,
-				translationRes.Task,
+				task,
 				result,
 			); err != nil {
 				span.RecordError(err)
@@ -126,7 +126,7 @@ func (t *executionTracker) ProcessEnumerationStream(
 				return fmt.Errorf("failed to handle enumerated scan task: %w", err)
 			}
 			logger.Debug(ctx, "Enumerated scan task handled",
-				"task_id", translationRes.Task.ID,
+				"task_id", task.ID,
 				"job_id", jobID,
 				"metadata", result.Metadata,
 			)
