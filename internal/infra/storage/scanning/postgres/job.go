@@ -217,6 +217,34 @@ func (r *jobStore) GetJob(ctx context.Context, jobID uuid.UUID) (*scanning.Job, 
 	return job, nil
 }
 
+// GetJobConfigInfo retrieves just the source type and configuration for a job.
+// This is useful for lightweight access to job configuration without loading the full job.
+func (r *jobStore) GetJobConfigInfo(ctx context.Context, jobID uuid.UUID) (*scanning.JobConfigInfo, error) {
+	dbAttrs := append(
+		defaultDBAttributes,
+		attribute.String("job_id", jobID.String()),
+	)
+
+	var configInfo *scanning.JobConfigInfo
+	err := storage.ExecuteAndTrace(ctx, r.tracer, "postgres.get_job_config_info", dbAttrs, func(ctx context.Context) error {
+		row, err := r.q.GetJobSourceTypeConfig(ctx, pgtype.UUID{Bytes: jobID, Valid: true})
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return scanning.ErrJobNotFound
+			}
+			return fmt.Errorf("GetJobSourceTypeConfig query error: %w", err)
+		}
+
+		configInfo = scanning.NewJobConfigInfo(jobID, row.SourceType, row.Config)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return configInfo, nil
+}
+
 const (
 	maxBatchSize  = 1000
 	numWorkers    = 2

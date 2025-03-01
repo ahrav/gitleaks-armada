@@ -264,6 +264,45 @@ func TestJobStore_GetNonExistent(t *testing.T) {
 	assert.Nil(t, loaded)
 }
 
+func TestJobStore_GetJobConfigInfo(t *testing.T) {
+	t.Parallel()
+	ctx, _, store, cleanup := setupJobTest(t)
+	defer cleanup()
+
+	config := json.RawMessage(`{"test_field": "test_value", "nested": {"field": 123}}`)
+
+	job := scanning.ReconstructJob(
+		uuid.New(),
+		shared.SourceTypeGitHub.String(),
+		config,
+		scanning.JobStatusQueued,
+		scanning.NewTimeline(&mockTimeProvider{current: time.Now()}),
+	)
+
+	err := store.CreateJob(ctx, job)
+	require.NoError(t, err)
+
+	configInfo, err := store.GetJobConfigInfo(ctx, job.JobID())
+	require.NoError(t, err)
+
+	assert.Equal(t, job.JobID(), configInfo.JobID())
+	assert.Equal(t, shared.SourceTypeGitHub.String(), configInfo.SourceType())
+	assert.JSONEq(t, string(config), string(configInfo.Config()))
+}
+
+func TestJobStore_GetJobConfigInfo_NotFound(t *testing.T) {
+	t.Parallel()
+	ctx, _, store, cleanup := setupJobTest(t)
+	defer cleanup()
+
+	nonExistentJobID := uuid.New()
+	configInfo, err := store.GetJobConfigInfo(ctx, nonExistentJobID)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, scanning.ErrJobNotFound)
+	assert.Nil(t, configInfo)
+}
+
 func TestJobStore_CreateDuplicate(t *testing.T) {
 	t.Parallel()
 	ctx, _, store, cleanup := setupJobTest(t)
