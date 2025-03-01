@@ -200,6 +200,7 @@ func TestAssociateEnumeratedTargets(t *testing.T) {
 		uuid.MustParse("b1f7eff4-2921-4e6c-9d88-da2de5707a2b"),
 		uuid.MustParse("c2f8eff4-3922-4e6c-9d88-da2de5707a2c"),
 	}
+	cmd := domain.NewAssociateEnumeratedTargetsCommand(jobID, targetIDs)
 
 	tests := []struct {
 		name    string
@@ -245,7 +246,7 @@ func TestAssociateEnumeratedTargets(t *testing.T) {
 			suite := newJobTaskService(t)
 			tt.setup(suite.jobRepo.(*mockJobRepository))
 
-			err := suite.AssociateEnumeratedTargets(context.Background(), jobID, targetIDs)
+			err := suite.AssociateEnumeratedTargets(context.Background(), cmd)
 			if tt.wantErr {
 				require.Error(t, err)
 				return
@@ -869,7 +870,8 @@ func TestPauseTask(t *testing.T) {
 			svc := newJobTaskService(t)
 			tt.mockSetup(svc.taskRepo.(*mockTaskRepository))
 
-			_, err := svc.PauseTask(context.Background(), tt.taskID, tt.progress, tt.requestedBy)
+			cmd := domain.NewPauseTaskCommand(tt.taskID, tt.progress, tt.requestedBy)
+			_, err := svc.PauseTask(context.Background(), cmd)
 			if tt.wantErr {
 				require.Error(t, err)
 			} else {

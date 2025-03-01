@@ -88,31 +88,30 @@ func (s *jobTaskService) CreateJob(ctx context.Context, cmd domain.CreateJobComm
 // TODO: what happens if only part of this succeeds?
 func (s *jobTaskService) AssociateEnumeratedTargets(
 	ctx context.Context,
-	jobID uuid.UUID,
-	targetIDs []uuid.UUID,
+	cmd domain.AssociateEnumeratedTargetsCommand,
 ) error {
 	ctx, span := s.tracer.Start(ctx, "job_task_service.scanning.associate_enumerated_targets",
 		trace.WithAttributes(
 			attribute.String("controller_id", s.controllerID),
-			attribute.String("job_id", jobID.String()),
-			attribute.Int("target_count", len(targetIDs)),
+			attribute.String("job_id", cmd.JobID.String()),
+			attribute.Int("target_count", len(cmd.TargetIDs)),
 		))
 	defer span.End()
 
-	if err := s.jobRepo.AssociateTargets(ctx, jobID, targetIDs); err != nil {
+	if err := s.jobRepo.AssociateTargets(ctx, cmd.JobID, cmd.TargetIDs); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to associate targets")
-		return fmt.Errorf("failed to associate targets with job %s: %w", jobID, err)
+		return fmt.Errorf("failed to associate targets with job %s: %w", cmd.JobID, err)
 	}
 	span.AddEvent("targets_associated")
 
-	if err := s.jobRepo.IncrementTotalTasks(ctx, jobID, len(targetIDs)); err != nil {
+	if err := s.jobRepo.IncrementTotalTasks(ctx, cmd.JobID, len(cmd.TargetIDs)); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to increment total tasks")
-		return fmt.Errorf("failed to increment total tasks for job %s: %w", jobID, err)
+		return fmt.Errorf("failed to increment total tasks for job %s: %w", cmd.JobID, err)
 	}
 	span.AddEvent("total_tasks_incremented", trace.WithAttributes(
-		attribute.Int("increment_amount", len(targetIDs)),
+		attribute.Int("increment_amount", len(cmd.TargetIDs)),
 	))
 
 	span.AddEvent("targets_associated_and_task_count_updated")
@@ -413,19 +412,17 @@ func (s *jobTaskService) UpdateTaskProgress(ctx context.Context, progress domain
 // PauseTask transitions a task to PAUSED status and stores its final progress checkpoint.
 func (s *jobTaskService) PauseTask(
 	ctx context.Context,
-	taskID uuid.UUID,
-	progress domain.Progress,
-	requestedBy string,
+	cmd domain.PauseTaskCommand,
 ) (*domain.Task, error) {
 	ctx, span := s.tracer.Start(ctx, "job_task_service.pause_task",
 		trace.WithAttributes(
 			attribute.String("controller_id", s.controllerID),
-			attribute.String("task_id", taskID.String()),
-			attribute.String("requested_by", requestedBy),
+			attribute.String("task_id", cmd.TaskID.String()),
+			attribute.String("requested_by", cmd.RequestedBy),
 		))
 	defer span.End()
 
-	task, err := s.loadTask(ctx, taskID)
+	task, err := s.loadTask(ctx, cmd.TaskID)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to load task")
@@ -439,7 +436,7 @@ func (s *jobTaskService) PauseTask(
 	}
 
 	// Apply final progress if provided.
-	if err := task.ApplyProgress(progress); err != nil {
+	if err := task.ApplyProgress(cmd.Progress); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to apply final progress")
 		return nil, fmt.Errorf("apply final progress: %w", err)

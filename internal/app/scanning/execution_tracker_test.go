@@ -57,8 +57,9 @@ func TestExecutionTracker_AssociateEnumeratedTargetsToJob(t *testing.T) {
 		{
 			name: "successful target linking and task increment",
 			setup: func(m *mockJobTaskSvc) {
-				m.On("AssociateEnumeratedTargets", mock.Anything, mock.Anything, mock.Anything).
-					Return(nil)
+				m.On("AssociateEnumeratedTargets", mock.Anything, mock.MatchedBy(func(cmd domain.AssociateEnumeratedTargetsCommand) bool {
+					return len(cmd.TargetIDs) > 0
+				})).Return(nil)
 			},
 			jobID: uuid.New(),
 			targetIDs: []uuid.UUID{
@@ -70,7 +71,7 @@ func TestExecutionTracker_AssociateEnumeratedTargetsToJob(t *testing.T) {
 		{
 			name: "linking failure",
 			setup: func(m *mockJobTaskSvc) {
-				m.On("AssociateEnumeratedTargets", mock.Anything, mock.Anything, mock.Anything).
+				m.On("AssociateEnumeratedTargets", mock.Anything, mock.Anything).
 					Return(errors.New("failed to link targets"))
 			},
 			jobID: uuid.New(),
@@ -83,8 +84,8 @@ func TestExecutionTracker_AssociateEnumeratedTargetsToJob(t *testing.T) {
 		{
 			name: "empty target list",
 			setup: func(m *mockJobTaskSvc) {
-				m.On("AssociateEnumeratedTargets", mock.Anything, mock.Anything, mock.MatchedBy(func(targets []uuid.UUID) bool {
-					return len(targets) == 0
+				m.On("AssociateEnumeratedTargets", mock.Anything, mock.MatchedBy(func(cmd domain.AssociateEnumeratedTargetsCommand) bool {
+					return len(cmd.TargetIDs) == 0
 				})).Return(nil)
 			},
 			jobID:     uuid.New(),
@@ -125,7 +126,9 @@ func TestExecutionTracker_ProcessEnumerationStream(t *testing.T) {
 				// Signal enumeration starting.
 				m.On("UpdateJobStatus", mock.Anything, mock.Anything, domain.JobStatusEnumerating).Return(nil)
 				// Process scan targets.
-				m.On("AssociateEnumeratedTargets", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+				m.On("AssociateEnumeratedTargets", mock.Anything, mock.MatchedBy(func(cmd domain.AssociateEnumeratedTargetsCommand) bool {
+					return len(cmd.TargetIDs) > 0
+				})).Return(nil)
 				// Process tasks - expect TaskCreatedEvent for each task.
 				m.On("CreateTask", mock.Anything, mock.Anything).Return(nil)
 				p.On("PublishDomainEvent",
@@ -187,7 +190,7 @@ func TestExecutionTracker_ProcessEnumerationStream(t *testing.T) {
 				m.On("UpdateJobStatus", mock.Anything, mock.Anything, domain.JobStatusEnumerating).Return(nil)
 
 				// Return error when trying to link scan targets.
-				m.On("AssociateEnumeratedTargets", mock.Anything, mock.Anything, mock.Anything).
+				m.On("AssociateEnumeratedTargets", mock.Anything, mock.Anything).
 					Return(errors.New("link failed"))
 			},
 			jobID: uuid.New(),
@@ -211,7 +214,9 @@ func TestExecutionTracker_ProcessEnumerationStream(t *testing.T) {
 				// Signal enumeration starting.
 				m.On("UpdateJobStatus", mock.Anything, mock.Anything, domain.JobStatusEnumerating).Return(nil)
 				// Process scan targets successful.
-				m.On("AssociateEnumeratedTargets", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+				m.On("AssociateEnumeratedTargets", mock.Anything, mock.MatchedBy(func(cmd domain.AssociateEnumeratedTargetsCommand) bool {
+					return true
+				})).Return(nil)
 				// Return error when creating task.
 				m.On("CreateTask", mock.Anything, mock.Anything).
 					Return(errors.New("task creation failed"))
@@ -240,7 +245,9 @@ func TestExecutionTracker_ProcessEnumerationStream(t *testing.T) {
 				// Signal enumeration starting.
 				m.On("UpdateJobStatus", mock.Anything, mock.Anything, domain.JobStatusEnumerating).Return(nil)
 				// Process scan targets successful.
-				m.On("AssociateEnumeratedTargets", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+				m.On("AssociateEnumeratedTargets", mock.Anything, mock.MatchedBy(func(cmd domain.AssociateEnumeratedTargetsCommand) bool {
+					return true
+				})).Return(nil)
 				// Task creation successful but event publish fails.
 				m.On("CreateTask", mock.Anything, mock.Anything).Return(nil)
 				p.On("PublishDomainEvent",
@@ -511,8 +518,9 @@ func TestHandleTaskPaused(t *testing.T) {
 		{
 			name: "successful task pause",
 			setup: func(m *mockJobTaskSvc) {
-				m.On("PauseTask", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-					Return(new(scanning.Task), nil)
+				m.On("PauseTask", mock.Anything, mock.MatchedBy(func(cmd domain.PauseTaskCommand) bool {
+					return cmd.RequestedBy == "test-user"
+				})).Return(new(scanning.Task), nil)
 			},
 			event: scanning.TaskPausedEvent{
 				JobID:       uuid.New(),
@@ -525,7 +533,7 @@ func TestHandleTaskPaused(t *testing.T) {
 		{
 			name: "pause task failure",
 			setup: func(m *mockJobTaskSvc) {
-				m.On("PauseTask", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+				m.On("PauseTask", mock.Anything, mock.Anything).
 					Return(nil, errors.New("pause failed"))
 			},
 			event: scanning.TaskPausedEvent{

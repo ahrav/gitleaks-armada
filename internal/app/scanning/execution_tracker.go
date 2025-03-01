@@ -207,7 +207,8 @@ func (t *executionTracker) associateEnumeratedTargetsToJob(
 		))
 	defer span.End()
 
-	if err := t.jobTaskSvc.AssociateEnumeratedTargets(ctx, jobID, scanTargetIDs); err != nil {
+	cmd := domain.NewAssociateEnumeratedTargetsCommand(jobID, scanTargetIDs)
+	if err := t.jobTaskSvc.AssociateEnumeratedTargets(ctx, cmd); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to associate enumerated targets")
 		return fmt.Errorf("failed to associate enumerated targets: %w", err)
@@ -378,7 +379,8 @@ func (t *executionTracker) HandleTaskPaused(ctx context.Context, evt scanning.Ta
 		))
 	defer span.End()
 
-	_, err := t.jobTaskSvc.PauseTask(ctx, evt.TaskID, evt.Progress, evt.RequestedBy)
+	cmd := domain.NewPauseTaskCommand(evt.TaskID, evt.Progress, evt.RequestedBy)
+	_, err := t.jobTaskSvc.PauseTask(ctx, cmd)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to pause task")

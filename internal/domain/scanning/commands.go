@@ -30,3 +30,28 @@ type CreateJobCommand struct {
 func NewCreateJobCommand(jobID uuid.UUID, sourceType string, config json.RawMessage) CreateJobCommand {
 	return CreateJobCommand{JobID: jobID, SourceType: sourceType, Config: config}
 }
+
+// AssociateEnumeratedTargetsCommand encapsulates all information needed to associate
+// enumerated targets with a job and update the job's task count.
+type AssociateEnumeratedTargetsCommand struct {
+	JobID     uuid.UUID   // The job to associate targets with
+	TargetIDs []uuid.UUID // The targets to associate with the job
+}
+
+// NewAssociateEnumeratedTargetsCommand creates a new AssociateEnumeratedTargetsCommand.
+func NewAssociateEnumeratedTargetsCommand(jobID uuid.UUID, targetIDs []uuid.UUID) AssociateEnumeratedTargetsCommand {
+	return AssociateEnumeratedTargetsCommand{JobID: jobID, TargetIDs: targetIDs}
+}
+
+// PauseTaskCommand encapsulates all information needed to pause a task and store its
+// final progress checkpoint.
+type PauseTaskCommand struct {
+	TaskID      uuid.UUID // The task to pause
+	Progress    Progress  // The final progress checkpoint
+	RequestedBy string    // Who requested the pause
+}
+
+// NewPauseTaskCommand creates a new PauseTaskCommand.
+func NewPauseTaskCommand(taskID uuid.UUID, progress Progress, requestedBy string) PauseTaskCommand {
+	return PauseTaskCommand{TaskID: taskID, Progress: progress, RequestedBy: requestedBy}
+}

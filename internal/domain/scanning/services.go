@@ -51,7 +51,7 @@ type JobTaskService interface {
 	// and updates the job's total task count in a single atomic operation. This ensures
 	// newly discovered targets are both associated for scanning and reflected in the
 	// job's overall task tally, preserving data consistency if any step fails.
-	AssociateEnumeratedTargets(ctx context.Context, jobID uuid.UUID, targetIDs []uuid.UUID) error
+	AssociateEnumeratedTargets(ctx context.Context, cmd AssociateEnumeratedTargetsCommand) error
 
 	// GetJobConfigInfo retrieves just the source type and configuration for a job.
 	// This is useful for lightweight access to job configuration without loading the full job.
@@ -91,7 +91,7 @@ type JobTaskService interface {
 
 	// PauseTask transitions a task to PAUSED status and stores its final progress checkpoint.
 	// The task can later be resumed from this checkpoint.
-	PauseTask(ctx context.Context, taskID uuid.UUID, progress Progress, requestedBy string) (*Task, error)
+	PauseTask(ctx context.Context, cmd PauseTaskCommand) (*Task, error)
 
 	// CancelTask transitions a task to CANCELLED status, preventing further work on it.
 	// This is a terminal state from which a task cannot be resumed.

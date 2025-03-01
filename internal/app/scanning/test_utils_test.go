@@ -28,8 +28,8 @@ func (m *mockJobTaskSvc) CreateJob(ctx context.Context, cmd scanning.CreateJobCo
 	return args.Error(0)
 }
 
-func (m *mockJobTaskSvc) AssociateEnumeratedTargets(ctx context.Context, jobID uuid.UUID, targetIDs []uuid.UUID) error {
-	args := m.Called(ctx, jobID, targetIDs)
+func (m *mockJobTaskSvc) AssociateEnumeratedTargets(ctx context.Context, cmd scanning.AssociateEnumeratedTargetsCommand) error {
+	args := m.Called(ctx, cmd)
 	return args.Error(0)
 }
 
@@ -72,8 +72,8 @@ func (m *mockJobTaskSvc) UpdateTaskProgress(ctx context.Context, progress scanni
 	return nil, args.Error(1)
 }
 
-func (m *mockJobTaskSvc) PauseTask(ctx context.Context, taskID uuid.UUID, progress scanning.Progress, requestedBy string) (*scanning.Task, error) {
-	args := m.Called(ctx, taskID, progress, requestedBy)
+func (m *mockJobTaskSvc) PauseTask(ctx context.Context, cmd scanning.PauseTaskCommand) (*scanning.Task, error) {
+	args := m.Called(ctx, cmd)
 	if task := args.Get(0); task != nil {
 		return task.(*scanning.Task), args.Error(1)
 	}
