@@ -47,6 +47,14 @@ func (m *mockJobRepository) GetJob(ctx context.Context, jobID uuid.UUID) (*scann
 	return nil, args.Error(1)
 }
 
+func (m *mockJobRepository) GetJobConfigInfo(ctx context.Context, jobID uuid.UUID) (*scanning.JobConfigInfo, error) {
+	args := m.Called(ctx, jobID)
+	if configInfo := args.Get(0); configInfo != nil {
+		return configInfo.(*scanning.JobConfigInfo), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
 func (m *mockJobRepository) BulkUpdateJobMetrics(ctx context.Context, updates map[uuid.UUID]*domain.JobMetrics) (int64, error) {
 	return 0, nil
 }
@@ -244,6 +252,59 @@ func TestAssociateEnumeratedTargets(t *testing.T) {
 			}
 
 			require.NoError(t, err)
+			suite.jobRepo.(*mockJobRepository).AssertExpectations(t)
+		})
+	}
+}
+
+func TestGetJobConfigInfo(t *testing.T) {
+	jobID := uuid.MustParse("429735d7-ec1b-4d96-8749-938ca0a744be")
+
+	tests := []struct {
+		name    string
+		setup   func(*mockJobRepository)
+		wantErr bool
+	}{
+		{
+			name: "successfully get job config info",
+			setup: func(repo *mockJobRepository) {
+				configInfo := domain.NewJobConfigInfo(
+					jobID,
+					shared.SourceTypeGitHub.String(),
+					json.RawMessage(`{"test_key":"test_value"}`),
+				)
+				repo.On("GetJobConfigInfo", mock.Anything, jobID).
+					Return(configInfo, nil)
+			},
+			wantErr: false,
+		},
+		{
+			name: "repository error",
+			setup: func(repo *mockJobRepository) {
+				repo.On("GetJobConfigInfo", mock.Anything, jobID).
+					Return(nil, assert.AnError)
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			suite := newJobTaskService(t)
+			tt.setup(suite.jobRepo.(*mockJobRepository))
+
+			configInfo, err := suite.GetJobConfigInfo(context.Background(), jobID)
+			if tt.wantErr {
+				require.Error(t, err)
+				require.Nil(t, configInfo)
+				return
+			}
+
+			require.NoError(t, err)
+			require.NotNil(t, configInfo)
+			assert.Equal(t, jobID, configInfo.JobID())
+			assert.Equal(t, shared.SourceTypeGitHub.String(), configInfo.SourceType())
+			assert.NotEmpty(t, configInfo.Config())
 			suite.jobRepo.(*mockJobRepository).AssertExpectations(t)
 		})
 	}
