@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
-	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 )
 
@@ -96,10 +95,6 @@ type JobTaskService interface {
 	// CancelTask transitions a task to CANCELLED status, preventing further work on it.
 	// This is a terminal state from which a task cannot be resumed.
 	CancelTask(ctx context.Context, taskID uuid.UUID, requestedBy string) (*Task, error)
-
-	// GetTaskSourceType retrieves the source type of a task.
-	// This is needed for task resume operations.
-	GetTaskSourceType(ctx context.Context, taskID uuid.UUID) (shared.SourceType, error)
 
 	// UpdateHeartbeats updates the last_heartbeat_at timestamp for a list of tasks.
 	UpdateHeartbeats(ctx context.Context, heartbeats map[uuid.UUID]time.Time) (int64, error)

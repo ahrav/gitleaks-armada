@@ -10,7 +10,6 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	domain "github.com/ahrav/gitleaks-armada/internal/domain/scanning"
-	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 )
@@ -584,31 +583,6 @@ func (s *jobTaskService) GetTask(ctx context.Context, taskID uuid.UUID) (*domain
 	))
 	span.SetStatus(codes.Ok, "task retrieved successfully")
 	return task, nil
-}
-
-// GetTaskSourceType returns a task's source type. Useful for domain logic that
-// branches based on the type of resource the task is scanning.
-// TODO: There might be a better way to do this.
-func (s *jobTaskService) GetTaskSourceType(ctx context.Context, taskID uuid.UUID) (shared.SourceType, error) {
-	ctx, span := s.tracer.Start(ctx, "job_task_service.scanning.get_task_source_type",
-		trace.WithAttributes(
-			attribute.String("controller_id", s.controllerID),
-			attribute.String("task_id", taskID.String()),
-		))
-	defer span.End()
-
-	sourceType, err := s.taskRepo.GetTaskSourceType(ctx, taskID)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to get task source type")
-		return shared.SourceTypeUnspecified, fmt.Errorf("repository task source type query failed (task_id: %s): %w", taskID, err)
-	}
-
-	span.AddEvent("task_source_type_retrieved", trace.WithAttributes(
-		attribute.String("source_type", string(sourceType)),
-	))
-	span.SetStatus(codes.Ok, "task source type retrieved successfully")
-	return sourceType, nil
 }
 
 // UpdateHeartbeats updates the last heartbeat timestamp for a batch of tasks.

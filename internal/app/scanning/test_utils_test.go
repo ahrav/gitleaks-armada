@@ -8,7 +8,6 @@ import (
 
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
-	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 )
 
@@ -118,11 +117,6 @@ func (m *mockJobTaskSvc) GetTask(ctx context.Context, taskID uuid.UUID) (*scanni
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*scanning.Task), args.Error(1)
-}
-
-func (m *mockJobTaskSvc) GetTaskSourceType(ctx context.Context, taskID uuid.UUID) (shared.SourceType, error) {
-	args := m.Called(ctx, taskID)
-	return args.Get(0).(shared.SourceType), args.Error(1)
 }
 
 func (m *mockJobTaskSvc) UpdateHeartbeats(ctx context.Context, heartbeats map[uuid.UUID]time.Time) (int64, error) {

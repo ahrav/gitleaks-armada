@@ -1187,56 +1187,6 @@ func TestGetTask(t *testing.T) {
 	}
 }
 
-func TestGetTaskSourceType(t *testing.T) {
-	taskID := uuid.MustParse("b1f7eff4-2921-4e6c-9d88-da2de5707a2b")
-
-	tests := []struct {
-		name           string
-		setup          func(*mockTaskRepository)
-		wantErr        bool
-		wantSourceType shared.SourceType
-	}{
-		{
-			name: "successful source type retrieval",
-			setup: func(repo *mockTaskRepository) {
-				repo.On("GetTaskSourceType", mock.Anything, taskID).
-					Return(shared.SourceTypeGitHub, nil)
-			},
-			wantErr:        false,
-			wantSourceType: shared.SourceTypeGitHub,
-		},
-		{
-			name: "task not found",
-			setup: func(repo *mockTaskRepository) {
-				repo.On("GetTaskSourceType", mock.Anything, taskID).
-					Return(shared.SourceTypeUnspecified, assert.AnError)
-			},
-			wantErr:        true,
-			wantSourceType: shared.SourceTypeUnspecified,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			suite := newJobTaskService(t)
-			tt.setup(suite.taskRepo.(*mockTaskRepository))
-
-			sourceType, err := suite.GetTaskSourceType(context.Background(), taskID)
-			if tt.wantErr {
-				require.Error(t, err)
-				assert.Empty(t, sourceType)
-				return
-			}
-
-			require.NoError(t, err)
-			assert.Equal(t, tt.wantSourceType, sourceType)
-			suite.taskRepo.(*mockTaskRepository).AssertExpectations(t)
-		})
-	}
-}
-
 func TestGetJobMetrics(t *testing.T) {
 	jobID := uuid.MustParse("429735d7-ec1b-4d96-8749-938ca0a744be")
 
