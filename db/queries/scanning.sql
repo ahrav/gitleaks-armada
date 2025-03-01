@@ -125,9 +125,6 @@ WHERE t.job_id = $1
   AND t.status = 'PAUSED'
 ORDER BY t.created_at ASC;
 
--- name: GetTaskSourceType :one
-SELECT source_type FROM tasks WHERE task_id = $1;
-
 -- name: CreateBaseTask :exec
 INSERT INTO tasks (task_id, source_type)
 VALUES ($1, $2);

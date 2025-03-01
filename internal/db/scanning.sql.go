@@ -431,17 +431,6 @@ func (q *Queries) GetScanTask(ctx context.Context, taskID pgtype.UUID) (GetScanT
 	return i, err
 }
 
-const getTaskSourceType = `-- name: GetTaskSourceType :one
-SELECT source_type FROM tasks WHERE task_id = $1
-`
-
-func (q *Queries) GetTaskSourceType(ctx context.Context, taskID pgtype.UUID) (string, error) {
-	row := q.db.QueryRow(ctx, getTaskSourceType, taskID)
-	var source_type string
-	err := row.Scan(&source_type)
-	return source_type, err
-}
-
 const getTasksToResume = `-- name: GetTasksToResume :many
 SELECT
     t.task_id,

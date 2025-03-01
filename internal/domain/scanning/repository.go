@@ -8,7 +8,6 @@ import (
 	"errors"
 	"time"
 
-	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 )
 
@@ -81,9 +80,6 @@ type TaskRepository interface {
 
 	// UpdateTask persists changes to an existing task's state.
 	UpdateTask(ctx context.Context, task *Task) error
-
-	// GetTaskSourceType retrieves the source type for a task from the core tasks table
-	GetTaskSourceType(ctx context.Context, taskID uuid.UUID) (shared.SourceType, error)
 
 	// FindStaleTasks retrieves tasks that have not sent a heartbeat since the given cutoff time
 	// and belong to the specified controller.

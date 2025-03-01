@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
@@ -351,31 +350,6 @@ func TestTaskStore_UpdateTask_StallTransition(t *testing.T) {
 				loaded.StalledAt().Equal(beforeStale))
 		})
 	}
-}
-
-func TestTaskStore_GetTaskSourceType(t *testing.T) {
-	t.Parallel()
-	ctx, _, taskStore, jobStore, cleanup := setupTaskTest(t)
-	defer cleanup()
-
-	job := createTestScanJob(t, jobStore, ctx)
-	task := createTestTask(t, taskStore, job.JobID(), scanning.TaskStatusInProgress)
-	err := taskStore.CreateTask(ctx, task, "test-controller")
-	require.NoError(t, err)
-
-	sourceType, err := taskStore.GetTaskSourceType(ctx, task.TaskID())
-	require.NoError(t, err)
-	assert.Equal(t, shared.SourceTypeURL, sourceType)
-}
-
-func TestTaskStore_GetTaskSourceType_NonExistent(t *testing.T) {
-	t.Parallel()
-	ctx, _, taskStore, _, cleanup := setupTaskTest(t)
-	defer cleanup()
-
-	sourceType, err := taskStore.GetTaskSourceType(ctx, uuid.New())
-	assert.ErrorIs(t, err, pgx.ErrNoRows)
-	assert.Empty(t, sourceType)
 }
 
 func TestTaskStore_UpdateTask_RecoveryFromStale(t *testing.T) {

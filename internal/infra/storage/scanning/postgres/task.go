@@ -207,32 +207,6 @@ func (s *taskStore) UpdateTask(ctx context.Context, task *scanning.Task) error {
 	})
 }
 
-// GetTaskSourceType retrieves the source type for a given task ID.
-func (s *taskStore) GetTaskSourceType(ctx context.Context, taskID uuid.UUID) (shared.SourceType, error) {
-	dbAttrs := append(
-		defaultDBAttributes,
-		attribute.String("task_id", taskID.String()),
-	)
-
-	var sourceType shared.SourceType
-	err := storage.ExecuteAndTrace(ctx, s.tracer, "postgres.get_task_source_type", dbAttrs, func(ctx context.Context) error {
-		result, err := s.q.GetTaskSourceType(ctx, pgtype.UUID{Bytes: taskID, Valid: true})
-		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return fmt.Errorf("task not found: %w", err)
-			}
-			return fmt.Errorf("get task source type query error: %w", err)
-		}
-		sourceType = shared.ParseSourceType(result)
-		return nil
-	})
-	if err != nil {
-		return shared.SourceTypeUnspecified, err
-	}
-
-	return sourceType, nil
-}
-
 // FindStaleTasks retrieves tasks that have not sent a heartbeat since the given cutoff time.
 func (s *taskStore) FindStaleTasks(ctx context.Context, controllerID string, cutoff time.Time) ([]scanning.StaleTaskInfo, error) {
 	dbAttrs := append(
