@@ -22,8 +22,8 @@ import (
 
 type mockJobScheduler struct{ mock.Mock }
 
-func (m *mockJobScheduler) Schedule(ctx context.Context, jobID uuid.UUID, targets []scanning.Target) error {
-	args := m.Called(ctx, jobID, targets)
+func (m *mockJobScheduler) Schedule(ctx context.Context, cmd scanning.ScheduleJobCommand) error {
+	args := m.Called(ctx, cmd)
 	return args.Error(0)
 }
 
@@ -171,7 +171,7 @@ func TestHandleScanJobRequested(t *testing.T) {
 		{
 			name: "success - two targets",
 			setupMock: func(m *mockJobScheduler) {
-				m.On("Schedule", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
+				m.On("Schedule", mock.Anything, mock.Anything).Return(nil).Once()
 			},
 			targets: []scanning.Target{
 				scanning.NewTarget("test-target", shared.SourceTypeGitHub, &scanning.Auth{}, map[string]string{}, scanning.TargetConfig{}),

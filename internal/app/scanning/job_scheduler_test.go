@@ -134,7 +134,8 @@ func TestScheduleJob(t *testing.T) {
 			scheduler, mockService, mockPublisher, mockBroadcastPublisher := setupJobSchedulerTestSuite()
 			tt.setup(mockService, mockPublisher, mockBroadcastPublisher)
 
-			err := scheduler.Schedule(context.Background(), jobID, tt.targets)
+			cmd := scanning.NewScheduleJobCommand(jobID, "test-user", tt.targets)
+			err := scheduler.Schedule(context.Background(), cmd)
 			if tt.wantErr {
 				require.Error(t, err)
 				return

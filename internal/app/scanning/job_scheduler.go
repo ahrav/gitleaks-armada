@@ -13,7 +13,6 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	domain "github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
-	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 )
 
 var _ domain.JobScheduler = (*jobScheduler)(nil)
@@ -57,43 +56,42 @@ func NewJobScheduler(
 // Schedule creates a new job with the provided jobID and targets, then publishes
 // domain events to notify external services that the job was scheduled. This method
 // can be extended to enforce additional domain rules or trigger further setup steps.
-func (s *jobScheduler) Schedule(ctx context.Context, jobID uuid.UUID, targets []domain.Target) error {
-	logger := s.logger.With("operation", "schedule", "job_id", jobID)
+func (s *jobScheduler) Schedule(ctx context.Context, cmd domain.ScheduleJobCommand) error {
+	logger := s.logger.With("operation", "schedule", "job_id", cmd.JobID)
 	ctx, span := s.tracer.Start(ctx, "job_scheduler.schedule",
 		trace.WithAttributes(
 			attribute.String("controller_id", s.controllerID),
-			attribute.String("job_id", jobID.String()),
-			attribute.Int("target_count", len(targets)),
+			attribute.String("job_id", cmd.JobID.String()),
+			attribute.Int("target_count", len(cmd.Targets)),
 		),
 	)
 	defer span.End()
 	logger.Debug(ctx, "Scheduling job")
 
-	if len(targets) == 0 {
+	if len(cmd.Targets) == 0 {
 		span.AddEvent("no_targets_provided")
 		span.SetStatus(codes.Error, "no targets provided")
 		return fmt.Errorf("no targets provided")
 	}
 
-	config, err := marshalConfig(ctx, targets[0])
+	config, err := marshalConfig(ctx, cmd.Targets[0])
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to marshal target & auth config")
 		return fmt.Errorf("failed to marshal target & auth config: %w", err)
 	}
 
-	// All the targets have the same source type, so we can use the first one.
-	cmd := domain.NewCreateJobCommand(jobID, targets[0].SourceType().String(), config)
+	createJobCmd := domain.NewCreateJobCommand(cmd.JobID, cmd.Targets[0].SourceType().String(), config)
 
-	if err := s.jobTaskService.CreateJob(ctx, cmd); err != nil {
+	if err := s.jobTaskService.CreateJob(ctx, createJobCmd); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to create job")
-		return fmt.Errorf("failed to create job (job_id: %s): %w", jobID, err)
+		return fmt.Errorf("failed to create job (job_id: %s): %w", cmd.JobID, err)
 	}
 	span.AddEvent("job_created")
 	span.SetStatus(codes.Ok, "job created successfully")
 
-	for _, target := range targets {
+	for _, target := range cmd.Targets {
 		span.SetAttributes(
 			attribute.String("target_name", target.Name()),
 			attribute.String("target_source_type", target.SourceType().String()),
@@ -103,11 +101,11 @@ func (s *jobScheduler) Schedule(ctx context.Context, jobID uuid.UUID, targets []
 		// The target information is required by downstream consumers of the JobScheduledEvent
 		// to link scan targets to a single scan job.
 		// TODO: Retry? Should we maybe move on to the next target if this fails?
-		evt := domain.NewJobScheduledEvent(jobID, target)
-		if err := s.publisher.PublishDomainEvent(ctx, evt, events.WithKey(jobID.String())); err != nil {
+		evt := domain.NewJobScheduledEvent(cmd.JobID, target)
+		if err := s.publisher.PublishDomainEvent(ctx, evt, events.WithKey(cmd.JobID.String())); err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "failed to publish job scheduled event")
-			return fmt.Errorf("failed to publish job scheduled event (job_id: %s): %w", jobID, err)
+			return fmt.Errorf("failed to publish job scheduled event (job_id: %s): %w", cmd.JobID, err)
 		}
 		span.AddEvent("job_scheduled_event_published")
 		span.SetStatus(codes.Ok, "job scheduled event published successfully")

@@ -161,7 +161,8 @@ func (ef *EventsFacilitator) HandleScanJobRequested(
 			attribute.String("job_id", jobEvt.JobID().String()),
 		))
 
-		if err := ef.jobScheduler.Schedule(ctx, jobEvt.JobID(), jobEvt.Targets); err != nil {
+		cmd := scanning.NewScheduleJobCommand(jobEvt.JobID(), jobEvt.RequestedBy, jobEvt.Targets)
+		if err := ef.jobScheduler.Schedule(ctx, cmd); err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "failed to schedule job")
 			return fmt.Errorf("failed to schedule job (job_id: %s): %w", jobEvt.JobID(), err)

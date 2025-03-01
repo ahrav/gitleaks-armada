@@ -6,6 +6,23 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 )
 
+// ScheduleJobCommand encapsulates all information needed to schedule a new scanning job.
+// It extends the job control pattern to include target information required for scheduling.
+type ScheduleJobCommand struct {
+	JobID       uuid.UUID // Unique identifier for the job
+	RequestedBy string    // User or system that requested the job
+	Targets     []Target  // Targets to be scanned in this job
+}
+
+// NewScheduleJobCommand creates a new ScheduleJobCommand.
+func NewScheduleJobCommand(jobID uuid.UUID, requestedBy string, targets []Target) ScheduleJobCommand {
+	return ScheduleJobCommand{
+		JobID:       jobID,
+		RequestedBy: requestedBy,
+		Targets:     targets,
+	}
+}
+
 // JobControlCommand encapsulates all information needed to control a job's lifecycle.
 type JobControlCommand struct {
 	JobID       uuid.UUID

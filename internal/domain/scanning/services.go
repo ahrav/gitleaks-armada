@@ -15,7 +15,7 @@ import (
 type JobScheduler interface {
 	// Schedule creates a new job with the provided jobID and targets, then publishes
 	// domain events to notify external services that the job was scheduled.
-	Schedule(ctx context.Context, jobID uuid.UUID, targets []Target) error
+	Schedule(ctx context.Context, cmd ScheduleJobCommand) error
 
 	// Pause initiates the pausing of a job by transitioning it to the PAUSING state
 	// and publishing a JobPausingEvent. The actual pause operation is handled asynchronously
