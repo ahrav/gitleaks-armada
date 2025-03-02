@@ -169,7 +169,9 @@ func main() {
 		os.Exit(1)
 	}
 	poolCfg.MinConns = 5
+	poolCfg.MaxConns = 20
 	poolCfg.ConnConfig.Tracer = otelpgx.NewTracer()
+	// TODO: Collect metrics for the pool and expose them via prometheus.
 
 	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
 	if err != nil {

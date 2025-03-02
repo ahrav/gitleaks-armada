@@ -160,6 +160,8 @@ func run(ctx context.Context, log *logger.Logger, hostname string) error {
 		return fmt.Errorf("parsing db config: %w", err)
 	}
 	poolCfg.MinConns = 5
+	poolCfg.MaxConns = 25
+	// TODO: Collect metrics for the pool and expose them via prometheus.
 
 	poolCfg.ConnConfig.Tracer = otelpgx.NewTracer()
 	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
