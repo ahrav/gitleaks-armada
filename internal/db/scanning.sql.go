@@ -363,6 +363,79 @@ func (q *Queries) GetJobSourceTypeConfig(ctx context.Context, jobID pgtype.UUID)
 	return i, err
 }
 
+const getJobWithMetrics = `-- name: GetJobWithMetrics :one
+SELECT
+    j.job_id,
+    j.status,
+    j.source_type,
+    j.config,
+    j.start_time,
+    j.end_time,
+    j.created_at,
+    j.updated_at,
+    m.total_tasks,
+    m.pending_tasks,
+    m.in_progress_tasks,
+    m.completed_tasks,
+    m.failed_tasks,
+    m.stale_tasks,
+    m.cancelled_tasks,
+    m.paused_tasks,
+    CASE
+        WHEN m.total_tasks > 0 THEN (m.completed_tasks::float / m.total_tasks::float) * 100.0
+        ELSE 0.0
+    END AS completion_percentage
+FROM scan_jobs j
+LEFT JOIN scan_job_metrics m ON j.job_id = m.job_id
+WHERE j.job_id = $1
+`
+
+type GetJobWithMetricsRow struct {
+	JobID                pgtype.UUID
+	Status               ScanJobStatus
+	SourceType           string
+	Config               []byte
+	StartTime            pgtype.Timestamptz
+	EndTime              pgtype.Timestamptz
+	CreatedAt            pgtype.Timestamptz
+	UpdatedAt            pgtype.Timestamptz
+	TotalTasks           pgtype.Int4
+	PendingTasks         pgtype.Int4
+	InProgressTasks      pgtype.Int4
+	CompletedTasks       pgtype.Int4
+	FailedTasks          pgtype.Int4
+	StaleTasks           pgtype.Int4
+	CancelledTasks       pgtype.Int4
+	PausedTasks          pgtype.Int4
+	CompletionPercentage float64
+}
+
+// Retrieves a job with its metrics in a single query, including computed completion percentage
+func (q *Queries) GetJobWithMetrics(ctx context.Context, jobID pgtype.UUID) (GetJobWithMetricsRow, error) {
+	row := q.db.QueryRow(ctx, getJobWithMetrics, jobID)
+	var i GetJobWithMetricsRow
+	err := row.Scan(
+		&i.JobID,
+		&i.Status,
+		&i.SourceType,
+		&i.Config,
+		&i.StartTime,
+		&i.EndTime,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.TotalTasks,
+		&i.PendingTasks,
+		&i.InProgressTasks,
+		&i.CompletedTasks,
+		&i.FailedTasks,
+		&i.StaleTasks,
+		&i.CancelledTasks,
+		&i.PausedTasks,
+		&i.CompletionPercentage,
+	)
+	return i, err
+}
+
 const getScanTask = `-- name: GetScanTask :one
 SELECT
     task_id,

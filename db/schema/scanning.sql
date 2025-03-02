@@ -44,7 +44,10 @@ CREATE TABLE scan_job_metrics (
 );
 
 -- Indexes
-CREATE INDEX idx_scan_job_metrics ON scan_job_metrics (job_id, total_tasks, pending_tasks, in_progress_tasks, completed_tasks, failed_tasks, stale_tasks, cancelled_tasks, paused_tasks);
+
+-- TODO: Consider functional indexes for completion percentage.
+-- CREATE INDEX idx_completion_percentage ON scan_job_metrics
+-- ((CASE WHEN total_tasks > 0 THEN (completed_tasks::float / total_tasks::float) * 100.0 ELSE 0.0 END));
 
 -- Job Metrics Checkpoints Table
 CREATE TABLE job_metrics_checkpoints (

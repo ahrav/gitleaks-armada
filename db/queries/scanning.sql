@@ -237,3 +237,30 @@ metrics_upsert AS (
     RETURNING job_id
 )
 SELECT job_id FROM metrics_upsert;
+
+-- name: GetJobWithMetrics :one
+-- Retrieves a job with its metrics in a single query, including computed completion percentage
+SELECT
+    j.job_id,
+    j.status,
+    j.source_type,
+    j.config,
+    j.start_time,
+    j.end_time,
+    j.created_at,
+    j.updated_at,
+    m.total_tasks,
+    m.pending_tasks,
+    m.in_progress_tasks,
+    m.completed_tasks,
+    m.failed_tasks,
+    m.stale_tasks,
+    m.cancelled_tasks,
+    m.paused_tasks,
+    CASE
+        WHEN m.total_tasks > 0 THEN (m.completed_tasks::float / m.total_tasks::float) * 100.0
+        ELSE 0.0
+    END AS completion_percentage
+FROM scan_jobs j
+LEFT JOIN scan_job_metrics m ON j.job_id = m.job_id
+WHERE j.job_id = $1;
