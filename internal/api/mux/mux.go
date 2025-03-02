@@ -11,6 +11,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/api/mid"
 	"github.com/ahrav/gitleaks-armada/internal/app/commands"
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
+	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/web"
 )
@@ -56,6 +57,7 @@ type Config struct {
 	EventBus   events.DomainEventPublisher
 	CmdHandler commands.Handler
 	Tracer     trace.Tracer
+	JobStore   scanning.ScanJobQueryRepository // For job querying
 }
 
 // RouteAdder defines behavior that sets the routes to bind for an instance

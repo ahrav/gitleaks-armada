@@ -3,6 +3,7 @@ package scanning
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 
@@ -21,11 +22,19 @@ type Service struct {
 	log        *logger.Logger
 	cmdHandler commands.Handler
 	eventBus   events.DomainEventPublisher
+
+	// Read-only repository for querying scan jobs.
+	scanJobQueryRepo scanDomain.ScanJobQueryRepository
 }
 
 // NewService creates a new scan coordination service.
-func NewService(log *logger.Logger, cmdHandler commands.Handler, eventBus events.DomainEventPublisher) *Service {
-	return &Service{log: log, cmdHandler: cmdHandler, eventBus: eventBus}
+func NewService(log *logger.Logger, cmdHandler commands.Handler, eventBus events.DomainEventPublisher, scanJobQueryRepo scanDomain.ScanJobQueryRepository) *Service {
+	return &Service{
+		log:              log,
+		cmdHandler:       cmdHandler,
+		eventBus:         eventBus,
+		scanJobQueryRepo: scanJobQueryRepo,
+	}
 }
 
 // Target represents a single target for scanning.
@@ -265,4 +274,24 @@ func (s *Service) buildTargetConfig(tr Target) config.TargetSpec {
 	}
 
 	return target
+}
+
+// GetJob retrieves detailed information about a scan job.
+// It returns job metadata, status, progress metrics, and timing information.
+func (s *Service) GetJob(ctx context.Context, jobIDStr string) (*JobDetail, error) {
+	jobID, err := uuid.Parse(jobIDStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid job ID format: %w", err)
+	}
+
+	jobDetail, err := s.scanJobQueryRepo.GetJobByID(ctx, jobID)
+	if err != nil {
+		if errors.Is(err, scanDomain.ErrJobNotFound) {
+			return nil, fmt.Errorf("job not found: %s", jobIDStr)
+		}
+		return nil, fmt.Errorf("failed to retrieve job details: %w", err)
+	}
+
+	apiJobDetail := FromDomain(jobDetail)
+	return &apiJobDetail, nil
 }

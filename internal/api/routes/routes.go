@@ -22,8 +22,10 @@ func (add) Add(app *web.App, cfg mux.Config) {
 	// Health check routes.
 	health.Routes(app, health.Config{Build: cfg.Build, Log: cfg.Log})
 
-	scanService := scanning.NewService(cfg.Log, cfg.CmdHandler, cfg.EventBus)
-
+	scanService := scanning.NewService(cfg.Log, cfg.CmdHandler, cfg.EventBus, cfg.JobStore)
 	// Scan routes.
-	scanning.Routes(app, scanning.Config{Log: cfg.Log, ScanService: scanService})
+	scanning.Routes(app, scanning.Config{
+		Log:         cfg.Log,
+		ScanService: scanService,
+	})
 }

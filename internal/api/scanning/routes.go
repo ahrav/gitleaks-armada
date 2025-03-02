@@ -3,6 +3,7 @@ package scanning
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -30,6 +31,7 @@ func Routes(app *web.App, cfg Config) {
 	app.HandlerFunc(http.MethodPost, "", "/v1/scan/{id}/cancel", cancel(cfg))
 	app.HandlerFunc(http.MethodPost, "", "/v1/scan/bulk/cancel", bulkCancel(cfg))
 	// app.HandlerFunc(http.MethodGet, "", "/v1/scan/:id", status(cfg))
+	app.HandlerFunc(http.MethodGet, "", "/v1/scan/{id}", getJob(cfg))
 }
 
 // TODO: Add sanitization, etc...
@@ -476,5 +478,22 @@ func bulkCancel(cfg Config) web.HandlerFunc {
 		}
 
 		return bulkCancelResponse{Jobs: cancelResponses}
+	}
+}
+
+// getJob handles the request to get job details by ID.
+func getJob(cfg Config) web.HandlerFunc {
+	return func(ctx context.Context, r *http.Request) web.Encoder {
+		jobID := web.Param(r, "id")
+
+		jobDetail, err := cfg.ScanService.GetJob(ctx, jobID)
+		if err != nil {
+			if errors.Is(err, scanDomain.ErrJobNotFound) {
+				return errs.New(errs.NotFound, fmt.Errorf("job not found: %s", jobID))
+			}
+			return errs.New(errs.Internal, fmt.Errorf("failed to retrieve job details: %w", err))
+		}
+
+		return jobDetail
 	}
 }
