@@ -336,12 +336,23 @@ func (s *Scanner) runGitScan(
 		defer ticker.Stop()
 
 		commitCount := atomic.Int64{}
+		// Send initial progress report.
+		if err := scanCtx.ReportProgress(ctx, 0, "Repository cloned successfully, starting scan"); err != nil {
+			s.logger.Warn(ctx, "Failed to report initial progress", "error", err)
+		}
 
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-pauseCh:
+				return
+			case <-progressDone:
+				// Report progress one last time.
+				count := commitCount.Load()
+				if err := scanCtx.ReportProgress(ctx, count, fmt.Sprintf("Processed %d commits so far", count)); err != nil {
+					s.logger.Warn(ctx, "Failed to report progress", "error", err)
+				}
 				return
 			case <-ticker.C:
 				count := commitCount.Load()
@@ -359,7 +370,7 @@ func (s *Scanner) runGitScan(
 	findings, err := s.detector.DetectGit(gitCmd, &detect.RemoteInfo{Platform: scm.NoPlatform})
 
 	// Signal to progress reporter that we're done.
-	close(progressDone)
+	progressDone <- struct{}{}
 
 	if err != nil && !errors.Is(err, context.Canceled) {
 		detectSpan.RecordError(err)
