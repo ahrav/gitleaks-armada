@@ -28,7 +28,12 @@ type Service struct {
 }
 
 // NewService creates a new scan coordination service.
-func NewService(log *logger.Logger, cmdHandler commands.Handler, eventBus events.DomainEventPublisher, scanJobQueryRepo scanDomain.ScanJobQueryRepository) *Service {
+func NewService(
+	log *logger.Logger,
+	cmdHandler commands.Handler,
+	eventBus events.DomainEventPublisher,
+	scanJobQueryRepo scanDomain.ScanJobQueryRepository,
+) *Service {
 	return &Service{
 		log:              log,
 		cmdHandler:       cmdHandler,

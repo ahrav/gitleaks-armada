@@ -22,16 +22,18 @@ type Config struct {
 
 // Routes binds all the scan endpoints.
 func Routes(app *web.App, cfg Config) {
-	app.HandlerFunc(http.MethodPost, "", "/v1/scan", start(cfg))
+	const version = "v1"
+
+	app.HandlerFunc(http.MethodPost, version, "/scan", start(cfg))
 	// TODO: Handle users pausing multiple times. (error, ignore, etc...)
-	app.HandlerFunc(http.MethodPost, "", "/v1/scan/{id}/pause", pause(cfg))
-	app.HandlerFunc(http.MethodPost, "", "/v1/scan/bulk/pause", bulkPause(cfg))
-	app.HandlerFunc(http.MethodPost, "", "/v1/scan/{id}/resume", resume(cfg))
-	app.HandlerFunc(http.MethodPost, "", "/v1/scan/bulk/resume", bulkResume(cfg))
-	app.HandlerFunc(http.MethodPost, "", "/v1/scan/{id}/cancel", cancel(cfg))
-	app.HandlerFunc(http.MethodPost, "", "/v1/scan/bulk/cancel", bulkCancel(cfg))
+	app.HandlerFunc(http.MethodPost, version, "/scan/{id}/pause", pause(cfg))
+	app.HandlerFunc(http.MethodPost, version, "/scan/bulk/pause", bulkPause(cfg))
+	app.HandlerFunc(http.MethodPost, version, "/scan/{id}/resume", resume(cfg))
+	app.HandlerFunc(http.MethodPost, version, "/scan/bulk/resume", bulkResume(cfg))
+	app.HandlerFunc(http.MethodPost, version, "/scan/{id}/cancel", cancel(cfg))
+	app.HandlerFunc(http.MethodPost, version, "/scan/bulk/cancel", bulkCancel(cfg))
 	// app.HandlerFunc(http.MethodGet, "", "/v1/scan/:id", status(cfg))
-	app.HandlerFunc(http.MethodGet, "", "/v1/scan/{id}", getJob(cfg))
+	app.HandlerFunc(http.MethodGet, version, "/scan/{id}", getJob(cfg))
 }
 
 // TODO: Add sanitization, etc...

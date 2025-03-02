@@ -1,9 +1,10 @@
 package routes
 
 import (
+	"github.com/ahrav/gitleaks-armada/internal/api/health"
 	"github.com/ahrav/gitleaks-armada/internal/api/mux"
-	"github.com/ahrav/gitleaks-armada/internal/api/routes/health"
 	"github.com/ahrav/gitleaks-armada/internal/api/scanning"
+	scanningStore "github.com/ahrav/gitleaks-armada/internal/infra/storage/scanning/postgres"
 	"github.com/ahrav/gitleaks-armada/pkg/web"
 )
 
@@ -20,7 +21,8 @@ func (add) Add(app *web.App, cfg mux.Config) {
 	// Health check routes.
 	health.Routes(app, health.Config{Build: cfg.Build, Log: cfg.Log})
 
-	scanService := scanning.NewService(cfg.Log, cfg.CmdHandler, cfg.EventBus, cfg.JobStore)
+	scanJobRepo := scanningStore.NewJobStore(cfg.DB, cfg.Tracer)
+	scanService := scanning.NewService(cfg.Log, cfg.CmdHandler, cfg.EventBus, scanJobRepo)
 	// Scan routes.
 	scanning.Routes(app, scanning.Config{
 		Log:         cfg.Log,

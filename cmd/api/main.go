@@ -197,12 +197,10 @@ func run(ctx context.Context, log *logger.Logger, hostname string) error {
 		ServiceName:      os.Getenv("OTEL_SERVICE_NAME"),
 		ExporterEndpoint: os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
 		ExcludedRoutes: map[string]struct{}{
-			"/v1/health":    {},
 			"/v1/readiness": {},
 			"/v1/liveness":  {},
 			"/debug":        {},
 			"/metrics":      {},
-			"/healthz":      {},
 		},
 		Probability: prob,
 		ResourceAttributes: map[string]string{

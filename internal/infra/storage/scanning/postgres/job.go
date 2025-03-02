@@ -19,13 +19,14 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 )
 
-// jobStore implements scanning.JobRepository using PostgreSQL as the backing store.
+// jobStore implements scanning.JobRepository, scanning.ScanJobQueryRepository
+// using PostgreSQL as the backing store.
 // It provides persistent storage for scan jobs and their associated targets, enabling
 // tracking of job status, timing, and relationships across the scanning domain.
-var _ scanning.JobRepository = (*jobStore)(nil)
-
-// Ensure jobStore implements the ScanJobQueryRepository interface
-var _ scanning.ScanJobQueryRepository = (*jobStore)(nil)
+var (
+	_ scanning.JobRepository          = (*jobStore)(nil)
+	_ scanning.ScanJobQueryRepository = (*jobStore)(nil)
+)
 
 type jobStore struct {
 	q      *db.Queries
