@@ -332,6 +332,40 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /v1/scan/{id}:
+    get:
+      summary: Get details for a specific scan job
+      operationId: getJob
+      tags:
+        - Scanning
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: The ID of the scan job to retrieve
+      responses:
+        '200':
+          description: Job details retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobDetail'
+        '404':
+          description: Job not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
 components:
   schemas:
     ScanRequest:
@@ -538,3 +572,79 @@ components:
       example:
         id: "123e4567-e89b-12d3-a456-426614174000"
         status: "RESUMING"
+    JobDetail:
+      type: object
+      required:
+        - id
+        - status
+        - source_type
+        - start_time
+        - created_at
+        - updated_at
+        - total_tasks
+        - pending_tasks
+        - in_progress_tasks
+        - completed_tasks
+        - failed_tasks
+        - stale_tasks
+        - cancelled_tasks
+        - paused_tasks
+        - completion_percentage
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique identifier for the job
+        status:
+          type: string
+          description: Current status of the job
+        source_type:
+          type: string
+          description: Type of scan source (github, s3, url)
+        start_time:
+          type: string
+          format: date-time
+          description: Time when the job started execution
+        end_time:
+          type: string
+          format: date-time
+          description: Time when the job finished execution (if completed)
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          description: Time when the job was created
+        updated_at:
+          type: string
+          format: date-time
+          description: Time when the job was last updated
+        total_tasks:
+          type: integer
+          description: Total number of tasks in this job
+        pending_tasks:
+          type: integer
+          description: Number of tasks waiting to be processed
+        in_progress_tasks:
+          type: integer
+          description: Number of tasks currently being processed
+        completed_tasks:
+          type: integer
+          description: Number of tasks that completed successfully
+        failed_tasks:
+          type: integer
+          description: Number of tasks that failed
+        stale_tasks:
+          type: integer
+          description: Number of tasks that became unresponsive
+        cancelled_tasks:
+          type: integer
+          description: Number of tasks that were cancelled
+        paused_tasks:
+          type: integer
+          description: Number of tasks that are paused
+        completion_percentage:
+          type: number
+          format: float
+          description: Overall job completion percentage (0-100)
+          minimum: 0
+          maximum: 100
