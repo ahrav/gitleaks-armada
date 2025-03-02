@@ -68,16 +68,9 @@ type SourceAuth struct {
 	Credentials map[string]any
 }
 
-// Job contains information about a created job.
-type Job struct {
-	ID         string
-	Status     string
-	TargetType string
-}
-
 // StartScan initiates scanning for the provided targets.
-func (s *Service) StartScan(ctx context.Context, name string, targets []Target, metadata map[string]string, requestedBy string) ([]Job, error) {
-	var jobs []Job
+func (s *Service) StartScan(ctx context.Context, name string, targets []Target, metadata map[string]string, requestedBy string) ([]JobInfo, error) {
+	var jobs []JobInfo
 
 	// Create a separate job for each target.
 	for _, t := range targets {
@@ -92,7 +85,7 @@ func (s *Service) StartScan(ctx context.Context, name string, targets []Target, 
 			return nil, fmt.Errorf("failed to handle scan command: %w", err)
 		}
 
-		jobs = append(jobs, Job{
+		jobs = append(jobs, JobInfo{
 			ID:         jobID.String(),
 			Status:     scanDomain.JobStatusQueued.String(),
 			TargetType: t.Type,
@@ -119,8 +112,8 @@ func (s *Service) PauseJob(ctx context.Context, jobIDStr, requestedBy string) er
 }
 
 // BulkPauseJobs pauses multiple running scan jobs.
-func (s *Service) BulkPauseJobs(ctx context.Context, jobIDs []string, requestedBy string) ([]Job, []error) {
-	var jobs []Job
+func (s *Service) BulkPauseJobs(ctx context.Context, jobIDs []string, requestedBy string) ([]JobInfo, []error) {
+	var jobs []JobInfo
 	var errs []error
 
 	for _, jobIDStr := range jobIDs {
@@ -129,10 +122,7 @@ func (s *Service) BulkPauseJobs(ctx context.Context, jobIDs []string, requestedB
 			continue
 		}
 
-		jobs = append(jobs, Job{
-			ID:     jobIDStr,
-			Status: scanDomain.JobStatusPausing.String(),
-		})
+		jobs = append(jobs, JobInfo{ID: jobIDStr, Status: scanDomain.JobStatusPausing.String()})
 	}
 
 	return jobs, errs
@@ -155,8 +145,8 @@ func (s *Service) ResumeJob(ctx context.Context, jobIDStr, requestedBy string) e
 }
 
 // BulkResumeJobs resumes multiple paused scan jobs.
-func (s *Service) BulkResumeJobs(ctx context.Context, jobIDs []string, requestedBy string) ([]Job, []error) {
-	var jobs []Job
+func (s *Service) BulkResumeJobs(ctx context.Context, jobIDs []string, requestedBy string) ([]JobInfo, []error) {
+	var jobs []JobInfo
 	var errs []error
 
 	for _, jobIDStr := range jobIDs {
@@ -165,10 +155,7 @@ func (s *Service) BulkResumeJobs(ctx context.Context, jobIDs []string, requested
 			continue
 		}
 
-		jobs = append(jobs, Job{
-			ID:     jobIDStr,
-			Status: scanDomain.JobStatusRunning.String(),
-		})
+		jobs = append(jobs, JobInfo{ID: jobIDStr, Status: scanDomain.JobStatusRunning.String()})
 	}
 
 	return jobs, errs
@@ -192,21 +179,18 @@ func (s *Service) CancelJob(ctx context.Context, jobIDStr, reason string) error 
 }
 
 // BulkCancelJobs cancels multiple scan jobs.
-func (s *Service) BulkCancelJobs(ctx context.Context, jobIDs []string, reason string) []Job {
-	var responses []Job
+func (s *Service) BulkCancelJobs(ctx context.Context, jobIDs []string, reason string) []JobInfo {
+	var responses []JobInfo
 
 	for _, jobIDStr := range jobIDs {
 		err := s.CancelJob(ctx, jobIDStr, reason)
 		if err != nil {
 			s.log.Warn(ctx, "Failed to cancel job", "job_id", jobIDStr, "error", err)
-			responses = append(responses, Job{
-				ID:     jobIDStr,
-				Status: "ERROR",
-			})
+			responses = append(responses, JobInfo{ID: jobIDStr, Status: "ERROR"})
 			continue
 		}
 
-		responses = append(responses, Job{
+		responses = append(responses, JobInfo{
 			ID:     jobIDStr,
 			Status: scanDomain.JobStatusCancelling.String(),
 		})

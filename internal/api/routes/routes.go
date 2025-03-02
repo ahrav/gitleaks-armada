@@ -9,9 +9,7 @@ import (
 
 // Routes constructs an add value which provides the implementation of
 // RouteAdder for specifying what routes to bind to this instance.
-func Routes() add {
-	return add{}
-}
+func Routes() add { return add{} }
 
 // add is a type that implements the RouteAdder interface.
 type add struct{}

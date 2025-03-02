@@ -112,29 +112,17 @@ func start(cfg Config) web.HandlerFunc {
 			return errs.New(errs.InvalidArgument, err)
 		}
 
-		// Convert API request targets to service targets
 		targets := make([]Target, 0, len(req.Targets))
 		for _, t := range req.Targets {
 			targets = append(targets, convertToServiceTarget(t))
 		}
 
-		// Call service to start scan
 		jobs, err := cfg.ScanService.StartScan(ctx, req.Name, targets, req.Metadata, "system") // TODO: Use JWT user instead of "system"
 		if err != nil {
 			return errs.New(errs.Internal, err)
 		}
 
-		// Convert service response to API response
-		var jobInfos []JobInfo
-		for _, job := range jobs {
-			jobInfos = append(jobInfos, JobInfo{
-				ID:         job.ID,
-				Status:     job.Status,
-				TargetType: job.TargetType,
-			})
-		}
-
-		return startResponse{Jobs: jobInfos}
+		return startResponse{Jobs: jobs}
 	}
 }
 
@@ -198,15 +186,11 @@ func pause(cfg Config) web.HandlerFunc {
 			return errs.New(errs.InvalidArgument, err)
 		}
 
-		// Call service to pause job
 		if err := cfg.ScanService.PauseJob(ctx, jobIDStr, "system"); err != nil {
 			return errs.New(errs.InvalidArgument, err)
 		}
 
-		return pauseResponse{
-			ID:     jobIDStr,
-			Status: scanDomain.JobStatusPausing.String(),
-		}
+		return pauseResponse{ID: jobIDStr, Status: scanDomain.JobStatusPausing.String()}
 	}
 }
 
@@ -251,7 +235,6 @@ func bulkPause(cfg Config) web.HandlerFunc {
 			return errs.New(errs.InvalidArgument, fmt.Errorf("too many job IDs: maximum allowed is %d", maxBulkJobCount))
 		}
 
-		// Call service to pause multiple jobs
 		jobs, processingErrors := cfg.ScanService.BulkPauseJobs(ctx, req.JobIDs, "system")
 
 		// If there were any errors but we still have some successful responses,
@@ -262,11 +245,10 @@ func bulkPause(cfg Config) web.HandlerFunc {
 				len(processingErrors), len(req.JobIDs))
 			cfg.Log.Error(ctx, errMsg, "errors", processingErrors)
 		} else if len(processingErrors) > 0 {
-			// If all jobs failed, return an error
+			// If all jobs failed, return an error.
 			return errs.New(errs.InvalidArgument, fmt.Errorf("failed to pause any jobs: %v", processingErrors))
 		}
 
-		// Convert service response to API response
 		var responses []pauseResponse
 		for _, job := range jobs {
 			responses = append(responses, pauseResponse{
@@ -312,7 +294,6 @@ func resume(cfg Config) web.HandlerFunc {
 			return errs.New(errs.InvalidArgument, err)
 		}
 
-		// Call service to resume job
 		if err := cfg.ScanService.ResumeJob(ctx, jobIDStr, "system"); err != nil {
 			return errs.New(errs.InvalidArgument, err)
 		}
@@ -360,7 +341,6 @@ func bulkResume(cfg Config) web.HandlerFunc {
 			return errs.New(errs.InvalidArgument, fmt.Errorf("too many job IDs: maximum allowed is %d", maxBulkJobCount))
 		}
 
-		// Call service to resume multiple jobs
 		jobs, processingErrors := cfg.ScanService.BulkResumeJobs(ctx, req.JobIDs, "system")
 
 		// If there were any errors but we still have some successful responses,
@@ -375,7 +355,6 @@ func bulkResume(cfg Config) web.HandlerFunc {
 			return errs.New(errs.InvalidArgument, fmt.Errorf("failed to resume any jobs: %v", processingErrors))
 		}
 
-		// Convert service response to API response
 		var responses []resumeResponse
 		for _, job := range jobs {
 			responses = append(responses, resumeResponse{ID: job.ID, Status: job.Status})
@@ -468,10 +447,8 @@ func bulkCancel(cfg Config) web.HandlerFunc {
 			return errs.New(errs.InvalidArgument, fmt.Errorf("too many job IDs: maximum allowed is %d", maxBulkJobCount))
 		}
 
-		// Call service to cancel multiple jobs
 		responses := cfg.ScanService.BulkCancelJobs(ctx, req.JobIDs, req.Reason)
 
-		// Convert service response to API response
 		var cancelResponses []cancelResponse
 		for _, job := range responses {
 			cancelResponses = append(cancelResponses, cancelResponse{ID: job.ID, Status: job.Status})
