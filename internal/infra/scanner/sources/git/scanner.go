@@ -298,38 +298,30 @@ func (s *Scanner) runGitScan(
 	}
 	cmdSpan.AddEvent("git_log_setup_successful")
 
-	// Setup a goroutine to handle pause events
+	// Setup a goroutine to handle pause events.
 	pauseCh := make(chan struct{})
-
 	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				if cause := context.Cause(ctx); cause == scanning.PauseEvent {
-					s.logger.Info(ctx, "Handling pause event",
-						"task_id", scanReq.TaskID,
-						"job_id", scanReq.JobID,
-					)
-					pauseCh <- struct{}{}
-					// Wait a moment for the scan to react to pause if it can
-					time.Sleep(500 * time.Millisecond)
+		for range ctx.Done() {
+			if cause := context.Cause(ctx); cause == scanning.PauseEvent {
+				s.logger.Info(ctx, "Handling pause event",
+					"task_id", scanReq.TaskID,
+					"job_id", scanReq.JobID,
+				)
+				pauseCh <- struct{}{}
 
-					// Handle pause with the latest progress
-					if err := scanCtx.HandlePause(context.Background()); err != nil {
-						s.logger.Error(context.Background(), "Failed to handle scan pause",
-							"error", err,
-							"task_id", scanReq.TaskID,
-						)
-					}
+				// Handle pause with the latest progress.
+				if err := scanCtx.HandlePause(context.Background()); err != nil {
+					s.logger.Error(context.Background(), "Failed to handle scan pause",
+						"error", err,
+						"task_id", scanReq.TaskID,
+					)
 				}
-				return
 			}
 		}
 	}()
 
 	// Start a progress reporting goroutine.
 	progressDone := make(chan struct{})
-
 	go func() {
 		defer close(progressDone)
 		ticker := time.NewTicker(10 * time.Second)
