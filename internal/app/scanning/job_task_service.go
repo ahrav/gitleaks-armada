@@ -378,6 +378,14 @@ func (s *jobTaskService) UpdateTaskProgress(ctx context.Context, progress domain
 		}
 		span.AddEvent("task_started")
 
+	case domain.TaskStatusPaused:
+		if err := task.Resume(); err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "failed to resume task")
+			return nil, fmt.Errorf("resume task: %w", err)
+		}
+		span.AddEvent("task_resumed")
+
 	case domain.TaskStatusInProgress:
 		// Already in correct state, regular progress update.
 		span.AddEvent("task_already_in_progress")

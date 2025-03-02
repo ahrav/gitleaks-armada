@@ -736,6 +736,150 @@ func TestUpdateTaskProgress(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			name: "task in completed state - progress update should fail",
+			setup: func(repo *mockTaskRepository, progress *scanning.Progress) {
+				task := scanning.ReconstructTask(
+					taskID,
+					jobID,
+					"test-resource-uri",
+					scanning.TaskStatusCompleted, // Task is already completed
+					0,
+					time.Now().Add(-2*time.Hour),
+					time.Now().Add(-2*time.Hour),
+					time.Now(),
+					100,
+					nil,
+					nil,
+					nil,
+					time.Time{},
+					time.Now(), // Completion time set
+					0,
+				)
+
+				repo.On("GetTask", mock.Anything, taskID).
+					Return(task, nil)
+				// No UpdateTask call expected since applying progress should fail
+			},
+			wantErr: true,
+		},
+		{
+			name: "task in failed state - progress update should fail",
+			setup: func(repo *mockTaskRepository, progress *scanning.Progress) {
+				task := scanning.ReconstructTask(
+					taskID,
+					jobID,
+					"test-resource-uri",
+					scanning.TaskStatusFailed, // Task has failed
+					0,
+					time.Now().Add(-2*time.Hour),
+					time.Now().Add(-2*time.Hour),
+					time.Now(),
+					100,
+					nil,
+					nil,
+					nil,
+					time.Time{},
+					time.Time{},
+					0,
+				)
+
+				repo.On("GetTask", mock.Anything, taskID).
+					Return(task, nil)
+				// No UpdateTask call expected since applying progress should fail
+			},
+			wantErr: true,
+		},
+		{
+			name: "task repository update fails",
+			setup: func(repo *mockTaskRepository, progress *scanning.Progress) {
+				task := scanning.ReconstructTask(
+					taskID,
+					jobID,
+					"test-resource-uri",
+					scanning.TaskStatusInProgress,
+					0,
+					time.Now().Add(-2*time.Hour),
+					time.Now().Add(-2*time.Hour),
+					time.Now(),
+					100,
+					nil,
+					nil,
+					nil,
+					time.Time{},
+					time.Time{},
+					0,
+				)
+
+				repo.On("GetTask", mock.Anything, taskID).
+					Return(task, nil)
+
+				repo.On("UpdateTask", mock.Anything, mock.MatchedBy(func(t *scanning.Task) bool {
+					return t.LastSequenceNum() == progress.SequenceNum()
+				})).Return(errors.New("database error"))
+			},
+			wantErr: true,
+		},
+		{
+			name: "progress sequence number less than current task sequence",
+			setup: func(repo *mockTaskRepository, progress *scanning.Progress) {
+				task := scanning.ReconstructTask(
+					taskID,
+					jobID,
+					"test-resource-uri",
+					scanning.TaskStatusInProgress,
+					2, // Task has already processed sequence 2
+					time.Now().Add(-2*time.Hour),
+					time.Now().Add(-2*time.Hour),
+					time.Now(),
+					100,
+					nil,
+					nil,
+					nil,
+					time.Time{},
+					time.Time{},
+					0,
+				)
+
+				repo.On("GetTask", mock.Anything, taskID).
+					Return(task, nil)
+
+				// For this test, we need to create a new progress with seq num < current
+				// No UpdateTask call expected since sequence is outdated.
+			},
+			wantErr: true, // Should return OutOfOrderProgressError.
+		},
+		{
+			name: "paused task can receive progress updates, resumes task",
+			setup: func(repo *mockTaskRepository, progress *scanning.Progress) {
+				task := scanning.ReconstructTask(
+					taskID,
+					jobID,
+					"test-resource-uri",
+					scanning.TaskStatusPaused, // Task is paused
+					0,
+					time.Now().Add(-2*time.Hour),
+					time.Now().Add(-2*time.Hour),
+					time.Now(),
+					50,
+					nil,
+					nil,
+					nil,
+					time.Time{},
+					time.Now().Add(-1*time.Hour), // Paused 1 hour ago
+					0,
+				)
+
+				repo.On("GetTask", mock.Anything, taskID).
+					Return(task, nil)
+
+				repo.On("UpdateTask", mock.Anything, mock.MatchedBy(func(t *scanning.Task) bool {
+					return t.LastSequenceNum() == progress.SequenceNum() &&
+						t.Status() == scanning.TaskStatusInProgress
+				})).Return(nil)
+			},
+			wantErr: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -763,6 +907,7 @@ func TestUpdateTaskProgress(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.NotNil(t, task)
+			assert.Equal(t, int64(1), task.LastSequenceNum())
 			suite.taskRepo.(*mockTaskRepository).AssertExpectations(t)
 		})
 	}
