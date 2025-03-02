@@ -32,7 +32,6 @@ func Routes(app *web.App, cfg Config) {
 	app.HandlerFunc(http.MethodPost, version, "/scan/bulk/resume", bulkResume(cfg))
 	app.HandlerFunc(http.MethodPost, version, "/scan/{id}/cancel", cancel(cfg))
 	app.HandlerFunc(http.MethodPost, version, "/scan/bulk/cancel", bulkCancel(cfg))
-	// app.HandlerFunc(http.MethodGet, "", "/v1/scan/:id", status(cfg))
 	app.HandlerFunc(http.MethodGet, version, "/scan/{id}", getJob(cfg))
 }
 

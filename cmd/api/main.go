@@ -159,9 +159,9 @@ func run(ctx context.Context, log *logger.Logger, hostname string) error {
 	if err != nil {
 		return fmt.Errorf("parsing db config: %w", err)
 	}
+	poolCfg.MinConns = 5
 
 	poolCfg.ConnConfig.Tracer = otelpgx.NewTracer()
-
 	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
 	if err != nil {
 		return fmt.Errorf("creating db pool: %w", err)

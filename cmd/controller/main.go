@@ -168,7 +168,7 @@ func main() {
 		log.Error(ctx, "failed to parse db config", "error", err)
 		os.Exit(1)
 	}
-
+	poolCfg.MinConns = 5
 	poolCfg.ConnConfig.Tracer = otelpgx.NewTracer()
 
 	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
