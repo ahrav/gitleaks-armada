@@ -3,7 +3,7 @@ package routes
 import (
 	"github.com/ahrav/gitleaks-armada/internal/api/mux"
 	"github.com/ahrav/gitleaks-armada/internal/api/routes/health"
-	"github.com/ahrav/gitleaks-armada/internal/api/routes/scan"
+	"github.com/ahrav/gitleaks-armada/internal/api/scanning"
 	"github.com/ahrav/gitleaks-armada/pkg/web"
 )
 
@@ -13,20 +13,17 @@ func Routes() add {
 	return add{}
 }
 
+// add is a type that implements the RouteAdder interface.
 type add struct{}
 
-// Add implements the RouteAdder interface.
+// Add implements the RouteAdder interface by registering all application routes.
+// It creates domain-specific configurations from the centralized Config.
 func (add) Add(app *web.App, cfg mux.Config) {
-	// Health check routes
-	health.Routes(app, health.Config{
-		Build: cfg.Build,
-		Log:   cfg.Log,
-	})
+	// Health check routes.
+	health.Routes(app, health.Config{Build: cfg.Build, Log: cfg.Log})
 
-	// Scan routes
-	scan.Routes(app, scan.Config{
-		Log:        cfg.Log,
-		EventBus:   cfg.EventBus,
-		CmdHandler: cfg.CmdHandler,
-	})
+	scanService := scanning.NewService(cfg.Log, cfg.CmdHandler, cfg.EventBus)
+
+	// Scan routes.
+	scanning.Routes(app, scanning.Config{Log: cfg.Log, ScanService: scanService})
 }

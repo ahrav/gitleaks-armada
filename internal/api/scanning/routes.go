@@ -1,4 +1,4 @@
-package scan
+package scanning
 
 import (
 	"context"
@@ -6,25 +6,17 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"maps"
 
 	"github.com/ahrav/gitleaks-armada/internal/api/errs"
-	"github.com/ahrav/gitleaks-armada/internal/app/commands"
-	"github.com/ahrav/gitleaks-armada/internal/app/commands/scanning"
-	"github.com/ahrav/gitleaks-armada/internal/config"
-	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	scanDomain "github.com/ahrav/gitleaks-armada/internal/domain/scanning"
-	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
-	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 	"github.com/ahrav/gitleaks-armada/pkg/web"
 )
 
 // Config contains the dependencies needed by the scan handlers.
 type Config struct {
-	Log        *logger.Logger
-	CmdHandler commands.Handler
-	EventBus   events.DomainEventPublisher
+	Log         *logger.Logger
+	ScanService *Service
 }
 
 // Routes binds all the scan endpoints.
@@ -106,7 +98,7 @@ func (sr startResponse) Encode() ([]byte, string, error) {
 // HTTPStatus implements the httpStatus interface to set the response status code.
 func (sr startResponse) HTTPStatus() int { return http.StatusAccepted } // 202
 
-// TODO: Add tests, I keep breaking this shit..... :(
+// start handles the request to start a scan.
 func start(cfg Config) web.HandlerFunc {
 	return func(ctx context.Context, r *http.Request) web.Encoder {
 		var req startRequest
@@ -118,89 +110,57 @@ func start(cfg Config) web.HandlerFunc {
 			return errs.New(errs.InvalidArgument, err)
 		}
 
-		var jobs []JobInfo
-		// Create a separate job for each target.
+		// Convert API request targets to service targets
+		targets := make([]Target, 0, len(req.Targets))
 		for _, t := range req.Targets {
-			jobID := uuid.New()
+			targets = append(targets, convertToServiceTarget(t))
+		}
 
-			tgt := buildTargetConfig(t)
-			maps.Copy(tgt.Metadata, req.Metadata)
+		// Call service to start scan
+		jobs, err := cfg.ScanService.StartScan(ctx, req.Name, targets, req.Metadata, "system") // TODO: Use JWT user instead of "system"
+		if err != nil {
+			return errs.New(errs.Internal, err)
+		}
 
-			scanCfg := &config.Config{Targets: []config.TargetSpec{tgt}}
-			cmd := scanning.NewStartScanCommand(jobID, scanCfg, "system") // TODO: Use JWT user instead of "system" if available.
-			if err := cfg.CmdHandler.Handle(ctx, cmd); err != nil {
-				return errs.New(errs.Internal, err)
-			}
-
-			jobs = append(jobs, JobInfo{
-				ID:         jobID.String(),
-				Status:     scanDomain.JobStatusQueued.String(),
-				TargetType: t.Type,
+		// Convert service response to API response
+		var jobInfos []JobInfo
+		for _, job := range jobs {
+			jobInfos = append(jobInfos, JobInfo{
+				ID:         job.ID,
+				Status:     job.Status,
+				TargetType: job.TargetType,
 			})
 		}
 
-		return startResponse{Jobs: jobs}
+		return startResponse{Jobs: jobInfos}
 	}
 }
 
-// buildTargetConfig converts a targetRequest into a config.TargetSpec.
-func buildTargetConfig(tr targetRequest) config.TargetSpec {
-	target := config.TargetSpec{
-		Name:       tr.Type,
-		SourceType: shared.ParseSourceType(tr.Type),
-		Metadata:   tr.Metadata,
-	}
-
-	// Initialize metadata map if nil
-	if target.Metadata == nil {
-		target.Metadata = make(map[string]string)
-	}
-
-	// Set source authentication if provided
-	if tr.SourceAuth != nil {
-		target.SourceAuth = &config.AuthConfig{
-			Type:        tr.SourceAuth.Type,
-			Credentials: tr.SourceAuth.Credentials,
+// convertToServiceTarget converts an API target request to a service Target.
+func convertToServiceTarget(t targetRequest) Target {
+	var auth *SourceAuth
+	if t.SourceAuth != nil {
+		auth = &SourceAuth{
+			Type:        t.SourceAuth.Type,
+			Credentials: t.SourceAuth.Credentials,
 		}
 	}
 
-	// Switch over the target type
-	switch shared.ParseSourceType(tr.Type) {
-	case shared.SourceTypeGitHub:
-		// Map GitHub-specific information.
-		target.GitHub = &config.GitHubTarget{
-			RepoList: tr.Repositories,
-			// TODO: Support repository regex pattern.
-			// RepositoryPattern: tr.RepositoryPattern,
-		}
-	case shared.SourceTypeURL:
-		// Map URL-specific information
-		target.URL = &config.URLTarget{
-			URLs:          tr.URLs,
-			ArchiveFormat: config.ArchiveFormat(tr.ArchiveFormat),
-			RateLimit:     tr.RateLimit,
-			Headers:       tr.Headers,
-		}
-
-		if tr.ArchiveFormat != "" {
-			target.Metadata["archive_format"] = tr.ArchiveFormat
-		}
-		if tr.RateLimit > 0 {
-			target.Metadata["rate_limit"] = fmt.Sprintf("%f", tr.RateLimit)
-		}
-		for key, value := range tr.Headers {
-			target.Metadata["header_"+key] = value
-		}
-	case shared.SourceTypeS3:
-		// Map S3-specific information.
-		target.S3 = &config.S3Target{
-			Bucket: tr.Bucket,
-			Prefix: tr.Prefix,
-			Region: tr.Region,
-		}
+	return Target{
+		Type:              t.Type,
+		SourceAuth:        auth,
+		Metadata:          t.Metadata,
+		Organization:      t.Organization,
+		Repositories:      t.Repositories,
+		RepositoryPattern: t.RepositoryPattern,
+		Bucket:            t.Bucket,
+		Prefix:            t.Prefix,
+		Region:            t.Region,
+		URLs:              t.URLs,
+		ArchiveFormat:     t.ArchiveFormat,
+		RateLimit:         t.RateLimit,
+		Headers:           t.Headers,
 	}
-
-	return target
 }
 
 // pauseRequest represents the payload for pausing a scan.
@@ -236,12 +196,15 @@ func pause(cfg Config) web.HandlerFunc {
 			return errs.New(errs.InvalidArgument, err)
 		}
 
-		response, err := pauseJob(ctx, jobIDStr, cfg.EventBus)
-		if err != nil {
+		// Call service to pause job
+		if err := cfg.ScanService.PauseJob(ctx, jobIDStr, "system"); err != nil {
 			return errs.New(errs.InvalidArgument, err)
 		}
 
-		return response
+		return pauseResponse{
+			ID:     jobIDStr,
+			Status: scanDomain.JobStatusPausing.String(),
+		}
 	}
 }
 
@@ -286,21 +249,12 @@ func bulkPause(cfg Config) web.HandlerFunc {
 			return errs.New(errs.InvalidArgument, fmt.Errorf("too many job IDs: maximum allowed is %d", maxBulkJobCount))
 		}
 
-		var responses []pauseResponse
-		var processingErrors []error
-
-		for _, jobIDStr := range req.JobIDs {
-			response, err := pauseJob(ctx, jobIDStr, cfg.EventBus)
-			if err != nil {
-				processingErrors = append(processingErrors, fmt.Errorf("job %s: %w", jobIDStr, err))
-				continue
-			}
-			responses = append(responses, response)
-		}
+		// Call service to pause multiple jobs
+		jobs, processingErrors := cfg.ScanService.BulkPauseJobs(ctx, req.JobIDs, "system")
 
 		// If there were any errors but we still have some successful responses,
 		// log the errors but still return the successful responses.
-		if len(processingErrors) > 0 && len(responses) > 0 {
+		if len(processingErrors) > 0 && len(jobs) > 0 {
 			// Log errors but continue with partial success
 			errMsg := fmt.Sprintf("Failed to pause %d out of %d jobs",
 				len(processingErrors), len(req.JobIDs))
@@ -310,25 +264,17 @@ func bulkPause(cfg Config) web.HandlerFunc {
 			return errs.New(errs.InvalidArgument, fmt.Errorf("failed to pause any jobs: %v", processingErrors))
 		}
 
+		// Convert service response to API response
+		var responses []pauseResponse
+		for _, job := range jobs {
+			responses = append(responses, pauseResponse{
+				ID:     job.ID,
+				Status: job.Status,
+			})
+		}
+
 		return bulkPauseResponse{Jobs: responses}
 	}
-}
-
-// pauseJob handles the logic for pausing a single job and returns its response.
-// This is a helper function used by both single and bulk pause endpoints.
-func pauseJob(ctx context.Context, jobIDStr string, eventBus events.DomainEventPublisher) (pauseResponse, error) {
-	jobID, err := uuid.Parse(jobIDStr)
-	if err != nil {
-		return pauseResponse{}, fmt.Errorf("invalid job ID: %w", err)
-	}
-
-	// Create and publish the JobPausingEvent.
-	evt := scanDomain.NewJobPausingEvent(jobID.String(), "system") // TODO: Use JWT user instead of "system" if available.
-	if err := eventBus.PublishDomainEvent(ctx, evt, events.WithKey(jobID.String())); err != nil {
-		return pauseResponse{}, fmt.Errorf("failed to publish pause event: %w", err)
-	}
-
-	return pauseResponse{ID: jobID.String(), Status: scanDomain.JobStatusPausing.String()}, nil
 }
 
 // resumeRequest represents the payload for resuming a scan.
@@ -364,12 +310,12 @@ func resume(cfg Config) web.HandlerFunc {
 			return errs.New(errs.InvalidArgument, err)
 		}
 
-		response, err := resumeJob(ctx, jobIDStr, cfg.EventBus)
-		if err != nil {
+		// Call service to resume job
+		if err := cfg.ScanService.ResumeJob(ctx, jobIDStr, "system"); err != nil {
 			return errs.New(errs.InvalidArgument, err)
 		}
 
-		return response
+		return resumeResponse{ID: jobIDStr, Status: scanDomain.JobStatusRunning.String()}
 	}
 }
 
@@ -412,21 +358,12 @@ func bulkResume(cfg Config) web.HandlerFunc {
 			return errs.New(errs.InvalidArgument, fmt.Errorf("too many job IDs: maximum allowed is %d", maxBulkJobCount))
 		}
 
-		var responses []resumeResponse
-		var processingErrors []error
-
-		for _, jobIDStr := range req.JobIDs {
-			response, err := resumeJob(ctx, jobIDStr, cfg.EventBus)
-			if err != nil {
-				processingErrors = append(processingErrors, fmt.Errorf("job %s: %w", jobIDStr, err))
-				continue
-			}
-			responses = append(responses, response)
-		}
+		// Call service to resume multiple jobs
+		jobs, processingErrors := cfg.ScanService.BulkResumeJobs(ctx, req.JobIDs, "system")
 
 		// If there were any errors but we still have some successful responses,
 		// log the errors but still return the successful responses.
-		if len(processingErrors) > 0 && len(responses) > 0 {
+		if len(processingErrors) > 0 && len(jobs) > 0 {
 			// Log errors but continue with partial success.
 			errMsg := fmt.Sprintf("Failed to resume %d out of %d jobs",
 				len(processingErrors), len(req.JobIDs))
@@ -436,25 +373,14 @@ func bulkResume(cfg Config) web.HandlerFunc {
 			return errs.New(errs.InvalidArgument, fmt.Errorf("failed to resume any jobs: %v", processingErrors))
 		}
 
+		// Convert service response to API response
+		var responses []resumeResponse
+		for _, job := range jobs {
+			responses = append(responses, resumeResponse{ID: job.ID, Status: job.Status})
+		}
+
 		return bulkResumeResponse{Jobs: responses}
 	}
-}
-
-// resumeJob handles the logic for resuming a single job and returns its response.
-// This is a helper function used by both single and bulk resume endpoints.
-func resumeJob(ctx context.Context, jobIDStr string, eventBus events.DomainEventPublisher) (resumeResponse, error) {
-	jobID, err := uuid.Parse(jobIDStr)
-	if err != nil {
-		return resumeResponse{}, fmt.Errorf("invalid job ID: %w", err)
-	}
-
-	// Create and publish the JobResumingEvent.
-	evt := scanDomain.NewJobResumingEvent(jobID.String(), "system") // TODO: Use JWT user instead of "system" if available.
-	if err := eventBus.PublishDomainEvent(ctx, evt, events.WithKey(jobID.String())); err != nil {
-		return resumeResponse{}, fmt.Errorf("failed to publish resume event: %w", err)
-	}
-
-	return resumeResponse{ID: jobID.String(), Status: scanDomain.JobStatusRunning.String()}, nil
 }
 
 // cancelRequest represents the payload for cancelling a scan.
@@ -491,12 +417,12 @@ func cancel(cfg Config) web.HandlerFunc {
 			return errs.New(errs.InvalidArgument, err)
 		}
 
-		response, err := cancelJob(ctx, jobIDStr, cfg.EventBus)
-		if err != nil {
+		// Call service to cancel job
+		if err := cfg.ScanService.CancelJob(ctx, jobIDStr, req.Reason); err != nil {
 			return errs.New(errs.InvalidArgument, err)
 		}
 
-		return response
+		return cancelResponse{ID: jobIDStr, Status: scanDomain.JobStatusCancelling.String()}
 	}
 }
 
@@ -540,40 +466,15 @@ func bulkCancel(cfg Config) web.HandlerFunc {
 			return errs.New(errs.InvalidArgument, fmt.Errorf("too many job IDs: maximum allowed is %d", maxBulkJobCount))
 		}
 
-		var responses []cancelResponse
-		for _, jobIDStr := range req.JobIDs {
-			response, err := cancelJob(ctx, jobIDStr, cfg.EventBus)
-			if err != nil {
-				cfg.Log.Warn(ctx, "Failed to cancel job", "job_id", jobIDStr, "error", err)
-				responses = append(responses, cancelResponse{
-					ID:     jobIDStr,
-					Status: "ERROR", // Provide an error status
-				})
-				continue
-			}
-			responses = append(responses, response)
+		// Call service to cancel multiple jobs
+		responses := cfg.ScanService.BulkCancelJobs(ctx, req.JobIDs, req.Reason)
+
+		// Convert service response to API response
+		var cancelResponses []cancelResponse
+		for _, job := range responses {
+			cancelResponses = append(cancelResponses, cancelResponse{ID: job.ID, Status: job.Status})
 		}
 
-		return bulkCancelResponse{Jobs: responses}
+		return bulkCancelResponse{Jobs: cancelResponses}
 	}
-}
-
-// cancelJob handles the logic of cancelling a single job and returns a response.
-func cancelJob(ctx context.Context, jobIDStr string, eventBus events.DomainEventPublisher) (cancelResponse, error) {
-	jobID, err := uuid.Parse(jobIDStr)
-	if err != nil {
-		return cancelResponse{}, fmt.Errorf("invalid job ID format: %w", err)
-	}
-
-	// Create and publish the event to cancel the job.
-	evt := scanDomain.NewJobCancellingEvent(jobIDStr, "User requested cancellation")
-	err = eventBus.PublishDomainEvent(ctx, evt, events.WithKey(jobID.String()))
-	if err != nil {
-		return cancelResponse{}, fmt.Errorf("failed to publish cancellation event: %w", err)
-	}
-
-	return cancelResponse{
-		ID:     jobIDStr,
-		Status: scanDomain.JobStatusCancelling.String(),
-	}, nil
 }

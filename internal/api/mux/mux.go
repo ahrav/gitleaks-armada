@@ -5,6 +5,7 @@ import (
 	"embed"
 	"net/http"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/ahrav/gitleaks-armada/internal/api/mid"
@@ -49,9 +50,9 @@ func WithFileServer(react bool, static embed.FS, dir string, path string) func(o
 
 // Config contains all the mandatory systems required by handlers.
 type Config struct {
-	Build string
-	Log   *logger.Logger
-	// DB     *sqlx.DB
+	Build      string
+	Log        *logger.Logger
+	DB         *pgxpool.Pool // Database connection pool
 	EventBus   events.DomainEventPublisher
 	CmdHandler commands.Handler
 	Tracer     trace.Tracer

@@ -267,22 +267,26 @@ func run(ctx context.Context, log *logger.Logger, hostname string) error {
 
 	cmdHandler := scanning.NewCommandHandler(log, tracer, eventBus)
 
-	// Initialize mux configuration.
-	muxConfig := mux.Config{
+	// Initialize centralized mux configuration with all dependencies.
+	cfgMux := mux.Config{
 		Build:      build,
 		Log:        log,
+		DB:         pool,
 		EventBus:   eventBus,
 		CmdHandler: cmdHandler,
 		Tracer:     tracer,
 	}
 
-	webAPI := mux.WebAPI(muxConfig,
+	// Create the web API with all routes and middleware.
+	webAPI := mux.WebAPI(cfgMux,
 		routes.Routes(),
 		mux.WithCORS(cfg.Web.CORSAllowedOrigins),
 	)
 
+	// Configure and start the API server.
+	apiAddr := fmt.Sprintf("%s:%s", os.Getenv("API_HOST"), os.Getenv("API_PORT"))
 	api := http.Server{
-		Addr:         fmt.Sprintf("%s:%s", os.Getenv("API_HOST"), os.Getenv("API_PORT")),
+		Addr:         apiAddr,
 		Handler:      webAPI,
 		ReadTimeout:  cfg.Web.ReadTimeout,
 		WriteTimeout: cfg.Web.WriteTimeout,
