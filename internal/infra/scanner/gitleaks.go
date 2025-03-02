@@ -86,7 +86,7 @@ func NewGitLeaks(
 
 	factories := map[shared.SourceType]SourceScannerFactory{
 		shared.SourceTypeGitHub: func(params scannerParams) StreamScanner {
-			return git.NewScanner(params.detector, params.logger, params.tracer, params.metrics)
+			return git.NewScanner(scannerID, params.detector, params.logger, params.tracer, params.metrics)
 		},
 		shared.SourceTypeURL: func(params scannerParams) StreamScanner {
 			return url.NewScanner(scannerID, params.detector, params.logger, params.tracer, params.metrics)
