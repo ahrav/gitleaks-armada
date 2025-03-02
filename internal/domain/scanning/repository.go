@@ -68,6 +68,14 @@ type JobRepository interface {
 	GetJobConfigInfo(ctx context.Context, jobID uuid.UUID) (*JobConfigInfo, error)
 }
 
+// ScanJobQueryRepository defines read-only operations for retrieving scan job information.
+// It provides a specialized interface for retrieving job data for display and reporting purposes.
+type ScanJobQueryRepository interface {
+	// GetJobByID retrieves a scan job by its identifier, including its current state and metrics.
+	// This method is optimized for API query operations and aggregates all needed job data.
+	GetJobByID(ctx context.Context, jobID uuid.UUID) (*JobDetail, error)
+}
+
 // TaskRepository defines the persistence operations for scan tasks.
 // It provides an abstraction layer over the storage mechanism used to maintain
 // task state and progress data.

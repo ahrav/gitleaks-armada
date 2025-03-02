@@ -89,6 +89,10 @@ func (j *Job) Config() json.RawMessage { return j.config }
 // Access is synchronized to ensure thread-safe reads.
 func (j *Job) LastUpdateTime() time.Time { return j.timeline.LastUpdate() }
 
+// GetTimeline provides access to the job's timeline information.
+// This method is primarily used for constructing detailed job views.
+func (j *Job) GetTimeline() *Timeline { return j.timeline }
+
 // CompleteEnumeration transitions the job from Enumerating state based on task count.
 // If there are tasks to process, it moves to Running state.
 // If there are no tasks, it moves directly to Completed state.
