@@ -24,6 +24,9 @@ import (
 // tracking of job status, timing, and relationships across the scanning domain.
 var _ scanning.JobRepository = (*jobStore)(nil)
 
+// Ensure jobStore implements the ScanJobQueryRepository interface
+var _ scanning.ScanJobQueryRepository = (*jobStore)(nil)
+
 type jobStore struct {
 	q      *db.Queries
 	db     *pgxpool.Pool
@@ -546,4 +549,60 @@ func (r *jobStore) UpdateMetricsAndCheckpoint(
 		}
 		return nil
 	})
+}
+
+// GetJobByID retrieves a job detail by its ID, implementing the ScanJobQueryRepository interface.
+// It retrieves all job and metrics information in a single query for better performance.
+func (r *jobStore) GetJobByID(ctx context.Context, jobID uuid.UUID) (*scanning.JobDetail, error) {
+	dbAttrs := append(
+		defaultDBAttributes,
+		attribute.String("job_id", jobID.String()),
+	)
+
+	var jobDetail *scanning.JobDetail
+	err := storage.ExecuteAndTrace(ctx, r.tracer, "postgres.get_job_detail", dbAttrs, func(ctx context.Context) error {
+		row, err := r.q.GetJobWithMetrics(ctx, pgtype.UUID{Bytes: jobID, Valid: true})
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return scanning.ErrJobNotFound
+			}
+			return fmt.Errorf("getting job with metrics: %w", err)
+		}
+
+		var endTime *time.Time
+		if row.EndTime.Valid {
+			t := row.EndTime.Time
+			endTime = &t
+		}
+
+		metrics := &scanning.JobDetailMetrics{
+			TotalTasks:           int(row.TotalTasks.Int32),
+			PendingTasks:         int(row.PendingTasks.Int32),
+			InProgressTasks:      int(row.InProgressTasks.Int32),
+			CompletedTasks:       int(row.CompletedTasks.Int32),
+			FailedTasks:          int(row.FailedTasks.Int32),
+			StaleTasks:           int(row.StaleTasks.Int32),
+			CancelledTasks:       int(row.CancelledTasks.Int32),
+			PausedTasks:          int(row.PausedTasks.Int32),
+			CompletionPercentage: row.CompletionPercentage,
+		}
+
+		jobDetail = &scanning.JobDetail{
+			ID:         jobID,
+			Status:     scanning.JobStatus(row.Status),
+			SourceType: row.SourceType,
+			StartTime:  row.StartTime.Time,
+			EndTime:    endTime,
+			CreatedAt:  row.CreatedAt.Time,
+			UpdatedAt:  row.UpdatedAt.Time,
+			Metrics:    metrics,
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return jobDetail, nil
 }

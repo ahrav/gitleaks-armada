@@ -529,3 +529,315 @@ func TestJobStore_UpdateMetricsAndCheckpoint_NonExistentJob(t *testing.T) {
 	err := store.UpdateMetricsAndCheckpoint(ctx, uuid.New(), metrics, 0, 100)
 	require.Error(t, err)
 }
+
+func TestJobStore_GetJobByID(t *testing.T) {
+	ctx, _, store, cleanup := setupJobTest(t)
+	defer cleanup()
+
+	job := createTestJob(t, scanning.JobStatusRunning)
+	err := store.CreateJob(ctx, job)
+	require.NoError(t, err)
+
+	metrics := scanning.ReconstructJobMetrics(100, 20, 30, 40, 5, 3, 1, 1)
+	_, err = store.BulkUpdateJobMetrics(ctx, map[uuid.UUID]*scanning.JobMetrics{
+		job.JobID(): metrics,
+	})
+	require.NoError(t, err)
+
+	jobDetail, err := store.GetJobByID(ctx, job.JobID())
+	require.NoError(t, err)
+	require.NotNil(t, jobDetail)
+
+	assert.Equal(t, job.JobID(), jobDetail.ID)
+	assert.Equal(t, job.Status(), jobDetail.Status)
+	assert.Equal(t, job.SourceType(), jobDetail.SourceType)
+	assert.Equal(t, job.StartTime(), jobDetail.StartTime)
+
+	assert.Equal(t, 100, jobDetail.Metrics.TotalTasks)
+	assert.Equal(t, 20, jobDetail.Metrics.PendingTasks)
+	assert.Equal(t, 30, jobDetail.Metrics.InProgressTasks)
+	assert.Equal(t, 40, jobDetail.Metrics.CompletedTasks)
+	assert.Equal(t, 5, jobDetail.Metrics.FailedTasks)
+	assert.Equal(t, 3, jobDetail.Metrics.StaleTasks)
+	assert.Equal(t, 1, jobDetail.Metrics.CancelledTasks)
+	assert.Equal(t, 1, jobDetail.Metrics.PausedTasks)
+
+	expectedPercentage := float64(40) / float64(100) * 100.0
+	assert.InDelta(t, expectedPercentage, jobDetail.Metrics.CompletionPercentage, 0.001)
+}
+
+func TestJobStore_GetJobByID_NoMetrics(t *testing.T) {
+	ctx, _, store, cleanup := setupJobTest(t)
+	defer cleanup()
+
+	job := createTestJob(t, scanning.JobStatusQueued)
+	err := store.CreateJob(ctx, job)
+	require.NoError(t, err)
+
+	jobDetail, err := store.GetJobByID(ctx, job.JobID())
+	require.NoError(t, err)
+	require.NotNil(t, jobDetail)
+
+	assert.Equal(t, job.JobID(), jobDetail.ID)
+	assert.Equal(t, job.Status(), jobDetail.Status)
+	assert.Equal(t, job.SourceType(), jobDetail.SourceType)
+
+	assert.Equal(t, 0, jobDetail.Metrics.TotalTasks)
+	assert.Equal(t, 0, jobDetail.Metrics.PendingTasks)
+	assert.Equal(t, 0, jobDetail.Metrics.InProgressTasks)
+	assert.Equal(t, 0, jobDetail.Metrics.CompletedTasks)
+	assert.Equal(t, 0, jobDetail.Metrics.FailedTasks)
+	assert.Equal(t, 0, jobDetail.Metrics.StaleTasks)
+	assert.Equal(t, 0, jobDetail.Metrics.CancelledTasks)
+	assert.Equal(t, 0, jobDetail.Metrics.PausedTasks)
+	assert.Equal(t, 0.0, jobDetail.Metrics.CompletionPercentage)
+}
+
+func TestJobStore_GetJobByID_TableDriven(t *testing.T) {
+	ctx, _, store, cleanup := setupJobTest(t)
+	defer cleanup()
+
+	testCases := []struct {
+		name             string
+		status           scanning.JobStatus
+		metrics          *scanning.JobMetrics
+		expectError      bool
+		expectedError    error
+		validateResponse func(t *testing.T, detail *scanning.JobDetail)
+	}{
+		{
+			name:        "job with metrics",
+			status:      scanning.JobStatusRunning,
+			metrics:     scanning.ReconstructJobMetrics(100, 20, 30, 40, 5, 3, 1, 1),
+			expectError: false,
+			validateResponse: func(t *testing.T, detail *scanning.JobDetail) {
+				assert.Equal(t, 100, detail.Metrics.TotalTasks)
+				assert.Equal(t, 40, detail.Metrics.CompletedTasks)
+				assert.InDelta(t, 40.0, detail.Metrics.CompletionPercentage, 0.001)
+			},
+		},
+		{
+			name:        "job without metrics",
+			status:      scanning.JobStatusQueued,
+			metrics:     nil,
+			expectError: false,
+			validateResponse: func(t *testing.T, detail *scanning.JobDetail) {
+				assert.Equal(t, 0, detail.Metrics.TotalTasks)
+				assert.Equal(t, 0.0, detail.Metrics.CompletionPercentage)
+			},
+		},
+		{
+			name:        "job with zero total tasks",
+			status:      scanning.JobStatusRunning,
+			metrics:     scanning.ReconstructJobMetrics(0, 0, 0, 0, 0, 0, 0, 0),
+			expectError: false,
+			validateResponse: func(t *testing.T, detail *scanning.JobDetail) {
+				assert.Equal(t, 0, detail.Metrics.TotalTasks)
+				assert.Equal(t, 0.0, detail.Metrics.CompletionPercentage)
+			},
+		},
+		{
+			name:          "non-existent job",
+			expectError:   true,
+			expectedError: scanning.ErrJobNotFound,
+		},
+
+		// Job status variations - test every status in the enum
+		{
+			name:        "paused job",
+			status:      scanning.JobStatusPaused,
+			metrics:     scanning.ReconstructJobMetrics(50, 10, 0, 25, 5, 0, 0, 10),
+			expectError: false,
+			validateResponse: func(t *testing.T, detail *scanning.JobDetail) {
+				assert.Equal(t, scanning.JobStatusPaused, detail.Status)
+				assert.Equal(t, 10, detail.Metrics.PausedTasks)
+			},
+		},
+		{
+			name:        "queued job",
+			status:      scanning.JobStatusQueued,
+			metrics:     scanning.ReconstructJobMetrics(10, 10, 0, 0, 0, 0, 0, 0),
+			expectError: false,
+			validateResponse: func(t *testing.T, detail *scanning.JobDetail) {
+				assert.Equal(t, scanning.JobStatusQueued, detail.Status)
+				assert.Equal(t, 0.0, detail.Metrics.CompletionPercentage)
+			},
+		},
+		{
+			name:        "enumerating job",
+			status:      scanning.JobStatusEnumerating,
+			metrics:     scanning.ReconstructJobMetrics(0, 0, 0, 0, 0, 0, 0, 0),
+			expectError: false,
+			validateResponse: func(t *testing.T, detail *scanning.JobDetail) {
+				assert.Equal(t, scanning.JobStatusEnumerating, detail.Status)
+				// During enumeration, total tasks might still be zero
+				assert.Equal(t, 0, detail.Metrics.TotalTasks)
+			},
+		},
+		{
+			name:        "pausing job",
+			status:      scanning.JobStatusPausing,
+			metrics:     scanning.ReconstructJobMetrics(100, 20, 40, 30, 0, 0, 0, 10),
+			expectError: false,
+			validateResponse: func(t *testing.T, detail *scanning.JobDetail) {
+				assert.Equal(t, scanning.JobStatusPausing, detail.Status)
+				// Should have some tasks in progress and some paused during pausing state
+				assert.Greater(t, detail.Metrics.InProgressTasks, 0)
+				assert.Greater(t, detail.Metrics.PausedTasks, 0)
+			},
+		},
+		{
+			name:        "completed job",
+			status:      scanning.JobStatusCompleted,
+			metrics:     scanning.ReconstructJobMetrics(100, 0, 0, 95, 5, 0, 0, 0),
+			expectError: false,
+			validateResponse: func(t *testing.T, detail *scanning.JobDetail) {
+				assert.Equal(t, scanning.JobStatusCompleted, detail.Status)
+				// Should have high completion percentage
+				assert.InDelta(t, 95.0, detail.Metrics.CompletionPercentage, 0.001)
+				// No tasks should be in progress or pending
+				assert.Equal(t, 0, detail.Metrics.InProgressTasks)
+				assert.Equal(t, 0, detail.Metrics.PendingTasks)
+			},
+		},
+		{
+			name:        "cancelling job",
+			status:      scanning.JobStatusCancelling,
+			metrics:     scanning.ReconstructJobMetrics(100, 20, 30, 20, 5, 0, 25, 0),
+			expectError: false,
+			validateResponse: func(t *testing.T, detail *scanning.JobDetail) {
+				assert.Equal(t, scanning.JobStatusCancelling, detail.Status)
+				// Should have some cancelled tasks
+				assert.Greater(t, detail.Metrics.CancelledTasks, 0)
+			},
+		},
+		{
+			name:        "cancelled job",
+			status:      scanning.JobStatusCancelled,
+			metrics:     scanning.ReconstructJobMetrics(100, 0, 0, 50, 0, 0, 50, 0),
+			expectError: false,
+			validateResponse: func(t *testing.T, detail *scanning.JobDetail) {
+				assert.Equal(t, scanning.JobStatusCancelled, detail.Status)
+				// All non-completed tasks should be marked as cancelled
+				assert.Equal(t, 50, detail.Metrics.CancelledTasks)
+				assert.Equal(t, 0, detail.Metrics.InProgressTasks)
+				assert.Equal(t, 0, detail.Metrics.PendingTasks)
+			},
+		},
+		{
+			name:        "failed job",
+			status:      scanning.JobStatusFailed,
+			metrics:     scanning.ReconstructJobMetrics(100, 0, 0, 60, 40, 0, 0, 0),
+			expectError: false,
+			validateResponse: func(t *testing.T, detail *scanning.JobDetail) {
+				assert.Equal(t, scanning.JobStatusFailed, detail.Status)
+				// Should have significant failed tasks
+				assert.Greater(t, detail.Metrics.FailedTasks, 0)
+			},
+		},
+
+		// Edge cases and special scenarios.
+		{
+			name:        "job with stale tasks",
+			status:      scanning.JobStatusRunning,
+			metrics:     scanning.ReconstructJobMetrics(100, 20, 30, 40, 0, 10, 0, 0),
+			expectError: false,
+			validateResponse: func(t *testing.T, detail *scanning.JobDetail) {
+				assert.Equal(t, 10, detail.Metrics.StaleTasks)
+				// Stale tasks should not affect completion percentage calculation.
+				assert.InDelta(t, 40.0, detail.Metrics.CompletionPercentage, 0.001)
+			},
+		},
+		{
+			name:        "job with all metrics types populated",
+			status:      scanning.JobStatusRunning,
+			metrics:     scanning.ReconstructJobMetrics(100, 20, 30, 20, 10, 5, 5, 10),
+			expectError: false,
+			validateResponse: func(t *testing.T, detail *scanning.JobDetail) {
+				assert.Equal(t, 20, detail.Metrics.PendingTasks)
+				assert.Equal(t, 30, detail.Metrics.InProgressTasks)
+				assert.Equal(t, 20, detail.Metrics.CompletedTasks)
+				assert.Equal(t, 10, detail.Metrics.FailedTasks)
+				assert.Equal(t, 5, detail.Metrics.StaleTasks)
+				assert.Equal(t, 5, detail.Metrics.CancelledTasks)
+				assert.Equal(t, 10, detail.Metrics.PausedTasks)
+
+				// Sum should equal total tasks.
+				sum := detail.Metrics.PendingTasks +
+					detail.Metrics.InProgressTasks +
+					detail.Metrics.CompletedTasks +
+					detail.Metrics.FailedTasks +
+					detail.Metrics.StaleTasks +
+					detail.Metrics.CancelledTasks +
+					detail.Metrics.PausedTasks
+				assert.Equal(t, detail.Metrics.TotalTasks, sum)
+			},
+		},
+		{
+			name:        "job with all tasks completed",
+			status:      scanning.JobStatusRunning,
+			metrics:     scanning.ReconstructJobMetrics(100, 0, 0, 100, 0, 0, 0, 0),
+			expectError: false,
+			validateResponse: func(t *testing.T, detail *scanning.JobDetail) {
+				assert.Equal(t, 100.0, detail.Metrics.CompletionPercentage)
+			},
+		},
+		{
+			name:        "job with floating point precision test",
+			status:      scanning.JobStatusRunning,
+			metrics:     scanning.ReconstructJobMetrics(3, 0, 0, 1, 0, 0, 0, 0),
+			expectError: false,
+			validateResponse: func(t *testing.T, detail *scanning.JobDetail) {
+				// 1/3 = 33.33...%
+				assert.InDelta(t, 33.33, detail.Metrics.CompletionPercentage, 0.01)
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var jobID uuid.UUID
+
+			if !tc.expectError {
+				job := scanning.ReconstructJob(
+					uuid.New(),
+					shared.SourceTypeGitHub.String(),
+					json.RawMessage(`{}`),
+					tc.status,
+					scanning.NewTimeline(&mockTimeProvider{current: time.Now()}),
+				)
+				err := store.CreateJob(ctx, job)
+				require.NoError(t, err)
+				jobID = job.JobID()
+
+				// Add metrics if provided.
+				if tc.metrics != nil {
+					_, err = store.BulkUpdateJobMetrics(ctx, map[uuid.UUID]*scanning.JobMetrics{
+						jobID: tc.metrics,
+					})
+					require.NoError(t, err)
+				}
+			} else {
+				jobID = uuid.New()
+			}
+
+			detail, err := store.GetJobByID(ctx, jobID)
+			if tc.expectError {
+				require.Error(t, err)
+				if tc.expectedError != nil {
+					require.ErrorIs(t, err, tc.expectedError)
+				}
+				require.Nil(t, detail)
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, detail)
+				assert.Equal(t, jobID, detail.ID)
+				assert.Equal(t, tc.status, detail.Status)
+
+				if tc.validateResponse != nil {
+					tc.validateResponse(t, detail)
+				}
+			}
+		})
+	}
+}
