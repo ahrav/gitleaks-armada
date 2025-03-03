@@ -12,15 +12,13 @@ import (
 )
 
 var (
-	// ErrJobNotFound indicates the requested job was not found in storage
+	// ErrJobNotFound indicates the requested job was not found in storage.
 	ErrJobNotFound = errors.New("job not found")
-	// ErrTaskNotFound indicates the requested task was not found in storage
-	ErrTaskNotFound = errors.New("task not found")
-	// ErrNoJobMetricsUpdated indicates that no job metrics were updated
+	// ErrNoJobMetricsUpdated indicates that no job metrics were updated.
 	ErrNoJobMetricsUpdated = errors.New("no job metrics updated")
-	// ErrNoJobMetricsFound indicates that no job metrics were found
+	// ErrNoJobMetricsFound indicates that no job metrics were found.
 	ErrNoJobMetricsFound = errors.New("no job metrics found")
-	// ErrNoCheckpointsFound indicates that no checkpoints were found
+	// ErrNoCheckpointsFound indicates that no checkpoints were found.
 	ErrNoCheckpointsFound = errors.New("no checkpoints found")
 )
 
@@ -76,6 +74,9 @@ type ScanJobQueryRepository interface {
 	GetJobByID(ctx context.Context, jobID uuid.UUID) (*JobDetail, error)
 }
 
+// ErrTaskNotFound indicates the requested task was not found in storage.
+var ErrTaskNotFound = errors.New("task not found")
+
 // TaskRepository defines the persistence operations for scan tasks.
 // It provides an abstraction layer over the storage mechanism used to maintain
 // task state and progress data.
@@ -100,4 +101,21 @@ type TaskRepository interface {
 	// from a paused job in a single database query, joining with the jobs table to get
 	// the source_type without additional queries.
 	GetTasksToResume(ctx context.Context, jobID uuid.UUID) ([]ResumeTaskInfo, error)
+}
+
+var (
+	// ErrScannerNotFound indicates that the requested scanner was not found.
+	ErrScannerNotFound = errors.New("scanner not found")
+	// ErrGroupNotFound indicates that the requested scanner group was not found.
+	ErrGroupNotFound = errors.New("scanner group not found")
+)
+
+// ScannerRepository defines the persistence operations for scanner groups and scanners.
+// It provides methods to manage the lifecycle and state of scanner resources in the system.
+type ScannerRepository interface {
+	// CreateScannerGroup creates a new scanner group.
+	CreateScannerGroup(ctx context.Context, group *ScannerGroup) error
+
+	// CreateScanner registers a new scanner in the system.
+	CreateScanner(ctx context.Context, scanner *Scanner) error
 }
