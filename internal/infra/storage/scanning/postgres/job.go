@@ -37,17 +37,11 @@ type jobStore struct {
 // NewJobStore creates a new PostgreSQL-backed job repository with tracing capabilities.
 // It encapsulates database operations and telemetry for scan job management.
 func NewJobStore(pool *pgxpool.Pool, tracer trace.Tracer) *jobStore {
-	return &jobStore{
-		q:      db.New(pool),
-		db:     pool,
-		tracer: tracer,
-	}
+	return &jobStore{q: db.New(pool), db: pool, tracer: tracer}
 }
 
 // defaultDBAttributes defines standard OpenTelemetry attributes for database operations.
-var defaultDBAttributes = []attribute.KeyValue{
-	attribute.String("db.system", "postgresql"),
-}
+var defaultDBAttributes = []attribute.KeyValue{attribute.String("db.system", "postgresql")}
 
 // CreateJob persists a new scan job and initializes its metrics record.
 func (r *jobStore) CreateJob(ctx context.Context, job *scanning.Job) error {
