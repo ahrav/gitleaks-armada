@@ -534,69 +534,6 @@ func TestJobStore_GetJobByID(t *testing.T) {
 	ctx, _, store, cleanup := setupJobTest(t)
 	defer cleanup()
 
-	job := createTestJob(t, scanning.JobStatusRunning)
-	err := store.CreateJob(ctx, job)
-	require.NoError(t, err)
-
-	metrics := scanning.ReconstructJobMetrics(100, 20, 30, 40, 5, 3, 1, 1)
-	_, err = store.BulkUpdateJobMetrics(ctx, map[uuid.UUID]*scanning.JobMetrics{
-		job.JobID(): metrics,
-	})
-	require.NoError(t, err)
-
-	jobDetail, err := store.GetJobByID(ctx, job.JobID())
-	require.NoError(t, err)
-	require.NotNil(t, jobDetail)
-
-	assert.Equal(t, job.JobID(), jobDetail.ID)
-	assert.Equal(t, job.Status(), jobDetail.Status)
-	assert.Equal(t, job.SourceType(), jobDetail.SourceType)
-	assert.Equal(t, job.StartTime(), jobDetail.StartTime)
-
-	assert.Equal(t, 100, jobDetail.Metrics.TotalTasks)
-	assert.Equal(t, 20, jobDetail.Metrics.PendingTasks)
-	assert.Equal(t, 30, jobDetail.Metrics.InProgressTasks)
-	assert.Equal(t, 40, jobDetail.Metrics.CompletedTasks)
-	assert.Equal(t, 5, jobDetail.Metrics.FailedTasks)
-	assert.Equal(t, 3, jobDetail.Metrics.StaleTasks)
-	assert.Equal(t, 1, jobDetail.Metrics.CancelledTasks)
-	assert.Equal(t, 1, jobDetail.Metrics.PausedTasks)
-
-	expectedPercentage := float64(40) / float64(100) * 100.0
-	assert.InDelta(t, expectedPercentage, jobDetail.Metrics.CompletionPercentage, 0.001)
-}
-
-func TestJobStore_GetJobByID_NoMetrics(t *testing.T) {
-	ctx, _, store, cleanup := setupJobTest(t)
-	defer cleanup()
-
-	job := createTestJob(t, scanning.JobStatusQueued)
-	err := store.CreateJob(ctx, job)
-	require.NoError(t, err)
-
-	jobDetail, err := store.GetJobByID(ctx, job.JobID())
-	require.NoError(t, err)
-	require.NotNil(t, jobDetail)
-
-	assert.Equal(t, job.JobID(), jobDetail.ID)
-	assert.Equal(t, job.Status(), jobDetail.Status)
-	assert.Equal(t, job.SourceType(), jobDetail.SourceType)
-
-	assert.Equal(t, 0, jobDetail.Metrics.TotalTasks)
-	assert.Equal(t, 0, jobDetail.Metrics.PendingTasks)
-	assert.Equal(t, 0, jobDetail.Metrics.InProgressTasks)
-	assert.Equal(t, 0, jobDetail.Metrics.CompletedTasks)
-	assert.Equal(t, 0, jobDetail.Metrics.FailedTasks)
-	assert.Equal(t, 0, jobDetail.Metrics.StaleTasks)
-	assert.Equal(t, 0, jobDetail.Metrics.CancelledTasks)
-	assert.Equal(t, 0, jobDetail.Metrics.PausedTasks)
-	assert.Equal(t, 0.0, jobDetail.Metrics.CompletionPercentage)
-}
-
-func TestJobStore_GetJobByID_TableDriven(t *testing.T) {
-	ctx, _, store, cleanup := setupJobTest(t)
-	defer cleanup()
-
 	testCases := []struct {
 		name             string
 		status           scanning.JobStatus
