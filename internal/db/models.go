@@ -7,6 +7,7 @@ package db
 import (
 	"database/sql/driver"
 	"fmt"
+	"net/netip"
 
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -240,6 +241,51 @@ func (ns NullScanTaskStatus) Value() (driver.Value, error) {
 	return string(ns.ScanTaskStatus), nil
 }
 
+type ScannerStatus string
+
+const (
+	ScannerStatusOnline      ScannerStatus = "online"
+	ScannerStatusOffline     ScannerStatus = "offline"
+	ScannerStatusMaintenance ScannerStatus = "maintenance"
+	ScannerStatusError       ScannerStatus = "error"
+	ScannerStatusUnknown     ScannerStatus = "unknown"
+)
+
+func (e *ScannerStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = ScannerStatus(s)
+	case string:
+		*e = ScannerStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for ScannerStatus: %T", src)
+	}
+	return nil
+}
+
+type NullScannerStatus struct {
+	ScannerStatus ScannerStatus
+	Valid         bool // Valid is true if ScannerStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullScannerStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.ScannerStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.ScannerStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullScannerStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.ScannerStatus), nil
+}
+
 type Allowlist struct {
 	ID             int64
 	RuleID         int64
@@ -440,6 +486,28 @@ type ScanTask struct {
 	PausedAt          pgtype.Timestamptz
 	CreatedAt         pgtype.Timestamptz
 	UpdatedAt         pgtype.Timestamptz
+}
+
+type Scanner struct {
+	ID            pgtype.UUID
+	GroupID       pgtype.UUID
+	Name          string
+	Version       string
+	LastHeartbeat pgtype.Timestamptz
+	Status        ScannerStatus
+	IpAddress     *netip.Addr
+	Hostname      pgtype.Text
+	Metadata      []byte
+	CreatedAt     pgtype.Timestamptz
+	UpdatedAt     pgtype.Timestamptz
+}
+
+type ScannerGroup struct {
+	ID          pgtype.UUID
+	Name        string
+	Description pgtype.Text
+	CreatedAt   pgtype.Timestamptz
+	UpdatedAt   pgtype.Timestamptz
 }
 
 type Task struct {
