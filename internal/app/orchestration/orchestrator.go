@@ -226,13 +226,6 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	o.taskHealthSupervisor.Start(runCtx)
 	runSpan.AddEvent("heartbeat_monitor_started")
 
-	if err := o.subscribeToEvents(runCtx); err != nil {
-		runSpan.RecordError(err)
-		runSpan.SetStatus(codes.Error, "failed to subscribe to events")
-		runSpan.End()
-		return err
-	}
-
 	readyCh, leaderCh := o.makeOrchestrationChannels()
 	defer close(readyCh)
 	defer close(leaderCh)
@@ -272,49 +265,6 @@ func (o *Orchestrator) makeOrchestrationChannels() (chan struct{}, chan bool) {
 	ready := make(chan struct{})
 	leaderCh := make(chan bool, 1)
 	return ready, leaderCh
-}
-
-// subscribeToEvents sets up event subscriptions for tracking task progress and rule updates.
-func (o *Orchestrator) subscribeToEvents(ctx context.Context) error {
-	subCtx, subSpan := o.tracer.Start(ctx, "orchestrator.subscribe_events",
-		trace.WithAttributes(
-			attribute.String("controller_id", o.controllerID),
-		))
-	defer subSpan.End()
-
-	eventTypes := []events.EventType{
-		rules.EventTypeRulesUpdated,
-		rules.EventTypeRulesPublished,
-		scanning.EventTypeJobRequested,
-		scanning.EventTypeJobScheduled,
-		scanning.EventTypeJobEnumerationCompleted,
-		scanning.EventTypeTaskStarted,
-		scanning.EventTypeTaskProgressed,
-		scanning.EventTypeTaskCompleted,
-		scanning.EventTypeTaskFailed,
-		scanning.EventTypeTaskHeartbeat,
-		scanning.EventTypeTaskJobMetric,
-		scanning.EventTypeJobPausing,
-		scanning.EventTypeTaskPaused,
-		scanning.EventTypeJobCancelling,
-		scanning.EventTypeTaskCancelled,
-		scanning.EventTypeJobResuming,
-	}
-
-	if err := o.eventBus.Subscribe(
-		subCtx,
-		eventTypes,
-		func(ctx context.Context, evt events.EventEnvelope, ack events.AckFunc) error {
-			return o.dispatcher.Dispatch(ctx, evt, ack)
-		},
-	); err != nil {
-		subSpan.RecordError(err)
-		subSpan.SetStatus(codes.Error, "failed to subscribe to progress events")
-		return fmt.Errorf("orchestrator[%s]: failed to subscribe to progress events: %w", o.controllerID, err)
-	}
-
-	subSpan.AddEvent("subscribed_to_events")
-	return nil
 }
 
 // setupLeadershipCallback configures the handler for leadership changes, managing
@@ -382,8 +332,15 @@ func (o *Orchestrator) handleLeadership(ctx context.Context, isLeader bool, read
 		return
 	}
 
-	logger.Info(leaderCtx, "Leadership acquired, processing targets...")
+	logger.Info(leaderCtx, "Leadership acquired")
 	leaderSpan.AddEvent("leader_acquired")
+
+	if err := o.subscribeToEvents(leaderCtx); err != nil {
+		leaderSpan.RecordError(err)
+		leaderSpan.SetStatus(codes.Error, "failed to subscribe to events")
+		logger.Error(leaderCtx, "Failed to subscribe to events", "error", err)
+	}
+	leaderSpan.AddEvent("events_subscribed")
 
 	// TODO: Figure out an overall strategy to reslient publishing of events across the system.
 	if err := o.requestRulesUpdate(ctx); err != nil {
@@ -395,18 +352,6 @@ func (o *Orchestrator) handleLeadership(ctx context.Context, isLeader bool, read
 		leaderSpan.AddEvent("rules_update_requested")
 	}
 
-	err := o.metrics.TrackEnumeration(leaderCtx, func() error {
-		// TODO: This should get ripped out and use the enumeration service.
-		// return o.Enumerate(leaderCtx)
-		return nil
-	})
-	if err != nil {
-		leaderSpan.RecordError(err)
-		leaderSpan.SetStatus(codes.Error, "enumeration failed")
-		logger.Error(leaderCtx, "Failed to run enumeration", "error", err)
-	}
-	leaderSpan.AddEvent("enumeration_completed")
-
 	if !*readyClosed {
 		close(readyCh)
 		*readyClosed = true
@@ -414,6 +359,49 @@ func (o *Orchestrator) handleLeadership(ctx context.Context, isLeader bool, read
 		readySpan.AddEvent("ready_channel_closed")
 		logger.Info(ctx, "Orchestrator is ready.")
 	}
+}
+
+// subscribeToEvents sets up event subscriptions for tracking task progress and rule updates.
+func (o *Orchestrator) subscribeToEvents(ctx context.Context) error {
+	subCtx, subSpan := o.tracer.Start(ctx, "orchestrator.subscribe_events",
+		trace.WithAttributes(
+			attribute.String("controller_id", o.controllerID),
+		))
+	defer subSpan.End()
+
+	eventTypes := []events.EventType{
+		rules.EventTypeRulesUpdated,
+		rules.EventTypeRulesPublished,
+		scanning.EventTypeJobRequested,
+		scanning.EventTypeJobScheduled,
+		scanning.EventTypeJobEnumerationCompleted,
+		scanning.EventTypeTaskStarted,
+		scanning.EventTypeTaskProgressed,
+		scanning.EventTypeTaskCompleted,
+		scanning.EventTypeTaskFailed,
+		scanning.EventTypeTaskHeartbeat,
+		scanning.EventTypeTaskJobMetric,
+		scanning.EventTypeJobPausing,
+		scanning.EventTypeTaskPaused,
+		scanning.EventTypeJobCancelling,
+		scanning.EventTypeTaskCancelled,
+		scanning.EventTypeJobResuming,
+	}
+
+	if err := o.eventBus.Subscribe(
+		subCtx,
+		eventTypes,
+		func(ctx context.Context, evt events.EventEnvelope, ack events.AckFunc) error {
+			return o.dispatcher.Dispatch(ctx, evt, ack)
+		},
+	); err != nil {
+		subSpan.RecordError(err)
+		subSpan.SetStatus(codes.Error, "failed to subscribe to progress events")
+		return fmt.Errorf("orchestrator[%s]: failed to subscribe to progress events: %w", o.controllerID, err)
+	}
+
+	subSpan.AddEvent("subscribed_to_events")
+	return nil
 }
 
 // startCoordinator initializes the cluster coordinator component.
