@@ -9,8 +9,12 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 )
 
-// Job coordinates and tracks a collection of related scanning tasks.
-// It provides aggregated status and progress tracking across all child tasks.
+// Job represents the top-level aggregate in the scanning domain.
+// It maintains core job identity, status, and lifecycle information including
+// the job's unique identifier, source type, configuration, and execution timeline.
+// The Job aggregate manages state transitions as the scanning operation progresses
+// but does not directly track individual tasks or detailed progress metrics,
+// which are maintained separately in the domain model.
 type Job struct {
 	jobID      uuid.UUID
 	sourceType shared.SourceType
