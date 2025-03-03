@@ -7,6 +7,7 @@ package db
 
 import (
 	"context"
+	"net/netip"
 
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -137,6 +138,84 @@ func (q *Queries) CreateScanTask(ctx context.Context, arg CreateScanTaskParams) 
 		arg.ResourceUri,
 		arg.LastSequenceNum,
 	)
+	return err
+}
+
+const createScanner = `-- name: CreateScanner :exec
+
+INSERT INTO scanners (
+    id,
+    group_id,
+    name,
+    version,
+    last_heartbeat,
+    status,
+    ip_address,
+    hostname,
+    metadata
+) VALUES (
+    $1, -- id UUID
+    $2, -- group_id UUID
+    $3, -- name VARCHAR(255)
+    $4, -- version VARCHAR(50)
+    $5, -- last_heartbeat TIMESTAMPTZ
+    $6, -- status scanner_status
+    $7, -- ip_address INET
+    $8, -- hostname VARCHAR(255)
+    $9  -- metadata JSONB
+)
+`
+
+type CreateScannerParams struct {
+	ID            pgtype.UUID
+	GroupID       pgtype.UUID
+	Name          string
+	Version       string
+	LastHeartbeat pgtype.Timestamptz
+	Status        ScannerStatus
+	IpAddress     *netip.Addr
+	Hostname      pgtype.Text
+	Metadata      []byte
+}
+
+// Scanner Queries
+func (q *Queries) CreateScanner(ctx context.Context, arg CreateScannerParams) error {
+	_, err := q.db.Exec(ctx, createScanner,
+		arg.ID,
+		arg.GroupID,
+		arg.Name,
+		arg.Version,
+		arg.LastHeartbeat,
+		arg.Status,
+		arg.IpAddress,
+		arg.Hostname,
+		arg.Metadata,
+	)
+	return err
+}
+
+const createScannerGroup = `-- name: CreateScannerGroup :exec
+
+INSERT INTO scanner_groups (
+    id,
+    name,
+    description
+) VALUES (
+    $1, -- id UUID
+    $2, -- name VARCHAR(255)
+    $3  -- description TEXT
+)
+`
+
+type CreateScannerGroupParams struct {
+	ID          pgtype.UUID
+	Name        string
+	Description pgtype.Text
+}
+
+// Scanner Group Queries
+func (q *Queries) CreateScannerGroup(ctx context.Context, arg CreateScannerGroupParams) error {
+	_, err := q.db.Exec(ctx, createScannerGroup, arg.ID, arg.Name, arg.Description)
 	return err
 }
 

@@ -119,6 +119,10 @@ CREATE TABLE scanner_groups (
     UNIQUE (name)
 );
 
+-- Indexes
+CREATE INDEX idx_scanner_groups_name ON scanner_groups (name);
+
+-- Scanner Status Enum
 CREATE TYPE scanner_status AS ENUM ('online', 'offline', 'maintenance', 'error', 'unknown');
 
 -- Scanners Table
@@ -137,4 +141,5 @@ CREATE TABLE scanners (
     UNIQUE (group_id, name)
 );
 
+-- Indexes
 CREATE INDEX idx_scanners_group_id ON scanners(group_id);

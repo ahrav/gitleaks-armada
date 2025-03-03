@@ -264,3 +264,41 @@ SELECT
 FROM scan_jobs j
 LEFT JOIN scan_job_metrics m ON j.job_id = m.job_id
 WHERE j.job_id = $1;
+
+-- Scanner Group Queries
+
+-- name: CreateScannerGroup :exec
+INSERT INTO scanner_groups (
+    id,
+    name,
+    description
+) VALUES (
+    $1, -- id UUID
+    $2, -- name VARCHAR(255)
+    $3  -- description TEXT
+);
+
+-- Scanner Queries
+
+-- name: CreateScanner :exec
+INSERT INTO scanners (
+    id,
+    group_id,
+    name,
+    version,
+    last_heartbeat,
+    status,
+    ip_address,
+    hostname,
+    metadata
+) VALUES (
+    $1, -- id UUID
+    $2, -- group_id UUID
+    $3, -- name VARCHAR(255)
+    $4, -- version VARCHAR(50)
+    $5, -- last_heartbeat TIMESTAMPTZ
+    $6, -- status scanner_status
+    $7, -- ip_address INET
+    $8, -- hostname VARCHAR(255)
+    $9  -- metadata JSONB
+);
