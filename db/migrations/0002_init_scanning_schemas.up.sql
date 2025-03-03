@@ -108,3 +108,33 @@ CREATE TABLE scan_tasks (
 -- Indexes
 CREATE INDEX idx_scan_tasks_job_id ON scan_tasks (job_id);
 CREATE INDEX idx_scan_tasks_owner_controller_id_status_last_heartbeat_at ON scan_tasks (owner_controller_id, status, last_heartbeat_at);
+
+-- Scanner Groups Table
+CREATE TABLE scanner_groups (
+    id UUID PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (name)
+);
+
+CREATE TYPE scanner_status AS ENUM ('online', 'offline', 'maintenance', 'error', 'unknown');
+
+-- Scanners Table
+CREATE TABLE scanners (
+    id UUID PRIMARY KEY,
+    group_id UUID REFERENCES scanner_groups(id) ON DELETE CASCADE,
+    name VARCHAR(255) NOT NULL,
+    version VARCHAR(50) NOT NULL,
+    last_heartbeat TIMESTAMPTZ,
+    status scanner_status NOT NULL DEFAULT 'online',
+    ip_address INET,
+    hostname VARCHAR(255),
+    metadata JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (group_id, name)
+);
+
+CREATE INDEX idx_scanners_group_id ON scanners(group_id);
