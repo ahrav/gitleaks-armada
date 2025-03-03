@@ -17,7 +17,6 @@ import (
 	enumCoordinator "github.com/ahrav/gitleaks-armada/internal/app/enumeration"
 	rulessvc "github.com/ahrav/gitleaks-armada/internal/app/rules"
 	scan "github.com/ahrav/gitleaks-armada/internal/app/scanning"
-	"github.com/ahrav/gitleaks-armada/internal/config/loaders"
 	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/rules"
@@ -37,13 +36,10 @@ type Orchestrator struct {
 	eventBus           events.EventBus
 	eventPublisher     events.DomainEventPublisher
 
-	cfgLoader loaders.Loader
-
 	taskHealthSupervisor scanning.TaskHealthMonitor
 	metricsAggregator    scanning.JobMetricsAggregator
 	enumService          enumeration.Service
 	rulesService         rulessvc.Service
-	stateRepo            enumeration.StateRepository
 
 	dispatcher *eventdispatcher.Dispatcher
 
@@ -71,12 +67,10 @@ type Orchestrator struct {
 //   - eventPublisher: Broadcasts domain events for system observability
 //   - broadcastPublisher: Broadcasts events to all scanners
 //   - eventReplayer: Replays domain events from a specific position
-//   - enumerationService: Implements scanning logic and target discovery
+//   - enumCoord: Manages enumeration state and recovery
 //   - rulesService: Manages scanning rules and their updates
-//   - jobService: Handles job lifecycle (creation, updates, completion)
-//   - taskService: Manages individual task execution and state
-//   - stateRepo: Persists enumeration state for crash recovery
-//   - cfgLoader: Loads system configuration dynamically
+//   - jobRepo: Manages job lifecycle (creation, updates, completion)
+//   - taskRepo: Manages individual task execution and state
 //   - logger: Structured logging for debugging and audit trails
 //   - metrics: Runtime metrics for monitoring and alerting
 //   - tracer: Distributed tracing for request flow analysis
@@ -96,8 +90,6 @@ func NewOrchestrator(
 	rulesService rulessvc.Service,
 	taskRepo scanning.TaskRepository,
 	jobRepo scanning.JobRepository,
-	stateRepo enumeration.StateRepository,
-	cfgLoader loaders.Loader,
 	logger *logger.Logger,
 	metrics OrchestrationMetrics,
 	tracer trace.Tracer,
@@ -109,8 +101,6 @@ func NewOrchestrator(
 		eventBus:           queue,
 		eventPublisher:     eventPublisher,
 		rulesService:       rulesService,
-		stateRepo:          stateRepo,
-		cfgLoader:          cfgLoader,
 		metrics:            metrics,
 		logger:             componentLogger,
 		tracer:             tracer,
