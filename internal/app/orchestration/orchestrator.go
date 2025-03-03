@@ -106,22 +106,8 @@ func NewOrchestrator(
 		tracer:             tracer,
 	}
 
-	jobTaskSvc := scan.NewJobTaskService(
-		id,
-		jobRepo,
-		taskRepo,
-		logger,
-		tracer,
-	)
-
-	executionTracker := scan.NewExecutionTracker(
-		id,
-		jobTaskSvc,
-		eventPublisher,
-		logger,
-		tracer,
-	)
-
+	jobTaskSvc := scan.NewJobTaskService(id, jobRepo, taskRepo, logger, tracer)
+	executionTracker := scan.NewExecutionTracker(id, jobTaskSvc, eventPublisher, logger, tracer)
 	o.taskHealthSupervisor = scan.NewTaskHealthSupervisor(
 		id,
 		jobTaskSvc,
@@ -134,15 +120,7 @@ func NewOrchestrator(
 	o.metricsAggregator = scan.NewJobMetricsAggregator(id, jobTaskSvc, eventReplayer, logger, tracer)
 	go o.metricsAggregator.LaunchMetricsFlusher(30 * time.Second)
 
-	o.enumService = enumCoordinator.NewEnumService(
-		id,
-		enumCoord,
-		eventPublisher,
-		logger,
-		metrics,
-		tracer,
-	)
-
+	o.enumService = enumCoordinator.NewEnumService(id, enumCoord, eventPublisher, logger, metrics, tracer)
 	jobScheduler := scan.NewJobScheduler(
 		id,
 		jobTaskSvc,
