@@ -48,13 +48,17 @@ func setupScannerTest(t *testing.T) (context.Context, *pgxpool.Pool, *scannerSto
 // createTestScannerGroup creates a scanner group for testing.
 func createTestScannerGroup(t *testing.T) *scanning.ScannerGroup {
 	t.Helper()
-	return scanning.NewScannerGroup(uuid.New(), "Test Scanner Group", "Description for test scanner group")
+	group, err := scanning.NewScannerGroup(uuid.New(), "Test Scanner Group", "Description for test scanner group")
+	require.NoError(t, err, "Failed to create scanner group")
+	return group
 }
 
 // createTestScanner creates a scanner for testing.
 func createTestScanner(t *testing.T, groupID uuid.UUID) *scanning.Scanner {
 	t.Helper()
-	return scanning.NewScanner(uuid.New(), groupID, "Test Scanner", "1.0.0")
+	scanner, err := scanning.NewScanner(uuid.New(), groupID, "Test Scanner", "1.0.0")
+	require.NoError(t, err, "Failed to create scanner")
+	return scanner
 }
 
 func TestScannerStore_CreateScannerGroup(t *testing.T) {
@@ -83,20 +87,24 @@ func TestScannerStore_CreateDuplicateScannerGroup(t *testing.T) {
 	require.NoError(t, err, "Failed to create scanner group")
 
 	// Creating another group with the same ID should fail.
-	duplicateGroup := scanning.NewScannerGroup(
+	duplicateGroup, err := scanning.NewScannerGroup(
 		group.ID(), // Same ID
 		"Different Name",
 		"Different description",
 	)
+	require.NoError(t, err, "Failed to create duplicate scanner group")
+
 	err = repo.CreateScannerGroup(ctx, duplicateGroup)
 	assert.Error(t, err, "Creating a group with duplicate ID should fail")
 
 	// Creating another group with the same name should fail.
-	duplicateNameGroup := scanning.NewScannerGroup(
+	duplicateNameGroup, err := scanning.NewScannerGroup(
 		uuid.New(),   // Different ID
 		group.Name(), // Same name
 		"Different description",
 	)
+	require.NoError(t, err, "Failed to create duplicate scanner group")
+
 	err = repo.CreateScannerGroup(ctx, duplicateNameGroup)
 	assert.Error(t, err, "Creating a group with duplicate name should fail")
 }
