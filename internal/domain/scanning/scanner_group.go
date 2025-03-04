@@ -1,9 +1,34 @@
 package scanning
 
 import (
+	"errors"
+	"regexp"
 	"time"
+	"unicode/utf8"
 
 	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
+)
+
+// Validation constants for scanner groups.
+const (
+	// Name validation.
+	minNameLength = 1
+	maxNameLength = 50
+
+	// Description validation.
+	maxDescriptionLength = 200
+)
+
+var (
+	// allowedNamePattern defines the allowed character pattern for names.
+	// Allows alphanumeric characters, spaces, hyphens, and underscores.
+	allowedNamePattern = regexp.MustCompile(`^[a-zA-Z0-9\s\-_]+$`)
+
+	// Validation errors.
+	ErrNameTooShort       = errors.New("name is too short")
+	ErrNameTooLong        = errors.New("name is too long")
+	ErrNameInvalidChars   = errors.New("name contains invalid characters")
+	ErrDescriptionTooLong = errors.New("description is too long")
 )
 
 // ScannerGroup represents a logical grouping of scanners, typically organized
@@ -17,7 +42,18 @@ type ScannerGroup struct {
 }
 
 // NewScannerGroup creates a new scanner group with the given parameters.
-func NewScannerGroup(id uuid.UUID, name, description string) *ScannerGroup {
+// Returns an error if the provided values don't meet validation requirements.
+func NewScannerGroup(id uuid.UUID, name, description string) (*ScannerGroup, error) {
+	if err := validateName(name); err != nil {
+		return nil, err
+	}
+
+	if len(description) > 0 {
+		if utf8.RuneCountInString(description) > maxDescriptionLength {
+			return nil, ErrDescriptionTooLong
+		}
+	}
+
 	now := time.Now().UTC()
 	return &ScannerGroup{
 		id:          id,
@@ -25,7 +61,26 @@ func NewScannerGroup(id uuid.UUID, name, description string) *ScannerGroup {
 		description: description,
 		createdAt:   now,
 		updatedAt:   now,
+	}, nil
+}
+
+// validateName checks if a name meets the domain rules for length and character set.
+func validateName(name string) error {
+	nameLen := utf8.RuneCountInString(name)
+
+	if nameLen < minNameLength {
+		return ErrNameTooShort
 	}
+
+	if nameLen > maxNameLength {
+		return ErrNameTooLong
+	}
+
+	if !allowedNamePattern.MatchString(name) {
+		return ErrNameInvalidChars
+	}
+
+	return nil
 }
 
 // ID returns the unique identifier for this scanner group.
@@ -42,18 +97,6 @@ func (g *ScannerGroup) CreatedAt() time.Time { return g.createdAt }
 
 // UpdatedAt returns when this group was last updated.
 func (g *ScannerGroup) UpdatedAt() time.Time { return g.updatedAt }
-
-// SetName updates the group's name.
-func (g *ScannerGroup) SetName(name string) {
-	g.name = name
-	g.updatedAt = time.Now().UTC()
-}
-
-// SetDescription updates the group's description.
-func (g *ScannerGroup) SetDescription(description string) {
-	g.description = description
-	g.updatedAt = time.Now().UTC()
-}
 
 // WithCreatedAt sets the creation timestamp (primarily for reconstruction from storage).
 func (g *ScannerGroup) WithCreatedAt(t time.Time) *ScannerGroup {

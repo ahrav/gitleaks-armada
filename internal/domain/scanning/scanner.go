@@ -1,10 +1,24 @@
 package scanning
 
 import (
+	"errors"
 	"net/netip"
 	"time"
+	"unicode/utf8"
 
 	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
+)
+
+// Validation constants for scanners.
+const (
+	// Version validation
+	maxVersionLength = 20
+)
+
+var (
+	// Scanner validation errors
+	ErrVersionTooLong   = errors.New("version string is too long")
+	ErrInvalidIPAddress = errors.New("invalid IP address")
 )
 
 // ScannerStatus represents the operational status of a scanner.
@@ -37,7 +51,16 @@ type Scanner struct {
 }
 
 // NewScanner creates a new scanner with the given parameters.
-func NewScanner(id, groupID uuid.UUID, name, version string) *Scanner {
+// Returns an error if the provided values don't meet validation requirements.
+func NewScanner(id, groupID uuid.UUID, name, version string) (*Scanner, error) {
+	if err := validateName(name); err != nil {
+		return nil, err
+	}
+
+	if utf8.RuneCountInString(version) > maxVersionLength {
+		return nil, ErrVersionTooLong
+	}
+
 	now := time.Now().UTC()
 	return &Scanner{
 		id:            id,
@@ -49,7 +72,7 @@ func NewScanner(id, groupID uuid.UUID, name, version string) *Scanner {
 		createdAt:     now,
 		updatedAt:     now,
 		metadata:      make(map[string]any),
-	}
+	}, nil
 }
 
 // ID returns the unique identifier for this scanner.
@@ -104,19 +127,38 @@ func (s *Scanner) UpdateHeartbeat() {
 }
 
 // SetIPAddress updates the scanner's IP address.
-func (s *Scanner) SetIPAddress(ip *netip.Addr) {
+func (s *Scanner) SetIPAddress(ip *netip.Addr) error {
+	if ip == nil {
+		return ErrInvalidIPAddress
+	}
 	s.ipAddress = *ip
 	s.updatedAt = time.Now().UTC()
+	return nil
 }
 
 // SetHostname updates the scanner's hostname.
-func (s *Scanner) SetHostname(hostname string) {
+func (s *Scanner) SetHostname(hostname string) error {
+	if err := validateNameOptional(hostname); err != nil && hostname != "" {
+		return err
+	}
 	s.hostname = hostname
 	s.updatedAt = time.Now().UTC()
+	return nil
+}
+
+// validateNameOptional is like validateName but allows empty strings.
+func validateNameOptional(name string) error {
+	if name == "" {
+		return nil
+	}
+	return validateName(name)
 }
 
 // SetMetadata updates the scanner's metadata.
 func (s *Scanner) SetMetadata(metadata map[string]any) {
+	if metadata == nil {
+		metadata = make(map[string]any)
+	}
 	s.metadata = metadata
 	s.updatedAt = time.Now().UTC()
 }

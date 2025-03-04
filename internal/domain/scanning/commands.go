@@ -72,3 +72,32 @@ type PauseTaskCommand struct {
 func NewPauseTaskCommand(taskID uuid.UUID, progress Progress, requestedBy string) PauseTaskCommand {
 	return PauseTaskCommand{TaskID: taskID, Progress: progress, RequestedBy: requestedBy}
 }
+
+// CreateScannerGroupCommand encapsulates all information needed to create a new scanner group.
+type CreateScannerGroupCommand struct {
+	Name        string // Human-readable name for the scanner group
+	Description string // Optional description of the scanner group
+}
+
+// NewCreateScannerGroupCommand creates a new CreateScannerGroupCommand.
+func NewCreateScannerGroupCommand(name, description string) CreateScannerGroupCommand {
+	return CreateScannerGroupCommand{Name: name, Description: description}
+}
+
+// CreateScannerCommand encapsulates all information needed to register a new scanner.
+type CreateScannerCommand struct {
+	GroupID  uuid.UUID      // The group this scanner belongs to
+	Name     string         // Human-readable name for the scanner
+	Version  string         // Software version of the scanner
+	Metadata map[string]any // Additional metadata about the scanner
+}
+
+// NewCreateScannerCommand creates a new CreateScannerCommand.
+func NewCreateScannerCommand(
+	groupID uuid.UUID,
+	name,
+	version string,
+	metadata map[string]any,
+) CreateScannerCommand {
+	return CreateScannerCommand{GroupID: groupID, Name: name, Version: version, Metadata: metadata}
+}

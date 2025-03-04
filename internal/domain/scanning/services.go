@@ -327,3 +327,16 @@ type ExecutionTracker interface {
 	// // This enables fine-grained monitoring of individual scanning operations.
 	// GetTaskProgress(ctx context.Context, taskID uuid.UUID) (*scanning.Progress, error)
 }
+
+// ScannerService provides operations for managing scanners and scanner groups
+// within the system. It enforces domain rules for validation and maintains
+// the integrity of scanner-related entities.
+type ScannerService interface {
+	// CreateScannerGroup creates a new scanner group with validation.
+	// Returns an error if the group data doesn't meet domain requirements.
+	CreateScannerGroup(ctx context.Context, cmd CreateScannerGroupCommand) (*ScannerGroup, error)
+
+	// CreateScanner registers a new scanner in the system with validation.
+	// Returns an error if the scanner data doesn't meet domain requirements.
+	CreateScanner(ctx context.Context, cmd CreateScannerCommand) (*Scanner, error)
+}
