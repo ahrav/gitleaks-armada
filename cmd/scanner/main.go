@@ -194,7 +194,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	scannerService := scanning.NewScannerService(
+	scanOrchestrator := scanning.NewScanOrchestrator(
 		hostname,
 		eventBus,
 		broadcastEventBus,
@@ -218,7 +218,7 @@ func main() {
 	}()
 
 	log.Info(ctx, "Starting scanner...")
-	if err := scannerService.Run(ctx); err != nil {
+	if err := scanOrchestrator.Run(ctx); err != nil {
 		log.Error(ctx, "Scanner error", "error", err)
 	}
 

@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -20,6 +19,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	domain "github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
+	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 )
 
 // metrics defines the interface for tracking scanning-related metrics.
@@ -36,10 +36,10 @@ type RuleProvider interface {
 	GetRules(ctx context.Context) (<-chan rules.GitleaksRuleMessage, error)
 }
 
-// ScannerService coordinates the execution of secret scanning tasks across multiple workers.
+// ScanOrchestrator coordinates the execution of secret scanning tasks across multiple workers.
 // It subscribes to enumeration events and distributes scanning work to maintain optimal
 // resource utilization.
-type ScannerService struct {
+type ScanOrchestrator struct {
 	scannerID string
 
 	eventBus          events.EventBus // Main event bus for task events
@@ -70,9 +70,9 @@ type ScannerService struct {
 	tracer  trace.Tracer
 }
 
-// NewScannerService creates a new scanner service with the specified dependencies.
+// NewScanOrchestrator creates a new scan orchestrator with the specified dependencies.
 // It configures worker pools based on available CPU cores to optimize scanning throughput.
-func NewScannerService(
+func NewScanOrchestrator(
 	id string,
 	eventBus events.EventBus,
 	broadcastEventBus events.EventBus,
@@ -82,7 +82,7 @@ func NewScannerService(
 	logger *logger.Logger,
 	metrics metrics,
 	tracer trace.Tracer,
-) *ScannerService {
+) *ScanOrchestrator {
 	workerCount := 4 // TODO: This should be configurable or set via runtime.NumCPU
 	logger = logger.With(
 		"component", "scanner_service",
@@ -92,7 +92,7 @@ func NewScannerService(
 	// Try to get rule provider if scanner supports it. (e.g. Gitleaks)
 	ruleProvider, _ := scanner.(RuleProvider)
 
-	return &ScannerService{
+	return &ScanOrchestrator{
 		scannerID:          id,
 		eventBus:           eventBus,
 		broadcastEventBus:  broadcastEventBus,
@@ -115,7 +115,7 @@ func NewScannerService(
 // Run starts the scanner service and its worker pool. It subscribes to task events
 // and coordinates scanning operations until the context is cancelled.
 // TODO: Use Dispatcher to handle events similar to the controller.
-func (s *ScannerService) Run(ctx context.Context) error {
+func (s *ScanOrchestrator) Run(ctx context.Context) error {
 	// Create a shorter-lived span just for initialization.
 	// This is because Run is a long-running operation and we don't want to
 	// create a span for the entire operation.
@@ -189,7 +189,7 @@ func (s *ScannerService) Run(ctx context.Context) error {
 
 // handleEvent routes events to appropriate handlers.
 // TODO: Replace this with an events facilitator.
-func (s *ScannerService) handleEvent(ctx context.Context, evt events.EventEnvelope, ack events.AckFunc) error {
+func (s *ScanOrchestrator) handleEvent(ctx context.Context, evt events.EventEnvelope, ack events.AckFunc) error {
 	switch evt.Type {
 	case scanning.EventTypeTaskResume:
 		return s.handleTaskResumeEvent(ctx, evt, ack)
@@ -208,7 +208,7 @@ func (s *ScannerService) handleEvent(ctx context.Context, evt events.EventEnvelo
 
 // handleRuleRequest processes rule request events and publishes current rules
 // TODO: Handle the situation where the scanner crashes before all rules are published.
-func (s *ScannerService) handleRuleRequest(
+func (s *ScanOrchestrator) handleRuleRequest(
 	ctx context.Context,
 	evt events.EventEnvelope,
 	ack events.AckFunc,
@@ -259,7 +259,7 @@ func (s *ScannerService) handleRuleRequest(
 
 // handleTaskEvent processes incoming task events and routes them to available workers.
 // It ensures graceful handling of shutdown scenarios to prevent task loss.
-func (s *ScannerService) handleTaskEvent(
+func (s *ScanOrchestrator) handleTaskEvent(
 	ctx context.Context,
 	evt events.EventEnvelope,
 	ack events.AckFunc,
@@ -315,7 +315,7 @@ func (s *ScannerService) handleTaskEvent(
 }
 
 // handleTaskResumeEvent spawns a goroutine for high-priority tasks:
-func (s *ScannerService) handleTaskResumeEvent(
+func (s *ScanOrchestrator) handleTaskResumeEvent(
 	ctx context.Context,
 	evt events.EventEnvelope,
 	ack events.AckFunc,
@@ -383,7 +383,7 @@ func (s *ScannerService) handleTaskResumeEvent(
 // handleJobPausedEvent processes job paused events and handles the task.
 // TODO: How do we want to handle the scenario where the scanner gets killed.
 // We lose our in-memory paused job state.
-func (s *ScannerService) handleJobPausedEvent(
+func (s *ScanOrchestrator) handleJobPausedEvent(
 	ctx context.Context,
 	evt events.EventEnvelope,
 	ack events.AckFunc,
@@ -427,7 +427,7 @@ func (s *ScannerService) handleJobPausedEvent(
 // handleJobCancelledEvent processes job cancelled events by cancelling
 // all tasks associated with the job.
 // It publishes a TaskCancelledEvent and a TaskJobMetricEvent for each task.
-func (s *ScannerService) handleJobCancelledEvent(
+func (s *ScanOrchestrator) handleJobCancelledEvent(
 	ctx context.Context,
 	evt events.EventEnvelope,
 	ack events.AckFunc,
@@ -505,7 +505,7 @@ func (s *ScannerService) handleJobCancelledEvent(
 // TODO: Add mechanism to consume from mutlple tasks with different priorities.
 // We need this in the event of a worker panicking, as we need to consume from the higher priority
 // resume task queue. This avoids having an in-progress task stuck behind other not started tasks.
-func (s *ScannerService) workerLoop(ctx context.Context, workerID int) {
+func (s *ScanOrchestrator) workerLoop(ctx context.Context, workerID int) {
 	workerLogger := logger.NewLoggerContext(s.logger.With(
 		"worker_id", workerID,
 		"worker_type", "scanner",
@@ -551,7 +551,7 @@ func (s *ScannerService) workerLoop(ctx context.Context, workerID int) {
 // doWorkerLoop handles the core task processing loop for a worker. It continuously pulls tasks
 // from the shared task channel and processes them with proper context management and tracing.
 // The loop continues until context cancellation signals shutdown.
-func (s *ScannerService) doWorkerLoop(ctx context.Context, workerID int, workerLogger *logger.LoggerContext) {
+func (s *ScanOrchestrator) doWorkerLoop(ctx context.Context, workerID int, workerLogger *logger.LoggerContext) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -603,7 +603,7 @@ func (s *ScannerService) doWorkerLoop(ctx context.Context, workerID int, workerL
 
 // handleScanTask executes an individual scanning task.
 // TODO: tracking progress (|TaskProgressedEvent|)
-func (s *ScannerService) handleScanTask(ctx context.Context, req *dtos.ScanRequest, logger *logger.LoggerContext) error {
+func (s *ScanOrchestrator) handleScanTask(ctx context.Context, req *dtos.ScanRequest, logger *logger.LoggerContext) error {
 	logger.Add("operation", "handle_scan_task")
 	ctx, span := s.tracer.Start(ctx, "scanner_service.scanning.handle_scan_task",
 		trace.WithAttributes(
@@ -640,7 +640,7 @@ func (s *ScannerService) handleScanTask(ctx context.Context, req *dtos.ScanReque
 }
 
 // executeScanTask handles the core scanning logic for both new and resumed tasks
-func (s *ScannerService) executeScanTask(ctx context.Context, req *dtos.ScanRequest, logger *logger.LoggerContext) error {
+func (s *ScanOrchestrator) executeScanTask(ctx context.Context, req *dtos.ScanRequest, logger *logger.LoggerContext) error {
 	logger.Add("operation", "execute_scan_task")
 	ctx, span := s.tracer.Start(ctx, "scanner_service.scanning.execute_scan_task",
 		trace.WithAttributes(
@@ -732,7 +732,7 @@ func (s *ScannerService) executeScanTask(ctx context.Context, req *dtos.ScanRequ
 	return nil
 }
 
-func (s *ScannerService) consumeStream(
+func (s *ScanOrchestrator) consumeStream(
 	ctx context.Context,
 	taskID uuid.UUID,
 	sr StreamResult,
