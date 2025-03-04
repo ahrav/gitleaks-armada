@@ -65,15 +65,12 @@ func ReconstructJob(
 }
 
 // JobID returns the unique identifier for this scan job.
-// Access is synchronized to ensure thread-safe reads.
 func (j *Job) JobID() uuid.UUID { return j.jobID }
 
 // Status returns the current execution status of the scan job.
-// Access is synchronized to ensure thread-safe reads.
 func (j *Job) Status() JobStatus { return j.status }
 
 // StartTime returns when this scan job was initialized.
-// Access is synchronized to ensure thread-safe reads.
 func (j *Job) StartTime() time.Time { return j.timeline.StartedAt() }
 
 // EndTime returns when this scan job was completed.
@@ -90,7 +87,6 @@ func (j *Job) SourceType() string      { return j.sourceType.String() }
 func (j *Job) Config() json.RawMessage { return j.config }
 
 // LastUpdateTime returns when this job's state was last modified.
-// Access is synchronized to ensure thread-safe reads.
 func (j *Job) LastUpdateTime() time.Time { return j.timeline.LastUpdate() }
 
 // GetTimeline provides access to the job's timeline information.
