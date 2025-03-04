@@ -5,6 +5,7 @@ package orchestration
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -40,6 +41,7 @@ type Orchestrator struct {
 	metricsAggregator    scanning.JobMetricsAggregator
 	enumService          enumeration.Service
 	rulesService         rulessvc.Service
+	scannerService       scanning.ScannerService
 
 	dispatcher *eventdispatcher.Dispatcher
 
@@ -71,6 +73,7 @@ type Orchestrator struct {
 //   - rulesService: Manages scanning rules and their updates
 //   - jobRepo: Manages job lifecycle (creation, updates, completion)
 //   - taskRepo: Manages individual task execution and state
+//   - scannerService: Manages scanner groups and scanners' lifecycle
 //   - logger: Structured logging for debugging and audit trails
 //   - metrics: Runtime metrics for monitoring and alerting
 //   - tracer: Distributed tracing for request flow analysis
@@ -90,6 +93,7 @@ func NewOrchestrator(
 	rulesService rulessvc.Service,
 	taskRepo scanning.TaskRepository,
 	jobRepo scanning.JobRepository,
+	scannerService scanning.ScannerService,
 	logger *logger.Logger,
 	metrics OrchestrationMetrics,
 	tracer trace.Tracer,
@@ -312,6 +316,14 @@ func (o *Orchestrator) handleLeadership(ctx context.Context, isLeader bool, read
 	logger.Info(leaderCtx, "Leadership acquired")
 	leaderSpan.AddEvent("leader_acquired")
 
+	if err := o.ensureDefaultScannerGroup(leaderCtx); err != nil {
+		leaderSpan.RecordError(err)
+		leaderSpan.SetStatus(codes.Error, "failed to ensure default scanner group")
+		logger.Error(leaderCtx, "Failed to ensure default scanner group", "error", err)
+	}
+	leaderSpan.AddEvent("default_scanner_group_ensured")
+	logger.Info(leaderCtx, "Default scanner group ensured")
+
 	// TODO: Figure out an overall strategy to reslient publishing of events across the system.
 	if err := o.requestRulesUpdate(ctx); err != nil {
 		leaderSpan.RecordError(err)
@@ -329,6 +341,40 @@ func (o *Orchestrator) handleLeadership(ctx context.Context, isLeader bool, read
 		readySpan.AddEvent("ready_channel_closed")
 		logger.Info(ctx, "Orchestrator is ready.")
 	}
+}
+
+// ensureDefaultScannerGroup ensures that a default scanner group exists.
+func (o *Orchestrator) ensureDefaultScannerGroup(ctx context.Context) error {
+	ctx, span := o.tracer.Start(ctx, "orchestrator.ensure_default_scanner_group",
+		trace.WithAttributes(
+			attribute.String("controller_id", o.controllerID),
+		),
+	)
+	defer span.End()
+
+	const defaultScannerGroupName = "system_default"
+	cmd := scanning.NewCreateScannerGroupCommand(
+		defaultScannerGroupName,
+		"Default scanner group for system scanners",
+	)
+
+	scannerGroup, err := o.scannerService.CreateScannerGroup(ctx, cmd)
+	if err != nil {
+		if !errors.Is(err, scanning.ErrScannerGroupAlreadyExists) {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "failed to create default scanner group")
+			return fmt.Errorf("failed to create default scanner group: %w", err)
+		}
+		span.AddEvent("default_scanner_group_already_exists")
+		span.SetStatus(codes.Ok, "default scanner group already exists")
+		return nil
+	}
+	span.AddEvent("default_scanner_group_created", trace.WithAttributes(
+		attribute.String("scanner_group_id", scannerGroup.ID().String()),
+	))
+	span.SetStatus(codes.Ok, "default scanner group created")
+
+	return nil
 }
 
 // subscribeToEvents sets up event subscriptions for tracking task progress and rule updates.

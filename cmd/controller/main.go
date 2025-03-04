@@ -26,6 +26,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/app/enumeration"
 	"github.com/ahrav/gitleaks-armada/internal/app/orchestration"
 	"github.com/ahrav/gitleaks-armada/internal/app/rules"
+	"github.com/ahrav/gitleaks-armada/internal/app/scanning"
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/infra/cluster/kubernetes"
 	"github.com/ahrav/gitleaks-armada/internal/infra/eventbus/kafka"
@@ -328,6 +329,8 @@ func main() {
 
 	scanJobRepo := scanningStore.NewJobStore(pool, tracer)
 	scanTaskRepo := scanningStore.NewTaskStore(pool, tracer)
+	scannerRepo := scanningStore.NewScannerStore(pool, tracer)
+	scannerService := scanning.NewScannerService(hostname, scannerRepo, log, tracer)
 
 	rulesService := rules.NewService(rulesStore.NewStore(pool, tracer, metricCollector))
 	orchestrator := orchestration.NewOrchestrator(
@@ -341,6 +344,7 @@ func main() {
 		rulesService,
 		scanTaskRepo,
 		scanJobRepo,
+		scannerService,
 		log,
 		metricCollector,
 		tracer,
