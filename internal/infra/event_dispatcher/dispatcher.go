@@ -19,11 +19,11 @@ import (
 //
 // Typical usage:
 //
-//	dispatcher := eventdispatcher.NewEventDispatcher(myTracer)
+//	dispatcher := eventdispatcher.New(controllerID, tracer, logger)
 //
 //	// Register handlers for different event types
-//	dispatcher.RegisterHandler(events.EventTypeXYZ, handler1)
-//	dispatcher.RegisterHandler(events.EventTypeABC, handler2)
+//	dispatcher.RegisterHandler(ctx, handler1)
+//	dispatcher.RegisterHandler(ctx, handler2)
 //
 //	// Dispatch events
 //	err := dispatcher.Dispatch(ctx, someEnvelope)
@@ -31,7 +31,7 @@ type Dispatcher struct {
 	controllerID string
 
 	mu       sync.RWMutex
-	handlers map[events.EventType]events.HandlerFunc
+	handlers map[events.EventType]events.EventHandler
 
 	logger *logger.Logger
 	tracer trace.Tracer
@@ -44,10 +44,20 @@ func New(controllerID string, tracer trace.Tracer, logger *logger.Logger) *Dispa
 	logger = logger.With("component", "event_dispatcher")
 	return &Dispatcher{
 		controllerID: controllerID,
-		handlers:     make(map[events.EventType]events.HandlerFunc),
+		handlers:     make(map[events.EventType]events.EventHandler),
 		tracer:       tracer,
 		logger:       logger,
 	}
+}
+
+// HandlerAlreadyRegisteredError is an error type that indicates a handler was already registered for an event type.
+type HandlerAlreadyRegisteredError struct {
+	EventType events.EventType
+	Handler   events.EventHandler
+}
+
+func (e *HandlerAlreadyRegisteredError) Error() string {
+	return fmt.Sprintf("handler already registered for event type: %s", e.EventType)
 }
 
 // RegisterHandler associates a handler with a specific event type.
@@ -57,13 +67,13 @@ func New(controllerID string, tracer trace.Tracer, logger *logger.Logger) *Dispa
 //
 // Example usage:
 //
-//	dispatcher.RegisterHandler(events.EventTypeXYZ, handler1)
-func (d *Dispatcher) RegisterHandler(ctx context.Context, eventType events.EventType, handler events.HandlerFunc) {
-	logger := d.logger.With("operation", "register_handler", "event_type", eventType)
+//	dispatcher.RegisterHandler(ctx, handler1)
+func (d *Dispatcher) RegisterHandler(ctx context.Context, handler events.EventHandler) error {
+	logger := d.logger.With("operation", "register_handler")
 	_, span := d.tracer.Start(ctx, "event_dispatcher.register_handler",
 		trace.WithAttributes(
 			attribute.String("controller_id", d.controllerID),
-			attribute.String("event_type", string(eventType)),
+			attribute.String("handler_type", fmt.Sprintf("%T", handler)),
 		),
 	)
 	defer span.End()
@@ -71,10 +81,22 @@ func (d *Dispatcher) RegisterHandler(ctx context.Context, eventType events.Event
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	d.handlers[eventType] = handler
+	for _, evtType := range handler.SupportedEvents() {
+		if existing, exists := d.handlers[evtType]; exists {
+			span.RecordError(&HandlerAlreadyRegisteredError{
+				EventType: evtType,
+				Handler:   existing,
+			})
+			span.SetStatus(codes.Error, "handler already registered")
+			return &HandlerAlreadyRegisteredError{EventType: evtType, Handler: existing}
+		}
+		d.handlers[evtType] = handler
+	}
+
 	logger.Debug(ctx, "handler registered")
 	span.AddEvent("handler_registered")
 	span.SetStatus(codes.Ok, "handler registered")
+	return nil
 }
 
 // HandlerNotFoundError is an error type that indicates a handler was not found for an event type.
@@ -131,12 +153,10 @@ func (d *Dispatcher) Dispatch(ctx context.Context, evt events.EventEnvelope, ack
 	}
 	logger.Add("handler_type", fmt.Sprintf("%T", handler))
 
-	if err := handler(ctx, evt, ack); err != nil {
+	if err := handler.HandleEvent(ctx, evt, ack); err != nil {
 		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		return fmt.Errorf("failed to dispatch event for handler %T with event type %s: %w",
-			handler, evt.Type, err,
-		)
+		return fmt.Errorf("handler %T failed to process event %s: %w",
+			handler, evt.Type, err)
 	}
 
 	span.SetStatus(codes.Ok, "event dispatched successfully")

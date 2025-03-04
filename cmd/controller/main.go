@@ -333,7 +333,7 @@ func main() {
 	scannerService := scanning.NewScannerService(hostname, scannerRepo, log, tracer)
 
 	rulesService := rules.NewService(rulesStore.NewStore(pool, tracer, metricCollector))
-	orchestrator := orchestration.NewOrchestrator(
+	orchestrator, err := orchestration.NewOrchestrator(
 		hostname,
 		coord,
 		eventBus,
@@ -349,6 +349,10 @@ func main() {
 		metricCollector,
 		tracer,
 	)
+	if err != nil {
+		log.Error(ctx, "failed to create orchestrator", "error", err)
+		os.Exit(1)
+	}
 	defer orchestrator.Stop(ctx)
 
 	log.Info(ctx, "Orchestrator initialized")

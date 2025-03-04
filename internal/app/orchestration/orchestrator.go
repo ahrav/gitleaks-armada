@@ -16,6 +16,7 @@ import (
 
 	"github.com/ahrav/gitleaks-armada/internal/app/cluster"
 	enumCoordinator "github.com/ahrav/gitleaks-armada/internal/app/enumeration"
+	"github.com/ahrav/gitleaks-armada/internal/app/orchestration/handlers"
 	rulessvc "github.com/ahrav/gitleaks-armada/internal/app/rules"
 	scan "github.com/ahrav/gitleaks-armada/internal/app/scanning"
 	"github.com/ahrav/gitleaks-armada/internal/domain/enumeration"
@@ -97,7 +98,7 @@ func NewOrchestrator(
 	logger *logger.Logger,
 	metrics OrchestrationMetrics,
 	tracer trace.Tracer,
-) *Orchestrator {
+) (*Orchestrator, error) {
 	componentLogger := logger.With("component", "orchestrator")
 	o := &Orchestrator{
 		controllerID:       id,
@@ -135,43 +136,30 @@ func NewOrchestrator(
 		tracer,
 	)
 
-	eventsFacilitator := NewEventsFacilitator(
+	dispatcher := eventdispatcher.New(id, tracer, logger)
+	ctx := context.Background()
+
+	scanHandler := handlers.NewScanningHandler(
 		id,
 		jobScheduler,
 		executionTracker,
 		o.taskHealthSupervisor,
 		o.metricsAggregator,
 		o.enumService,
-		rulesService,
 		tracer,
 	)
-	dispatcher := eventdispatcher.New(id, tracer, logger)
-	ctx := context.Background()
+	if err := dispatcher.RegisterHandler(ctx, scanHandler); err != nil {
+		return nil, err
+	}
 
-	dispatcher.RegisterHandler(
-		ctx,
-		scanning.EventTypeJobRequested,
-		eventsFacilitator.HandleScanJobRequested,
-	)
-	dispatcher.RegisterHandler(ctx, scanning.EventTypeJobScheduled, eventsFacilitator.HandleScanJobScheduled)
-	dispatcher.RegisterHandler(ctx, scanning.EventTypeTaskStarted, eventsFacilitator.HandleTaskStarted)
-	dispatcher.RegisterHandler(ctx, scanning.EventTypeTaskProgressed, eventsFacilitator.HandleTaskProgressed)
-	dispatcher.RegisterHandler(ctx, scanning.EventTypeTaskCompleted, eventsFacilitator.HandleTaskCompleted)
-	dispatcher.RegisterHandler(ctx, scanning.EventTypeTaskFailed, eventsFacilitator.HandleTaskFailed)
-	dispatcher.RegisterHandler(ctx, scanning.EventTypeTaskHeartbeat, eventsFacilitator.HandleTaskHeartbeat)
-	dispatcher.RegisterHandler(ctx, rules.EventTypeRulesUpdated, eventsFacilitator.HandleRule)
-	dispatcher.RegisterHandler(ctx, rules.EventTypeRulesPublished, eventsFacilitator.HandleRulesPublished)
-	dispatcher.RegisterHandler(ctx, scanning.EventTypeTaskJobMetric, eventsFacilitator.HandleTaskJobMetric)
-	dispatcher.RegisterHandler(ctx, scanning.EventTypeJobEnumerationCompleted, eventsFacilitator.HandleTaskJobMetric)
-	dispatcher.RegisterHandler(ctx, scanning.EventTypeJobPausing, eventsFacilitator.HandleJobPausing)
-	dispatcher.RegisterHandler(ctx, scanning.EventTypeTaskPaused, eventsFacilitator.HandleTaskPaused)
-	dispatcher.RegisterHandler(ctx, scanning.EventTypeJobCancelling, eventsFacilitator.HandleJobCancelling)
-	dispatcher.RegisterHandler(ctx, scanning.EventTypeTaskCancelled, eventsFacilitator.HandleTaskCancelled)
-	dispatcher.RegisterHandler(ctx, scanning.EventTypeJobResuming, eventsFacilitator.HandleJobResuming)
+	rulesHandler := handlers.NewRulesHandler(id, rulesService, tracer)
+	if err := dispatcher.RegisterHandler(ctx, rulesHandler); err != nil {
+		return nil, err
+	}
 
 	o.dispatcher = dispatcher
 
-	return o
+	return o, nil
 }
 
 // Run starts the orchestrator's leadership election and target processing loop. It manages
