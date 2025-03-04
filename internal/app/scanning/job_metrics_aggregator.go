@@ -966,15 +966,15 @@ func (t *jobMetricsAggregator) tryFinalizeJobIfDone(ctx context.Context, st *Agg
 // Flushing
 // ------------------------------------------------------------------------------
 
-// LaunchMetricsFlusher starts a separate goroutine that periodically invokes FlushMetrics.
-// This ensures that in-memory metrics are regularly persisted to the database.
-func (t *jobMetricsAggregator) LaunchMetricsFlusher(interval time.Duration) {
+// StartMetricsFlusher starts a background goroutine that periodically persists metrics
+// to storage. It returns immediately while the flushing continues in the background
+// until the aggregator is stopped.
+func (t *jobMetricsAggregator) StartMetricsFlusher(interval time.Duration) {
 	logger := t.logger.With(
-		"operation", "launch_metrics_flusher",
+		"operation", "metrics_flusher",
 		"interval", interval,
 	)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := context.Background()
 
 	ctx, span := t.tracer.Start(ctx, "job_metrics_aggregator.start_metrics_flush",
 		trace.WithAttributes(
@@ -984,26 +984,30 @@ func (t *jobMetricsAggregator) LaunchMetricsFlusher(interval time.Duration) {
 
 	span.AddEvent("starting_metrics_flusher")
 	logger.Info(ctx, "starting metrics flusher")
-
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
 	span.End()
 
-	for {
-		select {
-		case <-ctx.Done():
-			// Ensure final flush on shutdown.
-			if err := t.FlushMetrics(ctx); err != nil {
-				logger.Error(ctx, "failed to flush metrics on shutdown", "error", err)
-			}
-			return
-		case <-ticker.C:
-			if err := t.FlushMetrics(ctx); err != nil {
-				logger.Error(ctx, "failed to flush metrics on tick", "error", err)
+	// Launch the flusher in a background goroutine
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-t.stopCh:
+				// Ensure final flush on shutdown
+				shutdownCtx := context.Background()
+				if err := t.FlushMetrics(shutdownCtx); err != nil {
+					logger.Error(shutdownCtx, "failed to flush metrics on shutdown", "error", err)
+				}
+				return
+			case <-ticker.C:
+				flushCtx := context.Background()
+				if err := t.FlushMetrics(flushCtx); err != nil {
+					logger.Error(flushCtx, "failed to flush metrics on tick", "error", err)
+				}
 			}
 		}
-	}
+	}()
 }
 
 // FlushMetrics persists the aggregator's in-memory metrics and checkpoints to

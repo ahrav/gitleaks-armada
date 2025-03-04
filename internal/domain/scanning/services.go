@@ -136,12 +136,13 @@ const (
 // across distributed task processing. It maintains in-memory state for real-time
 // updates while ensuring durability through periodic persistence.
 type JobMetricsAggregator interface {
-	// LaunchMetricsFlusher runs a metrics flushing loop that periodically persists
-	// metrics to storage. It blocks until the context is canceled or an error occurs.
-	// Callers typically run this in a separate goroutine:
-	//     go tracker.LaunchMetricsFlusher(10*time.Second)
-	// This allows us to batch updates to storage and reduce the number of round trips.
-	LaunchMetricsFlusher(interval time.Duration)
+	// StartMetricsFlusher starts a background goroutine that periodically persists
+	// metrics to storage. It returns immediately while the flushing continues in the background
+	// until the aggregator is stopped.
+	//
+	// This allows batch updates to storage to reduce the number of round trips while
+	// ensuring metrics are regularly persisted for durability.
+	StartMetricsFlusher(interval time.Duration)
 
 	// HandleJobMetrics processes task-related events to update job metrics.
 	// It maintains both task status and aggregated job metrics in memory.

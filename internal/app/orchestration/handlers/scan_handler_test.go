@@ -82,7 +82,7 @@ func (m *mockTaskHealthMonitor) Stop() { m.Called() }
 
 type mockJobMetricsAggregator struct{ mock.Mock }
 
-func (m *mockJobMetricsAggregator) LaunchMetricsFlusher(interval time.Duration) { m.Called(interval) }
+func (m *mockJobMetricsAggregator) StartMetricsFlusher(interval time.Duration) { m.Called(interval) }
 
 func (m *mockJobMetricsAggregator) FlushMetrics(ctx context.Context) error {
 	return m.Called(ctx).Error(0)

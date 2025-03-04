@@ -124,7 +124,6 @@ func NewOrchestrator(
 	)
 
 	o.metricsAggregator = scan.NewJobMetricsAggregator(id, jobTaskSvc, eventReplayer, logger, tracer)
-	go o.metricsAggregator.LaunchMetricsFlusher(30 * time.Second)
 
 	o.enumService = enumCoordinator.NewEnumService(id, enumCoord, eventPublisher, logger, metrics, tracer)
 	jobScheduler := scan.NewJobScheduler(
@@ -183,6 +182,9 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 			attribute.String("start_time", o.startTime.Format(time.RFC3339)),
 		))
 	logger.Info(runCtx, "Orchestrator started")
+
+	o.metricsAggregator.StartMetricsFlusher(30 * time.Second)
+	runSpan.AddEvent("metrics_flusher_started")
 
 	o.taskHealthSupervisor.Start(runCtx)
 	runSpan.AddEvent("heartbeat_monitor_started")
