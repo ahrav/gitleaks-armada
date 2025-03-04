@@ -183,9 +183,14 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 		))
 	logger.Info(runCtx, "Orchestrator started")
 
+	// The metrics flusher will run in the background and flush job metrics to storage
+	// periodically.
 	o.metricsAggregator.StartMetricsFlusher(30 * time.Second)
 	runSpan.AddEvent("metrics_flusher_started")
 
+	// The task health supervisor will run in the background and check for stale tasks
+	// periodically. If a task is found to be stale, it will be marked as such and
+	// a task-stale event will be published in order to trigger a recovery operation.
 	o.taskHealthSupervisor.Start(runCtx)
 	runSpan.AddEvent("heartbeat_monitor_started")
 
@@ -194,10 +199,11 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	defer close(leaderCh)
 
 	leaderCtx, leaderCancel := context.WithCancel(runCtx)
-	o.registerCancelFunc(leaderCancel)
+	o.mu.Lock()
+	o.cancelFn = leaderCancel
+	o.mu.Unlock()
 
 	o.setupLeadershipCallback(leaderCtx, leaderCh)
-
 	go o.startLeadershipLoop(leaderCtx, leaderCh, readyCh)
 
 	if err := o.startCoordinator(leaderCtx); err != nil {
@@ -222,13 +228,6 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	// Wait for context cancellation.
 	<-ctx.Done()
 	return nil
-}
-
-// registerCancelFunc safely stores the cancellation function under lock.
-func (o *Orchestrator) registerCancelFunc(cancel context.CancelFunc) {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	o.cancelFn = cancel
 }
 
 // makeOrchestrationChannels creates the channels needed for leadership coordination
