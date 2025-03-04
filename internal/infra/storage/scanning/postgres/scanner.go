@@ -38,7 +38,7 @@ func (r *scannerStore) CreateScannerGroup(ctx context.Context, group *scanning.S
 	)
 
 	return storage.ExecuteAndTrace(ctx, r.tracer, "postgres.create_scanner_group", dbAttrs, func(ctx context.Context) error {
-		err := r.q.CreateScannerGroup(ctx, db.CreateScannerGroupParams{
+		rowsAffected, err := r.q.CreateScannerGroup(ctx, db.CreateScannerGroupParams{
 			ID:          pgtype.UUID{Bytes: group.ID(), Valid: true},
 			Name:        group.Name(),
 			Description: pgtype.Text{String: group.Description(), Valid: true},
@@ -46,6 +46,11 @@ func (r *scannerStore) CreateScannerGroup(ctx context.Context, group *scanning.S
 
 		if err != nil {
 			return fmt.Errorf("failed to create scanner group: %w", err)
+		}
+
+		// If no rows were affected, the group already exists (due to ON CONFLICT DO NOTHING).
+		if rowsAffected == 0 {
+			return scanning.ErrScannerGroupAlreadyExists
 		}
 
 		return nil

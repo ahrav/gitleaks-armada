@@ -194,7 +194,7 @@ func (q *Queries) CreateScanner(ctx context.Context, arg CreateScannerParams) er
 	return err
 }
 
-const createScannerGroup = `-- name: CreateScannerGroup :exec
+const createScannerGroup = `-- name: CreateScannerGroup :execrows
 
 INSERT INTO scanner_groups (
     id,
@@ -204,7 +204,7 @@ INSERT INTO scanner_groups (
     $1, -- id UUID
     $2, -- name VARCHAR(255)
     $3  -- description TEXT
-)
+) ON CONFLICT DO NOTHING
 `
 
 type CreateScannerGroupParams struct {
@@ -214,9 +214,12 @@ type CreateScannerGroupParams struct {
 }
 
 // Scanner Group Queries
-func (q *Queries) CreateScannerGroup(ctx context.Context, arg CreateScannerGroupParams) error {
-	_, err := q.db.Exec(ctx, createScannerGroup, arg.ID, arg.Name, arg.Description)
-	return err
+func (q *Queries) CreateScannerGroup(ctx context.Context, arg CreateScannerGroupParams) (int64, error) {
+	result, err := q.db.Exec(ctx, createScannerGroup, arg.ID, arg.Name, arg.Description)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const findStaleTasks = `-- name: FindStaleTasks :many

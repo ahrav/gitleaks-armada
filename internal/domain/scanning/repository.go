@@ -106,8 +106,11 @@ type TaskRepository interface {
 var (
 	// ErrScannerNotFound indicates that the requested scanner was not found.
 	ErrScannerNotFound = errors.New("scanner not found")
-	// ErrGroupNotFound indicates that the requested scanner group was not found.
-	ErrGroupNotFound = errors.New("scanner group not found")
+	// ErrScannerGroupNotFound indicates that the requested scanner group was not found.
+	ErrScannerGroupNotFound = errors.New("scanner group not found")
+	// ErrScannerGroupAlreadyExists indicates that a scanner group
+	// with the same identifier or name already exists.
+	ErrScannerGroupAlreadyExists = errors.New("scanner group already exists")
 )
 
 // ScannerRepository defines the persistence operations for scanner groups and scanners.

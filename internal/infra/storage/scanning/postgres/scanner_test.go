@@ -62,6 +62,7 @@ func createTestScanner(t *testing.T, groupID uuid.UUID) *scanning.Scanner {
 }
 
 func TestScannerStore_CreateScannerGroup(t *testing.T) {
+	t.Parallel()
 	ctx, _, repo, cleanup := setupScannerTest(t)
 	defer cleanup()
 
@@ -78,6 +79,7 @@ func TestScannerStore_CreateScannerGroup(t *testing.T) {
 }
 
 func TestScannerStore_CreateDuplicateScannerGroup(t *testing.T) {
+	t.Parallel()
 	ctx, _, repo, cleanup := setupScannerTest(t)
 	defer cleanup()
 
@@ -95,7 +97,7 @@ func TestScannerStore_CreateDuplicateScannerGroup(t *testing.T) {
 	require.NoError(t, err, "Failed to create duplicate scanner group")
 
 	err = repo.CreateScannerGroup(ctx, duplicateGroup)
-	assert.Error(t, err, "Creating a group with duplicate ID should fail")
+	assert.ErrorIs(t, err, scanning.ErrScannerGroupAlreadyExists, "Should return ErrGroupAlreadyExists for duplicate ID")
 
 	// Creating another group with the same name should fail.
 	duplicateNameGroup, err := scanning.NewScannerGroup(
@@ -106,10 +108,11 @@ func TestScannerStore_CreateDuplicateScannerGroup(t *testing.T) {
 	require.NoError(t, err, "Failed to create duplicate scanner group")
 
 	err = repo.CreateScannerGroup(ctx, duplicateNameGroup)
-	assert.Error(t, err, "Creating a group with duplicate name should fail")
+	assert.ErrorIs(t, err, scanning.ErrScannerGroupAlreadyExists, "Should return ErrGroupAlreadyExists for duplicate name")
 }
 
 func TestScannerStore_CreateScanner(t *testing.T) {
+	t.Parallel()
 	ctx, _, repo, cleanup := setupScannerTest(t)
 	defer cleanup()
 
@@ -129,6 +132,7 @@ func TestScannerStore_CreateScanner(t *testing.T) {
 }
 
 func TestScannerStore_CreateScannerInvalidGroup(t *testing.T) {
+	t.Parallel()
 	ctx, _, repo, cleanup := setupScannerTest(t)
 	defer cleanup()
 

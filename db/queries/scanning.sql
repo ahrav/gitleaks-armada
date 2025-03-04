@@ -267,7 +267,7 @@ WHERE j.job_id = $1;
 
 -- Scanner Group Queries
 
--- name: CreateScannerGroup :exec
+-- name: CreateScannerGroup :execrows
 INSERT INTO scanner_groups (
     id,
     name,
@@ -276,7 +276,7 @@ INSERT INTO scanner_groups (
     $1, -- id UUID
     $2, -- name VARCHAR(255)
     $3  -- description TEXT
-);
+) ON CONFLICT DO NOTHING;
 
 -- Scanner Queries
 
