@@ -105,6 +105,7 @@ func NewOrchestrator(
 		eventBus:           queue,
 		eventPublisher:     eventPublisher,
 		rulesService:       rulesService,
+		scannerService:     scannerService,
 		metrics:            metrics,
 		logger:             componentLogger,
 		tracer:             tracer,
