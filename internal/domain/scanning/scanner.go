@@ -21,18 +21,6 @@ var (
 	ErrInvalidIPAddress = errors.New("invalid IP address")
 )
 
-// ScannerStatus represents the operational status of a scanner.
-type ScannerStatus string
-
-// Scanner status enum values.
-const (
-	ScannerStatusOnline      ScannerStatus = "online"
-	ScannerStatusOffline     ScannerStatus = "offline"
-	ScannerStatusMaintenance ScannerStatus = "maintenance"
-	ScannerStatusError       ScannerStatus = "error"
-	ScannerStatusUnknown     ScannerStatus = "unknown"
-)
-
 // Scanner represents a scanning agent in the system capable of executing scan jobs.
 // It is an aggregate root in the scanning domain that encapsulates the identity,
 // state, and behavior of an individual scanning agent along with its lifecycle.
