@@ -148,4 +148,4 @@ CREATE TABLE scanners (
 );
 
 -- Indexes
-CREATE INDEX idx_scanners_group_id ON scanners(group_id);
+CREATE INDEX idx_scanners_group_id_name ON scanners(group_id, name);
