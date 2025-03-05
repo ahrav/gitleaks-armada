@@ -256,6 +256,7 @@ func main() {
 		RulesRequestTopic:     os.Getenv("KAFKA_RULES_REQUEST_TOPIC"),
 		RulesResponseTopic:    os.Getenv("KAFKA_RULES_RESPONSE_TOPIC"),
 		JobLifecycleTopic:     os.Getenv("KAFKA_JOB_LIFECYCLE_TOPIC"),
+		ScannerLifecycleTopic: os.Getenv("KAFKA_SCANNER_LIFECYCLE_TOPIC"),
 		GroupID:               os.Getenv("KAFKA_GROUP_ID"),
 		ClientID:              svcName,
 		ServiceType:           serviceType,
