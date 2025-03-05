@@ -97,6 +97,7 @@ func (h *ScannerHandler) withSpan(
 }
 
 // HandleScannerRegistered processes a scanner registration event.
+// TODO: Test needed!!!!
 func (h *ScannerHandler) HandleScannerRegistered(
 	ctx context.Context,
 	evt events.EventEnvelope,

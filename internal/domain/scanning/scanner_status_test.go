@@ -26,24 +26,12 @@ func TestValidateTransition_ValidScannerTransitions(t *testing.T) {
 			targetStatus:  ScannerStatusOnline,
 			shouldBeValid: true,
 		},
-		{
-			name:          "Busy to Busy",
-			currentStatus: ScannerStatusBusy,
-			targetStatus:  ScannerStatusBusy,
-			shouldBeValid: true,
-		},
 
 		// Common valid transitions
 		{
 			name:          "Unspecified to Online",
 			currentStatus: ScannerStatusUnspecified,
 			targetStatus:  ScannerStatusOnline,
-			shouldBeValid: true,
-		},
-		{
-			name:          "Online to Busy",
-			currentStatus: ScannerStatusOnline,
-			targetStatus:  ScannerStatusBusy,
 			shouldBeValid: true,
 		},
 		{
@@ -65,18 +53,6 @@ func TestValidateTransition_ValidScannerTransitions(t *testing.T) {
 			shouldBeValid: true,
 		},
 		{
-			name:          "Busy to Online",
-			currentStatus: ScannerStatusBusy,
-			targetStatus:  ScannerStatusOnline,
-			shouldBeValid: true,
-		},
-		{
-			name:          "Busy to Offline",
-			currentStatus: ScannerStatusBusy,
-			targetStatus:  ScannerStatusOffline,
-			shouldBeValid: true,
-		},
-		{
 			name:          "Offline to Online",
 			currentStatus: ScannerStatusOffline,
 			targetStatus:  ScannerStatusOnline,
@@ -89,9 +65,27 @@ func TestValidateTransition_ValidScannerTransitions(t *testing.T) {
 			shouldBeValid: true,
 		},
 		{
+			name:          "Offline to Error",
+			currentStatus: ScannerStatusOffline,
+			targetStatus:  ScannerStatusError,
+			shouldBeValid: true,
+		},
+		{
 			name:          "Maintenance to Online",
 			currentStatus: ScannerStatusMaintenance,
 			targetStatus:  ScannerStatusOnline,
+			shouldBeValid: true,
+		},
+		{
+			name:          "Maintenance to Offline",
+			currentStatus: ScannerStatusMaintenance,
+			targetStatus:  ScannerStatusOffline,
+			shouldBeValid: true,
+		},
+		{
+			name:          "Maintenance to Error",
+			currentStatus: ScannerStatusMaintenance,
+			targetStatus:  ScannerStatusError,
 			shouldBeValid: true,
 		},
 		{
@@ -126,28 +120,10 @@ func TestValidateTransition_InvalidScannerTransitions(t *testing.T) {
 	}{
 		// Invalid transitions
 		{
-			name:          "Error to Busy",
-			currentStatus: ScannerStatusError,
-			targetStatus:  ScannerStatusBusy,
-			shouldBeValid: false, // Error can't directly go to Busy, must go through Online
-		},
-		{
 			name:          "Error to Unspecified",
 			currentStatus: ScannerStatusError,
 			targetStatus:  ScannerStatusUnspecified,
 			shouldBeValid: false, // Can't go back to Unspecified
-		},
-		{
-			name:          "Offline to Busy",
-			currentStatus: ScannerStatusOffline,
-			targetStatus:  ScannerStatusBusy,
-			shouldBeValid: false, // Offline can't directly go to Busy, must go through Online
-		},
-		{
-			name:          "Maintenance to Busy",
-			currentStatus: ScannerStatusMaintenance,
-			targetStatus:  ScannerStatusBusy,
-			shouldBeValid: false, // Maintenance can't directly go to Busy, must go through Online
 		},
 	}
 

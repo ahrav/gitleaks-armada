@@ -51,17 +51,6 @@ enum ScanJobStatus {
   SCAN_JOB_STATUS_FAILED = 9;
 }
 
-// ScannerStatus represents the possible states of a scanner in the system.
-enum ScannerStatus {
-  SCANNER_STATUS_UNSPECIFIED = 0;
-  SCANNER_STATUS_ONLINE = 1;  // Scanner is connected and ready to accept tasks
-  SCANNER_STATUS_BUSY = 2;    // Scanner is connected and processing tasks
-  SCANNER_STATUS_OFFLINE = 3; // Scanner is not connected or has timed out
-  SCANNER_STATUS_MAINTENANCE =
-      4; // Scanner is online but not accepting tasks (maintenance mode)
-  SCANNER_STATUS_ERROR = 5; // Scanner is in an error state
-}
-
 enum TaskStatus {
   TASK_STATUS_UNSPECIFIED = 0;
   TASK_STATUS_PENDING = 1;
@@ -222,6 +211,16 @@ message TaskCancelledEvent {
   int64 timestamp = 3;
   string requested_by = 4;
   int64 cancelled_at = 5;
+}
+
+// ScannerStatus represents the possible states of a scanner in the system.
+enum ScannerStatus {
+  SCANNER_STATUS_UNSPECIFIED = 0;
+  SCANNER_STATUS_ONLINE = 1;  // Scanner is connected and ready to accept tasks
+  SCANNER_STATUS_OFFLINE = 2; // Scanner is not connected or has timed out
+  SCANNER_STATUS_MAINTENANCE =
+      3; // Scanner is online but not accepting tasks (maintenance mode)
+  SCANNER_STATUS_ERROR = 4; // Scanner is in an error state
 }
 
 // ScannerRegisteredEvent is emitted when a scanner registers with the system.

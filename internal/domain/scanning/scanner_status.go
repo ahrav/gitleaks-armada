@@ -13,7 +13,6 @@ type ScannerStatus string
 const (
 	ScannerStatusUnspecified ScannerStatus = "UNSPECIFIED"
 	ScannerStatusOnline      ScannerStatus = "ONLINE"
-	ScannerStatusBusy        ScannerStatus = "BUSY"
 	ScannerStatusOffline     ScannerStatus = "OFFLINE"
 	ScannerStatusMaintenance ScannerStatus = "MAINTENANCE"
 	ScannerStatusError       ScannerStatus = "ERROR"
@@ -31,8 +30,6 @@ func (s ScannerStatus) Int32() int32 {
 		return int32(pb.ScannerStatus_SCANNER_STATUS_UNSPECIFIED)
 	case ScannerStatusOnline:
 		return int32(pb.ScannerStatus_SCANNER_STATUS_ONLINE)
-	case ScannerStatusBusy:
-		return int32(pb.ScannerStatus_SCANNER_STATUS_BUSY)
 	case ScannerStatusOffline:
 		return int32(pb.ScannerStatus_SCANNER_STATUS_OFFLINE)
 	case ScannerStatusMaintenance:
@@ -56,8 +53,6 @@ func (s ScannerStatus) ProtoString() string {
 		return "SCANNER_STATUS_UNSPECIFIED"
 	case ScannerStatusOnline:
 		return "SCANNER_STATUS_ONLINE"
-	case ScannerStatusBusy:
-		return "SCANNER_STATUS_BUSY"
 	case ScannerStatusOffline:
 		return "SCANNER_STATUS_OFFLINE"
 	case ScannerStatusMaintenance:
@@ -76,8 +71,6 @@ func ScannerStatusFromInt32(i int32) ScannerStatus {
 		return ScannerStatusUnspecified
 	case int32(pb.ScannerStatus_SCANNER_STATUS_ONLINE):
 		return ScannerStatusOnline
-	case int32(pb.ScannerStatus_SCANNER_STATUS_BUSY):
-		return ScannerStatusBusy
 	case int32(pb.ScannerStatus_SCANNER_STATUS_OFFLINE):
 		return ScannerStatusOffline
 	case int32(pb.ScannerStatus_SCANNER_STATUS_MAINTENANCE):
@@ -101,8 +94,6 @@ func ParseScannerStatus(s string) ScannerStatus {
 		return ScannerStatusUnspecified
 	case "ONLINE", "scanner_status_online", "SCANNER_STATUS_ONLINE":
 		return ScannerStatusOnline
-	case "BUSY", "scanner_status_busy", "SCANNER_STATUS_BUSY":
-		return ScannerStatusBusy
 	case "OFFLINE", "scanner_status_offline", "SCANNER_STATUS_OFFLINE":
 		return ScannerStatusOffline
 	case "MAINTENANCE", "scanner_status_maintenance", "SCANNER_STATUS_MAINTENANCE":
@@ -136,9 +127,6 @@ func (s ScannerStatus) IsValidTransition(target ScannerStatus) bool {
 	case ScannerStatusOnline:
 		// Online can transition to any other specific status
 		return target != ScannerStatusUnspecified
-	case ScannerStatusBusy:
-		// Busy can transition to any other specific status
-		return target != ScannerStatusUnspecified
 	case ScannerStatusOffline:
 		// Offline can transition to Online, Maintenance, or Error
 		return target == ScannerStatusOnline ||
@@ -152,7 +140,7 @@ func (s ScannerStatus) IsValidTransition(target ScannerStatus) bool {
 	case ScannerStatusError:
 		// Error can transition to any specific status except Busy
 		// (must go through Online first)
-		return target != ScannerStatusUnspecified && target != ScannerStatusBusy
+		return target != ScannerStatusUnspecified
 	default:
 		return false
 	}

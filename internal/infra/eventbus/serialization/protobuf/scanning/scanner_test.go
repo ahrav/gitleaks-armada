@@ -93,7 +93,7 @@ func TestScannerRegisteredEventConversion(t *testing.T) {
 func TestScannerHeartbeatEventConversion(t *testing.T) {
 	t.Run("successful conversion", func(t *testing.T) {
 		scannerID := uuid.New()
-		status := scanning.ScannerStatusBusy
+		status := scanning.ScannerStatusMaintenance
 		metrics := map[string]float64{
 			"cpu_usage":    0.75,
 			"memory_usage": 0.5,
@@ -120,7 +120,7 @@ func TestScannerHeartbeatEventConversion(t *testing.T) {
 	t.Run("invalid UUID", func(t *testing.T) {
 		protoEvent := &pb.ScannerHeartbeatEvent{
 			ScannerId: "invalid-uuid",
-			Status:    pb.ScannerStatus_SCANNER_STATUS_BUSY,
+			Status:    pb.ScannerStatus_SCANNER_STATUS_OFFLINE,
 			Timestamp: 0,
 			Metrics:   map[string]float64{},
 		}
@@ -140,7 +140,7 @@ func TestScannerHeartbeatEventConversion(t *testing.T) {
 func TestScannerStatusChangedEventConversion(t *testing.T) {
 	t.Run("successful conversion", func(t *testing.T) {
 		scannerID := uuid.New()
-		newStatus := scanning.ScannerStatusBusy
+		newStatus := scanning.ScannerStatusOffline
 		previousStatus := scanning.ScannerStatusOnline
 		reason := "scanner started processing tasks"
 
@@ -167,7 +167,7 @@ func TestScannerStatusChangedEventConversion(t *testing.T) {
 	t.Run("invalid UUID", func(t *testing.T) {
 		protoEvent := &pb.ScannerStatusChangedEvent{
 			ScannerId:      "invalid-uuid",
-			NewStatus:      pb.ScannerStatus_SCANNER_STATUS_BUSY,
+			NewStatus:      pb.ScannerStatus_SCANNER_STATUS_OFFLINE,
 			PreviousStatus: pb.ScannerStatus_SCANNER_STATUS_ONLINE,
 			Reason:         "test reason",
 			Timestamp:      0,
