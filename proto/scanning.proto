@@ -51,6 +51,17 @@ enum ScanJobStatus {
   SCAN_JOB_STATUS_FAILED = 9;
 }
 
+// ScannerStatus represents the possible states of a scanner in the system.
+enum ScannerStatus {
+  SCANNER_STATUS_UNSPECIFIED = 0;
+  SCANNER_STATUS_ONLINE = 1;  // Scanner is connected and ready to accept tasks
+  SCANNER_STATUS_BUSY = 2;    // Scanner is connected and processing tasks
+  SCANNER_STATUS_OFFLINE = 3; // Scanner is not connected or has timed out
+  SCANNER_STATUS_MAINTENANCE =
+      4; // Scanner is online but not accepting tasks (maintenance mode)
+  SCANNER_STATUS_ERROR = 5; // Scanner is in an error state
+}
+
 enum TaskStatus {
   TASK_STATUS_UNSPECIFIED = 0;
   TASK_STATUS_PENDING = 1;
@@ -211,4 +222,46 @@ message TaskCancelledEvent {
   int64 timestamp = 3;
   string requested_by = 4;
   int64 cancelled_at = 5;
+}
+
+// ScannerRegisteredEvent is emitted when a scanner registers with the system.
+message ScannerRegisteredEvent {
+  string scanner_id = 1;
+  string name = 2;
+  string version = 3;
+  repeated string capabilities = 4;
+  string group_name = 5; // Optional: if not provided, assigned to default group
+  string hostname = 6;
+  string ip_address = 7;
+  int64 timestamp = 8; // Unix timestamp in nanoseconds
+  map<string, string> tags = 9;
+  ScannerStatus initial_status = 10; // Initial status of the scanner
+}
+
+// ScannerHeartbeatEvent is emitted periodically by scanners to indicate they're
+// still alive.
+message ScannerHeartbeatEvent {
+  string scanner_id = 1;
+  ScannerStatus status = 2; // Current status: online, busy, etc.
+  int64 timestamp = 3;      // Unix timestamp in nanoseconds
+  map<string, double> metrics =
+      4; // Optional metrics about scanner health/performance
+}
+
+// ScannerStatusChangedEvent is emitted when a scanner's status changes.
+message ScannerStatusChangedEvent {
+  string scanner_id = 1;
+  ScannerStatus new_status =
+      2; // "online", "offline", "maintenance", "error", "unknown"
+  ScannerStatus previous_status = 3;
+  string reason = 4;   // Reason for the status change
+  int64 timestamp = 5; // Unix timestamp in nanoseconds
+}
+
+// ScannerDeregisteredEvent is emitted when a scanner gracefully deregisters
+// from the system.
+message ScannerDeregisteredEvent {
+  string scanner_id = 1;
+  string reason = 2;
+  int64 timestamp = 3; // Unix timestamp in nanoseconds
 }
