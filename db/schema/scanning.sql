@@ -129,7 +129,7 @@ CREATE TABLE scanner_groups (
 CREATE INDEX idx_scanner_groups_name ON scanner_groups (name);
 
 -- Scanner Status Enum
-CREATE TYPE scanner_status AS ENUM ('online', 'offline', 'maintenance', 'error', 'unknown');
+CREATE TYPE scanner_status AS ENUM ('ONLINE', 'OFFLINE', 'MAINTENANCE', 'ERROR', 'UNKNOWN');
 
 -- Scanners Table
 CREATE TABLE scanners (
@@ -138,7 +138,7 @@ CREATE TABLE scanners (
     name VARCHAR(255) NOT NULL,
     version VARCHAR(50) NOT NULL,
     last_heartbeat TIMESTAMPTZ,
-    status scanner_status NOT NULL DEFAULT 'online',
+    status scanner_status NOT NULL DEFAULT 'ONLINE',
     ip_address INET,
     hostname VARCHAR(255),
     metadata JSONB,

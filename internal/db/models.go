@@ -244,11 +244,11 @@ func (ns NullScanTaskStatus) Value() (driver.Value, error) {
 type ScannerStatus string
 
 const (
-	ScannerStatusOnline      ScannerStatus = "online"
-	ScannerStatusOffline     ScannerStatus = "offline"
-	ScannerStatusMaintenance ScannerStatus = "maintenance"
-	ScannerStatusError       ScannerStatus = "error"
-	ScannerStatusUnknown     ScannerStatus = "unknown"
+	ScannerStatusONLINE      ScannerStatus = "ONLINE"
+	ScannerStatusOFFLINE     ScannerStatus = "OFFLINE"
+	ScannerStatusMAINTENANCE ScannerStatus = "MAINTENANCE"
+	ScannerStatusERROR       ScannerStatus = "ERROR"
+	ScannerStatusUNKNOWN     ScannerStatus = "UNKNOWN"
 )
 
 func (e *ScannerStatus) Scan(src interface{}) error {
