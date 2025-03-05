@@ -3,6 +3,7 @@ package kafka
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"runtime/debug"
 	"time"
@@ -37,6 +38,9 @@ type EventBusConfig struct {
 
 	// JobLifecycleTopic is the topic for all job-related events (creation, metrics, enumeration, etc.).
 	JobLifecycleTopic string
+
+	// ScannerLifecycleTopic is the topic for all scanner-related events (registration, heartbeats, etc.).
+	ScannerLifecycleTopic string
 
 	// TaskCreatedTopic is the topic name for publishing task created events.
 	TaskCreatedTopic string
@@ -92,8 +96,16 @@ func NewEventBus(
 	metrics EventBusMetrics,
 	tracer trace.Tracer,
 ) (*EventBus, error) {
-	if metrics == nil {
-		return nil, fmt.Errorf("metrics are required for kafka event bus")
+	if cfg == nil {
+		return nil, errors.New("event bus config is required")
+	}
+
+	if producer == nil {
+		return nil, errors.New("producer is required")
+	}
+
+	if consumerGroup == nil {
+		return nil, errors.New("consumer group is required")
 	}
 
 	logger = logger.With(
@@ -103,31 +115,42 @@ func NewEventBus(
 		"service_type", cfg.ServiceType,
 	)
 
-	// Map domain events to their corresponding Kafka topics.
-	// TODO: Maybe use a more performant data structure for this?
-	topicMap := map[events.EventType]string{
-		rules.EventTypeRulesRequested:             cfg.RulesRequestTopic,     // controller -> scanner
-		rules.EventTypeRulesUpdated:               cfg.RulesResponseTopic,    // scanner -> controller
-		rules.EventTypeRulesPublished:             cfg.RulesResponseTopic,    // scanner -> controller
-		scanning.EventTypeJobRequested:            cfg.JobLifecycleTopic,     // api -> controller
-		scanning.EventTypeJobScheduled:            cfg.JobLifecycleTopic,     // controller -> controller
-		scanning.EventTypeJobPausing:              cfg.JobLifecycleTopic,     // controller -> controller
-		scanning.EventTypeJobPaused:               cfg.JobBroadcastTopic,     // controller -> scanner (broadcast)
-		scanning.EventTypeJobResuming:             cfg.JobLifecycleTopic,     // controller -> controller
-		scanning.EventTypeJobCancelling:           cfg.JobLifecycleTopic,     // controller -> controller
-		scanning.EventTypeJobCancelled:            cfg.JobBroadcastTopic,     // controller -> scanner (broadcast)
-		scanning.EventTypeTaskCreated:             cfg.TaskCreatedTopic,      // controller -> scanner
-		scanning.EventTypeJobEnumerationCompleted: cfg.JobLifecycleTopic,     // controller -> controller
-		scanning.EventTypeTaskStarted:             cfg.ScanningTaskTopic,     // scanner -> controller
-		scanning.EventTypeTaskProgressed:          cfg.ScanningTaskTopic,     // scanner -> controller
-		scanning.EventTypeTaskPaused:              cfg.ScanningTaskTopic,     // controller -> scanner
-		scanning.EventTypeTaskCompleted:           cfg.ScanningTaskTopic,     // scanner -> controller
-		scanning.EventTypeTaskFailed:              cfg.ScanningTaskTopic,     // scanner -> controller
-		scanning.EventTypeTaskHeartbeat:           cfg.ScanningTaskTopic,     // scanner -> controller
-		scanning.EventTypeTaskResume:              cfg.HighPriorityTaskTopic, // controller -> scanner
-		scanning.EventTypeTaskJobMetric:           cfg.JobLifecycleTopic,     // scanner -> controller && controller -> controller
-		scanning.EventTypeTaskCancelled:           cfg.ScanningTaskTopic,     // scanner -> controller
-	}
+	topicMap := make(map[events.EventType]string)
+
+	// Map job events to appropriate topics.
+	topicMap[scanning.EventTypeJobRequested] = cfg.JobLifecycleTopic
+	topicMap[scanning.EventTypeJobScheduled] = cfg.JobLifecycleTopic
+	topicMap[scanning.EventTypeJobEnumerationCompleted] = cfg.JobLifecycleTopic
+	topicMap[scanning.EventTypeJobCompleted] = cfg.JobLifecycleTopic
+	topicMap[scanning.EventTypeJobFailed] = cfg.JobLifecycleTopic
+	topicMap[scanning.EventTypeJobPausing] = cfg.JobBroadcastTopic // broadcast to all scanners
+	topicMap[scanning.EventTypeJobPaused] = cfg.JobLifecycleTopic
+	topicMap[scanning.EventTypeJobResuming] = cfg.JobBroadcastTopic   // broadcast to all scanners
+	topicMap[scanning.EventTypeJobCancelling] = cfg.JobBroadcastTopic // broadcast to all scanners
+	topicMap[scanning.EventTypeJobCancelled] = cfg.JobLifecycleTopic
+
+	// Map scanner events to ScannerLifecycleTopic.
+	topicMap[scanning.EventTypeScannerRegistered] = cfg.ScannerLifecycleTopic
+	topicMap[scanning.EventTypeScannerHeartbeat] = cfg.ScannerLifecycleTopic
+	topicMap[scanning.EventTypeScannerStatusChanged] = cfg.ScannerLifecycleTopic
+	topicMap[scanning.EventTypeScannerDeregistered] = cfg.ScannerLifecycleTopic
+
+	// Map rules events to their corresponding Kafka topics.
+	topicMap[rules.EventTypeRulesRequested] = cfg.RulesRequestTopic
+	topicMap[rules.EventTypeRulesUpdated] = cfg.RulesResponseTopic
+	topicMap[rules.EventTypeRulesPublished] = cfg.RulesResponseTopic
+
+	// Map task events to their corresponding Kafka topics.
+	topicMap[scanning.EventTypeTaskCreated] = cfg.TaskCreatedTopic
+	topicMap[scanning.EventTypeTaskStarted] = cfg.ScanningTaskTopic
+	topicMap[scanning.EventTypeTaskProgressed] = cfg.ScanningTaskTopic
+	topicMap[scanning.EventTypeTaskPaused] = cfg.ScanningTaskTopic
+	topicMap[scanning.EventTypeTaskCompleted] = cfg.ScanningTaskTopic
+	topicMap[scanning.EventTypeTaskFailed] = cfg.ScanningTaskTopic
+	topicMap[scanning.EventTypeTaskHeartbeat] = cfg.ScanningTaskTopic
+	topicMap[scanning.EventTypeTaskResume] = cfg.HighPriorityTaskTopic
+	topicMap[scanning.EventTypeTaskJobMetric] = cfg.JobLifecycleTopic
+	topicMap[scanning.EventTypeTaskCancelled] = cfg.ScanningTaskTopic
 
 	bus := &EventBus{
 		producer:      producer,

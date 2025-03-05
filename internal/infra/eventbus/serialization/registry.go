@@ -177,6 +177,19 @@ func RegisterEventSerializers() {
 	RegisterSerializeFunc(scanning.EventTypeTaskCancelled, serializeTaskCancelled)
 	RegisterDeserializeFunc(scanning.EventTypeTaskCancelled, deserializeTaskCancelled)
 
+	// Scanner events
+	RegisterSerializeFunc(scanning.EventTypeScannerRegistered, serializeScannerRegistered)
+	RegisterDeserializeFunc(scanning.EventTypeScannerRegistered, deserializeScannerRegistered)
+
+	RegisterSerializeFunc(scanning.EventTypeScannerHeartbeat, serializeScannerHeartbeat)
+	RegisterDeserializeFunc(scanning.EventTypeScannerHeartbeat, deserializeScannerHeartbeat)
+
+	RegisterSerializeFunc(scanning.EventTypeScannerStatusChanged, serializeScannerStatusChanged)
+	RegisterDeserializeFunc(scanning.EventTypeScannerStatusChanged, deserializeScannerStatusChanged)
+
+	RegisterSerializeFunc(scanning.EventTypeScannerDeregistered, serializeScannerDeregistered)
+	RegisterDeserializeFunc(scanning.EventTypeScannerDeregistered, deserializeScannerDeregistered)
+
 	// Rules.
 	// ------------------------------------------------------------------------------------------------
 	RegisterSerializeFunc(rules.EventTypeRulesUpdated, serializeRuleUpdated)
@@ -657,6 +670,82 @@ func deserializeTaskCancelled(data []byte) (any, error) {
 		return nil, fmt.Errorf("failed to unmarshal TaskCancelledEvent: %w", err)
 	}
 	return serdeScanning.ProtoToTaskCancelledEvent(&protoEvent)
+}
+
+func serializeScannerRegistered(payload any) ([]byte, error) {
+	event, ok := payload.(scanning.ScannerRegisteredEvent)
+	if !ok {
+		return nil, fmt.Errorf("expected ScannerRegisteredEvent, got %T", payload)
+	}
+
+	pbEvent := serdeScanning.ScannerRegisteredEventToProto(event)
+	return proto.Marshal(pbEvent)
+}
+
+func deserializeScannerRegistered(data []byte) (any, error) {
+	var pbEvent pb.ScannerRegisteredEvent
+	if err := proto.Unmarshal(data, &pbEvent); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal ScannerRegisteredEvent: %w", err)
+	}
+
+	return serdeScanning.ProtoToScannerRegisteredEvent(&pbEvent)
+}
+
+func serializeScannerHeartbeat(payload any) ([]byte, error) {
+	event, ok := payload.(scanning.ScannerHeartbeatEvent)
+	if !ok {
+		return nil, fmt.Errorf("expected ScannerHeartbeatEvent, got %T", payload)
+	}
+
+	pbEvent := serdeScanning.ScannerHeartbeatEventToProto(event)
+	return proto.Marshal(pbEvent)
+}
+
+func deserializeScannerHeartbeat(data []byte) (any, error) {
+	var pbEvent pb.ScannerHeartbeatEvent
+	if err := proto.Unmarshal(data, &pbEvent); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal ScannerHeartbeatEvent: %w", err)
+	}
+
+	return serdeScanning.ProtoToScannerHeartbeatEvent(&pbEvent)
+}
+
+func serializeScannerStatusChanged(payload any) ([]byte, error) {
+	event, ok := payload.(scanning.ScannerStatusChangedEvent)
+	if !ok {
+		return nil, fmt.Errorf("expected ScannerStatusChangedEvent, got %T", payload)
+	}
+
+	pbEvent := serdeScanning.ScannerStatusChangedEventToProto(event)
+	return proto.Marshal(pbEvent)
+}
+
+func deserializeScannerStatusChanged(data []byte) (any, error) {
+	var pbEvent pb.ScannerStatusChangedEvent
+	if err := proto.Unmarshal(data, &pbEvent); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal ScannerStatusChangedEvent: %w", err)
+	}
+
+	return serdeScanning.ProtoToScannerStatusChangedEvent(&pbEvent)
+}
+
+func serializeScannerDeregistered(payload any) ([]byte, error) {
+	event, ok := payload.(scanning.ScannerDeregisteredEvent)
+	if !ok {
+		return nil, fmt.Errorf("expected ScannerDeregisteredEvent, got %T", payload)
+	}
+
+	pbEvent := serdeScanning.ScannerDeregisteredEventToProto(event)
+	return proto.Marshal(pbEvent)
+}
+
+func deserializeScannerDeregistered(data []byte) (any, error) {
+	var pbEvent pb.ScannerDeregisteredEvent
+	if err := proto.Unmarshal(data, &pbEvent); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal ScannerDeregisteredEvent: %w", err)
+	}
+
+	return serdeScanning.ProtoToScannerDeregisteredEvent(&pbEvent)
 }
 
 // serializeRuleUpdated converts a RuleUpdatedEvent to protobuf bytes.
