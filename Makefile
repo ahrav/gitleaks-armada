@@ -46,6 +46,7 @@ KAFKA_RULES_RESPONSE_TOPIC := rules-responses
 KAFKA_HIGH_PRIORITY_TASK_TOPIC := high-priority-tasks
 KAFKA_JOB_LIFECYCLE_TOPIC := job-lifecycle
 KAFKA_JOB_BROADCAST_TOPIC := job-broadcast
+KAFKA_SCANNER_LIFECYCLE_TOPIC := scanner-lifecycle
 
 # Postgres connection URL
 POSTGRES_URL = postgres://postgres:postgres@localhost:5432/secretscanner?sslmode=disable
@@ -380,6 +381,14 @@ kafka-setup:
 			--partitions $(SCANNER_PARTITIONS) \
 			--replication-factor 1
 
+	kubectl exec -it -n $(NAMESPACE) deployment/kafka -- \
+		/opt/bitnami/kafka/bin/kafka-topics.sh \
+			--create --if-not-exists \
+			--topic $(KAFKA_SCANNER_LIFECYCLE_TOPIC) \
+			--bootstrap-server localhost:9092 \
+			--partitions $(SCANNER_PARTITIONS) \
+			--replication-factor 1
+
 kafka-logs:
 	@echo "Showing Kafka logs:"
 	kubectl logs -l app=kafka -n $(NAMESPACE) --tail=100 -f
@@ -481,6 +490,12 @@ kafka-delete-topics:
 			--bootstrap-server localhost:9092 \
 			--delete \
 			--topic $(KAFKA_JOB_BROADCAST_TOPIC) || true
+
+	kubectl exec -it -n $(NAMESPACE) deployment/kafka -- \
+		/opt/bitnami/kafka/bin/kafka-topics.sh \
+			--bootstrap-server localhost:9092 \
+			--delete \
+			--topic $(KAFKA_SCANNER_LIFECYCLE_TOPIC) || true
 
 
 ################################################################################
