@@ -15,8 +15,6 @@ jobs:
       with:
         version: latest
         skip-cache: true
-        skip-pkg-cache: true
-        skip-build-cache: true
         args: --timeout=5m --fast
 
   test:
