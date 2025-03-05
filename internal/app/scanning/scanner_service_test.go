@@ -124,7 +124,8 @@ func TestCreateScannerGroup(t *testing.T) {
 func TestCreateScanner(t *testing.T) {
 	tests := []struct {
 		name        string
-		groupID     uuid.UUID
+		scannerID   uuid.UUID
+		groupName   string
 		scannerName string
 		version     string
 		metadata    map[string]any
@@ -133,7 +134,8 @@ func TestCreateScanner(t *testing.T) {
 	}{
 		{
 			name:        "successful_creation",
-			groupID:     uuid.New(),
+			scannerID:   uuid.New(),
+			groupName:   "Test Group",
 			scannerName: "Test Scanner",
 			version:     "1.0.0",
 			metadata:    map[string]any{"region": "us-west", "capabilities": []string{"git", "s3"}},
@@ -145,7 +147,8 @@ func TestCreateScanner(t *testing.T) {
 		},
 		{
 			name:        "name_too_short",
-			groupID:     uuid.New(),
+			scannerID:   uuid.New(),
+			groupName:   "Test Group",
 			scannerName: "",
 			version:     "1.0.0",
 			metadata:    nil,
@@ -154,7 +157,8 @@ func TestCreateScanner(t *testing.T) {
 		},
 		{
 			name:        "name_too_long",
-			groupID:     uuid.New(),
+			scannerID:   uuid.New(),
+			groupName:   "Test Group",
 			scannerName: "This scanner name is way too long and exceeds the maximum length allowed for scanner names in our system",
 			version:     "1.0.0",
 			metadata:    nil,
@@ -163,7 +167,8 @@ func TestCreateScanner(t *testing.T) {
 		},
 		{
 			name:        "invalid_name_characters",
-			groupID:     uuid.New(),
+			scannerID:   uuid.New(),
+			groupName:   "Test Group",
 			scannerName: "Test$Scanner*",
 			version:     "1.0.0",
 			metadata:    nil,
@@ -172,7 +177,8 @@ func TestCreateScanner(t *testing.T) {
 		},
 		{
 			name:        "version_too_long",
-			groupID:     uuid.New(),
+			scannerID:   uuid.New(),
+			groupName:   "Test Group",
 			scannerName: "Valid Scanner",
 			version:     "1.0.0-alpha-this-is-too-long-for-a-version-string",
 			metadata:    nil,
@@ -181,7 +187,8 @@ func TestCreateScanner(t *testing.T) {
 		},
 		{
 			name:        "nil_metadata_initialized",
-			groupID:     uuid.New(),
+			scannerID:   uuid.New(),
+			groupName:   "Test Group",
 			scannerName: "Valid Scanner",
 			version:     "1.0.0",
 			metadata:    nil,
@@ -193,7 +200,8 @@ func TestCreateScanner(t *testing.T) {
 		},
 		{
 			name:        "repository_error",
-			groupID:     uuid.New(),
+			scannerID:   uuid.New(),
+			groupName:   "Test Group",
 			scannerName: "Valid Scanner",
 			version:     "1.0.0",
 			metadata:    map[string]any{"region": "eu-central"},
@@ -210,7 +218,7 @@ func TestCreateScanner(t *testing.T) {
 			service, mockRepo := newScannerService(t)
 			tt.setup(mockRepo)
 
-			cmd := domain.NewCreateScannerCommand(tt.groupID, tt.scannerName, tt.version, tt.metadata)
+			cmd := domain.NewCreateScannerCommand(tt.scannerID, tt.groupName, tt.scannerName, tt.version, tt.metadata)
 			scanner, err := service.CreateScanner(context.Background(), cmd)
 
 			if tt.wantErr {
@@ -221,7 +229,6 @@ func TestCreateScanner(t *testing.T) {
 				require.NotNil(t, scanner)
 				assert.Equal(t, tt.scannerName, scanner.Name())
 				assert.Equal(t, tt.version, scanner.Version())
-				assert.Equal(t, tt.groupID, scanner.GroupID())
 				assert.NotEqual(t, uuid.UUID{}, scanner.ID())
 
 				assert.NotNil(t, scanner.Metadata())

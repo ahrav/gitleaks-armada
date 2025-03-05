@@ -135,6 +135,7 @@ func NewOrchestrator(
 		tracer,
 	)
 
+	// Create our event dispatcher and register all the handlers.
 	dispatcher := eventdispatcher.New(id, tracer, logger)
 	ctx := context.Background()
 
@@ -153,6 +154,11 @@ func NewOrchestrator(
 
 	rulesHandler := handlers.NewRulesHandler(id, rulesService, tracer)
 	if err := dispatcher.RegisterHandler(ctx, rulesHandler); err != nil {
+		return nil, err
+	}
+
+	scannerHandler := handlers.NewScannerHandler(id, scannerService, logger, tracer)
+	if err := dispatcher.RegisterHandler(ctx, scannerHandler); err != nil {
 		return nil, err
 	}
 
@@ -392,6 +398,7 @@ func (o *Orchestrator) subscribeToEvents(ctx context.Context) error {
 		scanning.EventTypeJobCancelling,
 		scanning.EventTypeTaskCancelled,
 		scanning.EventTypeJobResuming,
+		scanning.EventTypeScannerRegistered,
 	}
 
 	if err := o.eventBus.Subscribe(
