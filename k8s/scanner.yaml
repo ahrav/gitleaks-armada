@@ -91,6 +91,26 @@ spec:
             configMapKeyRef:
               name: scanner-config
               key: KAFKA_JOB_BROADCAST_TOPIC
+        - name: KAFKA_SCANNER_LIFECYCLE_TOPIC
+          valueFrom:
+            configMapKeyRef:
+              name: scanner-config
+              key: KAFKA_SCANNER_LIFECYCLE_TOPIC
+        # Scanner registration specific environment variables
+        - name: SCANNER_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.uid
+        - name: SCANNER_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: SCANNER_VERSION
+          value: "1.0.0"
+        - name: SCANNER_CAPABILITIES
+          value: "git,docker,s3,github,gitlab,bitbucket"
+        - name: SCANNER_GROUP_NAME
+          value: "system_default"
         resources:
           requests:
             memory: "256Mi"

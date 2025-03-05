@@ -13,6 +13,7 @@ data:
   KAFKA_RULES_REQUEST_TOPIC: "rules-requests"
   KAFKA_RULES_RESPONSE_TOPIC: "rules-responses"
   KAFKA_JOB_BROADCAST_TOPIC: "job-broadcast"
+  KAFKA_SCANNER_LIFECYCLE_TOPIC: "scanner-lifecycle"
   KAFKA_BROKERS: "kafka:9092"
   POSTGRES_HOST: "postgres"
   POSTGRES_PORT: "5432"
