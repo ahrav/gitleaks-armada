@@ -15,10 +15,10 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/common/timeutil"
 )
 
-// ScannerHeartbeatManager handles periodic heartbeat signals for a scanner.
+// ScannerHeartbeatAgent handles periodic heartbeat signals for a scanner.
 // It monitors scanner health and reports metrics to the system, ensuring
 // the orchestrator knows which scanners are available and functional.
-type ScannerHeartbeatManager struct {
+type ScannerHeartbeatAgent struct {
 	scannerID string
 
 	scannerMetrics map[string]float64 // Custom metrics specific to this scanner instance
@@ -30,15 +30,15 @@ type ScannerHeartbeatManager struct {
 	tracer trace.Tracer
 }
 
-// NewScannerHeartbeatManager creates a new heartbeat manager for monitoring scanner health.
-// It configures the manager with required dependencies and initializes internal state.
-func NewScannerHeartbeatManager(
+// NewScannerHeartbeatAgent creates a new heartbeat agent for monitoring scanner health.
+// It configures the agent with required dependencies and initializes internal state.
+func NewScannerHeartbeatAgent(
 	scannerID string,
 	eventPublisher events.DomainEventPublisher,
 	logger *logger.Logger,
 	tracer trace.Tracer,
-) *ScannerHeartbeatManager {
-	return &ScannerHeartbeatManager{
+) *ScannerHeartbeatAgent {
+	return &ScannerHeartbeatAgent{
 		scannerID:      scannerID,
 		eventPublisher: eventPublisher,
 		interval:       10 * time.Second, // Default interval, could be made configurable
@@ -52,7 +52,7 @@ func NewScannerHeartbeatManager(
 // Start begins sending periodic heartbeats until context is cancelled.
 // It sends an initial heartbeat immediately and then continues at the configured interval.
 // Heartbeats include system metrics and custom scanner metrics to provide health status.
-func (s *ScannerHeartbeatManager) Start(ctx context.Context) error {
+func (s *ScannerHeartbeatAgent) Start(ctx context.Context) error {
 	ctx, span := s.tracer.Start(ctx, "scanner_heartbeat.start")
 	s.logger.Info(ctx, "Starting scanner heartbeat manager", "scanner_id", s.scannerID)
 
@@ -91,12 +91,12 @@ func (s *ScannerHeartbeatManager) Start(ctx context.Context) error {
 // UpdateMetrics allows updating scanner-specific metrics that will be included in heartbeats.
 // These metrics supplement the standard system metrics to provide additional insights
 // into scanner performance and status.
-func (s *ScannerHeartbeatManager) UpdateMetrics(key string, value float64) {
+func (s *ScannerHeartbeatAgent) UpdateMetrics(key string, value float64) {
 	s.scannerMetrics[key] = value
 }
 
 // sendHeartbeat publishes a heartbeat event with current system and custom metrics.
-func (s *ScannerHeartbeatManager) sendHeartbeat(ctx context.Context) error {
+func (s *ScannerHeartbeatAgent) sendHeartbeat(ctx context.Context) error {
 	ctx, span := s.tracer.Start(ctx, "scanner_heartbeat.send",
 		trace.WithAttributes(
 			attribute.String("scanner_id", s.scannerID),
@@ -131,7 +131,8 @@ func (s *ScannerHeartbeatManager) sendHeartbeat(ctx context.Context) error {
 	return nil
 }
 
-// Helper functions to collect system metrics
+// Helper functions to collect system metrics.
+// TODO: Actually gather useful metrics here..
 func getMemoryUsage() float64 {
 	// Implement memory usage collection
 	return 0.0
