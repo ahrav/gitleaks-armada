@@ -224,23 +224,23 @@ enum ScannerStatus {
 }
 
 // ScannerRegisteredEvent is emitted when a scanner registers with the system.
+// TODO: Add validation at the protobuf layer.
 message ScannerRegisteredEvent {
-  string scanner_id = 1;
-  string name = 2;
-  string version = 3;
-  repeated string capabilities = 4;
-  string group_name = 5; // Optional: if not provided, assigned to default group
-  string hostname = 6;
-  string ip_address = 7;
-  int64 timestamp = 8; // Unix timestamp in nanoseconds
-  map<string, string> tags = 9;
-  ScannerStatus initial_status = 10; // Initial status of the scanner
+  string scanner_name = 1;
+  string version = 2;
+  repeated string capabilities = 3;
+  string group_name = 4; // Optional: if not provided, assigned to default group
+  string hostname = 5;
+  string ip_address = 6;
+  int64 timestamp = 7; // Unix timestamp in nanoseconds
+  map<string, string> tags = 8;
+  ScannerStatus initial_status = 9; // Initial status of the scanner
 }
 
 // ScannerHeartbeatEvent is emitted periodically by scanners to indicate they're
 // still alive.
 message ScannerHeartbeatEvent {
-  string scanner_id = 1;
+  string scanner_name = 1;
   ScannerStatus status = 2; // Current status: online, busy, etc.
   int64 timestamp = 3;      // Unix timestamp in nanoseconds
   map<string, double> metrics =
@@ -249,7 +249,7 @@ message ScannerHeartbeatEvent {
 
 // ScannerStatusChangedEvent is emitted when a scanner's status changes.
 message ScannerStatusChangedEvent {
-  string scanner_id = 1;
+  string scanner_name = 1;
   ScannerStatus new_status =
       2; // "online", "offline", "maintenance", "error", "unknown"
   ScannerStatus previous_status = 3;
@@ -260,7 +260,7 @@ message ScannerStatusChangedEvent {
 // ScannerDeregisteredEvent is emitted when a scanner gracefully deregisters
 // from the system.
 message ScannerDeregisteredEvent {
-  string scanner_id = 1;
+  string scanner_name = 1;
   string reason = 2;
   int64 timestamp = 3; // Unix timestamp in nanoseconds
 }

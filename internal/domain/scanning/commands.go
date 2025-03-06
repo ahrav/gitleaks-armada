@@ -86,7 +86,6 @@ func NewCreateScannerGroupCommand(name, description string) CreateScannerGroupCo
 
 // CreateScannerCommand encapsulates all information needed to register a new scanner.
 type CreateScannerCommand struct {
-	ScannerID uuid.UUID      // The unique identifier for the scanner
 	GroupName string         // The group this scanner belongs to
 	Name      string         // Human-readable name for the scanner
 	Version   string         // Software version of the scanner
@@ -95,14 +94,12 @@ type CreateScannerCommand struct {
 
 // NewCreateScannerCommand creates a new CreateScannerCommand.
 func NewCreateScannerCommand(
-	scannerID uuid.UUID,
 	groupName string,
 	name,
 	version string,
 	metadata map[string]any,
 ) CreateScannerCommand {
 	return CreateScannerCommand{
-		ScannerID: scannerID,
 		GroupName: groupName,
 		Name:      name,
 		Version:   version,
