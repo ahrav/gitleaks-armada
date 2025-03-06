@@ -124,7 +124,6 @@ func TestCreateScannerGroup(t *testing.T) {
 func TestCreateScanner(t *testing.T) {
 	tests := []struct {
 		name        string
-		scannerID   uuid.UUID
 		groupName   string
 		scannerName string
 		version     string
@@ -134,7 +133,6 @@ func TestCreateScanner(t *testing.T) {
 	}{
 		{
 			name:        "successful_creation",
-			scannerID:   uuid.New(),
 			groupName:   "Test Group",
 			scannerName: "Test Scanner",
 			version:     "1.0.0",
@@ -147,7 +145,6 @@ func TestCreateScanner(t *testing.T) {
 		},
 		{
 			name:        "name_too_short",
-			scannerID:   uuid.New(),
 			groupName:   "Test Group",
 			scannerName: "",
 			version:     "1.0.0",
@@ -157,7 +154,6 @@ func TestCreateScanner(t *testing.T) {
 		},
 		{
 			name:        "name_too_long",
-			scannerID:   uuid.New(),
 			groupName:   "Test Group",
 			scannerName: "This scanner name is way too long and exceeds the maximum length allowed for scanner names in our system",
 			version:     "1.0.0",
@@ -167,7 +163,6 @@ func TestCreateScanner(t *testing.T) {
 		},
 		{
 			name:        "invalid_name_characters",
-			scannerID:   uuid.New(),
 			groupName:   "Test Group",
 			scannerName: "Test$Scanner*",
 			version:     "1.0.0",
@@ -177,7 +172,6 @@ func TestCreateScanner(t *testing.T) {
 		},
 		{
 			name:        "version_too_long",
-			scannerID:   uuid.New(),
 			groupName:   "Test Group",
 			scannerName: "Valid Scanner",
 			version:     "1.0.0-alpha-this-is-too-long-for-a-version-string",
@@ -187,7 +181,6 @@ func TestCreateScanner(t *testing.T) {
 		},
 		{
 			name:        "nil_metadata_initialized",
-			scannerID:   uuid.New(),
 			groupName:   "Test Group",
 			scannerName: "Valid Scanner",
 			version:     "1.0.0",
@@ -200,7 +193,6 @@ func TestCreateScanner(t *testing.T) {
 		},
 		{
 			name:        "repository_error",
-			scannerID:   uuid.New(),
 			groupName:   "Test Group",
 			scannerName: "Valid Scanner",
 			version:     "1.0.0",
@@ -218,7 +210,7 @@ func TestCreateScanner(t *testing.T) {
 			service, mockRepo := newScannerService(t)
 			tt.setup(mockRepo)
 
-			cmd := domain.NewCreateScannerCommand(tt.scannerID, tt.groupName, tt.scannerName, tt.version, tt.metadata)
+			cmd := domain.NewCreateScannerCommand(tt.groupName, tt.scannerName, tt.version, tt.metadata)
 			scanner, err := service.CreateScanner(context.Background(), cmd)
 
 			if tt.wantErr {

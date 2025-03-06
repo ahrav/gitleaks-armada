@@ -98,7 +98,6 @@ func (s *scannerService) CreateScanner(
 	ctx, span := s.tracer.Start(ctx, "scanner_service.create_scanner",
 		trace.WithAttributes(
 			attribute.String("controller_id", s.controllerID),
-			attribute.String("scanner_id", cmd.ScannerID.String()),
 			attribute.String("group_name", cmd.GroupName),
 			attribute.String("name", cmd.Name),
 			attribute.String("version", cmd.Version),
@@ -108,7 +107,7 @@ func (s *scannerService) CreateScanner(
 
 	// TODO: Get group ID from group name.
 	// Temporarily use a random UUID.
-	scanner, err := domain.NewScanner(cmd.ScannerID, uuid.New(), cmd.Name, cmd.Version)
+	scanner, err := domain.NewScanner(uuid.New(), uuid.New(), cmd.Name, cmd.Version)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "invalid scanner parameters")
