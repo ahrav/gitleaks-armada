@@ -234,7 +234,7 @@ dev-up:
 		echo "DNS entry already exists in /etc/hosts."; \
 	fi
 
-dev-load:
+dev-load: dev-docker
 	kind load docker-image $(CONTROLLER_IMAGE) --name $(KIND_CLUSTER)
 	kind load docker-image $(SCANNER_IMAGE) --name $(KIND_CLUSTER)
 	kind load docker-image $(API_GATEWAY_IMAGE) --name $(KIND_CLUSTER)
