@@ -3,8 +3,10 @@ package postgres
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.opentelemetry.io/otel/attribute"
@@ -13,6 +15,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/db"
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/internal/infra/storage"
+	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 )
 
 var _ scanning.ScannerRepository = (*scannerStore)(nil)
@@ -55,6 +58,30 @@ func (r *scannerStore) CreateScannerGroup(ctx context.Context, group *scanning.S
 
 		return nil
 	})
+}
+
+// GetScannerGroupIDByScannerGroupName retrieves the scanner group ID for a given scanner group name.
+func (r *scannerStore) GetScannerGroupIDByScannerGroupName(ctx context.Context, groupName string) (uuid.UUID, error) {
+	dbAttrs := append(
+		defaultDBAttributes,
+		attribute.String("group_name", groupName),
+	)
+
+	var id uuid.UUID
+	err := storage.ExecuteAndTrace(ctx, r.tracer, "postgres.get_scanner_group_id_by_name", dbAttrs, func(ctx context.Context) error {
+		dbID, err := r.q.GetScannerGroupIDByScannerGroupName(ctx, groupName)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return scanning.ErrScannerGroupNotFound
+			}
+			return fmt.Errorf("failed to get scanner group ID by name: %w", err)
+		}
+
+		id = dbID.Bytes
+		return nil
+	})
+
+	return id, err
 }
 
 // CreateScanner persists a new scanner to the database.

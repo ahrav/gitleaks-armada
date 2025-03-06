@@ -24,6 +24,11 @@ func (m *mockScannerRepository) CreateScannerGroup(ctx context.Context, group *d
 	return args.Error(0)
 }
 
+func (m *mockScannerRepository) GetScannerGroupIDByScannerGroupName(ctx context.Context, groupName string) (uuid.UUID, error) {
+	args := m.Called(ctx, groupName)
+	return args.Get(0).(uuid.UUID), args.Error(1)
+}
+
 func (m *mockScannerRepository) CreateScanner(ctx context.Context, scanner *domain.Scanner) error {
 	args := m.Called(ctx, scanner)
 	return args.Error(0)
@@ -138,6 +143,8 @@ func TestCreateScanner(t *testing.T) {
 			version:     "1.0.0",
 			metadata:    map[string]any{"region": "us-west", "capabilities": []string{"git", "s3"}},
 			setup: func(repo *mockScannerRepository) {
+				repo.On("GetScannerGroupIDByScannerGroupName", mock.Anything, "Test Group").
+					Return(uuid.New(), nil)
 				repo.On("CreateScanner", mock.Anything, mock.AnythingOfType("*scanning.Scanner")).
 					Return(nil)
 			},
@@ -149,8 +156,11 @@ func TestCreateScanner(t *testing.T) {
 			scannerName: "",
 			version:     "1.0.0",
 			metadata:    nil,
-			setup:       func(repo *mockScannerRepository) {}, // No repository call expected for validation errors
-			wantErr:     true,
+			setup: func(repo *mockScannerRepository) {
+				repo.On("GetScannerGroupIDByScannerGroupName", mock.Anything, "Test Group").
+					Return(uuid.New(), nil)
+			},
+			wantErr: true,
 		},
 		{
 			name:        "name_too_long",
@@ -158,8 +168,11 @@ func TestCreateScanner(t *testing.T) {
 			scannerName: "This scanner name is way too long and exceeds the maximum length allowed for scanner names in our system",
 			version:     "1.0.0",
 			metadata:    nil,
-			setup:       func(repo *mockScannerRepository) {}, // No repository call expected for validation errors
-			wantErr:     true,
+			setup: func(repo *mockScannerRepository) {
+				repo.On("GetScannerGroupIDByScannerGroupName", mock.Anything, "Test Group").
+					Return(uuid.New(), nil)
+			},
+			wantErr: true,
 		},
 		{
 			name:        "invalid_name_characters",
@@ -167,8 +180,11 @@ func TestCreateScanner(t *testing.T) {
 			scannerName: "Test$Scanner*",
 			version:     "1.0.0",
 			metadata:    nil,
-			setup:       func(repo *mockScannerRepository) {}, // No repository call expected for validation errors
-			wantErr:     true,
+			setup: func(repo *mockScannerRepository) {
+				repo.On("GetScannerGroupIDByScannerGroupName", mock.Anything, "Test Group").
+					Return(uuid.New(), nil)
+			},
+			wantErr: true,
 		},
 		{
 			name:        "version_too_long",
@@ -176,8 +192,11 @@ func TestCreateScanner(t *testing.T) {
 			scannerName: "Valid Scanner",
 			version:     "1.0.0-alpha-this-is-too-long-for-a-version-string",
 			metadata:    nil,
-			setup:       func(repo *mockScannerRepository) {}, // No repository call expected for validation errors
-			wantErr:     true,
+			setup: func(repo *mockScannerRepository) {
+				repo.On("GetScannerGroupIDByScannerGroupName", mock.Anything, "Test Group").
+					Return(uuid.New(), nil)
+			},
+			wantErr: true,
 		},
 		{
 			name:        "nil_metadata_initialized",
@@ -186,20 +205,36 @@ func TestCreateScanner(t *testing.T) {
 			version:     "1.0.0",
 			metadata:    nil,
 			setup: func(repo *mockScannerRepository) {
+				repo.On("GetScannerGroupIDByScannerGroupName", mock.Anything, "Test Group").
+					Return(uuid.New(), nil)
 				repo.On("CreateScanner", mock.Anything, mock.AnythingOfType("*scanning.Scanner")).
 					Return(nil)
 			},
 			wantErr: false,
 		},
 		{
-			name:        "repository_error",
+			name:        "create_scanner_repository_error",
 			groupName:   "Test Group",
 			scannerName: "Valid Scanner",
 			version:     "1.0.0",
-			metadata:    map[string]any{"region": "eu-central"},
+			metadata:    map[string]any{"region": "eu-central-1"},
 			setup: func(repo *mockScannerRepository) {
+				repo.On("GetScannerGroupIDByScannerGroupName", mock.Anything, "Test Group").
+					Return(uuid.New(), nil)
 				repo.On("CreateScanner", mock.Anything, mock.AnythingOfType("*scanning.Scanner")).
 					Return(errors.New("database error"))
+			},
+			wantErr: true,
+		},
+		{
+			name:        "get_scanner_group_id_by_name_error",
+			groupName:   "Test Group",
+			scannerName: "Valid Scanner",
+			version:     "1.0.0",
+			metadata:    map[string]any{"region": "eu-central-1"},
+			setup: func(repo *mockScannerRepository) {
+				repo.On("GetScannerGroupIDByScannerGroupName", mock.Anything, "Test Group").
+					Return(uuid.UUID{}, errors.New("database error"))
 			},
 			wantErr: true,
 		},

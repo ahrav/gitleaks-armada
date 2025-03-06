@@ -278,6 +278,9 @@ INSERT INTO scanner_groups (
     $3  -- description TEXT
 ) ON CONFLICT DO NOTHING;
 
+-- name: GetScannerGroupIDByScannerGroupName :one
+SELECT id FROM scanner_groups WHERE name = $1;
+
 -- Scanner Queries
 
 -- name: CreateScanner :exec

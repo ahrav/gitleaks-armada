@@ -105,9 +105,16 @@ func (s *scannerService) CreateScanner(
 	)
 	defer span.End()
 
-	// TODO: Get group ID from group name.
-	// Temporarily use a random UUID.
-	scanner, err := domain.NewScanner(uuid.New(), uuid.New(), cmd.Name, cmd.Version)
+	groupID, err := s.scannerRepo.GetScannerGroupIDByScannerGroupName(ctx, cmd.GroupName)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to get scanner group ID")
+		return nil, fmt.Errorf("failed to get scanner group ID: %w", err)
+	}
+	span.SetAttributes(attribute.String("group_id", groupID.String()))
+	span.AddEvent("scanner_group_id_found")
+
+	scanner, err := domain.NewScanner(uuid.New(), groupID, cmd.Name, cmd.Version)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "invalid scanner parameters")

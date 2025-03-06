@@ -586,6 +586,17 @@ func (q *Queries) GetScanTask(ctx context.Context, taskID pgtype.UUID) (GetScanT
 	return i, err
 }
 
+const getScannerGroupIDByScannerGroupName = `-- name: GetScannerGroupIDByScannerGroupName :one
+SELECT id FROM scanner_groups WHERE name = $1
+`
+
+func (q *Queries) GetScannerGroupIDByScannerGroupName(ctx context.Context, name string) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, getScannerGroupIDByScannerGroupName, name)
+	var id pgtype.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
 const getTasksToResume = `-- name: GetTasksToResume :many
 SELECT
     t.task_id,

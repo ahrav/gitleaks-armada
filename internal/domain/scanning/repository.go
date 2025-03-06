@@ -121,4 +121,7 @@ type ScannerRepository interface {
 
 	// CreateScanner registers a new scanner in the system.
 	CreateScanner(ctx context.Context, scanner *Scanner) error
+
+	// GetScannerGroupIDByScannerGroupName retrieves the scanner group ID for a given scanner group name.
+	GetScannerGroupIDByScannerGroupName(ctx context.Context, groupName string) (uuid.UUID, error)
 }

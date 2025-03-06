@@ -142,3 +142,21 @@ func TestScannerStore_CreateScannerInvalidGroup(t *testing.T) {
 	err := repo.CreateScanner(ctx, scanner)
 	assert.Error(t, err, "Creating a scanner with non-existent group ID should fail")
 }
+
+func TestScannerStore_GetScannerGroupIDByScannerGroupName(t *testing.T) {
+	t.Parallel()
+	ctx, _, repo, cleanup := setupScannerTest(t)
+	defer cleanup()
+
+	group := createTestScannerGroup(t)
+	err := repo.CreateScannerGroup(ctx, group)
+	require.NoError(t, err, "Failed to create scanner group")
+
+	retrievedID, err := repo.GetScannerGroupIDByScannerGroupName(ctx, group.Name())
+	require.NoError(t, err, "Failed to get scanner group ID by name")
+	assert.Equal(t, group.ID(), retrievedID, "Retrieved ID should match the original group ID")
+
+	// Test with non-existent name.
+	_, err = repo.GetScannerGroupIDByScannerGroupName(ctx, "NonExistentGroup")
+	assert.ErrorIs(t, err, scanning.ErrScannerGroupNotFound, "Should return ErrScannerGroupNotFound for non-existent group")
+}
