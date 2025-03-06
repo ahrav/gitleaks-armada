@@ -15,6 +15,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	domain "github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
+	"github.com/ahrav/gitleaks-armada/pkg/common/timeutil"
 	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 )
 
@@ -28,7 +29,7 @@ type taskStatusEntry struct {
 // shouldBeCleanedUp returns whether a task in a terminal state has remained there
 // longer than the configured retention period, indicating it can be removed.
 // TODO: Do we need to consider anything else here?
-func (t *taskStatusEntry) shouldBeCleanedUp(tp timeProvider, retentionPeriod time.Duration) bool {
+func (t *taskStatusEntry) shouldBeCleanedUp(tp timeutil.Provider, retentionPeriod time.Duration) bool {
 	return (t.status == domain.TaskStatusCompleted ||
 		t.status == domain.TaskStatusFailed ||
 		t.status == domain.TaskStatusCancelled) &&
@@ -48,8 +49,7 @@ var _ domain.JobMetricsAggregator = (*jobMetricsAggregator)(nil)
 
 // jobMetricsAggregator implements in-memory aggregation of job/task metrics. It
 // periodically flushes metrics and checkpoint updates to persistent storage
-// through a domain.MetricsRepository. It also handles dynamic replay of historical
-// events for recovery.
+// to enable recovery after restarts.
 // TODO: Maybe consider splitting out the replayer.
 type jobMetricsAggregator struct {
 	controllerID string
@@ -86,7 +86,7 @@ type jobMetricsAggregator struct {
 	// TODO: Consider if we should have a max number of pending metrics we will
 	// store.
 
-	timeProvider timeProvider // reuse existing timeProvider interface
+	timeProvider timeutil.Provider // Updated to use our common timeutil package
 
 	// TODO: Enhance logging.
 	logger *logger.Logger
@@ -129,7 +129,7 @@ func NewJobMetricsAggregator(
 		retentionPeriod: defaultRetentionPeriod,
 		retryInterval:   defaultRetryInterval,
 		maxRetries:      defaultMaxRetries,
-		timeProvider:    realTimeProvider{},
+		timeProvider:    timeutil.Default(),
 	}
 
 	// Start background cleanup.
