@@ -13,6 +13,22 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
 
+// ScannerConfig encapsulates the configuration parameters for a scanner.
+// It contains identification and capability information that defines
+// how the scanner presents itself to the registration system.
+type ScannerConfig struct {
+	// Name is the unique identifier for this scanner instance.
+	Name string
+	// GroupName is the logical group this scanner belongs to.
+	GroupName string
+	// Hostname is the network identifier for this scanner.
+	Hostname string
+	// Version indicates the scanner software version.
+	Version string
+	// Capabilities specifies what types of scanning this instance can perform.
+	Capabilities []string
+}
+
 // ScannerRegistrar handles the registration of scanners with the controller.
 // It manages scanner identity, capabilities, and publishing registration events
 // to make scanners available for scanning operations.
@@ -30,26 +46,23 @@ type ScannerRegistrar struct {
 }
 
 // NewScannerRegistrar creates a new scanner registration service.
-// It initializes a scanner with the provided group name, hostname, and version,
+// It initializes a scanner with the provided configuration,
 // along with default capabilities for secrets and SAST scanning.
 //
 // The scanner name is automatically generated based on the hostname.
 func NewScannerRegistrar(
-	scannerName string,
-	groupName string,
-	hostname string,
+	config ScannerConfig,
 	publisher events.DomainEventPublisher,
 	logger *logger.Logger,
 	tracer trace.Tracer,
-	version string,
 ) *ScannerRegistrar {
 	return &ScannerRegistrar{
-		scannerName:      scannerName,
-		scannerGroupName: groupName,
-		hostname:         hostname,
+		scannerName:      config.Name,
+		scannerGroupName: config.GroupName,
+		hostname:         config.Hostname,
 		publisher:        publisher,
-		capabilities:     nil,
-		version:          version,
+		capabilities:     config.Capabilities,
+		version:          config.Version,
 		logger:           logger.With("component", "scanner_registration"),
 		tracer:           tracer,
 	}

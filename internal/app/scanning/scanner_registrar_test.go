@@ -22,30 +22,29 @@ type registrarTestSuite struct {
 	registrar       *ScannerRegistrar
 }
 
-func newRegistrarTestSuite(t *testing.T, scannerName, groupName, hostname, version string) *registrarTestSuite {
+func newRegistrarTestSuite(t *testing.T, config ScannerConfig) *registrarTestSuite {
 	t.Helper()
 
 	domainPublisher := new(mockDomainEventPublisher)
 	logger := logger.Noop()
 	tracer := noop.NewTracerProvider().Tracer("test")
 
+	registrar := NewScannerRegistrar(config, domainPublisher, logger, tracer)
+
 	return &registrarTestSuite{
 		domainPublisher: domainPublisher,
 		logger:          logger,
 		tracer:          tracer,
-		registrar:       NewScannerRegistrar(scannerName, groupName, hostname, domainPublisher, logger, tracer, version),
+		registrar:       registrar,
 	}
 }
 
 func TestScannerRegistrar_Register(t *testing.T) {
 	tests := []struct {
-		name        string
-		setup       func(*mockDomainEventPublisher)
-		scannerName string
-		group       string
-		host        string
-		version     string
-		wantErr     bool
+		name    string
+		setup   func(*mockDomainEventPublisher)
+		config  ScannerConfig
+		wantErr bool
 	}{
 		{
 			name: "successful registration",
@@ -63,11 +62,13 @@ func TestScannerRegistrar_Register(t *testing.T) {
 					mock.Anything,
 				).Return(nil)
 			},
-			scannerName: "scanner-test-name",
-			group:       "test-group",
-			host:        "test-host",
-			version:     "1.0.0",
-			wantErr:     false,
+			config: ScannerConfig{
+				Name:      "scanner-test-name",
+				GroupName: "test-group",
+				Hostname:  "test-host",
+				Version:   "1.0.0",
+			},
+			wantErr: false,
 		},
 		{
 			name: "registration with empty group",
@@ -84,11 +85,13 @@ func TestScannerRegistrar_Register(t *testing.T) {
 					mock.Anything,
 				).Return(nil)
 			},
-			scannerName: "scanner-test-name",
-			group:       "",
-			host:        "test-host",
-			version:     "1.0.0",
-			wantErr:     false,
+			config: ScannerConfig{
+				Name:      "scanner-test-name",
+				GroupName: "",
+				Hostname:  "test-host",
+				Version:   "1.0.0",
+			},
+			wantErr: false,
 		},
 		{
 			name: "registration with different version",
@@ -104,11 +107,13 @@ func TestScannerRegistrar_Register(t *testing.T) {
 					mock.Anything,
 				).Return(nil)
 			},
-			scannerName: "scanner-test-name",
-			group:       "test-group",
-			host:        "test-host",
-			version:     "2.1.3",
-			wantErr:     false,
+			config: ScannerConfig{
+				Name:      "scanner-test-name",
+				GroupName: "test-group",
+				Hostname:  "test-host",
+				Version:   "2.1.3",
+			},
+			wantErr: false,
 		},
 		{
 			name: "publication failure",
@@ -119,17 +124,19 @@ func TestScannerRegistrar_Register(t *testing.T) {
 					mock.Anything,
 				).Return(errors.New("failed to publish"))
 			},
-			scannerName: "scanner-test-name",
-			group:       "test-group",
-			host:        "test-host",
-			version:     "1.0.0",
-			wantErr:     true,
+			config: ScannerConfig{
+				Name:      "scanner-test-name",
+				GroupName: "test-group",
+				Hostname:  "test-host",
+				Version:   "1.0.0",
+			},
+			wantErr: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			suite := newRegistrarTestSuite(t, tt.scannerName, tt.group, tt.host, tt.version)
+			suite := newRegistrarTestSuite(t, tt.config)
 			tt.setup(suite.domainPublisher)
 
 			err := suite.registrar.Register(context.Background())
@@ -146,40 +153,42 @@ func TestScannerRegistrar_Register(t *testing.T) {
 
 func TestNewScannerRegistrar(t *testing.T) {
 	tests := []struct {
-		name        string
-		scannerName string
-		group       string
-		host        string
-		version     string
-		wantName    string
-		wantGroup   string
-		wantHost    string
-		wantCaps    []string
-		wantVer     string
+		name      string
+		config    ScannerConfig
+		wantName  string
+		wantGroup string
+		wantHost  string
+		wantCaps  []string
+		wantVer   string
 	}{
 		{
-			name:        "standard initialization",
-			scannerName: "scanner-test-name",
-			group:       "test-group",
-			host:        "test-host",
-			version:     "1.0.0",
-			wantName:    "scanner-test-name",
-			wantGroup:   "test-group",
-			wantHost:    "test-host",
-			wantCaps:    nil,
-			wantVer:     "1.0.0",
+			name: "valid scanner",
+			config: ScannerConfig{
+				Name:         "scanner-test-name",
+				GroupName:    "test-group",
+				Hostname:     "test-host",
+				Version:      "1.0.0",
+				Capabilities: []string{"secrets", "sast"},
+			},
+			wantName:  "scanner-test-name",
+			wantGroup: "test-group",
+			wantHost:  "test-host",
+			wantCaps:  []string{"secrets", "sast"},
+			wantVer:   "1.0.0",
 		},
 		{
-			name:        "empty group",
-			scannerName: "scanner-test-name",
-			group:       "",
-			host:        "test-host",
-			version:     "1.0.0",
-			wantName:    "scanner-test-name",
-			wantGroup:   "",
-			wantHost:    "test-host",
-			wantCaps:    nil,
-			wantVer:     "1.0.0",
+			name: "empty group",
+			config: ScannerConfig{
+				Name:      "scanner-test-name",
+				GroupName: "",
+				Hostname:  "test-host",
+				Version:   "1.0.0",
+			},
+			wantName:  "scanner-test-name",
+			wantGroup: "",
+			wantHost:  "test-host",
+			wantCaps:  nil,
+			wantVer:   "1.0.0",
 		},
 	}
 
@@ -188,7 +197,7 @@ func TestNewScannerRegistrar(t *testing.T) {
 			publisher := new(mockDomainEventPublisher)
 			logger := logger.Noop()
 			tracer := noop.NewTracerProvider().Tracer("test")
-			registrar := NewScannerRegistrar(tt.scannerName, tt.group, tt.host, publisher, logger, tracer, tt.version)
+			registrar := NewScannerRegistrar(tt.config, publisher, logger, tracer)
 
 			require.Equal(t, tt.wantName, registrar.scannerName)
 			require.Equal(t, tt.wantGroup, registrar.scannerGroupName)
