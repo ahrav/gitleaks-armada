@@ -205,6 +205,7 @@ func main() {
 		log.Error(ctx, "failed to register scanner", "error", err)
 		os.Exit(1)
 	}
+	log.Info(ctx, "Scanner registered with controller")
 
 	// Start the scanner heartbeat agent.
 	// This will send heartbeat events to the controller(s) to indicate that the scanner is alive.
@@ -213,6 +214,7 @@ func main() {
 		log.Error(ctx, "failed to start scanner heartbeat agent", "error", err)
 		os.Exit(1)
 	}
+	log.Info(ctx, "Scanner heartbeat agent started")
 
 	gitleaksScanner, err := scanner.NewGitLeaks(scannerID, eventPublisher, log, tracer, metricsCollector)
 	if err != nil {
