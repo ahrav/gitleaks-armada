@@ -15,24 +15,24 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/common/timeutil"
 )
 
-// TestScannerHeartbeatManager_Start verifies the heartbeat manager
+// TestScannerHeartbeatAgent_Start verifies the heartbeat agent
 // sends heartbeats at the expected intervals and can be gracefully
 // stopped when the context is cancelled.
-func TestScannerHeartbeatManager_Start(t *testing.T) {
+func TestScannerHeartbeatAgent_Start(t *testing.T) {
 	testInterval := 10 * time.Millisecond
 
 	mockTime := timeutil.NewMock(time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC))
-	eventPublisher := &mockEventPublisher{}
+	eventPublisher := new(mockEventPublisher)
 	scannerID := "test-scanner"
 
-	heartbeatManager := NewScannerHeartbeatManager(
+	heartbeatAgent := NewScannerHeartbeatAgent(
 		scannerID,
 		eventPublisher,
 		logger.Noop(),
 		noop.NewTracerProvider().Tracer("test"),
 	)
-	heartbeatManager.interval = testInterval
-	heartbeatManager.timeProvider = mockTime
+	heartbeatAgent.interval = testInterval
+	heartbeatAgent.timeProvider = mockTime
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
@@ -40,7 +40,7 @@ func TestScannerHeartbeatManager_Start(t *testing.T) {
 	// Create a channel to signal when the manager has stopped.
 	done := make(chan struct{})
 	go func() {
-		err := heartbeatManager.Start(ctx)
+		err := heartbeatAgent.Start(ctx)
 		assert.Equal(t, context.DeadlineExceeded, err)
 		close(done)
 	}()
@@ -50,7 +50,7 @@ func TestScannerHeartbeatManager_Start(t *testing.T) {
 	case <-done:
 		// Success - manager stopped when context was cancelled.
 	case <-time.After(200 * time.Millisecond):
-		t.Fatal("Timed out waiting for heartbeat manager to stop")
+		t.Fatal("Timed out waiting for heartbeat agent to stop")
 	}
 
 	eventPublisher.mu.RLock()
@@ -66,26 +66,26 @@ func TestScannerHeartbeatManager_Start(t *testing.T) {
 	}
 }
 
-// TestScannerHeartbeatManager_UpdateMetrics verifies custom metrics
+// TestScannerHeartbeatAgent_UpdateMetrics verifies custom metrics
 // are included in heartbeat events when they are set.
-func TestScannerHeartbeatManager_UpdateMetrics(t *testing.T) {
+func TestScannerHeartbeatAgent_UpdateMetrics(t *testing.T) {
 	scannerID := "test-scanner"
 	mockTime := timeutil.NewMock(time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC))
-	eventPublisher := &mockEventPublisher{}
+	eventPublisher := new(mockEventPublisher)
 
-	heartbeatManager := NewScannerHeartbeatManager(
+	heartbeatAgent := NewScannerHeartbeatAgent(
 		scannerID,
 		eventPublisher,
 		logger.Noop(),
 		noop.NewTracerProvider().Tracer("test"),
 	)
-	heartbeatManager.timeProvider = mockTime
+	heartbeatAgent.timeProvider = mockTime
 
 	metricKey := "test_metric"
 	metricValue := 42.0
-	heartbeatManager.UpdateMetrics(metricKey, metricValue)
+	heartbeatAgent.UpdateMetrics(metricKey, metricValue)
 
-	err := heartbeatManager.sendHeartbeat(context.Background())
+	err := heartbeatAgent.sendHeartbeat(context.Background())
 	assert.NoError(t, err, "Expected no error when sending heartbeat")
 
 	// Verify the heartbeat event contains our custom metric.
@@ -102,51 +102,50 @@ func TestScannerHeartbeatManager_UpdateMetrics(t *testing.T) {
 	}
 }
 
-// TestScannerHeartbeatManager_SendHeartbeatError tests error handling
+// TestScannerHeartbeatAgent_SendHeartbeatError tests error handling
 // when publishing a heartbeat event fails.
-func TestScannerHeartbeatManager_SendHeartbeatError(t *testing.T) {
+func TestScannerHeartbeatAgent_SendHeartbeatError(t *testing.T) {
 	scannerID := "test-scanner"
 	mockTime := timeutil.NewMock(time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC))
 
 	expectedErr := assert.AnError
-	eventPublisher := &mockEventPublisher{
-		publishFunc: func(ctx context.Context, evt events.DomainEvent, opts ...events.PublishOption) error {
-			return expectedErr
-		},
+	eventPublisher := new(mockEventPublisher)
+	eventPublisher.publishFunc = func(ctx context.Context, evt events.DomainEvent, opts ...events.PublishOption) error {
+		return expectedErr
 	}
 
-	heartbeatManager := NewScannerHeartbeatManager(
+	heartbeatAgent := NewScannerHeartbeatAgent(
 		scannerID,
 		eventPublisher,
 		logger.Noop(),
 		noop.NewTracerProvider().Tracer("test"),
 	)
-	heartbeatManager.timeProvider = mockTime
+	heartbeatAgent.timeProvider = mockTime
 
 	// Attempt to send a heartbeat, which should fail.
-	err := heartbeatManager.sendHeartbeat(context.Background())
+	err := heartbeatAgent.sendHeartbeat(context.Background())
 	assert.ErrorIs(t, err, expectedErr, "Expected error from publisher to be returned")
 }
 
-// TestScannerHeartbeatManager_SendHeartbeatContent verifies the content
+// TestScannerHeartbeatAgent_SendHeartbeatContent verifies the content
 // of the heartbeat event that is published.
-func TestScannerHeartbeatManager_SendHeartbeatContent(t *testing.T) {
+func TestScannerHeartbeatAgent_SendHeartbeatContent(t *testing.T) {
 	scannerID := "test-scanner"
 	mockTime := timeutil.NewMock(time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC))
-	eventPublisher := &mockEventPublisher{}
+	eventPublisher := new(mockEventPublisher)
 
-	heartbeatManager := NewScannerHeartbeatManager(
+	heartbeatAgent := NewScannerHeartbeatAgent(
 		scannerID,
 		eventPublisher,
 		logger.Noop(),
 		noop.NewTracerProvider().Tracer("test"),
 	)
-	heartbeatManager.timeProvider = mockTime
+	heartbeatAgent.timeProvider = mockTime
 
-	heartbeatManager.UpdateMetrics("custom_metric_1", 100.0)
-	heartbeatManager.UpdateMetrics("custom_metric_2", 200.0)
+	heartbeatAgent.UpdateMetrics("custom_metric_1", 100.0)
+	heartbeatAgent.UpdateMetrics("custom_metric_2", 200.0)
 
-	err := heartbeatManager.sendHeartbeat(context.Background())
+	err := heartbeatAgent.sendHeartbeat(context.Background())
 	assert.NoError(t, err, "Expected no error when sending heartbeat")
 
 	eventPublisher.mu.RLock()
