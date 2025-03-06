@@ -32,7 +32,7 @@ import (
 var build = "develop"
 
 const (
-	serviceType = "api-gateway"
+	serviceType = "client-api"
 )
 
 func main() {
@@ -75,7 +75,7 @@ func main() {
 		return otel.GetTraceID(ctx)
 	}
 
-	svcName := fmt.Sprintf("API-GATEWAY-%s", hostname)
+	svcName := fmt.Sprintf("CLIENT-API-%s", hostname)
 	metadata := map[string]string{
 		"service":   svcName,
 		"hostname":  hostname,
@@ -124,7 +124,7 @@ func run(ctx context.Context, log *logger.Logger, hostname string) error {
 		}
 		Tempo struct {
 			Host        string  `conf:"default:tempo:4317"`
-			ServiceName string  `conf:"default:api-gateway"`
+			ServiceName string  `conf:"default:client-api"`
 			Probability float64 `conf:"default:0.05"`
 		}
 	}{}

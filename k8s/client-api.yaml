@@ -1,0 +1,144 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: client-api
+  namespace: secret-scanner
+  labels:
+    app: client-api
+    component: api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: client-api
+      component: api
+  template:
+    metadata:
+      labels:
+        app: client-api
+        component: api
+    spec:
+      serviceAccountName: secret-scanner-sa
+      containers:
+      - name: client-api
+        image: client-api:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        # Pod metadata
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        # Kafka configuration
+        - name: KAFKA_BROKERS
+          valueFrom:
+            configMapKeyRef:
+              name: scanner-config
+              key: KAFKA_BROKERS
+        - name: KAFKA_GROUP_ID
+          value: "client-api"
+        - name: KAFKA_JOB_LIFECYCLE_TOPIC
+          valueFrom:
+            configMapKeyRef:
+              name: scanner-config
+              key: KAFKA_JOB_LIFECYCLE_TOPIC
+        # Database configuration
+        - name: POSTGRES_USER
+          valueFrom:
+            configMapKeyRef:
+              name: postgres-config
+              key: POSTGRES_USER
+        - name: POSTGRES_PASSWORD
+          value: postgres
+        - name: POSTGRES_HOST
+          value: postgres
+        - name: POSTGRES_DB
+          valueFrom:
+            configMapKeyRef:
+              name: postgres-config
+              key: POSTGRES_DB
+        # OpenTelemetry Configuration
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          valueFrom:
+            configMapKeyRef:
+              name: scanner-config
+              key: OTEL_EXPORTER_OTLP_ENDPOINT
+        - name: OTEL_SERVICE_NAME
+          value: "client-api"
+        - name: OTEL_SAMPLING_RATIO
+          valueFrom:
+            configMapKeyRef:
+              name: scanner-config
+              key: OTEL_SAMPLING_RATIO
+        # API configuration
+        - name: API_HOST
+          value: "0.0.0.0"
+        - name: API_PORT
+          value: "8080"
+        # Debug configuration
+        - name: DEBUG_HOST
+          value: "0.0.0.0"
+        - name: DEBUG_PORT
+          value: "6060"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "512Mi"
+            cpu: "400m"
+        readinessProbe:
+          httpGet:
+            path: /v1/readiness
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /v1/liveness
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        volumeMounts:
+        - name: scanner-config
+          mountPath: /etc/scanner/config
+          readOnly: true
+      volumes:
+      - name: scanner-config
+        secret:
+          secretName: scanner-targets
+      initContainers:
+      - name: wait-for-kafka
+        image: busybox:1.28
+        command: ['sh', '-c', 'until nc -z kafka 9092; do echo waiting for kafka; sleep 2; done;']
+      - name: wait-for-postgres
+        image: busybox:1.28
+        command: ['sh', '-c', 'until nc -z postgres 5432; do echo waiting for postgres; sleep 2; done;']
+      - name: wait-for-otel
+        image: busybox:1.28
+        command: ['sh', '-c', 'until nc -z otel-collector 4317; do echo "waiting for otel-collector"; sleep 2; done;']
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: client-api-svc
+  namespace: secret-scanner
+  labels:
+    app: client-api
+    component: api
+spec:
+  type: ClusterIP
+  selector:
+    app: client-api
+    component: api
+  ports:
+  - port: 80
+    targetPort: 8080
+    name: http

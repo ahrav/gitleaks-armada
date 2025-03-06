@@ -17,8 +17,8 @@ CONTROLLER_IMAGE := $(CONTROLLER_APP):latest
 SCANNER_APP := scanner
 SCANNER_IMAGE := $(SCANNER_APP):latest
 
-API_GATEWAY_APP := api-gateway
-API_GATEWAY_IMAGE := $(API_GATEWAY_APP):latest
+CLIENT_API_APP := client-api
+CLIENT_API_IMAGE := $(CLIENT_API_APP):latest
 
 PROMETHEUS_IMAGE := prom/prometheus:v3.1.0
 GRAFANA_IMAGE := grafana/grafana:11.4.0
@@ -72,7 +72,7 @@ SCANNER_PARTITIONS := 5     # Matches scanner replicas
         monitoring-port-forward monitoring-cleanup postgres-setup postgres-logs \
         postgres-restart postgres-delete sqlc-proto-gen proto-gen test test-coverage \
         rollout-restart rollout-restart-controller rollout-restart-scanner \
-        rollout-restart-api-gateway clean dev-all
+        rollout-restart-client-api clean dev-all
 
 help:
 	@echo "Usage: make <command>"
@@ -87,7 +87,7 @@ help:
 	@echo "  dev-all               Full cycle: build, cluster up, load images, apply manifests"
 	@echo ""
 	@echo "Build & Docker:"
-	@echo "  build-all             Build all binaries (controller, scanner, api-gateway)"
+	@echo "  build-all             Build all binaries (controller, scanner, client-api)"
 	@echo "  docker-all            Build all Docker images"
 	@echo "  proto-gen             Generate Go stubs from .proto"
 	@echo "  sqlc-proto-gen        Generate code with sqlc plus proto if needed"
@@ -157,7 +157,7 @@ dev-docker:
 # 2) Build & Docker creation
 ################################################################################
 
-build-all: proto-gen sqlc-proto-gen build-controller build-scanner build-api-gateway
+build-all: proto-gen sqlc-proto-gen build-controller build-scanner build-client-api
 
 proto-gen: proto-deps
 	@for p in $(PROTO_FILES); do \
@@ -186,10 +186,10 @@ build-controller:
 build-scanner:
 	CGO_ENABLED=0 GOOS=linux go build -o $(SCANNER_APP) ./cmd/scanner
 
-build-api-gateway:
-	CGO_ENABLED=0 GOOS=linux go build -o $(API_GATEWAY_APP) ./cmd/api
+build-client-api:
+	CGO_ENABLED=0 GOOS=linux go build -o $(CLIENT_API_APP) ./cmd/api
 
-docker-all: docker-controller docker-scanner docker-api-gateway
+docker-all: docker-controller docker-scanner docker-client-api
 
 docker-controller:
 	docker build -t $(CONTROLLER_IMAGE) -f Dockerfile.controller .
@@ -197,8 +197,8 @@ docker-controller:
 docker-scanner:
 	docker build -t $(SCANNER_IMAGE) -f Dockerfile.scanner .
 
-docker-api-gateway:
-	docker build -t $(API_GATEWAY_IMAGE) -f Dockerfile.api-gateway .
+docker-client-api:
+	docker build -t $(CLIENT_API_IMAGE) -f Dockerfile.client-api .
 
 
 ################################################################################
@@ -237,7 +237,7 @@ dev-up:
 dev-load: dev-docker
 	kind load docker-image $(CONTROLLER_IMAGE) --name $(KIND_CLUSTER)
 	kind load docker-image $(SCANNER_IMAGE) --name $(KIND_CLUSTER)
-	kind load docker-image $(API_GATEWAY_IMAGE) --name $(KIND_CLUSTER)
+	kind load docker-image $(CLIENT_API_IMAGE) --name $(KIND_CLUSTER)
 	kind load docker-image $(POSTGRES_IMAGE) --name $(KIND_CLUSTER)
 	kind load docker-image $(KAFKA_IMAGE) --name $(KIND_CLUSTER)
 	kind load docker-image $(ZOOKEEPER_IMAGE) --name $(KIND_CLUSTER)
@@ -252,7 +252,7 @@ dev-apply:
 	kubectl apply -f $(K8S_MANIFESTS)/namespace.yaml
 	kubectl apply -f $(K8S_MANIFESTS)/config.yaml -n $(NAMESPACE)
 	kubectl apply -f $(K8S_MANIFESTS)/rbac.yaml -n $(NAMESPACE)
-	kubectl apply -f $(K8S_MANIFESTS)/api-gateway.yaml -n $(NAMESPACE)
+	kubectl apply -f $(K8S_MANIFESTS)/client-api.yaml -n $(NAMESPACE)
 	kubectl apply -f $(K8S_MANIFESTS)/api-ingress.yaml -n $(NAMESPACE)
 	kubectl apply -f $(K8S_MANIFESTS)/controller.yaml -n $(NAMESPACE)
 	kubectl apply -f $(K8S_MANIFESTS)/scanner.yaml -n $(NAMESPACE)
@@ -563,15 +563,15 @@ create-config-secret:
 		--namespace=$(NAMESPACE) \
 		--dry-run=client -o yaml | kubectl apply -f -
 
-api-gateway-port-forward:
-	@echo "Port forwarding API Gateway to localhost:8080..."
-	kubectl port-forward -n $(NAMESPACE) svc/api-gateway 8080:80 &
+client-api-port-forward:
+	@echo "Port forwarding Client API to localhost:8080..."
+	kubectl port-forward -n $(NAMESPACE) svc/client-api-svc 8080:80 &
 
 ################################################################################
 # Rollout restarts
 ################################################################################
 
-rollout-restart: rollout-restart-controller rollout-restart-scanner rollout-restart-api-gateway
+rollout-restart: rollout-restart-controller rollout-restart-scanner rollout-restart-client-api
 
 rollout-restart-controller:
 	kubectl rollout restart deployment/controller -n $(NAMESPACE)
@@ -579,8 +579,8 @@ rollout-restart-controller:
 rollout-restart-scanner:
 	kubectl rollout restart deployment/scanner -n $(NAMESPACE)
 
-rollout-restart-api-gateway:
-	kubectl rollout restart deployment/api-gateway -n $(NAMESPACE)
+rollout-restart-client-api:
+	kubectl rollout restart deployment/client-api -n $(NAMESPACE)
 
 ################################################################################
 # Testing and cleanup
@@ -597,5 +597,5 @@ test-coverage:
 	@echo "Coverage report: coverage.html"
 
 clean:
-	rm -f $(CONTROLLER_APP) $(SCANNER_APP) $(API_GATEWAY_APP)
+	rm -f $(CONTROLLER_APP) $(SCANNER_APP) $(CLIENT_API_APP)
 	@echo "Cleaned up local binaries."

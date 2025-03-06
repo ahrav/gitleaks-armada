@@ -2,7 +2,7 @@
 /scanner
 /controller
 /secret-scanner
-/api-gateway
+/client-api
 .cursor
 
 # Build and environment
