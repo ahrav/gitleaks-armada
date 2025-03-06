@@ -63,7 +63,7 @@ func main() {
 		return otel.GetTraceID(ctx)
 	}
 
-	svcName := fmt.Sprintf("SCANNER-%s", hostname)
+	const svcName = "scanner-service"
 	metadata := map[string]string{
 		"service":   svcName,
 		"hostname":  hostname,
@@ -123,11 +123,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	scannerID := fmt.Sprintf("scanner-%s", hostname)
+
 	// Create shared Kafka client.
 	kafkaClient, err := kafka.NewClient(&kafka.ClientConfig{
 		Brokers:     strings.Split(os.Getenv("KAFKA_BROKERS"), ","),
 		GroupID:     os.Getenv("KAFKA_GROUP_ID"),
-		ClientID:    fmt.Sprintf("scanner-%s", hostname),
+		ClientID:    scannerID,
 		ServiceType: "scanner",
 	})
 	if err != nil {
@@ -161,7 +163,7 @@ func main() {
 		RulesRequestTopic:     os.Getenv("KAFKA_RULES_REQUEST_TOPIC"),
 		RulesResponseTopic:    os.Getenv("KAFKA_RULES_RESPONSE_TOPIC"),
 		GroupID:               os.Getenv("KAFKA_GROUP_ID"),
-		ClientID:              fmt.Sprintf("scanner-%s", hostname),
+		ClientID:              scannerID,
 	}
 
 	// Create a separate config for broadcast events.
@@ -189,18 +191,40 @@ func main() {
 
 	domainEventTranslator := events.NewDomainEventTranslator(kafka.NewKafkaPositionTranslator())
 	eventPublisher := kafka.NewDomainEventPublisher(eventBus, domainEventTranslator)
-	gitleaksScanner, err := scanner.NewGitLeaks(hostname, eventPublisher, log, tracer, metricsCollector)
+
+	// Attempt to register the scanner with the controller(s).
+	scannerRegistrar := scanning.NewScannerRegistrar(scanning.ScannerConfig{
+		Name:         scannerID,
+		GroupName:    os.Getenv("SCANNER_GROUP_NAME"),
+		Hostname:     hostname,
+		Version:      os.Getenv("SCANNER_VERSION"),
+		Capabilities: strings.Split(os.Getenv("SCANNER_CAPABILITIES"), ","),
+	}, eventPublisher, log, tracer)
+	if err := scannerRegistrar.Register(ctx); err != nil {
+		log.Error(ctx, "failed to register scanner", "error", err)
+		os.Exit(1)
+	}
+
+	// Start the scanner heartbeat agent.
+	// This will send heartbeat events to the controller(s) to indicate that the scanner is alive.
+	scannerHeartbeatAgent := scanning.NewScannerHeartbeatAgent(scannerID, eventPublisher, log, tracer)
+	if err := scannerHeartbeatAgent.Start(ctx); err != nil {
+		log.Error(ctx, "failed to start scanner heartbeat agent", "error", err)
+		os.Exit(1)
+	}
+
+	gitleaksScanner, err := scanner.NewGitLeaks(scannerID, eventPublisher, log, tracer, metricsCollector)
 	if err != nil {
 		log.Error(ctx, "failed to create gitleaks scanner", "error", err)
 		os.Exit(1)
 	}
 
 	scanOrchestrator := scanning.NewScanOrchestrator(
-		hostname,
+		scannerID,
 		eventBus,
 		broadcastEventBus,
 		eventPublisher,
-		progressreporter.New(hostname, eventPublisher, tracer),
+		progressreporter.New(scannerID, eventPublisher, tracer),
 		gitleaksScanner,
 		log,
 		metricsCollector,
