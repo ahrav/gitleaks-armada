@@ -3,7 +3,6 @@ package scanning
 import (
 	"testing"
 
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -14,7 +13,6 @@ import (
 
 func TestScannerRegisteredEventConversion(t *testing.T) {
 	t.Run("successful conversion", func(t *testing.T) {
-		scannerID := uuid.New()
 		name := "test-scanner"
 		version := "1.0.0"
 		capabilities := []string{"git", "s3"}
@@ -25,7 +23,6 @@ func TestScannerRegisteredEventConversion(t *testing.T) {
 		initialStatus := scanning.ScannerStatusOnline
 
 		domainEvent := scanning.NewScannerRegisteredEvent(
-			scannerID,
 			name,
 			version,
 			capabilities,
@@ -39,8 +36,7 @@ func TestScannerRegisteredEventConversion(t *testing.T) {
 		// Test domain to proto conversion.
 		protoEvent := ScannerRegisteredEventToProto(domainEvent)
 		require.NotNil(t, protoEvent)
-		assert.Equal(t, scannerID.String(), protoEvent.ScannerId)
-		assert.Equal(t, name, protoEvent.Name)
+		assert.Equal(t, name, protoEvent.ScannerName)
 		assert.Equal(t, version, protoEvent.Version)
 		assert.Equal(t, capabilities, protoEvent.Capabilities)
 		assert.Equal(t, groupName, protoEvent.GroupName)
@@ -53,7 +49,6 @@ func TestScannerRegisteredEventConversion(t *testing.T) {
 		// Test proto to domain conversion.
 		convertedEvent, err := ProtoToScannerRegisteredEvent(protoEvent)
 		require.NoError(t, err)
-		assert.Equal(t, scannerID, convertedEvent.ScannerID())
 		assert.Equal(t, name, convertedEvent.Name())
 		assert.Equal(t, version, convertedEvent.Version())
 		assert.Equal(t, capabilities, convertedEvent.Capabilities())
@@ -62,25 +57,6 @@ func TestScannerRegisteredEventConversion(t *testing.T) {
 		assert.Equal(t, ipAddress, convertedEvent.IPAddress())
 		assert.Equal(t, tags, convertedEvent.Tags())
 		assert.Equal(t, initialStatus, convertedEvent.InitialStatus())
-	})
-
-	t.Run("invalid UUID", func(t *testing.T) {
-		protoEvent := &pb.ScannerRegisteredEvent{
-			ScannerId:     "invalid-uuid",
-			Name:          "test-scanner",
-			Version:       "1.0.0",
-			Capabilities:  []string{"git"},
-			GroupName:     "test-group",
-			Hostname:      "test-host",
-			IpAddress:     "192.168.1.1",
-			Timestamp:     0,
-			Tags:          map[string]string{},
-			InitialStatus: pb.ScannerStatus_SCANNER_STATUS_ONLINE,
-		}
-
-		_, err := ProtoToScannerRegisteredEvent(protoEvent)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "invalid UUID")
 	})
 
 	t.Run("nil event", func(t *testing.T) {
@@ -92,19 +68,19 @@ func TestScannerRegisteredEventConversion(t *testing.T) {
 
 func TestScannerHeartbeatEventConversion(t *testing.T) {
 	t.Run("successful conversion", func(t *testing.T) {
-		scannerID := uuid.New()
+		scannerName := "test-scanner"
 		status := scanning.ScannerStatusMaintenance
 		metrics := map[string]float64{
 			"cpu_usage":    0.75,
 			"memory_usage": 0.5,
 		}
 
-		domainEvent := scanning.NewScannerHeartbeatEvent(scannerID, status, metrics)
+		domainEvent := scanning.NewScannerHeartbeatEvent(scannerName, status, metrics)
 
 		// Test domain to proto conversion.
 		protoEvent := ScannerHeartbeatEventToProto(domainEvent)
 		require.NotNil(t, protoEvent)
-		assert.Equal(t, scannerID.String(), protoEvent.ScannerId)
+		assert.Equal(t, scannerName, protoEvent.ScannerName)
 		assert.Equal(t, pb.ScannerStatus(status.Int32()), protoEvent.Status)
 		assert.Equal(t, metrics, protoEvent.Metrics)
 		assert.Equal(t, domainEvent.OccurredAt().UnixNano(), protoEvent.Timestamp)
@@ -112,22 +88,9 @@ func TestScannerHeartbeatEventConversion(t *testing.T) {
 		// Test proto to domain conversion.
 		convertedEvent, err := ProtoToScannerHeartbeatEvent(protoEvent)
 		require.NoError(t, err)
-		assert.Equal(t, scannerID, convertedEvent.ScannerID())
+		assert.Equal(t, scannerName, convertedEvent.ScannerName())
 		assert.Equal(t, status, convertedEvent.Status())
 		assert.Equal(t, metrics, convertedEvent.Metrics())
-	})
-
-	t.Run("invalid UUID", func(t *testing.T) {
-		protoEvent := &pb.ScannerHeartbeatEvent{
-			ScannerId: "invalid-uuid",
-			Status:    pb.ScannerStatus_SCANNER_STATUS_OFFLINE,
-			Timestamp: 0,
-			Metrics:   map[string]float64{},
-		}
-
-		_, err := ProtoToScannerHeartbeatEvent(protoEvent)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "invalid UUID")
 	})
 
 	t.Run("nil event", func(t *testing.T) {
@@ -139,17 +102,17 @@ func TestScannerHeartbeatEventConversion(t *testing.T) {
 
 func TestScannerStatusChangedEventConversion(t *testing.T) {
 	t.Run("successful conversion", func(t *testing.T) {
-		scannerID := uuid.New()
+		scannerName := "test-scanner"
 		newStatus := scanning.ScannerStatusOffline
 		previousStatus := scanning.ScannerStatusOnline
 		reason := "scanner started processing tasks"
 
-		domainEvent := scanning.NewScannerStatusChangedEvent(scannerID, newStatus, previousStatus, reason)
+		domainEvent := scanning.NewScannerStatusChangedEvent(scannerName, newStatus, previousStatus, reason)
 
 		// Test domain to proto conversion.
 		protoEvent := ScannerStatusChangedEventToProto(domainEvent)
 		require.NotNil(t, protoEvent)
-		assert.Equal(t, scannerID.String(), protoEvent.ScannerId)
+		assert.Equal(t, scannerName, protoEvent.ScannerName)
 		assert.Equal(t, pb.ScannerStatus(newStatus.Int32()), protoEvent.NewStatus)
 		assert.Equal(t, pb.ScannerStatus(previousStatus.Int32()), protoEvent.PreviousStatus)
 		assert.Equal(t, reason, protoEvent.Reason)
@@ -158,24 +121,10 @@ func TestScannerStatusChangedEventConversion(t *testing.T) {
 		// Test proto to domain conversion.
 		convertedEvent, err := ProtoToScannerStatusChangedEvent(protoEvent)
 		require.NoError(t, err)
-		assert.Equal(t, scannerID, convertedEvent.ScannerID())
+		assert.Equal(t, scannerName, convertedEvent.ScannerName())
 		assert.Equal(t, newStatus, convertedEvent.NewStatus())
 		assert.Equal(t, previousStatus, convertedEvent.PreviousStatus())
 		assert.Equal(t, reason, convertedEvent.Reason())
-	})
-
-	t.Run("invalid UUID", func(t *testing.T) {
-		protoEvent := &pb.ScannerStatusChangedEvent{
-			ScannerId:      "invalid-uuid",
-			NewStatus:      pb.ScannerStatus_SCANNER_STATUS_OFFLINE,
-			PreviousStatus: pb.ScannerStatus_SCANNER_STATUS_ONLINE,
-			Reason:         "test reason",
-			Timestamp:      0,
-		}
-
-		_, err := ProtoToScannerStatusChangedEvent(protoEvent)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "invalid UUID")
 	})
 
 	t.Run("nil event", func(t *testing.T) {
@@ -187,35 +136,23 @@ func TestScannerStatusChangedEventConversion(t *testing.T) {
 
 func TestScannerDeregisteredEventConversion(t *testing.T) {
 	t.Run("successful conversion", func(t *testing.T) {
-		scannerID := uuid.New()
+		scannerName := "test-scanner"
 		reason := "scanner shutdown gracefully"
 
-		domainEvent := scanning.NewScannerDeregisteredEvent(scannerID, reason)
+		domainEvent := scanning.NewScannerDeregisteredEvent(scannerName, reason)
 
 		// Test domain to proto conversion.
 		protoEvent := ScannerDeregisteredEventToProto(domainEvent)
 		require.NotNil(t, protoEvent)
-		assert.Equal(t, scannerID.String(), protoEvent.ScannerId)
+		assert.Equal(t, scannerName, protoEvent.ScannerName)
 		assert.Equal(t, reason, protoEvent.Reason)
 		assert.Equal(t, domainEvent.OccurredAt().UnixNano(), protoEvent.Timestamp)
 
 		// Test proto to domain conversion.
 		convertedEvent, err := ProtoToScannerDeregisteredEvent(protoEvent)
 		require.NoError(t, err)
-		assert.Equal(t, scannerID, convertedEvent.ScannerID())
+		assert.Equal(t, scannerName, convertedEvent.ScannerName())
 		assert.Equal(t, reason, convertedEvent.Reason())
-	})
-
-	t.Run("invalid UUID", func(t *testing.T) {
-		protoEvent := &pb.ScannerDeregisteredEvent{
-			ScannerId: "invalid-uuid",
-			Reason:    "test reason",
-			Timestamp: 0,
-		}
-
-		_, err := ProtoToScannerDeregisteredEvent(protoEvent)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "invalid UUID")
 	})
 
 	t.Run("nil event", func(t *testing.T) {
