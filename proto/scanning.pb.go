@@ -1815,6 +1815,7 @@ func (x *TaskCancelledEvent) GetCancelledAt() int64 {
 }
 
 // ScannerRegisteredEvent is emitted when a scanner registers with the system.
+// TODO: Add validation at the protobuf layer.
 type ScannerRegisteredEvent struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
