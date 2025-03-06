@@ -109,24 +109,22 @@ func (h *ScannerHandler) HandleScannerRegistered(
 			return recordPayloadTypeError(span, evt.Payload)
 		}
 
-		scannerID, groupName := regEvent.ScannerID(), regEvent.GroupName()
+		groupName := regEvent.GroupName()
 		span.SetAttributes(
-			attribute.String("scanner_id", scannerID.String()),
 			attribute.String("scanner_name", regEvent.Name()),
 			attribute.String("scanner_group", groupName),
 			attribute.String("scanner_version", regEvent.Version()),
 		)
 
-		cmd := scanning.NewCreateScannerCommand(scannerID, groupName, regEvent.Name(), regEvent.Version(), nil)
+		cmd := scanning.NewCreateScannerCommand(groupName, regEvent.Name(), regEvent.Version(), nil)
 		scanner, err := h.scannerService.CreateScanner(ctx, cmd)
 		if err != nil {
 			return fmt.Errorf("failed to register scanner: %w", err)
 		}
+		h.logger.Info(ctx, "Scanner registered successfully", "scanner_id", scanner.ID())
 
-		h.logger.Info(ctx, "Scanner registered successfully",
-			"scanner_id", scanner.ID,
-			"scanner_name", scanner.Name)
-
+		span.AddEvent("scanner_registered_successfully")
+		span.SetStatus(codes.Ok, "scanner registered successfully")
 		return nil
 	}, ack)
 }
@@ -143,16 +141,16 @@ func (h *ScannerHandler) HandleScannerHeartbeat(
 			return recordPayloadTypeError(span, evt.Payload)
 		}
 
-		scannerID := heartbeatEvent.ScannerID()
+		scannerName := heartbeatEvent.ScannerName()
 		span.SetAttributes(
-			attribute.String("scanner_id", scannerID.String()),
+			attribute.String("scanner_name", scannerName),
 			// attribute.String("status", heartbeatEvent.Status()),
 		)
 
 		// TODO: Implement heartbeat handling in the scanner service
 		// This would update the scanner's last_heartbeat_at timestamp and potentially status
 
-		h.logger.Debug(ctx, "Received scanner heartbeat", "scanner_id", scannerID)
+		h.logger.Debug(ctx, "Received scanner heartbeat", "scanner_name", scannerName)
 
 		return nil
 	}, ack)
@@ -170,9 +168,9 @@ func (h *ScannerHandler) HandleScannerStatusChanged(
 			return recordPayloadTypeError(span, evt.Payload)
 		}
 
-		scannerID := statusEvent.ScannerID()
+		scannerName := statusEvent.ScannerName()
 		span.SetAttributes(
-			attribute.String("scanner_id", scannerID.String()),
+			attribute.String("scanner_name", scannerName),
 			// attribute.String("new_status", statusEvent.NewStatus()),
 			// attribute.String("previous_status", statusEvent.PreviousStatus()),
 			// attribute.String("reason", statusEvent.Reason()),
@@ -182,7 +180,7 @@ func (h *ScannerHandler) HandleScannerStatusChanged(
 		// This would update the scanner's status and record the reason for the change
 
 		h.logger.Info(ctx, "Scanner status changed",
-			"scanner_id", scannerID,
+			"scanner_name", scannerName,
 			"new_status", statusEvent.NewStatus(),
 			"previous_status", statusEvent.PreviousStatus(),
 			"reason", statusEvent.Reason())
@@ -203,9 +201,9 @@ func (h *ScannerHandler) HandleScannerDeregistered(
 			return recordPayloadTypeError(span, evt.Payload)
 		}
 
-		scannerID := deregEvent.ScannerID()
+		scannerName := deregEvent.ScannerName()
 		span.SetAttributes(
-			attribute.String("scanner_id", scannerID.String()),
+			attribute.String("scanner_name", scannerName),
 			attribute.String("reason", deregEvent.Reason()),
 		)
 
@@ -213,7 +211,7 @@ func (h *ScannerHandler) HandleScannerDeregistered(
 		// This would mark the scanner as offline and record the reason
 
 		h.logger.Info(ctx, "Scanner deregistered",
-			"scanner_id", scannerID,
+			"scanner_name", scannerName,
 			"reason", deregEvent.Reason())
 
 		return nil
