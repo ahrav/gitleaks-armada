@@ -146,6 +146,4 @@ CREATE TABLE scanners (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (group_id, name)
 );
-
--- Indexes
 CREATE INDEX idx_scanners_group_id_name ON scanners(group_id, name);
