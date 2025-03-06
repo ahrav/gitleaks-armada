@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -15,17 +14,9 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
+	"github.com/ahrav/gitleaks-armada/pkg/common/timeutil"
+	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 )
-
-type timeProvider interface {
-	Now() time.Time
-}
-
-// realTimeProvider is a real implementation of the timeProvider interface.
-type realTimeProvider struct{}
-
-// Now returns the current time.
-func (realTimeProvider) Now() time.Time { return time.Now().UTC() }
 
 var _ scanning.TaskHealthMonitor = (*taskHealthSupervisor)(nil)
 
@@ -57,7 +48,7 @@ type taskHealthSupervisor struct {
 	// cancel allows graceful shutdown of background goroutines.
 	cancel context.CancelCauseFunc
 	// timeProvider is used to get the current time.
-	timeProvider timeProvider
+	timeProvider timeutil.Provider
 
 	// tracer provides distributed tracing for request flows.
 	tracer trace.Tracer
@@ -89,7 +80,7 @@ func NewTaskHealthSupervisor(
 		stalenessThreshold: 20 * time.Second,
 		tracer:             tracer,
 		logger:             logger,
-		timeProvider:       realTimeProvider{},
+		timeProvider:       timeutil.Default(),
 		heartbeatCache:     make(map[uuid.UUID]time.Time),
 	}
 }

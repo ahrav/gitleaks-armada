@@ -14,6 +14,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
+	"github.com/ahrav/gitleaks-armada/pkg/common/timeutil"
 	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 )
 
@@ -72,7 +73,7 @@ func (m *mockEventPublisher) PublishDomainEvent(ctx context.Context, evt events.
 func TestHeartbeatMonitor_HandleHeartbeat(t *testing.T) {
 	taskID := uuid.New()
 	mockTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
-	mockProvider := &mockTimeProvider{now: mockTime}
+	mockProvider := timeutil.NewMock(mockTime)
 
 	// Channel to signal when heartbeats are processed.
 	heartbeatProcessed := make(chan struct{}, 1)
@@ -159,7 +160,7 @@ func TestHeartbeatMonitor_CheckForStaleTasks(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			baseTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
-			mockTime := &mockTimeProvider{now: baseTime}
+			mockTime := timeutil.NewMock(baseTime)
 
 			eventPublisher := new(mockEventPublisher)
 			stateHandler := new(mockStateHandler)
@@ -200,7 +201,7 @@ func TestHeartbeatMonitor_Start(t *testing.T) {
 	taskID := uuid.New()
 	jobID := uuid.New()
 	baseTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
-	mockProvider := &mockTimeProvider{now: baseTime}
+	mockProvider := timeutil.NewMock(baseTime)
 
 	// Buffered channel to signal event processing.
 	eventProcessed := make(chan struct{}, 1)
@@ -247,8 +248,9 @@ func TestHeartbeatMonitor_Start(t *testing.T) {
 
 	heartbeatMonitor.Start(ctx)
 
+	// Allow time to advance past the staleness threshold
 	// Advance time past the staleness threshold.
-	mockProvider.SetNow(21 * time.Second) // Past the 20-second staleness threshold
+	mockProvider.SetNow(mockProvider.Now().Add(21 * time.Second)) // Past the 20-second staleness threshold
 
 	// Directly trigger the staleness check.
 	heartbeatMonitor.checkForStaleTasks(ctx)
@@ -276,7 +278,7 @@ func TestHeartbeatMonitor_Start(t *testing.T) {
 
 func TestHeartbeatMonitor_ConcurrentAccess(t *testing.T) {
 	baseTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
-	mockProvider := &mockTimeProvider{now: baseTime}
+	mockProvider := timeutil.NewMock(baseTime)
 
 	var heartbeatsReceived int32
 	var staleChecksPerformed int32
