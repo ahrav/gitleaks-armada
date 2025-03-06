@@ -253,7 +253,7 @@ dev-apply:
 	kubectl apply -f $(K8S_MANIFESTS)/config.yaml -n $(NAMESPACE)
 	kubectl apply -f $(K8S_MANIFESTS)/rbac.yaml -n $(NAMESPACE)
 	kubectl apply -f $(K8S_MANIFESTS)/client-api.yaml -n $(NAMESPACE)
-	kubectl apply -f $(K8S_MANIFESTS)/api-ingress.yaml -n $(NAMESPACE)
+	kubectl apply -f $(K8S_MANIFESTS)/http-ingress.yaml -n $(NAMESPACE)
 	kubectl apply -f $(K8S_MANIFESTS)/controller.yaml -n $(NAMESPACE)
 	kubectl apply -f $(K8S_MANIFESTS)/scanner.yaml -n $(NAMESPACE)
 
