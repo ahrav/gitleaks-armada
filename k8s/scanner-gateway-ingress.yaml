@@ -1,0 +1,22 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: scanner-gateway-ingress
+  namespace: secret-scanner
+  annotations:
+    konghq.com/strip-path: "true"
+    konghq.com/protocols: "grpc,grpcs"
+    # konghq.com/plugins: scanner-gateway-rate-limiting
+spec:
+  ingressClassName: kong
+  rules:
+  - host: scanner-api.local.gitleaks.armada
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: scanner-gateway
+            port:
+              number: 9090

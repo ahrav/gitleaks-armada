@@ -1,0 +1,164 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scanner-gateway
+  namespace: secret-scanner
+  labels:
+    app: scanner-gateway
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: scanner-gateway
+  template:
+    metadata:
+      labels:
+        app: scanner-gateway
+    spec:
+      containers:
+      - name: scanner-gateway
+        image: scanner-gateway:latest  # TODO: gots to build this.
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+          name: http
+        - containerPort: 9090
+          name: grpc
+        env:
+        # Kafka configuration - same as scanner
+        - name: KAFKA_BROKERS
+          valueFrom:
+            configMapKeyRef:
+              name: scanner-config
+              key: KAFKA_BROKERS
+        - name: KAFKA_TASK_CREATED_TOPIC
+          valueFrom:
+            configMapKeyRef:
+              name: scanner-config
+              key: KAFKA_TASK_CREATED_TOPIC
+        - name: KAFKA_SCANNING_TASK_TOPIC
+          valueFrom:
+            configMapKeyRef:
+              name: scanner-config
+              key: KAFKA_SCANNING_TASK_TOPIC
+        - name: KAFKA_RESULTS_TOPIC
+          valueFrom:
+            configMapKeyRef:
+              name: scanner-config
+              key: KAFKA_RESULTS_TOPIC
+        - name: KAFKA_RULES_REQUEST_TOPIC
+          valueFrom:
+            configMapKeyRef:
+              name: scanner-config
+              key: KAFKA_RULES_REQUEST_TOPIC
+        - name: KAFKA_RULES_RESPONSE_TOPIC
+          valueFrom:
+            configMapKeyRef:
+              name: scanner-config
+              key: KAFKA_RULES_RESPONSE_TOPIC
+        - name: KAFKA_HIGH_PRIORITY_TASK_TOPIC
+          valueFrom:
+            configMapKeyRef:
+              name: scanner-config
+              key: KAFKA_HIGH_PRIORITY_TASK_TOPIC
+        - name: KAFKA_JOB_LIFECYCLE_TOPIC
+          valueFrom:
+            configMapKeyRef:
+              name: scanner-config
+              key: KAFKA_JOB_LIFECYCLE_TOPIC
+        - name: KAFKA_JOB_BROADCAST_TOPIC
+          valueFrom:
+            configMapKeyRef:
+              name: scanner-config
+              key: KAFKA_JOB_BROADCAST_TOPIC
+        - name: KAFKA_SCANNER_LIFECYCLE_TOPIC
+          valueFrom:
+            configMapKeyRef:
+              name: scanner-config
+              key: KAFKA_SCANNER_LIFECYCLE_TOPIC
+        - name: KAFKA_GROUP_ID
+          value: "scanner-gateway"
+        # Pod information
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        # OpenTelemetry Configuration
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          valueFrom:
+            configMapKeyRef:
+              name: scanner-config
+              key: OTEL_EXPORTER_OTLP_ENDPOINT
+        - name: OTEL_SERVICE_NAME
+          value: "scanner-gateway"
+        - name: OTEL_SAMPLING_RATIO
+          valueFrom:
+            configMapKeyRef:
+              name: scanner-config
+              key: OTEL_SAMPLING_RATIO
+        # Gateway specific settings
+        - name: API_LISTEN_ADDRESS
+          value: ":8080"
+        - name: GRPC_LISTEN_ADDRESS
+          value: ":9090"
+        - name: AUTH_KEY
+          valueFrom:
+            secretKeyRef:
+              name: scanner-gateway-auth
+              key: api-key
+              optional: true
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "512Mi"
+            cpu: "400m"
+        readinessProbe:
+          httpGet:
+            path: /v1/readiness
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 2
+        livenessProbe:
+          httpGet:
+            path: /v1/health
+            port: http
+          initialDelaySeconds: 15
+          periodSeconds: 20
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 3
+      initContainers:
+      - name: wait-for-kafka
+        image: busybox:1.28
+        command: ['sh', '-c', 'until nc -z kafka 9092; do echo waiting for kafka; sleep 2; done;']
+      - name: wait-for-otel
+        image: busybox:1.28
+        command: ['sh', '-c', 'until nc -z otel-collector 4317; do echo "waiting for otel-collector"; sleep 2; done;']
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: scanner-gateway
+  namespace: secret-scanner
+  labels:
+    app: scanner-gateway
+spec:
+  type: ClusterIP
+  selector:
+    app: scanner-gateway
+  ports:
+  - port: 80
+    targetPort: http
+    name: http
+  - port: 9090
+    targetPort: grpc
+    name: grpc
