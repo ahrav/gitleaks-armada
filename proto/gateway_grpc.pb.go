@@ -35,6 +35,11 @@ type ScannerGatewayServiceClient interface {
 	// scanner and the gateway. The scanner sends initialization data, followed by
 	// a stream of events (results, heartbeats, etc.) The gateway sends tasks and
 	// control messages back to the scanner.
+	//
+	// This RPC is used for both regular scanner-specific messaging and broadcast
+	// messaging (where events are sent to all scanners). The distinction is made
+	// based on the ServiceType in the EventBusConfig ("scanner" or
+	// "scanner_broadcast").
 	ConnectScanner(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ScannerToGatewayMessage, GatewayToScannerMessage], error)
 	// GetRules establishes a stream for the gateway to push rule definitions to
 	// scanners. Despite the name suggesting scanners request rules, in our
@@ -99,6 +104,11 @@ type ScannerGatewayServiceServer interface {
 	// scanner and the gateway. The scanner sends initialization data, followed by
 	// a stream of events (results, heartbeats, etc.) The gateway sends tasks and
 	// control messages back to the scanner.
+	//
+	// This RPC is used for both regular scanner-specific messaging and broadcast
+	// messaging (where events are sent to all scanners). The distinction is made
+	// based on the ServiceType in the EventBusConfig ("scanner" or
+	// "scanner_broadcast").
 	ConnectScanner(grpc.BidiStreamingServer[ScannerToGatewayMessage, GatewayToScannerMessage]) error
 	// GetRules establishes a stream for the gateway to push rule definitions to
 	// scanners. Despite the name suggesting scanners request rules, in our

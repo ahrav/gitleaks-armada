@@ -15,6 +15,11 @@ service ScannerGatewayService {
   // scanner and the gateway. The scanner sends initialization data, followed by
   // a stream of events (results, heartbeats, etc.) The gateway sends tasks and
   // control messages back to the scanner.
+  //
+  // This RPC is used for both regular scanner-specific messaging and broadcast
+  // messaging (where events are sent to all scanners). The distinction is made
+  // based on the ServiceType in the EventBusConfig ("scanner" or
+  // "scanner_broadcast").
   rpc ConnectScanner(stream ScannerToGatewayMessage)
       returns (stream GatewayToScannerMessage) {}
 
