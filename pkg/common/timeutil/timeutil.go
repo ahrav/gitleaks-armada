@@ -10,6 +10,9 @@ import "time"
 type Provider interface {
 	// Now returns the current time.
 	Now() time.Time
+
+	// Sleep pauses the current goroutine for the given duration.
+	Sleep(d time.Duration)
 }
 
 // RealProvider is the default implementation of Provider that
@@ -18,6 +21,9 @@ type RealProvider struct{}
 
 // Now returns the current time in UTC.
 func (RealProvider) Now() time.Time { return time.Now().UTC() }
+
+// Sleep pauses the current goroutine for the given duration.
+func (RealProvider) Sleep(d time.Duration) { time.Sleep(d) }
 
 // Mock is an implementation of Provider used for testing,
 // allowing tests to control what time is returned.
@@ -31,6 +37,9 @@ func (m *Mock) SetNow(t time.Time) { m.CurrentTime = t }
 
 // Advance moves the mock time forward by the specified duration.
 func (m *Mock) Advance(d time.Duration) { m.CurrentTime = m.CurrentTime.Add(d) }
+
+// Sleep pauses the current goroutine for the given duration.
+func (m *Mock) Sleep(d time.Duration) { m.CurrentTime = m.CurrentTime.Add(d) }
 
 // Default returns a Provider implementation that uses the real system time.
 func Default() Provider { return RealProvider{} }

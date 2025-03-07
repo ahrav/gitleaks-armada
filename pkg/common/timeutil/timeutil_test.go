@@ -23,6 +23,14 @@ func TestMock_Now(t *testing.T) {
 	assert.Equal(t, fixedTime, provider.Now(), "Mock provider should return the fixed time")
 }
 
+func TestMock_Sleep(t *testing.T) {
+	fixedTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	provider := Mock{CurrentTime: fixedTime}
+
+	provider.Sleep(1 * time.Second)
+	assert.Equal(t, fixedTime.Add(1*time.Second), provider.Now(), "Time should be advanced by 1 second")
+}
+
 func TestMock_SetNow(t *testing.T) {
 	initialTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	newTime := time.Date(2024, 2, 2, 0, 0, 0, 0, time.UTC)
