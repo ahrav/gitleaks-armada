@@ -20,6 +20,9 @@ SCANNER_IMAGE := $(SCANNER_APP):latest
 CLIENT_API_APP := client-api
 CLIENT_API_IMAGE := $(CLIENT_API_APP):latest
 
+SCANNER_GATEWAY_APP := scanner-gateway
+SCANNER_GATEWAY_IMAGE := $(SCANNER_GATEWAY_APP):latest
+
 PROMETHEUS_IMAGE := prom/prometheus:v3.1.0
 GRAFANA_IMAGE := grafana/grafana:11.4.0
 TEMPO_IMAGE := grafana/tempo:2.6.1
@@ -121,7 +124,7 @@ help:
 # 1) Developer Setup Targets
 ################################################################################
 
-dev-setup: dev-brew dev-gotooling dev-docker
+dev-setup: dev-brew dev-gotooling dev-docker dev-kong-deps
 
 dev-brew:
 	brew update
@@ -152,12 +155,17 @@ dev-docker:
 	docker pull $(OTEL_COLLECTOR_IMAGE) || true
 	@echo "Pulled common Docker images."
 
+dev-kong-deps:
+	helm repo add kong https://charts.konghq.com
+	helm repo update
+	@echo "Kong Helm chart repository added."
+
 
 ################################################################################
 # 2) Build & Docker creation
 ################################################################################
 
-build-all: proto-gen sqlc-proto-gen build-controller build-scanner build-client-api
+build-all: proto-gen sqlc-proto-gen build-controller build-scanner build-client-api build-scanner-gateway
 
 proto-gen: proto-deps
 	@for p in $(PROTO_FILES); do \
@@ -189,7 +197,10 @@ build-scanner:
 build-client-api:
 	CGO_ENABLED=0 GOOS=linux go build -o $(CLIENT_API_APP) ./cmd/api
 
-docker-all: docker-controller docker-scanner docker-client-api
+build-scanner-gateway:
+	CGO_ENABLED=0 GOOS=linux go build -o $(SCANNER_GATEWAY_APP) ./cmd/gateway
+
+docker-all: docker-controller docker-scanner docker-client-api docker-scanner-gateway
 
 docker-controller:
 	docker build -t $(CONTROLLER_IMAGE) -f Dockerfile.controller .
@@ -199,6 +210,9 @@ docker-scanner:
 
 docker-client-api:
 	docker build -t $(CLIENT_API_IMAGE) -f Dockerfile.client-api .
+
+docker-scanner-gateway:
+	docker build -t $(SCANNER_GATEWAY_IMAGE) -f Dockerfile.gateway .
 
 
 ################################################################################
@@ -225,19 +239,33 @@ dev-up:
 		--selector=app.kubernetes.io/component=controller \
 		--timeout=120s
 
-	echo "Checking if DNS entry already exists in /etc/hosts..."
-	if ! grep -q "127.0.0.1 api.local.gitleaks.armada" /etc/hosts; then \
-		echo "Adding local DNS entry to /etc/hosts..."; \
+	echo "Checking if DNS entries exist in /etc/hosts..."
+	api_exists=$$(grep -q "127.0.0.1 api.local.gitleaks.armada" /etc/hosts && echo "yes" || echo "no")
+	scanner_api_exists=$$(grep -q "127.0.0.1 scanner-api.local.gitleaks.armada" /etc/hosts && echo "yes" || echo "no")
+
+	if [ "$$api_exists" = "no" ]; then \
+		echo "Adding api.local.gitleaks.armada DNS entry to /etc/hosts..."; \
 		echo "127.0.0.1 api.local.gitleaks.armada" | sudo tee -a /etc/hosts; \
-		echo "DNS entry added.  Remember to remove it when done: sudo sed -i '' '/api.local.gitleaks.armada/d' /etc/hosts"; \
 	else \
-		echo "DNS entry already exists in /etc/hosts."; \
+		echo "api.local.gitleaks.armada DNS entry already exists in /etc/hosts."; \
+	fi
+
+	if [ "$$scanner_api_exists" = "no" ]; then \
+		echo "Adding scanner-api.local.gitleaks.armada DNS entry to /etc/hosts..."; \
+		echo "127.0.0.1 scanner-api.local.gitleaks.armada" | sudo tee -a /etc/hosts; \
+	else \
+		echo "scanner-api.local.gitleaks.armada DNS entry already exists in /etc/hosts."; \
+	fi
+
+	if [ "$$api_exists" = "no" ] || [ "$$scanner_api_exists" = "no" ]; then \
+		echo "DNS entries added. Remember to remove them when done: sudo sed -i '' '/local.gitleaks.armada/d' /etc/hosts"; \
 	fi
 
 dev-load: dev-docker
 	kind load docker-image $(CONTROLLER_IMAGE) --name $(KIND_CLUSTER)
 	kind load docker-image $(SCANNER_IMAGE) --name $(KIND_CLUSTER)
 	kind load docker-image $(CLIENT_API_IMAGE) --name $(KIND_CLUSTER)
+	kind load docker-image $(SCANNER_GATEWAY_IMAGE) --name $(KIND_CLUSTER)
 	kind load docker-image $(POSTGRES_IMAGE) --name $(KIND_CLUSTER)
 	kind load docker-image $(KAFKA_IMAGE) --name $(KIND_CLUSTER)
 	kind load docker-image $(ZOOKEEPER_IMAGE) --name $(KIND_CLUSTER)
@@ -253,7 +281,7 @@ dev-apply:
 	kubectl apply -f $(K8S_MANIFESTS)/config.yaml -n $(NAMESPACE)
 	kubectl apply -f $(K8S_MANIFESTS)/rbac.yaml -n $(NAMESPACE)
 	kubectl apply -f $(K8S_MANIFESTS)/client-api.yaml -n $(NAMESPACE)
-	kubectl apply -f $(K8S_MANIFESTS)/http-ingress.yaml -n $(NAMESPACE)
+	kubectl apply -f $(K8S_MANIFESTS)/client-http-ingress.yaml -n $(NAMESPACE)
 	kubectl apply -f $(K8S_MANIFESTS)/controller.yaml -n $(NAMESPACE)
 	kubectl apply -f $(K8S_MANIFESTS)/scanner.yaml -n $(NAMESPACE)
 
@@ -293,7 +321,38 @@ dev-down:
 
 # A single shortcut target that sets up everything for a new dev
 dev-all: build-all docker-all dev-up dev-load create-config-secret \
-         dev-apply-extras kafka-setup postgres-setup dev-apply
+         dev-apply-extras kafka-setup postgres-setup dev-apply dev-apply-kong
+
+
+################################################################################
+# Kong API Gateway
+################################################################################
+
+dev-apply-kong:
+	kubectl create namespace kong --dry-run=client -o yaml | kubectl apply -f -
+	helm repo add kong https://charts.konghq.com
+	helm repo update
+	helm install kong kong/kong --namespace kong \
+	  --set ingressController.enabled=true \
+	  --set ingressController.installCRDs=false \
+	  --set admin.enabled=true \
+	  --set admin.http.enabled=true \
+	  --set env.database=off \
+	  --set postgresql.enabled=false
+
+dev-update-kong:
+	helm upgrade kong kong/kong --namespace kong \
+	  --set ingressController.enabled=true \
+	  --set ingressController.installCRDs=false \
+	  --set admin.enabled=true \
+	  --set admin.http.enabled=true \
+	  --set env.database=off \
+	  --set postgresql.enabled=false
+
+dev-apply-scanner-gateway:
+	kubectl apply -f $(K8S_MANIFESTS)/scanner-gateway.yaml -n $(NAMESPACE)
+	kubectl apply -f $(K8S_MANIFESTS)/scanner-gateway-ingress.yaml -n $(NAMESPACE)
+
 
 ################################################################################
 # 4) Kafka Targets
@@ -556,6 +615,9 @@ logs-controller:
 logs-scanner:
 	kubectl logs -l app=scanner -n $(NAMESPACE) --tail=100 -f
 
+logs-scanner-gateway:
+	kubectl logs -l app=scanner-gateway -n $(NAMESPACE) --tail=100 -f
+
 create-config-secret:
 	@echo "Creating or updating config secret $(SECRET_NAME) from $(CONFIG_FILE)..."
 	kubectl create secret generic $(SECRET_NAME) \
@@ -571,7 +633,7 @@ client-api-port-forward:
 # Rollout restarts
 ################################################################################
 
-rollout-restart: rollout-restart-controller rollout-restart-scanner rollout-restart-client-api
+rollout-restart: rollout-restart-controller rollout-restart-scanner rollout-restart-client-api rollout-restart-scanner-gateway
 
 rollout-restart-controller:
 	kubectl rollout restart deployment/controller -n $(NAMESPACE)
@@ -581,6 +643,9 @@ rollout-restart-scanner:
 
 rollout-restart-client-api:
 	kubectl rollout restart deployment/client-api -n $(NAMESPACE)
+
+rollout-restart-scanner-gateway:
+	kubectl rollout restart deployment/scanner-gateway -n $(NAMESPACE)
 
 ################################################################################
 # Testing and cleanup
@@ -597,5 +662,5 @@ test-coverage:
 	@echo "Coverage report: coverage.html"
 
 clean:
-	rm -f $(CONTROLLER_APP) $(SCANNER_APP) $(CLIENT_API_APP)
+	rm -f $(CONTROLLER_APP) $(SCANNER_APP) $(CLIENT_API_APP) $(SCANNER_GATEWAY_APP)
 	@echo "Cleaned up local binaries."
