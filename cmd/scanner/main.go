@@ -1,3 +1,16 @@
+// Scanner is a component that executes scanning tasks to find secrets in source code.
+//
+// The scanner supports two communication modes:
+//
+//  1. System Default Mode (SCANNER_GROUP_NAME=system_default or unset):
+//     Uses Kafka for communication with the controller.
+//
+//  2. On-premise Mode (SCANNER_GROUP_NAME=any other value):
+//     In a full implementation, would use gRPC for direct communication with the scanner gateway.
+//     Currently, this falls back to Kafka for demonstration purposes.
+//
+// This allows deploying scanners in central clusters (using Kafka) or in on-premise
+// environments where scanners connect directly to the gateway via gRPC.
 package main
 
 import (
@@ -13,16 +26,22 @@ import (
 	"syscall"
 	"time"
 
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/automaxprocs/maxprocs"
+	"google.golang.org/grpc"
+	gogrpc "google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/ahrav/gitleaks-armada/internal/app/scanning"
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
+	grpcbus "github.com/ahrav/gitleaks-armada/internal/infra/eventbus/grpc"
 	"github.com/ahrav/gitleaks-armada/internal/infra/eventbus/kafka"
 	progressreporter "github.com/ahrav/gitleaks-armada/internal/infra/progress_reporter"
 	"github.com/ahrav/gitleaks-armada/internal/infra/scanner"
 	"github.com/ahrav/gitleaks-armada/pkg/common"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/common/otel"
+	pb "github.com/ahrav/gitleaks-armada/proto"
 )
 
 func main() {
@@ -168,35 +187,138 @@ func main() {
 
 	// Create a separate config for broadcast events.
 	broadcastCfg := &kafka.EventBusConfig{
-		JobBroadcastTopic: os.Getenv("KAFKA_JOB_BROADCAST_TOPIC"),
 		JobLifecycleTopic: os.Getenv("KAFKA_JOB_LIFECYCLE_TOPIC"),
 		GroupID:           fmt.Sprintf("scanner-broadcast-%s", hostname),
 		ClientID:          fmt.Sprintf("scanner-broadcast-%s", hostname),
 		ServiceType:       "scanner",
 	}
 
-	eventBus, err := kafka.ConnectEventBus(kafkaCfg, kafkaClient, log, metricsCollector, tracer)
-	if err != nil {
-		log.Error(ctx, "failed to create kafka broker", "error", err)
-		os.Exit(1)
+	const defaultScannerGroupName = "system_default"
+	scannerGroupName := os.Getenv("SCANNER_GROUP_NAME")
+
+	var (
+		eventBus              events.EventBus
+		broadcastEventBus     events.EventBus
+		eventPublisher        events.DomainEventPublisher
+		domainEventTranslator *events.DomainEventTranslator
+	)
+
+	if scannerGroupName == defaultScannerGroupName || scannerGroupName == "" {
+		// System default scanners use Kafka directly for communication.
+		log.Info(ctx, "Using Kafka event bus for system_default scanner group")
+
+		kafkaEventBus, err := kafka.ConnectEventBus(kafkaCfg, kafkaClient, log, metricsCollector, tracer)
+		if err != nil {
+			log.Error(ctx, "failed to create kafka broker", "error", err)
+			os.Exit(1)
+		}
+		log.Info(ctx, "Scanner connected to Kafka")
+
+		// Create a separate event bus for broadcast events using Kafka.
+		kafkaBroadcastBus, err := kafka.ConnectEventBus(broadcastCfg, broadcastClient, log, metricsCollector, tracer)
+		if err != nil {
+			log.Error(ctx, "failed to create broadcast kafka broker", "error", err)
+			os.Exit(1)
+		}
+		log.Info(ctx, "Scanner connected to broadcast Kafka broker")
+
+		eventBus = kafkaEventBus
+		broadcastEventBus = kafkaBroadcastBus
+		domainEventTranslator = events.NewDomainEventTranslator(kafka.NewKafkaPositionTranslator())
+		eventPublisher = kafka.NewDomainEventPublisher(eventBus, domainEventTranslator)
+	} else {
+		// On-prem scanners use a gRPC event bus for direct communication with the gateway.
+		// This is done via a gRPC stream connection to the gateway.
+		// This avoids exposing the Kafka cluster to non-native scanners.
+		log.Info(ctx, "Using gRPC event bus for on-prem scanner group", "group", scannerGroupName)
+
+		gatewayAddr := os.Getenv("GATEWAY_ADDR")
+		if gatewayAddr == "" {
+			gatewayAddr = "scanner-gateway:9090" // Default gateway address
+		}
+
+		authToken := os.Getenv("GATEWAY_AUTH_TOKEN")
+		if authToken == "" {
+			log.Warn(ctx, "No gateway auth token provided, authentication disabled")
+		}
+		timeoutStr := os.Getenv("GATEWAY_CONNECTION_TIMEOUT")
+		connectionTimeout := 30 * time.Second // Default timeout
+		if timeoutStr != "" {
+			timeout, err := time.ParseDuration(timeoutStr)
+			if err == nil && timeout > 0 {
+				connectionTimeout = timeout
+			}
+		}
+
+		// Create main gRPC stream for scanner-specific events.
+		grpcEventBusConfig := &grpcbus.EventBusConfig{
+			ScannerName:       scannerID,
+			ServiceType:       "scanner",
+			AuthToken:         authToken,
+			ConnectionTimeout: connectionTimeout,
+			MaxRetries:        5,
+			RetryBaseDelay:    500 * time.Millisecond,
+			RetryMaxDelay:     30 * time.Second,
+		}
+
+		// Connect to the gateway using gRPC
+		grpcEventBus, conn, err := connectToGatewayWithType(
+			ctx,
+			gatewayAddr,
+			grpcEventBusConfig,
+			log,
+			metricsCollector,
+			tracer,
+			false,
+		)
+		if err != nil {
+			log.Error(ctx, "failed to connect to gateway", "error", err)
+			os.Exit(1)
+		}
+		defer conn.Close()
+		log.Info(ctx, "Scanner connected to gateway")
+
+		// Create a separate gRPC stream for broadcast events.
+		grpcBroadcastConfig := &grpcbus.EventBusConfig{
+			ScannerName:       scannerID,
+			ServiceType:       "scanner_broadcast",
+			AuthToken:         authToken,
+			ConnectionTimeout: connectionTimeout,
+			MaxRetries:        5,
+			RetryBaseDelay:    500 * time.Millisecond,
+			RetryMaxDelay:     30 * time.Second,
+		}
+
+		// Connect to the gateway's broadcast stream.
+		grpcBroadcastBus, conn, err := connectToGatewayWithType(
+			ctx,
+			gatewayAddr,
+			grpcBroadcastConfig,
+			log,
+			metricsCollector,
+			tracer,
+			true,
+		)
+		if err != nil {
+			log.Error(ctx, "failed to connect to gateway broadcast stream", "error", err)
+			os.Exit(1)
+		}
+		defer conn.Close()
+		log.Info(ctx, "Scanner connected to gateway broadcast stream")
+
+		// Use gRPC as the event bus implementation.
+		eventBus = grpcEventBus
+		broadcastEventBus = grpcBroadcastBus
+		domainEventTranslator = events.NewDomainEventTranslator(nil) // gRPC doesn't need a position translator
+		eventPublisher = grpcbus.NewDomainEventPublisher(eventBus, domainEventTranslator)
 	}
-	log.Info(ctx, "Scanner connected to Kafka")
 
-	// Create a separate event bus for broadcast events.
-	broadcastEventBus, err := kafka.ConnectEventBus(broadcastCfg, broadcastClient, log, metricsCollector, tracer)
-	if err != nil {
-		log.Error(ctx, "failed to create broadcast kafka broker", "error", err)
-		os.Exit(1)
-	}
-	log.Info(ctx, "Scanner connected to broadcast Kafka broker")
+	// Now use the selected event bus and publisher for the scanner.
 
-	domainEventTranslator := events.NewDomainEventTranslator(kafka.NewKafkaPositionTranslator())
-	eventPublisher := kafka.NewDomainEventPublisher(eventBus, domainEventTranslator)
-
-	// Attempt to register the scanner with the controller(s).
+	// Update scannerRegistrar initialization to use the variables.
 	scannerRegistrar := scanning.NewScannerRegistrar(scanning.ScannerConfig{
 		Name:         scannerID,
-		GroupName:    os.Getenv("SCANNER_GROUP_NAME"),
+		GroupName:    scannerGroupName,
 		Hostname:     hostname,
 		Version:      os.Getenv("SCANNER_VERSION"),
 		Capabilities: strings.Split(os.Getenv("SCANNER_CAPABILITIES"), ","),
@@ -252,4 +374,68 @@ func main() {
 
 	<-ctx.Done()
 	log.Info(ctx, "Scanner shutdown complete")
+}
+
+// Create an adapter to convert our scanner metrics to the format expected by the gRPC event bus
+type grpcMetricsAdapter struct {
+	metrics scanning.ScannerMetrics
+}
+
+func (a *grpcMetricsAdapter) IncMessageSent(ctx context.Context, messageType string) {
+	a.metrics.IncMessagePublished(ctx, messageType)
+}
+
+func (a *grpcMetricsAdapter) IncMessageReceived(ctx context.Context, messageType string) {
+	a.metrics.IncMessageConsumed(ctx, messageType)
+}
+
+func (a *grpcMetricsAdapter) IncSendError(ctx context.Context, messageType string) {
+	a.metrics.IncPublishError(ctx, messageType)
+}
+
+func (a *grpcMetricsAdapter) IncReceiveError(ctx context.Context, messageType string) {
+	a.metrics.IncConsumeError(ctx, messageType)
+}
+
+// connectToGatewayWithType establishes a connection to the gateway and returns the event bus.
+// It handles both regular scanner-gateway connections and broadcast connections.
+// The serviceType parameter determines which type of connection to establish.
+func connectToGatewayWithType(
+	ctx context.Context,
+	gatewayAddr string,
+	cfg *grpcbus.EventBusConfig,
+	log *logger.Logger,
+	metrics scanning.ScannerMetrics,
+	tracer trace.Tracer,
+	isBroadcast bool,
+) (*grpcbus.EventBus, *grpc.ClientConn, error) {
+	connectionType := "regular"
+	if isBroadcast {
+		connectionType = "broadcast"
+		// Ensure the service type is set correctly in the config
+		cfg.ServiceType = "scanner_broadcast"
+	}
+
+	log.Info(ctx, "Connecting to gateway", "address", gatewayAddr, "connection_type", connectionType)
+
+	// Set up gRPC connection.
+	conn, err := grpc.NewClient(gatewayAddr, gogrpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to connect to gateway: %w", err)
+	}
+
+	client := pb.NewScannerGatewayServiceClient(conn)
+	stream, err := client.ConnectScanner(ctx)
+	if err != nil {
+		conn.Close()
+		return nil, nil, fmt.Errorf("failed to start bidirectional stream: %w", err)
+	}
+
+	metricsAdapter := &grpcMetricsAdapter{metrics: metrics}
+	eventBus, err := grpcbus.NewScannerEventBus(stream, cfg, log, metricsAdapter, tracer)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create gRPC event bus: %w", err)
+	}
+
+	return eventBus, conn, nil
 }
