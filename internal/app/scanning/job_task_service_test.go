@@ -597,6 +597,12 @@ func (m *mockTimeProvider) Now() time.Time {
 	return m.now
 }
 
+func (m *mockTimeProvider) Sleep(duration time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.now = m.now.Add(duration)
+}
+
 func TestStartTask(t *testing.T) {
 	jobID := uuid.MustParse("429735d7-ec1b-4d96-8749-938ca0a744be")
 	taskID := uuid.MustParse("b1f7eff4-2921-4e6c-9d88-da2de5707a2b")
