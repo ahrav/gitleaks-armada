@@ -29,7 +29,6 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/automaxprocs/maxprocs"
 	"google.golang.org/grpc"
-	gogrpc "google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/ahrav/gitleaks-armada/internal/app/scanning"
@@ -261,21 +260,25 @@ func main() {
 			RetryMaxDelay:     30 * time.Second,
 		}
 
+		conn, err := dialGateway(ctx, gatewayAddr)
+		if err != nil {
+			log.Error(ctx, "failed to dial gateway", "error", err)
+			os.Exit(1)
+		}
+		defer conn.Close()
+
 		// Connect to the gateway using gRPC
-		grpcEventBus, conn, err := connectToGatewayWithType(
+		grpcEventBus, err := connectToRegularGateway(
 			ctx,
-			gatewayAddr,
+			conn,
 			grpcEventBusConfig,
 			log,
-			metricsCollector,
 			tracer,
-			false,
 		)
 		if err != nil {
 			log.Error(ctx, "failed to connect to gateway", "error", err)
 			os.Exit(1)
 		}
-		defer conn.Close()
 		log.Info(ctx, "Scanner connected to gateway")
 
 		// Create a separate gRPC stream for broadcast events.
@@ -290,20 +293,17 @@ func main() {
 		}
 
 		// Connect to the gateway's broadcast stream.
-		grpcBroadcastBus, conn, err := connectToGatewayWithType(
+		grpcBroadcastBus, err := connectToBroadcastGateway(
 			ctx,
-			gatewayAddr,
+			conn,
 			grpcBroadcastConfig,
 			log,
-			metricsCollector,
 			tracer,
-			true,
 		)
 		if err != nil {
 			log.Error(ctx, "failed to connect to gateway broadcast stream", "error", err)
 			os.Exit(1)
 		}
-		defer conn.Close()
 		log.Info(ctx, "Scanner connected to gateway broadcast stream")
 
 		// Use gRPC as the event bus implementation.
@@ -376,66 +376,70 @@ func main() {
 	log.Info(ctx, "Scanner shutdown complete")
 }
 
-// Create an adapter to convert our scanner metrics to the format expected by the gRPC event bus
-type grpcMetricsAdapter struct {
-	metrics scanning.ScannerMetrics
+// dialGateway creates a single connection to the gateway.
+// TODO: interceptors, connection opts, etc.
+func dialGateway(ctx context.Context, gatewayAddr string) (*grpc.ClientConn, error) {
+	conn, err := grpc.NewClient(gatewayAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, fmt.Errorf("failed to dial gateway: %w", err)
+	}
+	return conn, nil
 }
 
-func (a *grpcMetricsAdapter) IncMessageSent(ctx context.Context, messageType string) {
-	a.metrics.IncMessagePublished(ctx, messageType)
-}
-
-func (a *grpcMetricsAdapter) IncMessageReceived(ctx context.Context, messageType string) {
-	a.metrics.IncMessageConsumed(ctx, messageType)
-}
-
-func (a *grpcMetricsAdapter) IncSendError(ctx context.Context, messageType string) {
-	a.metrics.IncPublishError(ctx, messageType)
-}
-
-func (a *grpcMetricsAdapter) IncReceiveError(ctx context.Context, messageType string) {
-	a.metrics.IncConsumeError(ctx, messageType)
-}
-
-// connectToGatewayWithType establishes a connection to the gateway and returns the event bus.
-// It handles both regular scanner-gateway connections and broadcast connections.
-// The serviceType parameter determines which type of connection to establish.
-func connectToGatewayWithType(
+// connectToRegularGateway establishes a regular connection to the gateway.
+func connectToRegularGateway(
 	ctx context.Context,
-	gatewayAddr string,
+	conn *grpc.ClientConn,
 	cfg *grpcbus.EventBusConfig,
 	log *logger.Logger,
-	metrics scanning.ScannerMetrics,
 	tracer trace.Tracer,
-	isBroadcast bool,
-) (*grpcbus.EventBus, *grpc.ClientConn, error) {
-	connectionType := "regular"
-	if isBroadcast {
-		connectionType = "broadcast"
-		// Ensure the service type is set correctly in the config
-		cfg.ServiceType = "scanner_broadcast"
-	}
-
-	log.Info(ctx, "Connecting to gateway", "address", gatewayAddr, "connection_type", connectionType)
-
-	// Set up gRPC connection.
-	conn, err := grpc.NewClient(gatewayAddr, gogrpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to connect to gateway: %w", err)
-	}
-
+) (*grpcbus.EventBus, error) {
 	client := pb.NewScannerGatewayServiceClient(conn)
 	stream, err := client.ConnectScanner(ctx)
 	if err != nil {
 		conn.Close()
-		return nil, nil, fmt.Errorf("failed to start bidirectional stream: %w", err)
+		return nil, fmt.Errorf("failed to start regular stream: %w", err)
 	}
 
-	metricsAdapter := &grpcMetricsAdapter{metrics: metrics}
-	eventBus, err := grpcbus.NewScannerEventBus(stream, cfg, log, metricsAdapter, tracer)
+	eventBus, err := grpcbus.NewScannerEventBus(
+		stream,
+		cfg,
+		log,
+		tracer,
+	)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create gRPC event bus: %w", err)
+		conn.Close()
+		return nil, fmt.Errorf("failed to create regular gRPC event bus: %w", err)
 	}
 
-	return eventBus, conn, nil
+	return eventBus, nil
+}
+
+// connectToBroadcastGateway establishes a broadcast connection to the gateway.
+func connectToBroadcastGateway(
+	ctx context.Context,
+	conn *grpc.ClientConn,
+	cfg *grpcbus.EventBusConfig,
+	log *logger.Logger,
+	tracer trace.Tracer,
+) (*grpcbus.EventBus, error) {
+	client := pb.NewScannerGatewayServiceClient(conn)
+	stream, err := client.SubscribeToBroadcasts(ctx)
+	if err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("failed to start broadcast stream: %w", err)
+	}
+
+	broadcastBus, err := grpcbus.NewBroadcastEventBus(
+		stream,
+		cfg,
+		log,
+		tracer,
+	)
+	if err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("failed to create broadcast gRPC event bus: %w", err)
+	}
+
+	return broadcastBus, nil
 }
