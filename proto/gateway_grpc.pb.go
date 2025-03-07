@@ -19,8 +19,8 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ScannerGatewayService_ConnectScanner_FullMethodName = "/scanner.ScannerGatewayService/ConnectScanner"
-	ScannerGatewayService_GetRules_FullMethodName       = "/scanner.ScannerGatewayService/GetRules"
+	ScannerGatewayService_ConnectScanner_FullMethodName        = "/scanner.ScannerGatewayService/ConnectScanner"
+	ScannerGatewayService_SubscribeToBroadcasts_FullMethodName = "/scanner.ScannerGatewayService/SubscribeToBroadcasts"
 )
 
 // ScannerGatewayServiceClient is the client API for ScannerGatewayService service.
@@ -32,24 +32,16 @@ const (
 // without direct access to the Kafka infrastructure.
 type ScannerGatewayServiceClient interface {
 	// ConnectScanner establishes a bidirectional stream between an external
-	// scanner and the gateway. The scanner sends initialization data, followed by
-	// a stream of events (results, heartbeats, etc.) The gateway sends tasks and
-	// control messages back to the scanner.
-	//
-	// This RPC is used for both regular scanner-specific messaging and broadcast
-	// messaging (where events are sent to all scanners). The distinction is made
-	// based on the ServiceType in the EventBusConfig ("scanner" or
-	// "scanner_broadcast").
+	// scanner and the gateway for regular scanner-specific communication.
+	// The scanner sends initialization data, followed by a stream of events
+	// (results, heartbeats, etc.) The gateway sends tasks and control messages
+	// back to the scanner.
 	ConnectScanner(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ScannerToGatewayMessage, GatewayToScannerMessage], error)
-	// GetRules establishes a stream for the gateway to push rule definitions to
-	// scanners. Despite the name suggesting scanners request rules, in our
-	// architecture the controller owns the rules and pushes them to scanners via
-	// this stream. The scanner connects to this stream and waits for rule
-	// updates.
-	//
-	// This RPC should be renamed in the future to better reflect its purpose,
-	// such as "ReceiveRuleUpdates" or "SubscribeToRules".
-	GetRules(ctx context.Context, in *RulesRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[RulesResponse], error)
+	// SubscribeToBroadcasts establishes a separate stream specifically for
+	// receiving broadcast events that should be delivered to all scanners.
+	// This is used for system-wide notifications and job control events that
+	// all scanners should process regardless of their consumer group.
+	SubscribeToBroadcasts(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ScannerToGatewayMessage, GatewayToScannerMessage], error)
 }
 
 type scannerGatewayServiceClient struct {
@@ -73,24 +65,18 @@ func (c *scannerGatewayServiceClient) ConnectScanner(ctx context.Context, opts .
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type ScannerGatewayService_ConnectScannerClient = grpc.BidiStreamingClient[ScannerToGatewayMessage, GatewayToScannerMessage]
 
-func (c *scannerGatewayServiceClient) GetRules(ctx context.Context, in *RulesRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[RulesResponse], error) {
+func (c *scannerGatewayServiceClient) SubscribeToBroadcasts(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ScannerToGatewayMessage, GatewayToScannerMessage], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &ScannerGatewayService_ServiceDesc.Streams[1], ScannerGatewayService_GetRules_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &ScannerGatewayService_ServiceDesc.Streams[1], ScannerGatewayService_SubscribeToBroadcasts_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &grpc.GenericClientStream[RulesRequest, RulesResponse]{ClientStream: stream}
-	if err := x.ClientStream.SendMsg(in); err != nil {
-		return nil, err
-	}
-	if err := x.ClientStream.CloseSend(); err != nil {
-		return nil, err
-	}
+	x := &grpc.GenericClientStream[ScannerToGatewayMessage, GatewayToScannerMessage]{ClientStream: stream}
 	return x, nil
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type ScannerGatewayService_GetRulesClient = grpc.ServerStreamingClient[RulesResponse]
+type ScannerGatewayService_SubscribeToBroadcastsClient = grpc.BidiStreamingClient[ScannerToGatewayMessage, GatewayToScannerMessage]
 
 // ScannerGatewayServiceServer is the server API for ScannerGatewayService service.
 // All implementations must embed UnimplementedScannerGatewayServiceServer
@@ -101,24 +87,16 @@ type ScannerGatewayService_GetRulesClient = grpc.ServerStreamingClient[RulesResp
 // without direct access to the Kafka infrastructure.
 type ScannerGatewayServiceServer interface {
 	// ConnectScanner establishes a bidirectional stream between an external
-	// scanner and the gateway. The scanner sends initialization data, followed by
-	// a stream of events (results, heartbeats, etc.) The gateway sends tasks and
-	// control messages back to the scanner.
-	//
-	// This RPC is used for both regular scanner-specific messaging and broadcast
-	// messaging (where events are sent to all scanners). The distinction is made
-	// based on the ServiceType in the EventBusConfig ("scanner" or
-	// "scanner_broadcast").
+	// scanner and the gateway for regular scanner-specific communication.
+	// The scanner sends initialization data, followed by a stream of events
+	// (results, heartbeats, etc.) The gateway sends tasks and control messages
+	// back to the scanner.
 	ConnectScanner(grpc.BidiStreamingServer[ScannerToGatewayMessage, GatewayToScannerMessage]) error
-	// GetRules establishes a stream for the gateway to push rule definitions to
-	// scanners. Despite the name suggesting scanners request rules, in our
-	// architecture the controller owns the rules and pushes them to scanners via
-	// this stream. The scanner connects to this stream and waits for rule
-	// updates.
-	//
-	// This RPC should be renamed in the future to better reflect its purpose,
-	// such as "ReceiveRuleUpdates" or "SubscribeToRules".
-	GetRules(*RulesRequest, grpc.ServerStreamingServer[RulesResponse]) error
+	// SubscribeToBroadcasts establishes a separate stream specifically for
+	// receiving broadcast events that should be delivered to all scanners.
+	// This is used for system-wide notifications and job control events that
+	// all scanners should process regardless of their consumer group.
+	SubscribeToBroadcasts(grpc.BidiStreamingServer[ScannerToGatewayMessage, GatewayToScannerMessage]) error
 	mustEmbedUnimplementedScannerGatewayServiceServer()
 }
 
@@ -132,8 +110,8 @@ type UnimplementedScannerGatewayServiceServer struct{}
 func (UnimplementedScannerGatewayServiceServer) ConnectScanner(grpc.BidiStreamingServer[ScannerToGatewayMessage, GatewayToScannerMessage]) error {
 	return status.Errorf(codes.Unimplemented, "method ConnectScanner not implemented")
 }
-func (UnimplementedScannerGatewayServiceServer) GetRules(*RulesRequest, grpc.ServerStreamingServer[RulesResponse]) error {
-	return status.Errorf(codes.Unimplemented, "method GetRules not implemented")
+func (UnimplementedScannerGatewayServiceServer) SubscribeToBroadcasts(grpc.BidiStreamingServer[ScannerToGatewayMessage, GatewayToScannerMessage]) error {
+	return status.Errorf(codes.Unimplemented, "method SubscribeToBroadcasts not implemented")
 }
 func (UnimplementedScannerGatewayServiceServer) mustEmbedUnimplementedScannerGatewayServiceServer() {}
 func (UnimplementedScannerGatewayServiceServer) testEmbeddedByValue()                               {}
@@ -163,16 +141,12 @@ func _ScannerGatewayService_ConnectScanner_Handler(srv interface{}, stream grpc.
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type ScannerGatewayService_ConnectScannerServer = grpc.BidiStreamingServer[ScannerToGatewayMessage, GatewayToScannerMessage]
 
-func _ScannerGatewayService_GetRules_Handler(srv interface{}, stream grpc.ServerStream) error {
-	m := new(RulesRequest)
-	if err := stream.RecvMsg(m); err != nil {
-		return err
-	}
-	return srv.(ScannerGatewayServiceServer).GetRules(m, &grpc.GenericServerStream[RulesRequest, RulesResponse]{ServerStream: stream})
+func _ScannerGatewayService_SubscribeToBroadcasts_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(ScannerGatewayServiceServer).SubscribeToBroadcasts(&grpc.GenericServerStream[ScannerToGatewayMessage, GatewayToScannerMessage]{ServerStream: stream})
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type ScannerGatewayService_GetRulesServer = grpc.ServerStreamingServer[RulesResponse]
+type ScannerGatewayService_SubscribeToBroadcastsServer = grpc.BidiStreamingServer[ScannerToGatewayMessage, GatewayToScannerMessage]
 
 // ScannerGatewayService_ServiceDesc is the grpc.ServiceDesc for ScannerGatewayService service.
 // It's only intended for direct use with grpc.RegisterService,
@@ -189,9 +163,10 @@ var ScannerGatewayService_ServiceDesc = grpc.ServiceDesc{
 			ClientStreams: true,
 		},
 		{
-			StreamName:    "GetRules",
-			Handler:       _ScannerGatewayService_GetRules_Handler,
+			StreamName:    "SubscribeToBroadcasts",
+			Handler:       _ScannerGatewayService_SubscribeToBroadcasts_Handler,
 			ServerStreams: true,
+			ClientStreams: true,
 		},
 	},
 	Metadata: "proto/gateway.proto",
