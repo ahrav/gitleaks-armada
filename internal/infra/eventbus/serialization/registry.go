@@ -40,15 +40,15 @@ var (
 	deserializerRegistry = map[events.EventType]DeserializeFunc{}
 )
 
-// RegisterSerializeFunc registers a serialization function for a given event type.
+// registerSerializeFunc registers a serialization function for a given event type.
 // This enables the system to properly encode domain objects when publishing events.
-func RegisterSerializeFunc(eventType events.EventType, fn SerializeFunc) {
+func registerSerializeFunc(eventType events.EventType, fn SerializeFunc) {
 	serializerRegistry[eventType] = fn
 }
 
-// RegisterDeserializeFunc registers a deserialization function for a given event type.
+// registerDeserializeFunc registers a deserialization function for a given event type.
 // This enables the system to properly decode events back into domain objects when consuming them.
-func RegisterDeserializeFunc(eventType events.EventType, fn DeserializeFunc) {
+func registerDeserializeFunc(eventType events.EventType, fn DeserializeFunc) {
 	deserializerRegistry[eventType] = fn
 }
 
@@ -107,99 +107,99 @@ func DeserializePayload(eventType events.EventType, data []byte) (any, error) {
 
 // TODO: Figure out if init function is the best way to do this.
 func init() {
-	RegisterEventSerializers()
+	registerEventSerializers()
 }
 
-// RegisterEventSerializers initializes the serialization system by registering handlers for all supported event types.
+// registerEventSerializers initializes the serialization system by registering handlers for all supported event types.
 // This must be called during system startup before any event processing can occur.
-func RegisterEventSerializers() {
+func registerEventSerializers() {
 	// Scanning.
 	// ------------------------------------------------------------------------------------------------
 
 	// Job events.
-	RegisterSerializeFunc(scanning.EventTypeJobRequested, serializeJobRequested)
-	RegisterDeserializeFunc(scanning.EventTypeJobRequested, deserializeJobRequested)
+	registerSerializeFunc(scanning.EventTypeJobRequested, serializeJobRequested)
+	registerDeserializeFunc(scanning.EventTypeJobRequested, deserializeJobRequested)
 
-	RegisterSerializeFunc(scanning.EventTypeJobScheduled, serializeJobCreated)
-	RegisterDeserializeFunc(scanning.EventTypeJobScheduled, deserializeJobCreated)
+	registerSerializeFunc(scanning.EventTypeJobScheduled, serializeJobCreated)
+	registerDeserializeFunc(scanning.EventTypeJobScheduled, deserializeJobCreated)
 
 	// Job Pausing/Paused events.
-	RegisterSerializeFunc(scanning.EventTypeJobPausing, serializeJobPausing)
-	RegisterDeserializeFunc(scanning.EventTypeJobPausing, deserializeJobPausing)
+	registerSerializeFunc(scanning.EventTypeJobPausing, serializeJobPausing)
+	registerDeserializeFunc(scanning.EventTypeJobPausing, deserializeJobPausing)
 
-	RegisterSerializeFunc(scanning.EventTypeJobPaused, serializeJobPaused)
-	RegisterDeserializeFunc(scanning.EventTypeJobPaused, deserializeJobPaused)
+	registerSerializeFunc(scanning.EventTypeJobPaused, serializeJobPaused)
+	registerDeserializeFunc(scanning.EventTypeJobPaused, deserializeJobPaused)
 
 	// Job Resuming event.
-	RegisterSerializeFunc(scanning.EventTypeJobResuming, serializeJobResuming)
-	RegisterDeserializeFunc(scanning.EventTypeJobResuming, deserializeJobResuming)
+	registerSerializeFunc(scanning.EventTypeJobResuming, serializeJobResuming)
+	registerDeserializeFunc(scanning.EventTypeJobResuming, deserializeJobResuming)
 
 	// Job Cancelling/Cancelled events.
-	RegisterSerializeFunc(scanning.EventTypeJobCancelling, serializeJobCancelling)
-	RegisterDeserializeFunc(scanning.EventTypeJobCancelling, deserializeJobCancelling)
+	registerSerializeFunc(scanning.EventTypeJobCancelling, serializeJobCancelling)
+	registerDeserializeFunc(scanning.EventTypeJobCancelling, deserializeJobCancelling)
 
-	RegisterSerializeFunc(scanning.EventTypeJobCancelled, serializeJobCancelled)
-	RegisterDeserializeFunc(scanning.EventTypeJobCancelled, deserializeJobCancelled)
+	registerSerializeFunc(scanning.EventTypeJobCancelled, serializeJobCancelled)
+	registerDeserializeFunc(scanning.EventTypeJobCancelled, deserializeJobCancelled)
 
 	// Task events.
-	RegisterSerializeFunc(scanning.EventTypeTaskCreated, serializeTaskCreated)
-	RegisterDeserializeFunc(scanning.EventTypeTaskCreated, deserializeTaskCreated)
+	registerSerializeFunc(scanning.EventTypeTaskCreated, serializeTaskCreated)
+	registerDeserializeFunc(scanning.EventTypeTaskCreated, deserializeTaskCreated)
 
-	RegisterSerializeFunc(scanning.EventTypeTaskStarted, serializeTaskStarted)
-	RegisterDeserializeFunc(scanning.EventTypeTaskStarted, deserializeTaskStarted)
+	registerSerializeFunc(scanning.EventTypeTaskStarted, serializeTaskStarted)
+	registerDeserializeFunc(scanning.EventTypeTaskStarted, deserializeTaskStarted)
 
-	RegisterSerializeFunc(scanning.EventTypeJobEnumerationCompleted, serializeJobEnumerationCompleted)
-	RegisterDeserializeFunc(scanning.EventTypeJobEnumerationCompleted, deserializeJobEnumerationCompleted)
+	registerSerializeFunc(scanning.EventTypeJobEnumerationCompleted, serializeJobEnumerationCompleted)
+	registerDeserializeFunc(scanning.EventTypeJobEnumerationCompleted, deserializeJobEnumerationCompleted)
 
-	RegisterSerializeFunc(scanning.EventTypeTaskProgressed, serializeTaskProgressed)
-	RegisterDeserializeFunc(scanning.EventTypeTaskProgressed, deserializeTaskProgressed)
+	registerSerializeFunc(scanning.EventTypeTaskProgressed, serializeTaskProgressed)
+	registerDeserializeFunc(scanning.EventTypeTaskProgressed, deserializeTaskProgressed)
 
-	RegisterSerializeFunc(scanning.EventTypeTaskCompleted, serializeTaskCompleted)
-	RegisterDeserializeFunc(scanning.EventTypeTaskCompleted, deserializeTaskCompleted)
+	registerSerializeFunc(scanning.EventTypeTaskCompleted, serializeTaskCompleted)
+	registerDeserializeFunc(scanning.EventTypeTaskCompleted, deserializeTaskCompleted)
 
-	RegisterSerializeFunc(scanning.EventTypeTaskFailed, serializeTaskFailed)
-	RegisterDeserializeFunc(scanning.EventTypeTaskFailed, deserializeTaskFailed)
+	registerSerializeFunc(scanning.EventTypeTaskFailed, serializeTaskFailed)
+	registerDeserializeFunc(scanning.EventTypeTaskFailed, deserializeTaskFailed)
 
-	RegisterSerializeFunc(scanning.EventTypeTaskResume, serializeTaskResume)
-	RegisterDeserializeFunc(scanning.EventTypeTaskResume, deserializeTaskResume)
+	registerSerializeFunc(scanning.EventTypeTaskResume, serializeTaskResume)
+	registerDeserializeFunc(scanning.EventTypeTaskResume, deserializeTaskResume)
 
-	RegisterSerializeFunc(scanning.EventTypeTaskJobMetric, serializeTaskJobMetric)
-	RegisterDeserializeFunc(scanning.EventTypeTaskJobMetric, deserializeTaskJobMetric)
+	registerSerializeFunc(scanning.EventTypeTaskJobMetric, serializeTaskJobMetric)
+	registerDeserializeFunc(scanning.EventTypeTaskJobMetric, deserializeTaskJobMetric)
 
-	RegisterSerializeFunc(scanning.EventTypeTaskHeartbeat, serializeTaskHeartbeat)
-	RegisterDeserializeFunc(scanning.EventTypeTaskHeartbeat, deserializeTaskHeartbeat)
+	registerSerializeFunc(scanning.EventTypeTaskHeartbeat, serializeTaskHeartbeat)
+	registerDeserializeFunc(scanning.EventTypeTaskHeartbeat, deserializeTaskHeartbeat)
 
 	// Task Pausing/Paused events.
-	RegisterSerializeFunc(scanning.EventTypeTaskPaused, serializeTaskPaused)
-	RegisterDeserializeFunc(scanning.EventTypeTaskPaused, deserializeTaskPaused)
+	registerSerializeFunc(scanning.EventTypeTaskPaused, serializeTaskPaused)
+	registerDeserializeFunc(scanning.EventTypeTaskPaused, deserializeTaskPaused)
 
 	// Task Cancelled events.
-	RegisterSerializeFunc(scanning.EventTypeTaskCancelled, serializeTaskCancelled)
-	RegisterDeserializeFunc(scanning.EventTypeTaskCancelled, deserializeTaskCancelled)
+	registerSerializeFunc(scanning.EventTypeTaskCancelled, serializeTaskCancelled)
+	registerDeserializeFunc(scanning.EventTypeTaskCancelled, deserializeTaskCancelled)
 
 	// Scanner events
-	RegisterSerializeFunc(scanning.EventTypeScannerRegistered, serializeScannerRegistered)
-	RegisterDeserializeFunc(scanning.EventTypeScannerRegistered, deserializeScannerRegistered)
+	registerSerializeFunc(scanning.EventTypeScannerRegistered, serializeScannerRegistered)
+	registerDeserializeFunc(scanning.EventTypeScannerRegistered, deserializeScannerRegistered)
 
-	RegisterSerializeFunc(scanning.EventTypeScannerHeartbeat, serializeScannerHeartbeat)
-	RegisterDeserializeFunc(scanning.EventTypeScannerHeartbeat, deserializeScannerHeartbeat)
+	registerSerializeFunc(scanning.EventTypeScannerHeartbeat, serializeScannerHeartbeat)
+	registerDeserializeFunc(scanning.EventTypeScannerHeartbeat, deserializeScannerHeartbeat)
 
-	RegisterSerializeFunc(scanning.EventTypeScannerStatusChanged, serializeScannerStatusChanged)
-	RegisterDeserializeFunc(scanning.EventTypeScannerStatusChanged, deserializeScannerStatusChanged)
+	registerSerializeFunc(scanning.EventTypeScannerStatusChanged, serializeScannerStatusChanged)
+	registerDeserializeFunc(scanning.EventTypeScannerStatusChanged, deserializeScannerStatusChanged)
 
-	RegisterSerializeFunc(scanning.EventTypeScannerDeregistered, serializeScannerDeregistered)
-	RegisterDeserializeFunc(scanning.EventTypeScannerDeregistered, deserializeScannerDeregistered)
+	registerSerializeFunc(scanning.EventTypeScannerDeregistered, serializeScannerDeregistered)
+	registerDeserializeFunc(scanning.EventTypeScannerDeregistered, deserializeScannerDeregistered)
 
 	// Rules.
 	// ------------------------------------------------------------------------------------------------
-	RegisterSerializeFunc(rules.EventTypeRulesUpdated, serializeRuleUpdated)
-	RegisterDeserializeFunc(rules.EventTypeRulesUpdated, deserializeRuleUpdated)
+	registerSerializeFunc(rules.EventTypeRulesUpdated, serializeRuleUpdated)
+	registerDeserializeFunc(rules.EventTypeRulesUpdated, deserializeRuleUpdated)
 
-	RegisterSerializeFunc(rules.EventTypeRulesRequested, serializeRuleRequested)
-	RegisterDeserializeFunc(rules.EventTypeRulesRequested, deserializeRuleRequested)
+	registerSerializeFunc(rules.EventTypeRulesRequested, serializeRuleRequested)
+	registerDeserializeFunc(rules.EventTypeRulesRequested, deserializeRuleRequested)
 
-	RegisterSerializeFunc(rules.EventTypeRulesPublished, serializeRulePublishingCompleted)
-	RegisterDeserializeFunc(rules.EventTypeRulesPublished, deserializeRulePublishingCompleted)
+	registerSerializeFunc(rules.EventTypeRulesPublished, serializeRulePublishingCompleted)
+	registerDeserializeFunc(rules.EventTypeRulesPublished, deserializeRulePublishingCompleted)
 }
 
 // serializeJobRequested converts a JobRequestedEvent to protobuf bytes
