@@ -1,0 +1,186 @@
+syntax = "proto3";
+
+package scanner;
+
+import "proto/scanning.proto";
+import "proto/rules.proto";
+
+option go_package = "github.com/ahrav/gitleaks-armada/proto;proto";
+
+// ScannerGatewayService provides a bidirectional streaming interface for
+// external scanner instances to communicate with the central scanning system
+// without direct access to the Kafka infrastructure.
+service ScannerGatewayService {
+  // ConnectScanner establishes a bidirectional stream between an external
+  // scanner and the gateway. The scanner sends initialization data, followed by
+  // a stream of events (results, heartbeats, etc.) The gateway sends tasks and
+  // control messages back to the scanner.
+  rpc ConnectScanner(stream ScannerToGatewayMessage)
+      returns (stream GatewayToScannerMessage) {}
+
+  // GetRules establishes a stream for the gateway to push rule definitions to
+  // scanners. Despite the name suggesting scanners request rules, in our
+  // architecture the controller owns the rules and pushes them to scanners via
+  // this stream. The scanner connects to this stream and waits for rule
+  // updates.
+  //
+  // This RPC should be renamed in the future to better reflect its purpose,
+  // such as "ReceiveRuleUpdates" or "SubscribeToRules".
+  rpc GetRules(RulesRequest) returns (stream RulesResponse) {}
+}
+
+// ScannerToGatewayMessage is a container for all possible messages a scanner
+// can send to the gateway. This wraps domain events to provide metadata for the
+// gRPC transport.
+message ScannerToGatewayMessage {
+  // Unique identifier for this message.
+  string message_id = 1;
+
+  // Timestamp when the message was created (Unix timestamp in nanoseconds).
+  int64 timestamp = 2;
+
+  // Authentication token to verify scanner identity.
+  string auth_token = 3;
+
+  // Sender scanner ID.
+  string scanner_id = 4;
+
+  // Routing key for the message (used for consistent routing).
+  // This ensures messages with the same key are processed by the same consumer.
+  string routing_key = 5;
+
+  // Headers provide additional metadata for the message.
+  // These can include tracing IDs, tenant information, etc.
+  map<string, string> headers = 6;
+
+  // The actual payload containing domain events.
+  oneof payload {
+    // Scanner lifecycle events.
+    ScannerRegistrationRequest registration = 10;
+    ScannerRegisteredEvent scanner_registered = 11;
+    ScannerHeartbeatEvent heartbeat = 12;
+    ScannerStatusChangedEvent status_changed = 13;
+    ScannerDeregisteredEvent deregistered = 14;
+
+    // Task processing events.
+    TaskStartedEvent task_started = 20;
+    TaskProgressedEvent task_progressed = 21;
+    TaskCompletedEvent task_completed = 22;
+    TaskFailedEvent task_failed = 23;
+    TaskPausedEvent task_paused = 24;
+    TaskCancelledEvent task_cancelled = 25;
+
+    // Scan results.
+    ScanResult scan_result = 30;
+
+    // Acknowledgments of received messages.
+    MessageAcknowledgment ack = 40;
+  }
+}
+
+// GatewayToScannerMessage is a container for all possible messages the gateway
+// can send to a scanner. This wraps domain events to provide metadata for the
+// gRPC transport.
+message GatewayToScannerMessage {
+  // Unique identifier for this message.
+  string message_id = 1;
+
+  // Timestamp when the message was created (Unix timestamp in nanoseconds).
+  int64 timestamp = 2;
+
+  // Routing key for the message (used for consistent routing).
+  // This ensures messages with the same key are processed by the same consumer.
+  string routing_key = 3;
+
+  // Headers provide additional metadata for the message.
+  // These can include tracing IDs, tenant information, etc.
+  map<string, string> headers = 4;
+
+  // The actual payload containing domain events.
+  oneof payload {
+    // Registration response.
+    ScannerRegistrationResponse registration_response = 10;
+
+    // Task related events.
+    TaskCreatedEvent task_created = 20;
+    TaskResumeEvent task_resume = 21;
+
+    // Job control events.
+    JobPausingEvent job_pausing = 30;
+    JobPausedEvent job_paused = 31;
+    JobResumingEvent job_resuming = 32;
+    JobCancellingEvent job_cancelling = 33;
+    JobCancelledEvent job_cancelled = 34;
+
+    // System messages.
+    SystemNotification notification = 40;
+  }
+}
+
+// ScannerRegistrationRequest is sent by a scanner to register with the system
+// This is different from ScannerRegisteredEvent as it's the initial request
+// before a scanner is officially registered.
+message ScannerRegistrationRequest {
+  string scanner_name = 1;
+  string version = 2;
+  repeated string capabilities = 3;
+  string group_name = 4;
+  string hostname = 5;
+  map<string, string> tags = 6;
+}
+
+// ScannerRegistrationResponse is sent by the gateway in response to a
+// registration request.
+message ScannerRegistrationResponse {
+  bool success = 1;
+  string scanner_id =
+      2;              // The assigned scanner ID (if different from requested).
+  string message = 3; // Error message or additional information.
+}
+
+// MessageAcknowledgment allows scanners to acknowledge receipt of messages.
+message MessageAcknowledgment {
+  string original_message_id = 1;
+  bool success = 2;
+  string error_message = 3;
+}
+
+// RulesRequest is sent by scanners to initiate a rule stream connection.
+// This is NOT a request for rules directly, but rather an initialization
+// message that establishes the stream through which the controller will push
+// rules.
+message RulesRequest {
+  string scanner_id =
+      1; // ID of the scanner connecting to receive rule updates.
+  string auth_token = 2; // Authentication token for the connection.
+  int64 timestamp = 3;   // Timestamp of the connection request.
+  string version = 4;    // Scanner version for rule compatibility checking.
+  // Note: In this model, the scanner simply connects to this stream and waits
+  // for rules to be pushed from the controller. This is not a "request" in the
+  // traditional sense, but rather an establishment of a communication channel.
+}
+
+// RulesResponse contains rule definitions pushed from the controller to
+// scanners. The controller actively pushes these messages to connected scanners
+// when rules are created or updated.
+message RulesResponse {
+  bool success = 1;        // Whether the push operation was successful
+  string message = 2;      // Optional message, especially for errors
+  repeated Rule rules = 3; // The rule definitions being pushed
+}
+
+// SystemNotification for broadcasting system events to scanners.
+message SystemNotification {
+  enum NotificationType {
+    NOTIFICATION_TYPE_UNSPECIFIED = 0;
+    NOTIFICATION_TYPE_INFO = 1;
+    NOTIFICATION_TYPE_WARNING = 2;
+    NOTIFICATION_TYPE_ERROR = 3;
+    NOTIFICATION_TYPE_MAINTENANCE = 4;
+  }
+
+  NotificationType type = 1;
+  string title = 2;
+  string message = 3;
+  int64 expires_at = 4; // When this notification expires (0 = no expiry)
+}
