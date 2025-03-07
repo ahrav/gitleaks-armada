@@ -187,9 +187,12 @@ func (a *ScannerStreamAdapter) Recv() (*ScannerToGatewayMessage, error) {
 		}
 	}
 
-	// Convert payload based on its type
-	// Here we need to map from GatewayToScannerMessage payload types
-	// to ScannerToGatewayMessage payload types
+	// Regular scanner streams primarily receive three event types:
+	// 1. TaskCreated events
+	// 2. TaskResume events
+	// 3. RuleRequested events (rules distribution)
+	//
+	// Additionally, scanner must handle registration response during initial connection
 	switch payload := inMsg.Payload.(type) {
 	// Registration response is typically in response to a registration request
 	case *pb.GatewayToScannerMessage_RegistrationResponse:
@@ -223,12 +226,8 @@ func (a *ScannerStreamAdapter) Recv() (*ScannerToGatewayMessage, error) {
 			},
 		}
 
-	// Job control events - map to acknowledgments
-	case *pb.GatewayToScannerMessage_JobPausing,
-		*pb.GatewayToScannerMessage_JobPaused,
-		*pb.GatewayToScannerMessage_JobResuming,
-		*pb.GatewayToScannerMessage_JobCancelling,
-		*pb.GatewayToScannerMessage_JobCancelled:
+	// Rule message - for rule distribution
+	case *pb.GatewayToScannerMessage_RuleMessage:
 		outMsg.Payload = &pb.ScannerToGatewayMessage_Ack{
 			Ack: &pb.MessageAcknowledgment{
 				OriginalMessageId: inMsg.MessageId,
@@ -236,18 +235,16 @@ func (a *ScannerStreamAdapter) Recv() (*ScannerToGatewayMessage, error) {
 			},
 		}
 
-	// System notification - map to acknowledgment
-	case *pb.GatewayToScannerMessage_Notification:
-		outMsg.Payload = &pb.ScannerToGatewayMessage_Ack{
-			Ack: &pb.MessageAcknowledgment{
-				OriginalMessageId: inMsg.MessageId,
-				Success:           true,
-			},
-		}
-
+	// Any other message type is generally not expected for regular scanner streams
 	default:
-		// For any other message type we don't recognize
-		return nil, fmt.Errorf("unsupported incoming payload type: %T", inMsg.Payload)
+		// We still handle unexpected message types with a generic acknowledgment
+		// This makes the system more resilient to future changes
+		outMsg.Payload = &pb.ScannerToGatewayMessage_Ack{
+			Ack: &pb.MessageAcknowledgment{
+				OriginalMessageId: inMsg.MessageId,
+				Success:           true,
+			},
+		}
 	}
 
 	return outMsg, nil
@@ -255,5 +252,113 @@ func (a *ScannerStreamAdapter) Recv() (*ScannerToGatewayMessage, error) {
 
 // CloseSend implements ClientStreamInterface.CloseSend.
 func (a *ScannerStreamAdapter) CloseSend() error {
+	return a.Stream.CloseSend()
+}
+
+// BroadcastStreamAdapter adapts a scanner's broadcast gRPC stream to the ClientStreamInterface
+// expected by the EventBus. This handles the type conversion between the broadcast stream
+// used by the scanner and the interface expected by our event bus.
+//
+// Similar to ScannerStreamAdapter, this solves the message direction mismatch problem
+// for broadcast events:
+//
+// 1. In gRPC:
+//   - Gateway sends GatewayToScannerMessage TO scanners
+//   - Scanners send ScannerToGatewayMessage TO gateway
+//
+// 2. But ClientStreamInterface expects:
+//   - Send(*GatewayToScannerMessage) - Sends TO the gateway (opposite direction)
+//   - Recv() (*ScannerToGatewayMessage, error) - Receives FROM the gateway (opposite direction)
+type BroadcastStreamAdapter struct {
+	// The underlying gRPC stream.
+	Stream pb.ScannerGatewayService_SubscribeToBroadcastsClient
+}
+
+// Send implements ClientStreamInterface.Send by converting from
+// GatewayToScannerMessage to ScannerToGatewayMessage.
+func (a *BroadcastStreamAdapter) Send(message *GatewayToScannerMessage) error {
+	// For broadcast connections, we need to reverse the message direction.
+	// Convert from Gateway→Scanner to Scanner→Gateway message.
+	// NOTE: Scanners do not send broadcast messages to the gateway.
+	scannerMsg := &pb.ScannerToGatewayMessage{
+		MessageId:  message.MessageId,
+		Timestamp:  message.Timestamp,
+		ScannerId:  message.Headers["scanner_id"],
+		RoutingKey: message.RoutingKey,
+		Headers:    message.Headers,
+	}
+
+	return a.Stream.Send(scannerMsg)
+}
+
+// Recv implements ClientStreamInterface.Recv by converting from
+// GatewayToScannerMessage to ScannerToGatewayMessage.
+func (a *BroadcastStreamAdapter) Recv() (*ScannerToGatewayMessage, error) {
+	// Receive a message from the gateway
+	inMsg, err := a.Stream.Recv()
+	if err != nil {
+		return nil, err
+	}
+
+	// For broadcast streams, we need to return the ScannerToGatewayMessage type
+	// to match what ClientStreamInterface expects to receive.
+	// However, we actually received a GatewayToScannerMessage from the gateway.
+	outMsg := &ScannerToGatewayMessage{
+		MessageId:  inMsg.MessageId,
+		Timestamp:  inMsg.Timestamp,
+		RoutingKey: inMsg.RoutingKey,
+	}
+
+	// Copy headers if present
+	if len(inMsg.Headers) > 0 {
+		outMsg.Headers = make(map[string]string, len(inMsg.Headers))
+		for k, v := range inMsg.Headers {
+			outMsg.Headers[k] = v
+		}
+	}
+
+	// Broadcast streams only receive two types of events:
+	// 1. JobPaused events
+	// 2. JobCancelled events
+	//
+	// Both are converted to appropriate acknowledgment messages
+	switch {
+	// Handle job paused event
+	case inMsg.GetJobPaused() != nil:
+		// Create an acknowledgment for job paused event
+		outMsg.Payload = &pb.ScannerToGatewayMessage_Ack{
+			Ack: &pb.MessageAcknowledgment{
+				OriginalMessageId: inMsg.MessageId,
+				Success:           true,
+			},
+		}
+
+	// Handle job cancelled event
+	case inMsg.GetJobCancelled() != nil:
+		// Create an acknowledgment for job cancelled event
+		outMsg.Payload = &pb.ScannerToGatewayMessage_Ack{
+			Ack: &pb.MessageAcknowledgment{
+				OriginalMessageId: inMsg.MessageId,
+				Success:           true,
+			},
+		}
+
+	// Any other message type is unexpected for broadcast streams
+	default:
+		// Log the unexpected message type but still create a default acknowledgment
+		// This allows the system to be more resilient to future changes
+		outMsg.Payload = &pb.ScannerToGatewayMessage_Ack{
+			Ack: &pb.MessageAcknowledgment{
+				OriginalMessageId: inMsg.MessageId,
+				Success:           true,
+			},
+		}
+	}
+
+	return outMsg, nil
+}
+
+// CloseSend implements ClientStreamInterface.CloseSend
+func (a *BroadcastStreamAdapter) CloseSend() error {
 	return a.Stream.CloseSend()
 }

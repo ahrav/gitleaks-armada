@@ -44,13 +44,11 @@ type ScannerGatewayStream interface {
 	CloseSend() error
 }
 
-// ClientStreamInterface is used by the EventBus to communicate with the stream.
-// For scanner-side implementation, this will be an adapter over the gRPC stream.
+// ClientStreamInterface defines the common interface for all gRPC stream adapters.
+// This abstraction allows us to use a common EventBus implementation regardless
+// of whether we're using a regular scanner connection or a broadcast connection.
 type ClientStreamInterface interface {
-	// Send sends a message to the gateway
-	Send(message *GatewayToScannerMessage) error
-	// Recv receives a message from the gateway
+	Send(*GatewayToScannerMessage) error
 	Recv() (*ScannerToGatewayMessage, error)
-	// CloseSend closes the sending direction of the stream
 	CloseSend() error
 }

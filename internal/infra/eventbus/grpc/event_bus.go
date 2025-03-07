@@ -28,21 +28,21 @@ import (
 
 var _ events.EventBus = (*EventBus)(nil)
 
-// GRPCMetrics interface defines the metrics required for the gRPC-based event bus.
-// It provides methods to record metrics for message operations and errors.
-type GRPCMetrics interface {
-	// IncMessageSent increments the counter for messages sent of a specific type.
-	IncMessageSent(ctx context.Context, messageType string)
+// // GRPCMetrics interface defines the metrics required for the gRPC-based event bus.
+// // It provides methods to record metrics for message operations and errors.
+// type GRPCMetrics interface {
+// 	// IncMessageSent increments the counter for messages sent of a specific type.
+// 	IncMessageSent(ctx context.Context, messageType string)
 
-	// IncMessageReceived increments the counter for messages received of a specific type.
-	IncMessageReceived(ctx context.Context, messageType string)
+// 	// IncMessageReceived increments the counter for messages received of a specific type.
+// 	IncMessageReceived(ctx context.Context, messageType string)
 
-	// IncSendError increments the counter for errors encountered when sending messages.
-	IncSendError(ctx context.Context, messageType string)
+// 	// IncSendError increments the counter for errors encountered when sending messages.
+// 	IncSendError(ctx context.Context, messageType string)
 
-	// IncReceiveError increments the counter for errors encountered when receiving messages.
-	IncReceiveError(ctx context.Context, messageType string)
-}
+// 	// IncReceiveError increments the counter for errors encountered when receiving messages.
+// 	IncReceiveError(ctx context.Context, messageType string)
+// }
 
 // EventBusConfig contains configuration for the gRPC-based event bus.
 // It defines parameters needed to establish and maintain the event bus connection.
@@ -106,21 +106,57 @@ type EventBus struct {
 
 	timeProvider timeutil.Provider // Used for consistent time handling and testing
 
-	logger  *logger.Logger
-	tracer  trace.Tracer
-	metrics GRPCMetrics
+	logger *logger.Logger
+	tracer trace.Tracer
+	// metrics GRPCMetrics
 }
 
-// NewScannerEventBus creates a new gRPC event bus for scanner-to-gateway communication.
+// newEventBus is a common helper function that creates and initializes an event bus
+// with the provided configuration.
+func newEventBus(
+	stream ClientStreamInterface,
+	cfg *EventBusConfig,
+	logger *logger.Logger,
+	// metrics GRPCMetrics,
+	tracer trace.Tracer,
+	eventTypeMap map[events.EventType]string,
+) (*EventBus, error) {
+	// Create reverse mapping.
+	messageTypeMap := make(map[string]events.EventType)
+	for evtType, msgType := range eventTypeMap {
+		messageTypeMap[msgType] = evtType
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	bus := &EventBus{
+		stream:             stream,
+		config:             cfg,
+		eventToMessageType: eventTypeMap,
+		messageToEventType: messageTypeMap,
+		ackChannels:        make(map[string]chan error),
+		handlers:           make(map[events.EventType][]events.HandlerFunc),
+		ctx:                ctx,
+		cancelFunc:         cancel,
+		receiverDone:       make(chan struct{}),
+		timeProvider:       timeutil.Default(),
+		logger:             logger,
+		// metrics:            metrics,
+		tracer: tracer,
+	}
+
+	go bus.receiveLoop()
+
+	return bus, nil
+}
+
+// NewScannerEventBus creates a new gRPC event bus for regular scanner-to-gateway communication.
 // It takes a scanner gRPC stream and configures the event bus for events.
-// When isStreamForBroadcast is true, this creates a broadcast event bus specifically for
-// events that should be received by all scanner replicas regardless of their consumer group,
-// similar to a broadcast Kafka topic.
 func NewScannerEventBus(
 	stream pb.ScannerGatewayService_ConnectScannerClient,
 	cfg *EventBusConfig,
 	logger *logger.Logger,
-	metrics GRPCMetrics,
+	// metrics GRPCMetrics,
 	tracer trace.Tracer,
 ) (*EventBus, error) {
 	if cfg == nil {
@@ -137,73 +173,61 @@ func NewScannerEventBus(
 		"service_type", cfg.ServiceType,
 	)
 
-	// Map from domain event types to message types.
-	eventTypeMap := mapEventTypeToMessageType()
-
-	// Create reverse mapping.
-	// TODO: Do we reallllly need this?
-	messageTypeMap := make(map[string]events.EventType)
-	for evtType, msgType := range eventTypeMap {
-		messageTypeMap[msgType] = evtType
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	// Create a stream adapter to handle type conversion
 	adapter := &ScannerStreamAdapter{Stream: stream}
-	bus := &EventBus{
-		stream:             adapter,
-		config:             cfg,
-		eventToMessageType: eventTypeMap,
-		messageToEventType: messageTypeMap,
-		ackChannels:        make(map[string]chan error),
-		handlers:           make(map[events.EventType][]events.HandlerFunc),
-		ctx:                ctx,
-		cancelFunc:         cancel,
-		receiverDone:       make(chan struct{}),
-		timeProvider:       timeutil.Default(),
-		logger:             logger,
-		metrics:            metrics,
-		tracer:             tracer,
-	}
+	eventTypeMap := mapRegularEventTypes()
 
-	go bus.receiveLoop()
-
-	return bus, nil
+	return newEventBus(adapter, cfg, logger, tracer, eventTypeMap)
 }
 
-// mapEventTypeToMessageType creates a mapping between domain event types and gRPC message types.
-// This mapping is essential for proper serialization and deserialization of events.
-func mapEventTypeToMessageType() map[events.EventType]string {
+// mapRegularEventTypes creates a mapping between domain event types and gRPC message types
+// specifically for regular scanner connections. This includes scanner lifecycle events,
+// task processing, and rule distribution events.
+func mapRegularEventTypes() map[events.EventType]string {
 	return map[events.EventType]string{
-		// Scanner lifecycle events.
+		// Scanner lifecycle events - scanners send these to the gateway
 		scanning.EventTypeScannerRegistered:    "registration",
 		scanning.EventTypeScannerHeartbeat:     "heartbeat",
 		scanning.EventTypeScannerStatusChanged: "status_changed",
 		scanning.EventTypeScannerDeregistered:  "deregistered",
 
-		// Task processing events.
-		scanning.EventTypeTaskCreated:    "task",
-		scanning.EventTypeTaskStarted:    "task_started",
-		scanning.EventTypeTaskProgressed: "task_progressed",
-		scanning.EventTypeTaskCompleted:  "task_completed",
-		scanning.EventTypeTaskFailed:     "task_failed",
-		scanning.EventTypeTaskResume:     "task_resume",
-		scanning.EventTypeTaskPaused:     "pause_task",
-		scanning.EventTypeTaskCancelled:  "cancel_task",
+		// Task processing events - scanners receive task assignments and send progress/results
+		scanning.EventTypeTaskCreated:    "task",            // Gateway sends to scanner
+		scanning.EventTypeTaskStarted:    "task_started",    // Scanner sends to gateway
+		scanning.EventTypeTaskProgressed: "task_progressed", // Scanner sends to gateway
+		scanning.EventTypeTaskCompleted:  "task_completed",  // Scanner sends to gateway
+		scanning.EventTypeTaskFailed:     "task_failed",     // Scanner sends to gateway
+		scanning.EventTypeTaskResume:     "task_resume",     // Gateway sends to scanner
 
-		// Job control events.
-		scanning.EventTypeJobPausing:    "pause_job",
-		scanning.EventTypeJobPaused:     "pause_job",
-		scanning.EventTypeJobResuming:   "resume_job",
-		scanning.EventTypeJobCancelling: "cancel_job",
-		scanning.EventTypeJobCancelled:  "cancel_job",
-
-		// Rules events - controller-initiated flow.
-		// The controller initiates rule distribution to all scanners.
-		// Scanners do NOT request rules; they receive them from the controller.
+		// Rules events - controller initiates rule distribution to scanners
 		rules.EventTypeRulesRequested: "controller_initiated_rule_distribution",
-		rules.EventTypeRulesUpdated:   "controller_pushed_rule_update",
-		rules.EventTypeRulesPublished: "controller_published_rules",
+	}
+}
+
+// NewBroadcastEventBus creates a new event bus for handling broadcast messages.
+func NewBroadcastEventBus(
+	stream pb.ScannerGatewayService_SubscribeToBroadcastsClient,
+	cfg *EventBusConfig,
+	logger *logger.Logger,
+	// metrics GRPCMetrics,
+	tracer trace.Tracer,
+) (*EventBus, error) {
+	adapter := &BroadcastStreamAdapter{Stream: stream}
+	eventTypeMap := mapBroadcastEventTypes()
+
+	return newEventBus(adapter, cfg, logger, tracer, eventTypeMap)
+}
+
+// mapBroadcastEventTypes creates a mapping between domain event types and gRPC message types
+// specifically for broadcast connections. This primarily includes job control events that
+// affect all scanners system-wide.
+func mapBroadcastEventTypes() map[events.EventType]string {
+	return map[events.EventType]string{
+		// Job control events - broadcasted to all scanners
+		scanning.EventTypeJobPaused:    "job_paused",    // Broadcast to all scanners
+		scanning.EventTypeJobCancelled: "job_cancelled", // Broadcast to all scanners
+
+		// System-wide events that all scanners need to know about
+		events.EventType("SystemNotification"): "system_notification",
 	}
 }
 
@@ -283,11 +307,11 @@ func (b *EventBus) Publish(ctx context.Context, event events.EventEnvelope, opts
 		b.ackChannelsMu.Unlock()
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
-		b.metrics.IncSendError(ctx, messageType)
+		// b.metrics.IncSendError(ctx, messageType)
 		return fmt.Errorf("failed to send message: %w", err)
 	}
 
-	b.metrics.IncMessageSent(ctx, messageType)
+	// b.metrics.IncMessageSent(ctx, messageType)
 
 	var waitForAck bool = true
 	var ackTimeout time.Duration = 30 * time.Second // default timeout
@@ -491,15 +515,15 @@ func (b *EventBus) processIncomingMessage(msg *ScannerToGatewayMessage) {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, err.Error())
 
-			if b.metrics != nil {
-				b.metrics.IncReceiveError(ctx, string(eventType))
-			}
+			// if b.metrics != nil {
+			// 	b.metrics.IncReceiveError(ctx, string(eventType))
+			// }
 			return err
 		}
 
-		if b.metrics != nil {
-			b.metrics.IncMessageReceived(ctx, string(eventType))
-		}
+		// if b.metrics != nil {
+		// 	b.metrics.IncMessageReceived(ctx, string(eventType))
+		// }
 
 		envelope := events.EventEnvelope{Type: eventType, Payload: domainEvent, Timestamp: b.timeProvider.Now()}
 
@@ -552,9 +576,9 @@ func (b *EventBus) processIncomingMessage(msg *ScannerToGatewayMessage) {
 					"error", err)
 				span.RecordError(err)
 
-				if b.metrics != nil {
-					b.metrics.IncReceiveError(ctx, string(eventType))
-				}
+				// 	if b.metrics != nil {
+				// 		b.metrics.IncReceiveError(ctx, string(eventType))
+				// 	}
 			}
 		}
 

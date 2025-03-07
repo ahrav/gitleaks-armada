@@ -90,9 +90,9 @@ func SetGatewayToScannerPayload(msg *pb.GatewayToScannerMessage, eventType event
 	case rules.EventTypeRulesUpdated:
 		// When controller sends rule updates to scanners
 		// This is a push from the controller, not a response to a scanner request
-		rulesResponse, ok := payload.(*pb.RulesResponse)
+		_, ok := payload.(*pb.RuleMessage)
 		if !ok {
-			return fmt.Errorf("payload is not a RulesResponse: %T", payload)
+			return fmt.Errorf("payload is not a RuleMessage: %T", payload)
 		}
 
 		// TODO: In a future revision, we should add a dedicated field in GatewayToScannerMessage
@@ -101,7 +101,7 @@ func SetGatewayToScannerPayload(msg *pb.GatewayToScannerMessage, eventType event
 		msg.Payload = &pb.GatewayToScannerMessage_Notification{
 			Notification: &pb.SystemNotification{
 				Title:   "Rules Updated",
-				Message: fmt.Sprintf("Received %d updated rules", len(rulesResponse.Rules)),
+				Message: "Rule update received",
 				Type:    pb.SystemNotification_NOTIFICATION_TYPE_INFO,
 			},
 		}
