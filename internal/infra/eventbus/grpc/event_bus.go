@@ -47,8 +47,8 @@ type GRPCMetrics interface {
 // EventBusConfig contains configuration for the gRPC-based event bus.
 // It defines parameters needed to establish and maintain the event bus connection.
 type EventBusConfig struct {
-	// ScannerID is the unique identifier for the connected scanner.
-	ScannerID string
+	// ScannerName is the name of the scanner.
+	ScannerName string
 
 	// ServiceType identifies the type of service ("gateway" or "scanner").
 	ServiceType string
@@ -111,9 +111,11 @@ type EventBus struct {
 	metrics GRPCMetrics
 }
 
-// NewScannerEventBus creates a new gRPC event bus specifically for scanners.
-// It takes a scanner gRPC stream and configures the event bus for scanner-to-gateway
-// communication. The event bus handles message serialization/deserialization and event routing.
+// NewScannerEventBus creates a new gRPC event bus for scanner-to-gateway communication.
+// It takes a scanner gRPC stream and configures the event bus for events.
+// When isStreamForBroadcast is true, this creates a broadcast event bus specifically for
+// events that should be received by all scanner replicas regardless of their consumer group,
+// similar to a broadcast Kafka topic.
 func NewScannerEventBus(
 	stream pb.ScannerGatewayService_ConnectScannerClient,
 	cfg *EventBusConfig,
@@ -121,7 +123,6 @@ func NewScannerEventBus(
 	metrics GRPCMetrics,
 	tracer trace.Tracer,
 ) (*EventBus, error) {
-
 	if cfg == nil {
 		return nil, errors.New("event bus config is required")
 	}
@@ -132,7 +133,7 @@ func NewScannerEventBus(
 
 	logger = logger.With(
 		"component", "grpc_event_bus",
-		"scanner_id", cfg.ScannerID,
+		"scanner_id", cfg.ScannerName,
 		"service_type", cfg.ServiceType,
 	)
 
@@ -140,16 +141,15 @@ func NewScannerEventBus(
 	eventTypeMap := mapEventTypeToMessageType()
 
 	// Create reverse mapping.
+	// TODO: Do we reallllly need this?
 	messageTypeMap := make(map[string]events.EventType)
 	for evtType, msgType := range eventTypeMap {
 		messageTypeMap[msgType] = evtType
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-
-	// Create a stream adapter to handle type conversion.
+	// Create a stream adapter to handle type conversion
 	adapter := &ScannerStreamAdapter{Stream: stream}
-
 	bus := &EventBus{
 		stream:             adapter,
 		config:             cfg,
