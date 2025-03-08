@@ -13,7 +13,6 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/rules"
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/internal/infra/eventbus/serialization"
-	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	pb "github.com/ahrav/gitleaks-armada/proto"
 )
 
@@ -251,20 +250,13 @@ func GetScannerToGatewayMessageType(msg *pb.ScannerToGatewayMessage) (MessageTyp
 	}
 }
 
-// ProcessIncomingMessage processes an incoming ScannerToGatewayMessage by determining its message type,
-// converting it to a domain event, and invoking the provided callback with the event.
-func ProcessIncomingMessage(
+// ExtractScannerMessageInfo processes an incoming ScannerToGatewayMessage by determining its message type,
+// converting it to a domain event, and returning the event type and payload.
+func ExtractScannerMessageInfo(
 	ctx context.Context,
 	msg *pb.ScannerToGatewayMessage,
-	logger *logger.Logger,
-	tracer trace.Tracer,
-	callback func(ctx context.Context, eventType events.EventType, domainEvent any) error,
-) error {
-	ctx, span := tracer.Start(ctx, "ProcessIncomingMessage",
-		trace.WithAttributes(
-			attribute.String("message_id", msg.MessageId),
-			attribute.String("scanner_id", msg.ScannerId),
-		))
+) (events.EventType, any, error) {
+	span := trace.SpanFromContext(ctx)
 	defer span.End()
 
 	// Determine message type and get the payload.
@@ -272,7 +264,7 @@ func ProcessIncomingMessage(
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
-		return err
+		return "", nil, err
 	}
 
 	span.SetAttributes(attribute.String("message_type", messageType.String()))
@@ -280,7 +272,7 @@ func ProcessIncomingMessage(
 	eventType := mapMessageTypeToEventType(messageType)
 	if eventType == "" {
 		span.SetStatus(codes.Error, "unknown message type")
-		return fmt.Errorf("unknown message type for event mapping: %s", messageType)
+		return "", nil, fmt.Errorf("unknown message type for event mapping: %s", messageType)
 	}
 
 	// Convert proto message to domain event.
@@ -288,17 +280,10 @@ func ProcessIncomingMessage(
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
-		return fmt.Errorf("failed to convert proto message to domain event: %w", err)
+		return "", nil, fmt.Errorf("failed to convert proto message to domain event: %w", err)
 	}
 
-	// Invoke callback with the domain event.
-	if err := callback(ctx, eventType, domainEvent); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		return fmt.Errorf("callback error processing domain event: %w", err)
-	}
-
-	return nil
+	return eventType, domainEvent, nil
 }
 
 // mapMessageTypeToEventType maps a message type string to a domain event type.
