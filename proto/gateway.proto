@@ -86,6 +86,45 @@ message ScannerToGatewayMessage {
   }
 }
 
+// MessageAcknowledgment allows acknowledging receipt of messages with a
+// standardized format. This is used for all acknowledgments, including
+// registration responses and event acknowledgments.
+message MessageAcknowledgment {
+  string original_message_id = 1; // ID of the message being acknowledged
+  bool success = 2;         // Whether the message was processed successfully
+  string error_message = 3; // Error message if success is false
+  string scanner_id = 4;    // Scanner ID (used in registration responses)
+  map<string, string> metadata = 5; // Additional context-specific metadata
+}
+
+// ScannerRegistrationRequest is sent by a scanner to register with the system
+// This is different from ScannerRegisteredEvent as it's the initial request
+// before a scanner is officially registered.
+message ScannerRegistrationRequest {
+  string scanner_name = 1;
+  string version = 2;
+  repeated string capabilities = 3;
+  string group_name = 4;
+  string hostname = 5;
+  map<string, string> tags = 6;
+}
+
+// SystemNotification for broadcasting system events to scanners.
+message SystemNotification {
+  enum NotificationType {
+    NOTIFICATION_TYPE_UNSPECIFIED = 0;
+    NOTIFICATION_TYPE_INFO = 1;
+    NOTIFICATION_TYPE_WARNING = 2;
+    NOTIFICATION_TYPE_ERROR = 3;
+    NOTIFICATION_TYPE_MAINTENANCE = 4;
+  }
+
+  NotificationType type = 1;
+  string title = 2;
+  string message = 3;
+  int64 expires_at = 4; // When this notification expires (0 = no expiry)
+}
+
 // GatewayToScannerMessage is a container for all possible messages the gateway
 // can send to a scanner. This wraps domain events to provide metadata for the
 // gRPC transport.
@@ -114,66 +153,25 @@ message GatewayToScannerMessage {
 
   // The actual payload containing domain events.
   oneof payload {
-    // Registration response.
-    ScannerRegistrationResponse registration_response = 10;
-
     // Task related events.
-    TaskCreatedEvent task_created = 20;
-    TaskResumeEvent task_resume = 21;
-    TaskPausedEvent task_paused = 22;
+    TaskCreatedEvent task_created = 10;
+    TaskResumeEvent task_resume = 11;
+    TaskPausedEvent task_paused = 12;
 
     // Job control events.
-    JobPausedEvent job_paused = 30;
-    JobCancelledEvent job_cancelled = 31;
+    JobPausedEvent job_paused = 20;
+    JobCancelledEvent job_cancelled = 21;
 
     // Rules related events.
-    RuleRequestedEvent rule_requested = 40;
+    RuleRequestedEvent rule_requested = 30;
 
     // System messages.
-    SystemNotification notification = 50;
+    SystemNotification notification = 40;
+
+    // Acknowledgments of received messages, including registration responses.
+    // For registration responses, the original_message_id will match the
+    // registration request message_id, and the scanner_id field will contain
+    // the assigned scanner ID.
+    MessageAcknowledgment ack = 50;
   }
-}
-
-// ScannerRegistrationRequest is sent by a scanner to register with the system
-// This is different from ScannerRegisteredEvent as it's the initial request
-// before a scanner is officially registered.
-message ScannerRegistrationRequest {
-  string scanner_name = 1;
-  string version = 2;
-  repeated string capabilities = 3;
-  string group_name = 4;
-  string hostname = 5;
-  map<string, string> tags = 6;
-}
-
-// ScannerRegistrationResponse is sent by the gateway in response to a
-// registration request.
-message ScannerRegistrationResponse {
-  bool success = 1;
-  string scanner_id =
-      2;              // The assigned scanner ID (if different from requested).
-  string message = 3; // Error message or additional information.
-}
-
-// MessageAcknowledgment allows scanners to acknowledge receipt of messages.
-message MessageAcknowledgment {
-  string original_message_id = 1;
-  bool success = 2;
-  string error_message = 3;
-}
-
-// SystemNotification for broadcasting system events to scanners.
-message SystemNotification {
-  enum NotificationType {
-    NOTIFICATION_TYPE_UNSPECIFIED = 0;
-    NOTIFICATION_TYPE_INFO = 1;
-    NOTIFICATION_TYPE_WARNING = 2;
-    NOTIFICATION_TYPE_ERROR = 3;
-    NOTIFICATION_TYPE_MAINTENANCE = 4;
-  }
-
-  NotificationType type = 1;
-  string title = 2;
-  string message = 3;
-  int64 expires_at = 4; // When this notification expires (0 = no expiry)
 }
