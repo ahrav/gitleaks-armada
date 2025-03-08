@@ -41,7 +41,7 @@ func TestScannerHeartbeatAgent_Start(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		err := heartbeatAgent.Start(ctx)
-		assert.Equal(t, context.DeadlineExceeded, err)
+		assert.NoError(t, err)
 		close(done)
 	}()
 
