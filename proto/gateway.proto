@@ -75,16 +75,14 @@ message ScannerToGatewayMessage {
     TaskFailedEvent task_failed = 23;
     TaskPausedEvent task_paused = 24;
     TaskCancelledEvent task_cancelled = 25;
-
-    // Scan results.
-    ScanResult scan_result = 30;
+    TaskJobMetricEvent task_job_metric = 26;
+    TaskHeartbeatEvent task_heartbeat = 27;
 
     // Acknowledgments of received messages.
-    MessageAcknowledgment ack = 40;
+    MessageAcknowledgment ack = 30;
 
     // Rules-related events.
-    RuleRequestedEvent rule_requested = 50;
-    RulePublishingCompletedEvent rule_publishing_completed = 51;
+    RuleMessage rule_message = 50;
   }
 }
 
@@ -122,19 +120,17 @@ message GatewayToScannerMessage {
     // Task related events.
     TaskCreatedEvent task_created = 20;
     TaskResumeEvent task_resume = 21;
+    TaskPausedEvent task_paused = 22;
 
     // Job control events.
-    JobPausingEvent job_pausing = 30;
-    JobPausedEvent job_paused = 31;
-    JobResumingEvent job_resuming = 32;
-    JobCancellingEvent job_cancelling = 33;
-    JobCancelledEvent job_cancelled = 34;
+    JobPausedEvent job_paused = 30;
+    JobCancelledEvent job_cancelled = 31;
+
+    // Rules related events.
+    RuleRequestedEvent rule_requested = 40;
 
     // System messages.
-    SystemNotification notification = 40;
-
-    // Rules-related events.
-    RuleMessage rule_message = 50;
+    SystemNotification notification = 50;
   }
 }
 
