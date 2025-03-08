@@ -107,9 +107,6 @@ type EventBus struct {
 	// Maps event types to internal message types.
 	eventToMessageType map[events.EventType]MessageType
 
-	// Maps internal message types to event types.
-	messageToEventType map[MessageType]events.EventType
-
 	// Mapping from message ID to ack channel for critical messages.
 	ackChannelsMu sync.RWMutex
 	ackChannels   map[string]chan error
@@ -146,19 +143,12 @@ func newEventBus(
 	tracer trace.Tracer,
 	eventTypeMap map[events.EventType]MessageType,
 ) (*EventBus, error) {
-	// Create reverse mapping.
-	messageTypeMap := make(map[MessageType]events.EventType)
-	for evtType, msgType := range eventTypeMap {
-		messageTypeMap[msgType] = evtType
-	}
-
 	ctx, cancel := context.WithCancel(context.Background())
 
 	bus := &EventBus{
 		stream:             stream,
 		config:             cfg,
 		eventToMessageType: eventTypeMap,
-		messageToEventType: messageTypeMap,
 		ackChannels:        make(map[string]chan error),
 		handlers:           make(map[events.EventType][]events.HandlerFunc),
 		ctx:                ctx,
