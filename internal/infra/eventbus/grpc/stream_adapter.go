@@ -6,6 +6,18 @@ import (
 	pb "github.com/ahrav/gitleaks-armada/proto"
 )
 
+// DEPRECATED: ScannerStreamAdapter will be removed in a future version.
+//
+// The EventBus now uses ScannerGatewayStream directly, which matches the gRPC client interface
+// and has correct message directions. The adapter is no longer needed.
+//
+// Previously, this adapter was used to solve a message direction mismatch where:
+// - The gRPC stream used correct directions (ScannerToGateway and GatewayToScanner)
+// - But EventBus used ClientStreamInterface with reversed directions
+//
+// By switching EventBus to use the gRPC stream interface directly, we eliminated
+// the need for this complex adapter and all its payload conversion logic.
+
 // ScannerStreamAdapter adapts a scanner's gRPC stream to the ClientStreamInterface
 // expected by the EventBus. This handles the type conversion between the stream
 // used by the scanner and the interface expected by our event bus.
@@ -101,31 +113,7 @@ func (a *ScannerStreamAdapter) Send(message *GatewayToScannerMessage) error {
 		}
 
 	// Handle job control events - convert to acknowledgments
-	case *pb.GatewayToScannerMessage_JobPausing:
-		outMsg.Payload = &pb.ScannerToGatewayMessage_Ack{
-			Ack: &pb.MessageAcknowledgment{
-				OriginalMessageId: message.MessageId,
-				Success:           true,
-			},
-		}
-
 	case *pb.GatewayToScannerMessage_JobPaused:
-		outMsg.Payload = &pb.ScannerToGatewayMessage_Ack{
-			Ack: &pb.MessageAcknowledgment{
-				OriginalMessageId: message.MessageId,
-				Success:           true,
-			},
-		}
-
-	case *pb.GatewayToScannerMessage_JobResuming:
-		outMsg.Payload = &pb.ScannerToGatewayMessage_Ack{
-			Ack: &pb.MessageAcknowledgment{
-				OriginalMessageId: message.MessageId,
-				Success:           true,
-			},
-		}
-
-	case *pb.GatewayToScannerMessage_JobCancelling:
 		outMsg.Payload = &pb.ScannerToGatewayMessage_Ack{
 			Ack: &pb.MessageAcknowledgment{
 				OriginalMessageId: message.MessageId,
@@ -227,7 +215,7 @@ func (a *ScannerStreamAdapter) Recv() (*ScannerToGatewayMessage, error) {
 		}
 
 	// Rule message - for rule distribution
-	case *pb.GatewayToScannerMessage_RuleMessage:
+	case *pb.GatewayToScannerMessage_RuleRequested:
 		outMsg.Payload = &pb.ScannerToGatewayMessage_Ack{
 			Ack: &pb.MessageAcknowledgment{
 				OriginalMessageId: inMsg.MessageId,

@@ -27,93 +27,51 @@ func SetGatewayToScannerPayload(msg *pb.GatewayToScannerMessage, eventType event
 		if !ok {
 			return fmt.Errorf("payload is not a TaskCreatedEvent: %T", payload)
 		}
-		msg.Payload = &pb.GatewayToScannerMessage_TaskCreated{
-			TaskCreated: taskCreated,
-		}
+		msg.Payload = &pb.GatewayToScannerMessage_TaskCreated{TaskCreated: taskCreated}
 
 	case scanning.EventTypeTaskResume:
 		taskResume, ok := payload.(*pb.TaskResumeEvent)
 		if !ok {
 			return fmt.Errorf("payload is not a TaskResumeEvent: %T", payload)
 		}
-		msg.Payload = &pb.GatewayToScannerMessage_TaskResume{
-			TaskResume: taskResume,
+		msg.Payload = &pb.GatewayToScannerMessage_TaskResume{TaskResume: taskResume}
+
+	case scanning.EventTypeTaskPaused:
+		taskPaused, ok := payload.(*pb.TaskPausedEvent)
+		if !ok {
+			return fmt.Errorf("payload is not a TaskPausedEvent: %T", payload)
 		}
+		msg.Payload = &pb.GatewayToScannerMessage_TaskPaused{TaskPaused: taskPaused}
 
 	// Job related events.
-	case scanning.EventTypeJobPausing:
-		jobPausing, ok := payload.(*pb.JobPausingEvent)
-		if !ok {
-			return fmt.Errorf("payload is not a JobPausingEvent: %T", payload)
-		}
-		msg.Payload = &pb.GatewayToScannerMessage_JobPausing{
-			JobPausing: jobPausing,
-		}
-
 	case scanning.EventTypeJobPaused:
 		jobPaused, ok := payload.(*pb.JobPausedEvent)
 		if !ok {
 			return fmt.Errorf("payload is not a JobPausedEvent: %T", payload)
 		}
-		msg.Payload = &pb.GatewayToScannerMessage_JobPaused{
-			JobPaused: jobPaused,
-		}
-
-	case scanning.EventTypeJobResuming:
-		jobResuming, ok := payload.(*pb.JobResumingEvent)
-		if !ok {
-			return fmt.Errorf("payload is not a JobResumingEvent: %T", payload)
-		}
-		msg.Payload = &pb.GatewayToScannerMessage_JobResuming{
-			JobResuming: jobResuming,
-		}
-
-	case scanning.EventTypeJobCancelling:
-		jobCancelling, ok := payload.(*pb.JobCancellingEvent)
-		if !ok {
-			return fmt.Errorf("payload is not a JobCancellingEvent: %T", payload)
-		}
-		msg.Payload = &pb.GatewayToScannerMessage_JobCancelling{
-			JobCancelling: jobCancelling,
-		}
+		msg.Payload = &pb.GatewayToScannerMessage_JobPaused{JobPaused: jobPaused}
 
 	case scanning.EventTypeJobCancelled:
 		jobCancelled, ok := payload.(*pb.JobCancelledEvent)
 		if !ok {
 			return fmt.Errorf("payload is not a JobCancelledEvent: %T", payload)
 		}
-		msg.Payload = &pb.GatewayToScannerMessage_JobCancelled{
-			JobCancelled: jobCancelled,
-		}
+		msg.Payload = &pb.GatewayToScannerMessage_JobCancelled{JobCancelled: jobCancelled}
 
-	// Rules and system events.
-	case rules.EventTypeRulesUpdated:
-		// When controller sends rule updates to scanners
-		// This is a push from the controller, not a response to a scanner request
-		_, ok := payload.(*pb.RuleMessage)
+	// Rules related events.
+	case rules.EventTypeRulesRequested:
+		ruleRequested, ok := payload.(*pb.RuleRequestedEvent)
 		if !ok {
-			return fmt.Errorf("payload is not a RuleMessage: %T", payload)
+			return fmt.Errorf("payload is not a RuleRequestedEvent: %T", payload)
 		}
-
-		// TODO: In a future revision, we should add a dedicated field in GatewayToScannerMessage
-		// for rule updates. Currently using System Notification as a workaround.
-		// Create a system notification to deliver the rules update
-		msg.Payload = &pb.GatewayToScannerMessage_Notification{
-			Notification: &pb.SystemNotification{
-				Title:   "Rules Updated",
-				Message: "Rule update received",
-				Type:    pb.SystemNotification_NOTIFICATION_TYPE_INFO,
-			},
-		}
+		msg.Payload = &pb.GatewayToScannerMessage_RuleRequested{RuleRequested: ruleRequested}
 
 	case events.EventType("SystemNotification"):
 		notification, ok := payload.(*pb.SystemNotification)
 		if !ok {
 			return fmt.Errorf("payload is not a SystemNotification: %T", payload)
 		}
-		msg.Payload = &pb.GatewayToScannerMessage_Notification{
-			Notification: notification,
-		}
+		msg.Payload = &pb.GatewayToScannerMessage_Notification{Notification: notification}
 
 	default:
 		return fmt.Errorf("unhandled event type: %s", eventType)
@@ -122,45 +80,171 @@ func SetGatewayToScannerPayload(msg *pb.GatewayToScannerMessage, eventType event
 	return nil
 }
 
+// SetScannerToGatewayPayload sets the appropriate payload field in a ScannerToGatewayMessage
+// based on the event type. This function handles scanner-to-controller direction events.
+func SetScannerToGatewayPayload(msg *pb.ScannerToGatewayMessage, eventType events.EventType, payload any) error {
+	switch eventType {
+	// Scanner lifecycle events - scanner to controller.
+	case scanning.EventTypeScannerRegistered:
+		registration, ok := payload.(*pb.ScannerRegistrationRequest)
+		if !ok {
+			return fmt.Errorf("payload is not a ScannerRegistrationRequest: %T", payload)
+		}
+		msg.Payload = &pb.ScannerToGatewayMessage_Registration{Registration: registration}
+
+	case scanning.EventTypeScannerHeartbeat:
+		heartbeat, ok := payload.(*pb.ScannerHeartbeatEvent)
+		if !ok {
+			return fmt.Errorf("payload is not a ScannerHeartbeatEvent: %T", payload)
+		}
+		msg.Payload = &pb.ScannerToGatewayMessage_Heartbeat{Heartbeat: heartbeat}
+
+	case scanning.EventTypeScannerStatusChanged:
+		statusChanged, ok := payload.(*pb.ScannerStatusChangedEvent)
+		if !ok {
+			return fmt.Errorf("payload is not a ScannerStatusChangedEvent: %T", payload)
+		}
+		msg.Payload = &pb.ScannerToGatewayMessage_StatusChanged{StatusChanged: statusChanged}
+
+	case scanning.EventTypeScannerDeregistered:
+		deregistered, ok := payload.(*pb.ScannerDeregisteredEvent)
+		if !ok {
+			return fmt.Errorf("payload is not a ScannerDeregisteredEvent: %T", payload)
+		}
+		msg.Payload = &pb.ScannerToGatewayMessage_Deregistered{Deregistered: deregistered}
+
+	// Task events - scanner to controller.
+	case scanning.EventTypeTaskStarted:
+		taskStarted, ok := payload.(*pb.TaskStartedEvent)
+		if !ok {
+			return fmt.Errorf("payload is not a TaskStartedEvent: %T", payload)
+		}
+		msg.Payload = &pb.ScannerToGatewayMessage_TaskStarted{TaskStarted: taskStarted}
+
+	case scanning.EventTypeTaskProgressed:
+		taskProgressed, ok := payload.(*pb.TaskProgressedEvent)
+		if !ok {
+			return fmt.Errorf("payload is not a TaskProgressedEvent: %T", payload)
+		}
+		msg.Payload = &pb.ScannerToGatewayMessage_TaskProgressed{TaskProgressed: taskProgressed}
+
+	case scanning.EventTypeTaskCompleted:
+		taskCompleted, ok := payload.(*pb.TaskCompletedEvent)
+		if !ok {
+			return fmt.Errorf("payload is not a TaskCompletedEvent: %T", payload)
+		}
+		msg.Payload = &pb.ScannerToGatewayMessage_TaskCompleted{TaskCompleted: taskCompleted}
+
+	case scanning.EventTypeTaskFailed:
+		taskFailed, ok := payload.(*pb.TaskFailedEvent)
+		if !ok {
+			return fmt.Errorf("payload is not a TaskFailedEvent: %T", payload)
+		}
+		msg.Payload = &pb.ScannerToGatewayMessage_TaskFailed{TaskFailed: taskFailed}
+
+	case scanning.EventTypeTaskPaused:
+		taskPaused, ok := payload.(*pb.TaskPausedEvent)
+		if !ok {
+			return fmt.Errorf("payload is not a TaskPausedEvent: %T", payload)
+		}
+		msg.Payload = &pb.ScannerToGatewayMessage_TaskPaused{TaskPaused: taskPaused}
+
+	case scanning.EventTypeTaskCancelled:
+		taskCancelled, ok := payload.(*pb.TaskCancelledEvent)
+		if !ok {
+			return fmt.Errorf("payload is not a TaskCancelledEvent: %T", payload)
+		}
+		msg.Payload = &pb.ScannerToGatewayMessage_TaskCancelled{TaskCancelled: taskCancelled}
+
+	case scanning.EventTypeTaskHeartbeat:
+		taskHeartbeat, ok := payload.(*pb.TaskHeartbeatEvent)
+		if !ok {
+			return fmt.Errorf("payload is not a TaskHeartbeatEvent: %T", payload)
+		}
+		msg.Payload = &pb.ScannerToGatewayMessage_TaskHeartbeat{TaskHeartbeat: taskHeartbeat}
+
+	case scanning.EventTypeTaskJobMetric:
+		taskJobMetric, ok := payload.(*pb.TaskJobMetricEvent)
+		if !ok {
+			return fmt.Errorf("payload is not a TaskJobMetricEvent: %T", payload)
+		}
+		msg.Payload = &pb.ScannerToGatewayMessage_TaskJobMetric{TaskJobMetric: taskJobMetric}
+
+	// Rules events - scanner to controller.
+	case rules.EventTypeRulesUpdated:
+		rulesUpdate, ok := payload.(*pb.RuleMessage)
+		if !ok {
+			return fmt.Errorf("payload is not a RuleMessage: %T", payload)
+		}
+		msg.Payload = &pb.ScannerToGatewayMessage_RuleMessage{RuleMessage: rulesUpdate}
+
+	case rules.EventTypeRulesPublished:
+		rulesPublished, ok := payload.(*pb.RuleMessage)
+		if !ok {
+			return fmt.Errorf("payload is not a RuleMessage: %T", payload)
+		}
+		msg.Payload = &pb.ScannerToGatewayMessage_RuleMessage{RuleMessage: rulesPublished}
+
+	// Acknowledgment event.
+	case events.EventType("MessageAcknowledgment"):
+		ack, ok := payload.(*pb.MessageAcknowledgment)
+		if !ok {
+			return fmt.Errorf("payload is not a MessageAcknowledgment: %T", payload)
+		}
+		msg.Payload = &pb.ScannerToGatewayMessage_Ack{Ack: ack}
+
+	default:
+		return fmt.Errorf("unhandled scanner-to-gateway event type: %s", eventType)
+	}
+
+	return nil
+}
+
 // GetScannerToGatewayMessageType determines the type of message contained in a ScannerToGatewayMessage.
 // Returns the message type string, the message payload, and any error.
-func GetScannerToGatewayMessageType(msg *pb.ScannerToGatewayMessage) (string, any, error) {
+func GetScannerToGatewayMessageType(msg *pb.ScannerToGatewayMessage) (MessageType, any, error) {
 	switch {
 	// Scanner events.
 	case msg.GetHeartbeat() != nil:
-		return "heartbeat", msg.GetHeartbeat(), nil
+		return MessageTypeScannerHeartbeat, msg.GetHeartbeat(), nil
 
 	case msg.GetRegistration() != nil:
-		return "scanner_registered", msg.GetRegistration(), nil
+		return MessageTypeScannerRegistered, msg.GetRegistration(), nil
 
 	case msg.GetStatusChanged() != nil:
-		return "status_changed", msg.GetStatusChanged(), nil
+		return MessageTypeScannerStatusChanged, msg.GetStatusChanged(), nil
 
 	case msg.GetDeregistered() != nil:
-		return "deregistered", msg.GetDeregistered(), nil
+		return MessageTypeScannerDeregistered, msg.GetDeregistered(), nil
 
 	// Task events.
 	case msg.GetTaskStarted() != nil:
-		return "task_started", msg.GetTaskStarted(), nil
+		return MessageTypeScanTaskStarted, msg.GetTaskStarted(), nil
 
 	case msg.GetTaskProgressed() != nil:
-		return "task_progressed", msg.GetTaskProgressed(), nil
+		return MessageTypeScanTaskProgressed, msg.GetTaskProgressed(), nil
 
 	case msg.GetTaskCompleted() != nil:
-		return "task_completed", msg.GetTaskCompleted(), nil
+		return MessageTypeScanTaskCompleted, msg.GetTaskCompleted(), nil
 
 	case msg.GetTaskFailed() != nil:
-		return "task_failed", msg.GetTaskFailed(), nil
+		return MessageTypeScanTaskFailed, msg.GetTaskFailed(), nil
 
 	case msg.GetTaskPaused() != nil:
-		return "task_paused", msg.GetTaskPaused(), nil
+		return MessageTypeScanTaskPaused, msg.GetTaskPaused(), nil
 
 	case msg.GetTaskCancelled() != nil:
-		return "task_cancelled", msg.GetTaskCancelled(), nil
+		return MessageTypeScanTaskCancelled, msg.GetTaskCancelled(), nil
+
+	case msg.GetTaskJobMetric() != nil:
+		return MessageTypeScanTaskJobMetric, msg.GetTaskJobMetric(), nil
+
+	case msg.GetTaskHeartbeat() != nil:
+		return MessageTypeScanTaskHeartbeat, msg.GetTaskHeartbeat(), nil
 
 	// Acknowledgment.
 	case msg.GetAck() != nil:
-		return "ack", msg.GetAck(), nil
+		return MessageTypeAck, msg.GetAck(), nil
 
 	default:
 		return "", nil, fmt.Errorf("unknown message type in ScannerToGatewayMessage")
@@ -191,7 +275,7 @@ func ProcessIncomingMessage(
 		return err
 	}
 
-	span.SetAttributes(attribute.String("message_type", messageType))
+	span.SetAttributes(attribute.String("message_type", messageType.String()))
 
 	eventType := mapMessageTypeToEventType(messageType)
 	if eventType == "" {
@@ -218,64 +302,52 @@ func ProcessIncomingMessage(
 }
 
 // mapMessageTypeToEventType maps a message type string to a domain event type.
-func mapMessageTypeToEventType(messageType string) events.EventType {
+func mapMessageTypeToEventType(messageType MessageType) events.EventType {
 	switch messageType {
 	// Scanner events.
-	case "heartbeat":
+	case MessageTypeScannerHeartbeat:
 		return scanning.EventTypeScannerHeartbeat
-	case "scanner_registered":
+	case MessageTypeScannerRegistered:
 		return scanning.EventTypeScannerRegistered
-	case "status_changed":
+	case MessageTypeScannerStatusChanged:
 		return scanning.EventTypeScannerStatusChanged
-	case "deregistered":
+	case MessageTypeScannerDeregistered:
 		return scanning.EventTypeScannerDeregistered
 
 	// Task events.
-	case "task_started":
+	case MessageTypeScanTaskStarted:
 		return scanning.EventTypeTaskStarted
-	case "task_progressed":
+	case MessageTypeScanTaskProgressed:
 		return scanning.EventTypeTaskProgressed
-	case "task_completed":
+	case MessageTypeScanTaskCompleted:
 		return scanning.EventTypeTaskCompleted
-	case "task_failed":
+	case MessageTypeScanTaskFailed:
 		return scanning.EventTypeTaskFailed
-	case "task_paused":
+	case MessageTypeScanTaskPaused:
 		return scanning.EventTypeTaskPaused
-	case "task_cancelled":
+	case MessageTypeScanTaskCancelled:
 		return scanning.EventTypeTaskCancelled
-	case "task_resume":
+	case MessageTypeScanTaskResume:
 		return scanning.EventTypeTaskResume
-	case "task_heartbeat":
+	case MessageTypeScanTaskHeartbeat:
 		return scanning.EventTypeTaskHeartbeat
-	case "task_job_metric":
+	case MessageTypeScanTaskJobMetric:
 		return scanning.EventTypeTaskJobMetric
 
 	// Job events.
-	case "job_requested":
-		return scanning.EventTypeJobRequested
-	case "job_scheduled":
-		return scanning.EventTypeJobScheduled
-	case "job_enumeration_completed":
-		return scanning.EventTypeJobEnumerationCompleted
-	case "job_pausing":
-		return scanning.EventTypeJobPausing
-	case "job_paused":
+	case MessageTypeScanJobPaused:
 		return scanning.EventTypeJobPaused
-	case "job_resuming":
-		return scanning.EventTypeJobResuming
-	case "job_cancelling":
-		return scanning.EventTypeJobCancelling
-	case "job_cancelled":
+	case MessageTypeScanJobCancelled:
 		return scanning.EventTypeJobCancelled
 
 	// Rule events.
-	case "rules_requested":
+	case MessageTypeRulesRequested:
 		return rules.EventTypeRulesRequested
-	case "rules_updated":
+	case MessageTypeRulesResponse:
 		return rules.EventTypeRulesUpdated
 
 	// System events.
-	case "system_notification":
+	case MessageTypeSystemNotification:
 		return events.EventType("SystemNotification")
 
 	default:
@@ -283,73 +355,81 @@ func mapMessageTypeToEventType(messageType string) events.EventType {
 	}
 }
 
-// MessageTypeFromEventType maps domain event types to proto message types.
-// This function is used to determine which field to populate in the protobuf message.
-func MessageTypeFromEventType(eventType events.EventType) string {
-	switch eventType {
-	// Task events
-	case scanning.EventTypeTaskCreated:
-		return "task_created_event"
-	case scanning.EventTypeTaskStarted:
-		return "task_started_event"
-	case scanning.EventTypeTaskProgressed:
-		return "task_progressed_event"
-	case scanning.EventTypeTaskCompleted:
-		return "task_completed_event"
-	case scanning.EventTypeTaskFailed:
-		return "task_failed_event"
-	case scanning.EventTypeTaskPaused:
-		return "task_paused_event"
-	case scanning.EventTypeTaskCancelled:
-		return "task_cancelled_event"
-	case scanning.EventTypeTaskResume:
-		return "task_resume_event"
-	case scanning.EventTypeTaskHeartbeat:
-		return "task_heartbeat_event"
-	case scanning.EventTypeTaskJobMetric:
-		return "task_job_metric_event"
+// extractGatewayMessageInfo extracts the event type and payload from a GatewayToScannerMessage.
+// This is a helper function that identifies the message type and returns the corresponding
+// domain event type and message payload without further processing.
+func extractGatewayMessageInfo(
+	ctx context.Context,
+	msg *pb.GatewayToScannerMessage,
+) (events.EventType, any, error) {
+	span := trace.SpanFromContext(ctx)
+	defer span.End()
 
-	// Job events
-	case scanning.EventTypeJobRequested:
-		return "job_requested_event"
-	case scanning.EventTypeJobScheduled:
-		return "job_created_event"
-	case scanning.EventTypeJobEnumerationCompleted:
-		return "job_enumeration_completed_event"
-	case scanning.EventTypeJobPausing:
-		return "job_pausing_event"
-	case scanning.EventTypeJobPaused:
-		return "job_paused_event"
-	case scanning.EventTypeJobResuming:
-		return "job_resuming_event"
-	case scanning.EventTypeJobCancelling:
-		return "job_cancelling_event"
-	case scanning.EventTypeJobCancelled:
-		return "job_cancelled_event"
+	// Determine the message type and payload based on the message content.
+	var eventType events.EventType
+	var payload any
 
-	// Scanner events
-	case scanning.EventTypeScannerRegistered:
-		return "scanner_registered_event"
-	case scanning.EventTypeScannerHeartbeat:
-		return "scanner_heartbeat_event"
-	case scanning.EventTypeScannerStatusChanged:
-		return "scanner_status_changed_event"
-	case scanning.EventTypeScannerDeregistered:
-		return "scanner_deregistered_event"
+	// Extract the message type and payload.
+	switch {
+	// Registration response.
+	case msg.GetRegistrationResponse() != nil:
+		response := msg.GetRegistrationResponse()
+		eventType = events.EventType("scanner_registration_response")
+		payload = response
 
-	// Rule events
-	case rules.EventTypeRulesRequested:
-		// Controller initiates rule distribution to all scanners
-		return "controller_requests_rules_distribution"
-	case rules.EventTypeRulesUpdated:
-		// Controller pushes updated rules to all scanners
-		return "controller_updates_rules"
+	// Task events.
+	case msg.GetTaskCreated() != nil:
+		taskCreated := msg.GetTaskCreated()
+		eventType = scanning.EventTypeTaskCreated
+		payload = taskCreated
+		span.SetAttributes(attribute.String("task_id", taskCreated.TaskId))
 
-	// System events
-	case events.EventType("SystemNotification"):
-		return "system_notification"
+	case msg.GetTaskResume() != nil:
+		taskResume := msg.GetTaskResume()
+		eventType = scanning.EventTypeTaskResume
+		payload = taskResume
+		span.SetAttributes(attribute.String("task_id", taskResume.TaskId))
+
+	case msg.GetTaskPaused() != nil:
+		taskPaused := msg.GetTaskPaused()
+		eventType = scanning.EventTypeTaskPaused
+		payload = taskPaused
+		span.SetAttributes(attribute.String("task_id", taskPaused.TaskId))
+
+	// Job control events.
+	case msg.GetJobPaused() != nil:
+		jobPaused := msg.GetJobPaused()
+		eventType = scanning.EventTypeJobPaused
+		payload = jobPaused
+		span.SetAttributes(attribute.String("job_id", jobPaused.JobId))
+
+	case msg.GetJobCancelled() != nil:
+		jobCancelled := msg.GetJobCancelled()
+		eventType = scanning.EventTypeJobCancelled
+		payload = jobCancelled
+		span.SetAttributes(attribute.String("job_id", jobCancelled.JobId))
+
+	// Rules events.
+	case msg.GetRuleRequested() != nil:
+		ruleRequested := msg.GetRuleRequested()
+		eventType = rules.EventTypeRulesRequested
+		payload = ruleRequested
+
+	// System messages.
+	case msg.GetNotification() != nil:
+		notification := msg.GetNotification()
+		eventType = events.EventType("system_notification")
+		payload = notification
 
 	default:
-		return fmt.Sprintf("unknown_event_type_%s", eventType)
+		err := fmt.Errorf("unknown message type in GatewayToScannerMessage")
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return "", nil, err
 	}
+
+	// Call the callback with the event type and payload.
+	span.SetAttributes(attribute.String("event_type", string(eventType)))
+	span.AddEvent("gateway_message_processed")
+	return eventType, payload, nil
 }

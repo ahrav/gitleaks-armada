@@ -131,13 +131,13 @@ func NewEventBus(
 		scanning.EventTypeJobCancelling: cfg.JobLifecycleTopic, // controller -> controller
 
 		scanning.EventTypeTaskCreated:    cfg.TaskCreatedTopic,      // controller -> scanner
+		scanning.EventTypeTaskPaused:     cfg.ScanningTaskTopic,     // controller -> scanner
+		scanning.EventTypeTaskResume:     cfg.HighPriorityTaskTopic, // controller -> scanner
 		scanning.EventTypeTaskStarted:    cfg.ScanningTaskTopic,     // scanner -> controller
 		scanning.EventTypeTaskProgressed: cfg.ScanningTaskTopic,     // scanner -> controller
-		scanning.EventTypeTaskPaused:     cfg.ScanningTaskTopic,     // controller -> scanner
 		scanning.EventTypeTaskCompleted:  cfg.ScanningTaskTopic,     // scanner -> controller
 		scanning.EventTypeTaskFailed:     cfg.ScanningTaskTopic,     // scanner -> controller
 		scanning.EventTypeTaskHeartbeat:  cfg.ScanningTaskTopic,     // scanner -> controller
-		scanning.EventTypeTaskResume:     cfg.HighPriorityTaskTopic, // controller -> scanner
 		scanning.EventTypeTaskJobMetric:  cfg.JobLifecycleTopic,     // scanner -> controller && controller -> controller
 		scanning.EventTypeTaskCancelled:  cfg.ScanningTaskTopic,     // scanner -> controller
 
