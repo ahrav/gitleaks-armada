@@ -270,7 +270,7 @@ func (b *EventBus) Publish(ctx context.Context, event events.EventEnvelope, opts
 
 	ctx, span := b.tracer.Start(ctx, "eventbus.Publish",
 		trace.WithAttributes(
-			attribute.String("event.type", string(event.Type)),
+			attribute.String("event_type", string(event.Type)),
 		),
 	)
 	defer span.End()
@@ -290,12 +290,12 @@ func (b *EventBus) Publish(ctx context.Context, event events.EventEnvelope, opts
 		return err
 	}
 
-	logger.Add("message.type", messageType.String())
-	span.SetAttributes(attribute.String("message.type", messageType.String()))
+	logger.Add("message_type", messageType.String())
+	span.SetAttributes(attribute.String("message_type", messageType.String()))
 
 	msgID := uuid.New().String()
-	logger.Add("message.id", msgID)
-	span.SetAttributes(attribute.String("message.id", msgID))
+	logger.Add("message_id", msgID)
+	span.SetAttributes(attribute.String("message_id", msgID))
 
 	msg := &ScannerToGatewayMessage{
 		MessageId: msgID,
@@ -310,8 +310,8 @@ func (b *EventBus) Publish(ctx context.Context, event events.EventEnvelope, opts
 
 	if pParams.Key != "" {
 		msg.RoutingKey = pParams.Key
-		logger.Add("message.routing_key", pParams.Key)
-		span.SetAttributes(attribute.String("message.routing_key", pParams.Key))
+		logger.Add("message_routing_key", pParams.Key)
+		span.SetAttributes(attribute.String("message_routing_key", pParams.Key))
 	}
 
 	if len(pParams.Headers) > 0 {
@@ -320,8 +320,8 @@ func (b *EventBus) Publish(ctx context.Context, event events.EventEnvelope, opts
 		}
 
 		maps.Copy(msg.Headers, pParams.Headers)
-		logger.Add("message.headers.count", len(pParams.Headers))
-		span.SetAttributes(attribute.Int("message.headers.count", len(pParams.Headers)))
+		logger.Add("message_headers_count", len(pParams.Headers))
+		span.SetAttributes(attribute.Int("message_headers_count", len(pParams.Headers)))
 	}
 
 	protoMsg, err := serialization.DomainEventToProto(event.Type, event.Payload)
@@ -338,8 +338,8 @@ func (b *EventBus) Publish(ctx context.Context, event events.EventEnvelope, opts
 	}
 
 	isCritical := b.isCriticalEvent(event.Type)
-	logger.Add("message.is_critical", isCritical)
-	span.SetAttributes(attribute.Bool("message.is_critical", isCritical))
+	logger.Add("message_is_critical", isCritical)
+	span.SetAttributes(attribute.Bool("message_is_critical", isCritical))
 
 	var ackChan chan error
 	if isCritical {
