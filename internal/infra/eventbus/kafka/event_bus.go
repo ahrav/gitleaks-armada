@@ -116,31 +116,35 @@ func NewEventBus(
 	)
 
 	topicMap := map[events.EventType]string{
-		rules.EventTypeRulesRequested:             cfg.RulesRequestTopic,     // controller -> scanner
-		rules.EventTypeRulesUpdated:               cfg.RulesResponseTopic,    // scanner -> controller
-		rules.EventTypeRulesPublished:             cfg.RulesResponseTopic,    // scanner -> controller
-		scanning.EventTypeJobRequested:            cfg.JobLifecycleTopic,     // api -> controller
-		scanning.EventTypeJobScheduled:            cfg.JobLifecycleTopic,     // controller -> controller
-		scanning.EventTypeJobPausing:              cfg.JobLifecycleTopic,     // controller -> controller
-		scanning.EventTypeJobPaused:               cfg.JobBroadcastTopic,     // controller -> scanner (broadcast)
-		scanning.EventTypeJobResuming:             cfg.JobLifecycleTopic,     // controller -> controller
-		scanning.EventTypeJobCancelling:           cfg.JobLifecycleTopic,     // controller -> controller
-		scanning.EventTypeJobCancelled:            cfg.JobBroadcastTopic,     // controller -> scanner (broadcast)
-		scanning.EventTypeTaskCreated:             cfg.TaskCreatedTopic,      // controller -> scanner
-		scanning.EventTypeJobEnumerationCompleted: cfg.JobLifecycleTopic,     // controller -> controller
-		scanning.EventTypeTaskStarted:             cfg.ScanningTaskTopic,     // scanner -> controller
-		scanning.EventTypeTaskProgressed:          cfg.ScanningTaskTopic,     // scanner -> controller
-		scanning.EventTypeTaskPaused:              cfg.ScanningTaskTopic,     // controller -> scanner
-		scanning.EventTypeTaskCompleted:           cfg.ScanningTaskTopic,     // scanner -> controller
-		scanning.EventTypeTaskFailed:              cfg.ScanningTaskTopic,     // scanner -> controller
-		scanning.EventTypeTaskHeartbeat:           cfg.ScanningTaskTopic,     // scanner -> controller
-		scanning.EventTypeTaskResume:              cfg.HighPriorityTaskTopic, // controller -> scanner
-		scanning.EventTypeTaskJobMetric:           cfg.JobLifecycleTopic,     // scanner -> controller && controller -> controller
-		scanning.EventTypeTaskCancelled:           cfg.ScanningTaskTopic,     // scanner -> controller
-		scanning.EventTypeScannerRegistered:       cfg.ScannerLifecycleTopic, // scanner -> controller
-		scanning.EventTypeScannerHeartbeat:        cfg.ScannerLifecycleTopic, // scanner -> controller
-		scanning.EventTypeScannerStatusChanged:    cfg.ScannerLifecycleTopic, // scanner -> controller
-		scanning.EventTypeScannerDeregistered:     cfg.ScannerLifecycleTopic, // scanner -> controller
+		rules.EventTypeRulesRequested: cfg.RulesRequestTopic,  // controller -> scanner
+		rules.EventTypeRulesUpdated:   cfg.RulesResponseTopic, // scanner -> controller
+		rules.EventTypeRulesPublished: cfg.RulesResponseTopic, // scanner -> controller
+
+		scanning.EventTypeJobRequested:            cfg.JobLifecycleTopic, // api -> controller
+		scanning.EventTypeJobScheduled:            cfg.JobLifecycleTopic, // controller -> controller
+		scanning.EventTypeJobPausing:              cfg.JobLifecycleTopic, // controller -> controller
+		scanning.EventTypeJobEnumerationCompleted: cfg.JobLifecycleTopic, // controller -> controller
+
+		scanning.EventTypeJobPaused:     cfg.JobBroadcastTopic, // controller -> scanner (broadcast)
+		scanning.EventTypeJobCancelled:  cfg.JobBroadcastTopic, // controller -> scanner (broadcast)
+		scanning.EventTypeJobResuming:   cfg.JobLifecycleTopic, // controller -> controller
+		scanning.EventTypeJobCancelling: cfg.JobLifecycleTopic, // controller -> controller
+
+		scanning.EventTypeTaskCreated:    cfg.TaskCreatedTopic,      // controller -> scanner
+		scanning.EventTypeTaskStarted:    cfg.ScanningTaskTopic,     // scanner -> controller
+		scanning.EventTypeTaskProgressed: cfg.ScanningTaskTopic,     // scanner -> controller
+		scanning.EventTypeTaskPaused:     cfg.ScanningTaskTopic,     // controller -> scanner
+		scanning.EventTypeTaskCompleted:  cfg.ScanningTaskTopic,     // scanner -> controller
+		scanning.EventTypeTaskFailed:     cfg.ScanningTaskTopic,     // scanner -> controller
+		scanning.EventTypeTaskHeartbeat:  cfg.ScanningTaskTopic,     // scanner -> controller
+		scanning.EventTypeTaskResume:     cfg.HighPriorityTaskTopic, // controller -> scanner
+		scanning.EventTypeTaskJobMetric:  cfg.JobLifecycleTopic,     // scanner -> controller && controller -> controller
+		scanning.EventTypeTaskCancelled:  cfg.ScanningTaskTopic,     // scanner -> controller
+
+		scanning.EventTypeScannerRegistered:    cfg.ScannerLifecycleTopic, // scanner -> controller
+		scanning.EventTypeScannerHeartbeat:     cfg.ScannerLifecycleTopic, // scanner -> controller
+		scanning.EventTypeScannerStatusChanged: cfg.ScannerLifecycleTopic, // scanner -> controller
+		scanning.EventTypeScannerDeregistered:  cfg.ScannerLifecycleTopic, // scanner -> controller
 	}
 
 	bus := &EventBus{
