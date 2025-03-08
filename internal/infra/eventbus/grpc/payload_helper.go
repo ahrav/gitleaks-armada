@@ -4,6 +4,7 @@ package grpc
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -356,11 +357,17 @@ func extractGatewayMessageInfo(
 
 	// Extract the message type and payload.
 	switch {
-	// Registration response.
-	case msg.GetRegistrationResponse() != nil:
-		response := msg.GetRegistrationResponse()
-		eventType = events.EventType("scanner_registration_response")
-		payload = response
+	// Registration acknowledgment (using MessageAcknowledgment)
+	case msg.GetAck() != nil && isRegistrationAck(msg.GetAck()):
+		span.SetAttributes(attribute.String("message_type", "registration_ack"))
+		eventType = EventTypeScannerRegistrationAck
+		payload = msg.GetAck()
+
+	// Regular message acknowledgment
+	case msg.GetAck() != nil:
+		span.SetAttributes(attribute.String("message_type", "ack"))
+		eventType = EventTypeMessageAck
+		payload = msg.GetAck()
 
 	// Task events.
 	case msg.GetTaskCreated() != nil:
@@ -417,4 +424,13 @@ func extractGatewayMessageInfo(
 	span.SetAttributes(attribute.String("event_type", string(eventType)))
 	span.AddEvent("gateway_message_processed")
 	return eventType, payload, nil
+}
+
+// isRegistrationAck determines if an acknowledgment is for a registration message
+// This is a helper function to differentiate between registration acks and regular acks
+func isRegistrationAck(ack *pb.MessageAcknowledgment) bool {
+	// Check if the original message ID starts with "register" or contains "registration"
+	// or if there's metadata indicating this is a registration ack
+	return strings.Contains(ack.OriginalMessageId, "register") ||
+		strings.Contains(ack.OriginalMessageId, "registration")
 }

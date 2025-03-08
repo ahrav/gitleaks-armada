@@ -525,9 +525,8 @@ func (s *Service) subscribeToEvents(ctx context.Context, scannerID string) error
 		scanning.EventTypeTaskCreated,
 		scanning.EventTypeTaskResume,
 		rules.EventTypeRulesRequested,
-
-		// System notifications.
-		events.EventType("SystemNotification"),
+		// We'll want to listen for system notifications too
+		grpcbus.EventTypeSystemNotification,
 	}
 
 	// Handler for gateway→scanner commands
@@ -813,13 +812,13 @@ func (s *Service) sendRegistrationResponse(
 	resp := &pb.GatewayToScannerMessage{
 		MessageId: fmt.Sprintf("registration-response-%s", s.timeProvider.Now().Format(time.RFC3339Nano)),
 		Timestamp: s.timeProvider.Now().UnixNano(),
-		Payload: &pb.GatewayToScannerMessage_RegistrationResponse{
-			RegistrationResponse: &pb.ScannerRegistrationResponse{
-				Success:   true,
-				ScannerId: scannerID,
-				Message:   message,
-			},
-		},
+		// Payload: &pb.GatewayToScannerMessage_RegistrationResponse{
+		// 	RegistrationResponse: &pb.ScannerRegistrationResponse{
+		// 		Success:   true,
+		// 		ScannerId: scannerID,
+		// 		Message:   message,
+		// 	},
+		// },
 	}
 
 	span.SetAttributes(
@@ -868,8 +867,8 @@ func getMessageType(msg *pb.GatewayToScannerMessage) string {
 		return "job_cancelled"
 	case msg.GetNotification() != nil:
 		return "notification"
-	case msg.GetRegistrationResponse() != nil:
-		return "registration_response"
+	// case msg.GetRegistrationResponse() != nil:
+	// 	return "registration_response"
 	default:
 		return "unknown"
 	}
@@ -878,7 +877,6 @@ func getMessageType(msg *pb.GatewayToScannerMessage) string {
 // SubscribeToBroadcasts handles connections for broadcast events that should be delivered to all scanners.
 // This separate stream is unidirectional (gateway to scanner) and allows efficient
 // distribution of system-wide events like job control commands and notifications.
-// Scanners must first register via ConnectScanner before establishing this connection.
 func (s *Service) SubscribeToBroadcasts(stream pb.ScannerGatewayService_SubscribeToBroadcastsServer) error {
 	ctx, span := s.tracer.Start(stream.Context(), "gateway.subscribe_to_broadcasts")
 	defer span.End()
@@ -1007,7 +1005,7 @@ func (s *Service) subscribeToBroadcastEvents(
 		scanning.EventTypeJobResuming,
 		scanning.EventTypeJobCancelling,
 		scanning.EventTypeJobCancelled,
-		events.EventType("SystemNotification"),
+		grpcbus.EventTypeSystemNotification,
 	}
 
 	// Set up handler for broadcast events

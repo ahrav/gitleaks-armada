@@ -249,6 +249,12 @@ func main() {
 			}
 		}
 
+		// Get capabilities from environment or use defaults
+		capabilities := []string{"secrets_scanning"}
+		if capStr := os.Getenv("SCANNER_CAPABILITIES"); capStr != "" {
+			capabilities = strings.Split(capStr, ",")
+		}
+
 		// Create main gRPC stream for scanner-specific events.
 		grpcEventBusConfig := &grpcbus.EventBusConfig{
 			ScannerName:       scannerID,
@@ -258,6 +264,10 @@ func main() {
 			MaxRetries:        5,
 			RetryBaseDelay:    500 * time.Millisecond,
 			RetryMaxDelay:     30 * time.Second,
+			// Add registration details
+			Version:      getScannerVersion(),
+			GroupName:    scannerGroupName,
+			Capabilities: capabilities,
 		}
 
 		conn, err := dialGateway(ctx, gatewayAddr)
@@ -290,6 +300,10 @@ func main() {
 			MaxRetries:        5,
 			RetryBaseDelay:    500 * time.Millisecond,
 			RetryMaxDelay:     30 * time.Second,
+			// Add registration details (same as regular connection)
+			Version:      getScannerVersion(),
+			GroupName:    scannerGroupName,
+			Capabilities: capabilities,
 		}
 
 		// Connect to the gateway's broadcast stream.
@@ -442,4 +456,13 @@ func connectToBroadcastGateway(
 	}
 
 	return broadcastBus, nil
+}
+
+// Get scanner version from environment or use a default
+func getScannerVersion() string {
+	version := os.Getenv("SCANNER_VERSION")
+	if version == "" {
+		version = "1.0.0" // Default version if not specified
+	}
+	return version
 }

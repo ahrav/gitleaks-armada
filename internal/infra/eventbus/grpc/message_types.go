@@ -1,6 +1,7 @@
 package grpc
 
 import (
+	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	pb "github.com/ahrav/gitleaks-armada/proto"
 )
 
@@ -136,4 +137,18 @@ const (
 	MessageTypeRegistrationResponse MessageType = "registration_response"
 	// MessageTypeUnknown represents an unknown message type.
 	MessageTypeUnknown MessageType = "unknown"
+)
+
+// EventType constants specific to gRPC communication infrastructure.
+// These are deliberately kept in the infrastructure layer rather than the domain layer
+// because they represent implementation details of the messaging system, not domain concepts.
+const (
+	// EventTypeMessageAck represents an acknowledgment message for critical events.
+	EventTypeMessageAck events.EventType = "MessageAck"
+
+	// EventTypeScannerRegistrationAck represents a scanner registration acknowledgment.
+	EventTypeScannerRegistrationAck events.EventType = "ScannerRegistrationAck"
+
+	// EventTypeSystemNotification represents a system-wide notification message.
+	EventTypeSystemNotification events.EventType = "SystemNotification"
 )

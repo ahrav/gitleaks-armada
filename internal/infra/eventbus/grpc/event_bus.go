@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"os"
 	"sync"
 	"time"
 
@@ -45,8 +46,23 @@ var _ events.EventBus = (*EventBus)(nil)
 // 	IncReceiveError(ctx context.Context, messageType string)
 // }
 
-// EventBusConfig contains configuration for the gRPC-based event bus.
-// It defines parameters needed to establish and maintain the event bus connection.
+// EventBusConfig contains configuration settings for gRPC-based event buses.
+//
+// IMPORTANT: In our gRPC-based event bus implementation, we use two separate
+// connections to the gateway:
+//
+// 1. Primary Connection (via ConnectScanner RPC):
+//   - Used for bidirectional scanner-specific communication
+//   - Requires full scanner registration
+//   - Must be established first
+//
+// 2. Broadcast Connection (via SubscribeToBroadcasts RPC):
+//   - Used for receiving system-wide broadcasts
+//   - Requires simple scanner identification
+//   - Optional but recommended for timely notifications
+//
+// Both connections use the same configuration settings for consistency,
+// but they create separate logical streams in gRPC.
 type EventBusConfig struct {
 	// ScannerName is the name of the scanner.
 	ScannerName string
@@ -68,6 +84,11 @@ type EventBusConfig struct {
 
 	// RetryMaxDelay caps the maximum delay between retry attempts.
 	RetryMaxDelay time.Duration
+
+	// Registration details for scanner connections
+	Version      string   // Scanner version
+	GroupName    string   // Scanner group name
+	Capabilities []string // Scanner capabilities
 }
 
 // EventBus implements an asynchronous event bus for gRPC-based communication between
@@ -138,10 +159,10 @@ type EventBus struct {
 func newEventBus(
 	stream ScannerGatewayStream,
 	cfg *EventBusConfig,
+	eventTypeMap map[events.EventType]MessageType,
 	logger *logger.Logger,
 	// metrics GRPCMetrics,
 	tracer trace.Tracer,
-	eventTypeMap map[events.EventType]MessageType,
 ) (*EventBus, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -165,9 +186,137 @@ func newEventBus(
 	return bus, nil
 }
 
+// initializeStream handles sending an initial message to a stream and waiting for a response.
+// This common logic is used by both regular scanner connections and broadcast connections.
+func initializeStream(
+	stream ScannerGatewayStream,
+	msg *pb.ScannerToGatewayMessage,
+	timeout time.Duration,
+	logger *logger.Logger,
+	tracer trace.Tracer,
+) error {
+	ctx, span := tracer.Start(context.Background(), "eventbus.initializeStream")
+	defer span.End()
+
+	if err := stream.Send(msg); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return fmt.Errorf("failed to send initial message: %w", err)
+	}
+	span.AddEvent("sent_initial_message")
+
+	logger.Info(ctx, "Sent initial message to gateway", "message_id", msg.MessageId)
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	respChan := make(chan *pb.GatewayToScannerMessage, 1)
+	errChan := make(chan error, 1)
+
+	go func() {
+		resp, err := stream.Recv()
+		if err != nil {
+			span.RecordError(err)
+			errChan <- err
+			return
+		}
+		respChan <- resp
+	}()
+
+	select {
+	case resp := <-respChan:
+		span.AddEvent("received_response_from_gateway")
+		logger.Debug(ctx, "Received response from gateway", "message_id", resp.MessageId)
+
+		ack := resp.GetAck()
+		if ack == nil {
+			span.RecordError(fmt.Errorf("expected acknowledgment response, but got different message type"))
+			span.SetStatus(codes.Error, "expected acknowledgment response, but got different message type")
+			return fmt.Errorf("expected acknowledgment response, but got different message type")
+		}
+
+		if !ack.Success {
+			span.RecordError(fmt.Errorf("request rejected by gateway: %s", ack.ErrorMessage))
+			span.SetStatus(codes.Error, "request rejected by gateway")
+			return fmt.Errorf("request rejected by gateway: %s", ack.ErrorMessage)
+		}
+
+		if msg.GetRegistration() != nil {
+			scannerId := ack.GetScannerId()
+			if scannerId != "" && scannerId != msg.ScannerId {
+				span.RecordError(fmt.Errorf("gateway assigned different scanner ID: %s", scannerId))
+				span.SetStatus(codes.Error, "gateway assigned different scanner ID")
+				logger.Warn(ctx, "Gateway assigned different scanner ID",
+					"requested", msg.ScannerId,
+					"assigned", scannerId)
+				return fmt.Errorf("gateway assigned different scanner ID: %s", scannerId)
+			}
+
+			span.AddEvent("registration_confirmed_by_gateway")
+			logger.Info(ctx, "Registration confirmed by gateway",
+				"scanner_id", scannerId)
+		} else {
+			// For non-registration messages, just log the acknowledgment.
+			span.AddEvent("message_acknowledged_by_gateway")
+			logger.Info(ctx, "Message acknowledged by gateway",
+				"original_message_id", ack.OriginalMessageId)
+		}
+
+		span.AddEvent("stream_initialized")
+		span.SetStatus(codes.Ok, "Stream initialized successfully")
+		logger.Info(ctx, "Stream initialized successfully")
+
+		return nil
+	case err := <-errChan:
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return fmt.Errorf("error receiving response: %w", err)
+	case <-ctx.Done():
+		span.RecordError(ctx.Err())
+		span.SetStatus(codes.Error, ctx.Err().Error())
+		logger.Warn(ctx, "Timed out waiting for gateway response")
+		return ctx.Err()
+	}
+}
+
+// createBaseMessage creates a new ScannerToGatewayMessage with common fields set.
+func createBaseMessage(cfg *EventBusConfig) *pb.ScannerToGatewayMessage {
+	return &pb.ScannerToGatewayMessage{
+		MessageId: uuid.New().String(),
+		Timestamp: time.Now().UnixNano(),
+		ScannerId: cfg.ScannerName,
+		AuthToken: cfg.AuthToken,
+	}
+}
+
+// getConnectionTimeout returns the connection timeout from config or a default value.
+func getConnectionTimeout(cfg *EventBusConfig) time.Duration {
+	timeout := cfg.ConnectionTimeout
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
+	return timeout
+}
+
 // NewScannerEventBus creates a new event bus for regular scanner communication.
-// It uses the gRPC bidirectional stream directly, which already has the correct
-// interface for scanner-to-gateway and gateway-to-scanner message flow.
+// It uses the gRPC bidirectional stream established via the ConnectScanner RPC method.
+//
+// IMPORTANT: gRPC Streaming Connection Behavior
+// ---------------------------------------------
+// In gRPC, each RPC method creates a separate logical stream, even if they share the
+// same underlying TCP connection. This means:
+//
+// 1. We must send a registration message to identify this scanner to the gateway
+// 2. We need to wait for a registration response to confirm success
+// 3. This is required even if we also create a broadcast connection
+//
+// This method handles the complete protocol flow:
+// - Send scanner registration with full details
+// - Wait for gateway to confirm registration
+// - Create event bus for bidirectional communication
+//
+// This is the PRIMARY connection for scanner-gateway communication and must be
+// established before attempting to create a broadcast connection.
 func NewScannerEventBus(
 	stream pb.ScannerGatewayService_ConnectScannerClient,
 	cfg *EventBusConfig,
@@ -175,10 +324,46 @@ func NewScannerEventBus(
 	// metrics GRPCMetrics,
 	tracer trace.Tracer,
 ) (*EventBus, error) {
-	// The gRPC stream implements ScannerGatewayStream interface with correct message directions:
-	// - Send(ScannerToGatewayMessage) for scanner -> gateway communication
-	// - Recv() -> GatewayToScannerMessage for gateway -> scanner communication
-	return newEventBus(stream, cfg, logger, tracer, mapRegularEventTypes())
+	version := cfg.Version
+	if version == "" {
+		version = "1.0.0"
+	}
+
+	groupName := cfg.GroupName
+	if groupName == "" {
+		groupName = "system_default"
+	}
+
+	regMsg := createBaseMessage(cfg)
+	regMsg.Payload = &pb.ScannerToGatewayMessage_Registration{
+		Registration: &pb.ScannerRegistrationRequest{
+			ScannerName:  cfg.ScannerName,
+			Version:      version,
+			Capabilities: cfg.Capabilities,
+			GroupName:    groupName,
+			Hostname:     hostname(),
+		},
+	}
+
+	if err := initializeStream(stream, regMsg, getConnectionTimeout(cfg), logger, tracer); err != nil {
+		return nil, fmt.Errorf("failed to initialize scanner connection: %w", err)
+	}
+
+	eventBus, err := newEventBus(stream, cfg, mapRegularEventTypes(), logger, tracer)
+	if err != nil {
+		return nil, err
+	}
+
+	return eventBus, nil
+}
+
+// hostname returns the machine's hostname or "unknown" if it can't be determined
+func hostname() string {
+	host, err := os.Hostname()
+	if err != nil {
+		return "unknown"
+	}
+	return host
 }
 
 // mapRegularEventTypes creates a mapping between domain event types and gRPC message types
@@ -212,6 +397,24 @@ func mapRegularEventTypes() map[events.EventType]MessageType {
 }
 
 // NewBroadcastEventBus creates a new event bus for handling broadcast messages.
+// It uses the gRPC bidirectional stream established via the SubscribeToBroadcasts RPC method.
+//
+// IMPORTANT: Why We Need Another Registration Message
+// --------------------------------------------------
+// Even if we've already registered via the primary connection (ConnectScanner),
+// we still need to identify this scanner in the broadcast stream because:
+//
+// 1. In gRPC, each RPC method creates a separate logical stream with its own state
+// 2. The gateway doesn't automatically know which scanner is connecting to the broadcast stream
+// 3. The gateway needs to match this broadcast connection to an existing scanner registration
+//
+// This method handles a simpler protocol flow than the primary connection:
+// - Send simple identification message (not full registration)
+// - We should also verify the connection was accepted (TODO)
+// - Create event bus for primarily receiving broadcast messages
+//
+// To avoid confusion, it's important to understand that this is a SEPARATE connection
+// from the primary scanner connection, even though they connect to the same gateway.
 func NewBroadcastEventBus(
 	stream pb.ScannerGatewayService_SubscribeToBroadcastsClient,
 	cfg *EventBusConfig,
@@ -219,10 +422,30 @@ func NewBroadcastEventBus(
 	// metrics GRPCMetrics,
 	tracer trace.Tracer,
 ) (*EventBus, error) {
-	// Both ConnectScanner and SubscribeToBroadcasts use the same stream interface
-	// (grpc.BidiStreamingClient[ScannerToGatewayMessage, GatewayToScannerMessage])
-	// So we can use the stream directly without an adapter
-	return newEventBus(stream, cfg, logger, tracer, mapBroadcastEventTypes())
+	idMsg := createBaseMessage(cfg)
+
+	idMsg.Payload = &pb.ScannerToGatewayMessage_ScannerRegistered{
+		ScannerRegistered: &pb.ScannerRegisteredEvent{
+			ScannerName:   cfg.ScannerName,
+			Version:       cfg.Version,
+			Capabilities:  cfg.Capabilities,
+			Hostname:      hostname(),
+			GroupName:     cfg.GroupName,
+			InitialStatus: pb.ScannerStatus_SCANNER_STATUS_ONLINE,
+			Timestamp:     time.Now().UnixNano(),
+		},
+	}
+
+	if err := initializeStream(stream, idMsg, getConnectionTimeout(cfg), logger, tracer); err != nil {
+		return nil, fmt.Errorf("failed to initialize broadcast connection: %w", err)
+	}
+
+	eventBus, err := newEventBus(stream, cfg, mapBroadcastEventTypes(), logger, tracer)
+	if err != nil {
+		return nil, err
+	}
+
+	return eventBus, nil
 }
 
 // mapBroadcastEventTypes creates a mapping between domain event types and gRPC message types
@@ -230,12 +453,12 @@ func NewBroadcastEventBus(
 // affect all scanners system-wide.
 func mapBroadcastEventTypes() map[events.EventType]MessageType {
 	return map[events.EventType]MessageType{
-		// Job control events - broadcasted to all scanners
+		// Job control messages
 		scanning.EventTypeJobPaused:    MessageTypeScanJobPaused,    // Broadcast to all scanners
 		scanning.EventTypeJobCancelled: MessageTypeScanJobCancelled, // Broadcast to all scanners
 
-		// System-wide events that all scanners need to know about
-		events.EventType("SystemNotification"): MessageTypeSystemNotification,
+		// System messages
+		EventTypeSystemNotification: MessageTypeSystemNotification,
 	}
 }
 
@@ -427,6 +650,35 @@ func (b *EventBus) Publish(ctx context.Context, event events.EventEnvelope, opts
 	}
 }
 
+// isCriticalEvent determines if an event type represents a critical message
+// that requires acknowledgment for reliability. This is an internal implementation
+// detail that clients don't need to be aware of.
+//
+// Critical events are usually terminal state changes or final results that:
+// 1. Won't be naturally retransmitted by subsequent messages
+// 2. Would result in data loss or inconsistency if not processed
+// 3. Represent important state transitions in the system
+func (b *EventBus) isCriticalEvent(eventType events.EventType) bool {
+	switch eventType {
+	case scanning.EventTypeTaskCompleted,
+		scanning.EventTypeTaskFailed,
+		scanning.EventTypeTaskCancelled:
+		return true
+	case scanning.EventTypeScannerRegistered,
+		scanning.EventTypeScannerDeregistered,
+		scanning.EventTypeScannerStatusChanged:
+		return true
+	case rules.EventTypeRulesUpdated, rules.EventTypeRulesPublished:
+		return true
+	case scanning.EventTypeTaskProgressed,
+		scanning.EventTypeTaskJobMetric,
+		scanning.EventTypeTaskHeartbeat:
+		return false
+	default:
+		return false
+	}
+}
+
 // Subscribe registers a handler function to process domain events (commands) from the gateway.
 //
 // The reliability pattern for gateway→scanner communication requires that scanners:
@@ -568,6 +820,16 @@ func (b *EventBus) processGatewayMessage(msg *GatewayToScannerMessage) {
 			Timestamp: b.timeProvider.Now(),
 		}
 
+		// Handle acknowledgments for critical messages.
+		if eventType == EventTypeMessageAck {
+			if ack, ok := protoPayload.(*pb.MessageAcknowledgment); ok {
+				b.processAcknowledgment(callbackCtx, ack)
+				span.AddEvent("acknowledgment_processed")
+				span.SetStatus(codes.Ok, "acknowledgment processed successfully")
+				return nil
+			}
+		}
+
 		b.handlersMu.RLock()
 		handlers, exists := b.handlers[eventType]
 		b.handlersMu.RUnlock()
@@ -644,33 +906,62 @@ func (b *EventBus) processGatewayMessage(msg *GatewayToScannerMessage) {
 	logger.Debug(ctx, "Gateway message processed successfully")
 }
 
-// isCriticalEvent determines if an event type represents a critical message
-// that requires acknowledgment for reliability. This is an internal implementation
-// detail that clients don't need to be aware of.
+// processAcknowledgment handles acknowledgment messages received from the gateway.
+// For critical events, this will resolve the waiting acknowledgment channel,
+// allowing the original publisher to continue execution.
 //
-// Critical events are usually terminal state changes or final results that:
-// 1. Won't be naturally retransmitted by subsequent messages
-// 2. Would result in data loss or inconsistency if not processed
-// 3. Represent important state transitions in the system
-func (b *EventBus) isCriticalEvent(eventType events.EventType) bool {
-	switch eventType {
-	case scanning.EventTypeTaskCompleted,
-		scanning.EventTypeTaskFailed,
-		scanning.EventTypeTaskCancelled:
-		return true
-	case scanning.EventTypeScannerRegistered,
-		scanning.EventTypeScannerDeregistered,
-		scanning.EventTypeScannerStatusChanged:
-		return true
-	case rules.EventTypeRulesUpdated, rules.EventTypeRulesPublished:
-		return true
-	case scanning.EventTypeTaskProgressed,
-		scanning.EventTypeTaskJobMetric,
-		scanning.EventTypeTaskHeartbeat:
-		return false
-	default:
-		return false
+// The method:
+// 1. Looks up the acknowledgment channel for the original message ID
+// 2. If found, sends the result (success or error) to the channel
+// 3. Logs the outcome for observability
+//
+// This completes the "critical event acknowledgment" pattern where publishers
+// of important events wait for confirmation of successful processing.
+func (b *EventBus) processAcknowledgment(
+	ctx context.Context,
+	ack *pb.MessageAcknowledgment,
+) {
+	logger := b.logger.With("original_message_id", ack.GetOriginalMessageId())
+	ctx, span := b.tracer.Start(ctx, "EventBus.processAcknowledgment",
+		trace.WithAttributes(
+			attribute.String("original_message_id", ack.GetOriginalMessageId()),
+		),
+	)
+	defer span.End()
+
+	originalMsgID := ack.GetOriginalMessageId()
+	span.SetAttributes(attribute.String("original_message_id", originalMsgID))
+
+	b.ackChannelsMu.RLock()
+	ackChan, exists := b.ackChannels[originalMsgID]
+	b.ackChannelsMu.RUnlock()
+
+	if !exists {
+		// This could happen if the acknowledgment arrived after a timeout
+		// or for a non-critical message that doesn't require acknowledgment.
+		span.AddEvent("no_acknowledgment_channel_found")
+		span.SetStatus(codes.Ok, "no acknowledgment channel found")
+		span.RecordError(fmt.Errorf("no acknowledgment channel found for message ID: %s", originalMsgID))
+		logger.Debug(ctx, "Received acknowledgment for unknown or expired message ID")
+		return
 	}
+
+	if !ack.GetSuccess() {
+		errMsg := ack.GetErrorMessage()
+		err := fmt.Errorf("message processing failed: %s", errMsg)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		span.AddEvent("negative_acknowledgment_received")
+		logger.Error(ctx, "Received negative acknowledgment", "error_message", errMsg)
+		ackChan <- err
+		return
+	}
+
+	// Success case.
+	span.AddEvent("positive_acknowledgment_received")
+	span.SetStatus(codes.Ok, "positive acknowledgment received")
+	logger.Debug(ctx, "Received positive acknowledgment")
+	ackChan <- nil
 }
 
 // Close gracefully shuts down the event bus and releases associated resources.
