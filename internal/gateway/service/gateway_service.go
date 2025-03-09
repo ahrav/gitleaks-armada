@@ -221,9 +221,9 @@ type Service struct {
 	// messages without interrupting the primary command channels.
 	broadcastScanners *scannerRegistry
 
-	// Track outgoing messages that require acknowledgment.
-	// Critical for reliability and ensuring scanners process important commands.
-	ackTracker *AcknowledgmentTracker
+	// Manages event subscriptions and acknowledgment tracking.
+	// This component encapsulates the subscription logic and message reliability model.
+	subscriptionManager EventSubscriptionManager
 
 	// Authentication settings.
 	// TODO: This will likely get ripped out of here and put into an interceptor.
@@ -267,12 +267,22 @@ func NewService(
 		broadcastBus:      broadcastBus,
 		scanners:          newScannerRegistry(metrics),
 		broadcastScanners: newScannerRegistry(metrics),
-		ackTracker:        NewAcknowledgmentTracker(logger),
 		timeProvider:      timeutil.Default(),
 		logger:            logger,
 		metrics:           metrics,
 		tracer:            tracer,
 	}
+
+	const defaultAckTimeout = 30 * time.Second
+	s.subscriptionManager = NewEventSubscriptionManager(
+		eventBus,
+		broadcastBus,
+		s.convertToScannerMessage,
+		defaultAckTimeout,
+		s.timeProvider,
+		logger,
+		tracer,
+	)
 
 	// Apply options
 	for _, opt := range options {
@@ -392,7 +402,10 @@ func (s *Service) ConnectScanner(stream pb.ScannerGatewayService_ConnectScannerS
 		return err
 	}
 
-	logger.Info(ctx, "Scanner connection closed")
+	s.scanners.unregister(ctx, scannerID)
+	s.subscriptionManager.CleanupTracking(ctx, scannerID)
+	s.logger.Info(ctx, "Scanner connection closed and resources cleaned up")
+
 	return nil
 }
 
@@ -512,7 +525,7 @@ func (s *Service) processIncomingScannerMessage(
 	return processingErr
 }
 
-// processAcknowledgment handles acknowledgment messages received from scanners.
+// processAcknowledgment handles acknowledgment messages from scanners.
 // It resolves the waiting acknowledgment channel for the original message.
 func (s *Service) processAcknowledgment(ctx context.Context, ack *pb.MessageAcknowledgment) {
 	logger := s.logger.With(
@@ -526,28 +539,12 @@ func (s *Service) processAcknowledgment(ctx context.Context, ack *pb.MessageAckn
 	)
 	defer span.End()
 
-	originalMsgID := ack.GetOriginalMessageId()
-
-	var err error
-	if !ack.GetSuccess() {
-		errMsg := ack.GetErrorMessage()
-		err = fmt.Errorf("message processing failed: %s", errMsg)
-		span.AddEvent("negative_acknowledgment_received")
-		logger.Error(ctx, "Received negative acknowledgment", "error_message", errMsg)
-	} else {
-		span.AddEvent("positive_acknowledgment_received")
-		logger.Debug(ctx, "Received positive acknowledgment")
-	}
-
-	if !s.ackTracker.ResolveAcknowledgment(ctx, originalMsgID, err) {
+	// Process the acknowledgment using the subscription manager
+	if !s.subscriptionManager.ProcessAcknowledgment(ctx, ack) {
 		// This could happen if the acknowledgment arrived after a timeout
 		// or if the message didn't require an acknowledgment
 		span.AddEvent("unknown_message_id")
-		logger.Warn(ctx, "Received acknowledgment for unknown message",
-			"message_id", ack.OriginalMessageId,
-			"success", ack.Success,
-			"error", ack.ErrorMessage,
-		)
+		logger.Debug(ctx, "Received acknowledgment for unknown or expired message ID")
 		return
 	}
 	span.AddEvent("acknowledgment_resolved")
@@ -669,94 +666,49 @@ func (s *Service) subscribeToEvents(ctx context.Context, scannerID string) error
 
 	conn, exists := s.scanners.get(scannerID)
 	if !exists {
-		span.SetStatus(codes.Error, "Scanner not found")
-		span.RecordError(fmt.Errorf("scanner not found: %s", scannerID))
-		return fmt.Errorf("scanner not found: %s", scannerID)
+		err := fmt.Errorf("scanner not found: %s", scannerID)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		logger.Error(ctx, "Scanner not found", "error", err)
+		return err
 	}
 
 	// We are only interested in the non-broadcast events that need to be routed
 	// from the controller -> scanner through this gateway.
 	eventTypes := []events.EventType{
+		// Core task processing events.
 		scanning.EventTypeTaskCreated,
 		scanning.EventTypeTaskResume,
+		scanning.EventTypeTaskPaused,
+
+		// Rule-related events.
 		rules.EventTypeRulesRequested,
-		// We'll want to listen for system notifications too
+
+		// System events.
 		grpcbus.EventTypeSystemNotification,
 	}
 
-	// Handler for gateway→scanner commands.
-	// This handler converts domain events to gateway messages and sends them to scanners.
-	// Unlike the scanner→gateway direction which uses criticality-based reliability,
-	// all commands from gateway to scanner are treated as critical and must be acknowledged.
-	handler := func(ctx context.Context, evt events.EventEnvelope, ack events.AckFunc) error {
-		ctx, span := s.tracer.Start(ctx, "gateway.subscribeToEvents.handler",
-			trace.WithAttributes(
-				attribute.String("event_type", string(evt.Type)),
-			),
-		)
-		defer span.End()
+	logger.Info(ctx, "Setting up event subscriptions for scanner",
+		"event_types", fmt.Sprintf("%v", eventTypes))
 
-		// Convert domain event to scanner message.
-		msg, err := s.convertToScannerMessage(ctx, evt)
-		if err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "Failed to convert domain event to scanner message")
-			logger.Error(ctx, "Failed to convert domain event to scanner message",
-				"event_type", evt.Type,
-				"error", err)
-			s.metrics.IncTranslationErrors(ctx, "outgoing")
-			ack(err)
-			return nil // Continue processing other events
-		}
-		span.AddEvent("domain_message_converted_to_scanner_message")
+	// Use the subscription manager to set up the event subscriptions
+	err := s.subscriptionManager.SubscribeToRegularEvents(
+		ctx,
+		scannerID,
+		conn.stream,
+		eventTypes,
+	)
 
-		// All messages from gateway to scanner are critical commands requiring acknowledgment.
-		ackChan := s.ackTracker.TrackMessage(msg.MessageId)
-
-		// Send the message to the scanner.
-		if err := conn.stream.Send(msg); err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "Failed to send message to scanner")
-			logger.Error(ctx, "Failed to send message to scanner",
-				"event_type", evt.Type,
-				"error", err)
-
-			// Clean up the acknowledgment tracking
-			s.ackTracker.StopTracking(msg.MessageId)
-
-			ack(err)
-			return nil // Continue processing other events
-		}
-
-		span.AddEvent("message_sent_to_scanner")
-		s.metrics.IncMessagesSent(ctx, string(evt.Type))
-		logger.Debug(ctx, "Sent message to scanner", "event_type", evt.Type)
-
-		// Wait for acknowledgment with timeout.
-		go func() {
-			const defaultAckTimeout = 30 * time.Second
-			ctx, span = s.tracer.Start(ctx, "gateway.subscribeToEvents.waitForAcknowledgment",
-				trace.WithAttributes(
-					attribute.String("message_id", msg.MessageId),
-					attribute.String("timeout", defaultAckTimeout.String()),
-				),
-			)
-			defer span.End()
-
-			err := s.ackTracker.WaitForAcknowledgment(ctx, msg.MessageId, ackChan, defaultAckTimeout)
-			if err != nil {
-				span.RecordError(err)
-				span.SetStatus(codes.Error, "Failed to wait for acknowledgment")
-				logger.Error(ctx, "Failed to wait for acknowledgment", "error", err)
-			}
-		}()
-		span.AddEvent("acknowledgment_waiting_started_async")
-		span.SetStatus(codes.Ok, "handler_completed")
-
-		return nil
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		logger.Error(ctx, "Failed to subscribe to events", "error", err)
+		return err
 	}
 
-	return s.eventBus.Subscribe(ctx, eventTypes, handler)
+	span.SetStatus(codes.Ok, "Successfully subscribed to events")
+	logger.Info(ctx, "Successfully subscribed to events for scanner")
+	return nil
 }
 
 // handleScannerMessages processes incoming messages from a connected scanner.
@@ -1015,19 +967,26 @@ func (s *Service) SubscribeToBroadcasts(stream pb.ScannerGatewayService_Subscrib
 	}
 
 	s.broadcastScanners.unregister(ctx, scannerID)
+	s.subscriptionManager.CleanupTracking(ctx, scannerID)
+	logger.Info(ctx, "Scanner broadcast connection closed and resources cleaned up")
 
 	return err
 }
 
-// subscribeToBroadcastEvents sets up subscriptions for broadcast events.
-// It creates event handlers that convert domain events to protocol messages
-// and distribute them to connected scanners through the broadcast channel.
+// subscribeToBroadcastEvents subscribes to broadcast events that should be distributed
+// to all scanners, such as job control commands (pause, cancel) and system notifications.
 func (s *Service) subscribeToBroadcastEvents(
 	ctx context.Context,
 	scannerID string,
 	stream pb.ScannerGatewayService_ConnectScannerServer,
 ) error {
 	logger := s.logger.With("method", "subscribeToBroadcastEvents", "scanner_id", scannerID)
+	ctx, span := s.tracer.Start(ctx, "gateway.subscribeToBroadcastEvents",
+		trace.WithAttributes(
+			attribute.String("scanner_id", scannerID),
+		),
+	)
+	defer span.End()
 
 	// Define broadcast event types - system-wide events that all scanners should receive.
 	// These generally include job control events and system notifications.
@@ -1037,76 +996,25 @@ func (s *Service) subscribeToBroadcastEvents(
 		grpcbus.EventTypeSystemNotification,
 	}
 
-	handler := func(ctx context.Context, evt events.EventEnvelope, ack events.AckFunc) error {
-		ctx, span := s.tracer.Start(ctx, "gateway.subscribeToBroadcastEvents",
-			trace.WithAttributes(
-				attribute.String("event_type", string(evt.Type)),
-			),
-		)
-		defer span.End()
+	logger.Info(ctx, "Setting up broadcast event subscriptions for scanner",
+		"event_types", fmt.Sprintf("%v", broadcastEventTypes))
 
-		gatewayMsg, err := s.convertToScannerMessage(ctx, evt)
-		if err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "Failed to convert domain event to gateway message")
-			logger.Error(ctx, "Failed to convert domain event to gateway message",
-				"event_type", evt.Type, "error", err)
-			s.metrics.IncTranslationErrors(ctx, "domain_to_gateway")
-			if ack != nil {
-				ack(err) // Acknowledge with error
-			}
-			return nil // Skip this event but continue processing others
-		}
+	// Use the subscription manager to set up the broadcast event subscriptions
+	err := s.subscriptionManager.SubscribeToBroadcastEvents(
+		ctx,
+		scannerID,
+		stream,
+		broadcastEventTypes,
+	)
 
-		// Track broadcast messages the same way we track regular messages.
-		ackChan := s.ackTracker.TrackMessage(gatewayMsg.MessageId)
-		span.AddEvent("broadcast_message_tracked_for_acknowledgment")
-
-		if err := stream.Send(gatewayMsg); err != nil {
-			s.ackTracker.StopTracking(gatewayMsg.MessageId)
-
-			logger.Error(ctx, "Failed to send broadcast event to scanner",
-				"event_type", evt.Type,
-				"message_id", gatewayMsg.MessageId,
-				"error", err)
-			if ack != nil {
-				ack(err)
-			}
-			return err
-		}
-
-		logger.Debug(ctx, "Sent broadcast event to scanner",
-			"event_type", evt.Type,
-			"message_id", gatewayMsg.MessageId)
-		s.metrics.IncMessagesSent(ctx, getMessageType(gatewayMsg))
-
-		go func() {
-			const defaultAckTimeout = 30 * time.Second
-			ctx, span := s.tracer.Start(ctx, "gateway.subscribeToBroadcastEvents.waitForAcknowledgment",
-				trace.WithAttributes(
-					attribute.String("message_id", gatewayMsg.MessageId),
-					attribute.String("timeout", defaultAckTimeout.String()),
-				),
-			)
-			defer span.End()
-
-			err := s.ackTracker.WaitForAcknowledgment(ctx, gatewayMsg.MessageId, ackChan, defaultAckTimeout)
-			if err != nil {
-				span.RecordError(err)
-				span.SetStatus(codes.Error, "Failed to wait for broadcast acknowledgment")
-				logger.Error(ctx, "Failed to wait for broadcast acknowledgment", "error", err)
-			}
-		}()
-
-		return nil
-	}
-
-	err := s.broadcastBus.Subscribe(ctx, broadcastEventTypes, handler)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		logger.Error(ctx, "Failed to subscribe to broadcast events", "error", err)
 		return err
 	}
 
+	span.SetStatus(codes.Ok, "Successfully subscribed to broadcast events")
 	logger.Info(ctx, "Successfully subscribed to broadcast events")
 	return nil
 }
@@ -1147,16 +1055,18 @@ func (s *Service) handleBroadcastMessages(
 	}
 }
 
-// processBroadcastMessage handles messages from scanners on the broadcast stream.
-// This is mainly for acknowledgments and specific broadcast-related events.
+// processBroadcastMessage handles messages received on broadcast connections.
 //
-// In the broadcast stream, we only expect to receive acknowledgments from scanners.
-// These acknowledgments confirm receipt and processing of broadcast commands sent by the gateway.
-// Unlike Kafka which tracks consumer offsets automatically, our system relies on
-// these explicit application-level acknowledgments to confirm message delivery.
+// Unlike regular scanner connections, broadcast connections are optimized for
+// one-way (gateway to scanner) communication of system-wide events. The only
+// expected message type from scanner to gateway on this connection are
+// acknowledgments of received broadcast messages.
 //
-// The absence of more robust handling of acknowledgments (like retries or tracking)
-// is a limitation compared to Kafka's persistence model. In a Kafka-based system,
+// This asymmetric design enables efficient handling of broadcast events without
+// interfering with scanner-specific command channels, while still maintaining
+// delivery guarantees for critical broadcasts.
+//
+// This approach differs from a Kafka consumer model where consumer groups and
 // failed message processing would be retried automatically based on consumer offset commits.
 func (s *Service) processBroadcastMessage(
 	ctx context.Context,
@@ -1185,7 +1095,8 @@ func (s *Service) processBroadcastMessage(
 			span.SetStatus(codes.Ok, "Scanner successfully processed broadcast message")
 		}
 
-		resolved := s.ackTracker.ResolveAcknowledgment(ctx, originalMsgID, ackErr)
+		// Use the subscription manager to process the acknowledgment
+		resolved := s.subscriptionManager.ProcessAcknowledgment(ctx, ack)
 		if !resolved {
 			// This can happen if acknowledgment arrived after timeout.
 			span.AddEvent("acknowledgment_for_expired_message")
