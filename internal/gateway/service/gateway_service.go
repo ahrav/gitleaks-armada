@@ -743,43 +743,28 @@ func (s *Service) subscribeToEvents(ctx context.Context, scannerID string) error
 		s.metrics.IncMessagesSent(ctx, string(evt.Type))
 		logger.Debug(ctx, "Sent message to scanner", "event_type", evt.Type)
 
-		// Wait for acknowledgment with timeout
-		const defaultAckTimeout = 30 * time.Second
-		timeoutCtx, cancel := context.WithTimeout(ctx, defaultAckTimeout)
-		defer cancel()
+		// Wait for acknowledgment with timeout.
+		go func() {
+			const defaultAckTimeout = 30 * time.Second
+			ctx, span = s.tracer.Start(ctx, "gateway.subscribeToEvents.waitForAcknowledgment",
+				trace.WithAttributes(
+					attribute.String("message_id", msg.MessageId),
+					attribute.String("timeout", defaultAckTimeout.String()),
+				),
+			)
+			defer span.End()
 
-		select {
-		case err := <-ackChan:
-			// No need to clean up as resolveAcknowledgment already did this
-
+			err := s.ackTracker.WaitForAcknowledgment(ctx, msg.MessageId, ackChan, defaultAckTimeout)
 			if err != nil {
 				span.RecordError(err)
-				span.SetStatus(codes.Error, "Scanner acknowledged with error")
-				logger.Error(ctx, "Scanner acknowledged message with error",
-					"event_type", evt.Type,
-					"error", err)
-				ack(err)
-				return nil
+				span.SetStatus(codes.Error, "Failed to wait for acknowledgment")
+				logger.Error(ctx, "Failed to wait for acknowledgment", "error", err)
 			}
+		}()
+		span.AddEvent("acknowledgment_waiting_started_async")
+		span.SetStatus(codes.Ok, "handler_completed")
 
-			span.SetStatus(codes.Ok, "Command acknowledged successfully")
-			logger.Debug(ctx, "Scanner acknowledged command successfully", "event_type", evt.Type)
-			ack(nil)
-			return nil
-
-		case <-timeoutCtx.Done():
-			// The acknowledgment timed out
-			s.ackTracker.StopTracking(msg.MessageId)
-
-			err := fmt.Errorf("acknowledgment timeout for message: %s", msg.MessageId)
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "Acknowledgment timeout")
-			logger.Error(ctx, "Acknowledgment timeout for command",
-				"event_type", evt.Type,
-				"message_id", msg.MessageId)
-			ack(err)
-			return nil
-		}
+		return nil
 	}
 
 	return s.eventBus.Subscribe(ctx, eventTypes, handler)
@@ -1118,6 +1103,8 @@ func (s *Service) subscribeToBroadcastEvents(
 
 			err := s.ackTracker.WaitForAcknowledgment(ctx, gatewayMsg.MessageId, ackChan, defaultAckTimeout)
 			if err != nil {
+				span.RecordError(err)
+				span.SetStatus(codes.Error, "Failed to wait for broadcast acknowledgment")
 				logger.Error(ctx, "Failed to wait for broadcast acknowledgment", "error", err)
 			}
 		}()
