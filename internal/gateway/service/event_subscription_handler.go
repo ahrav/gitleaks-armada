@@ -51,7 +51,8 @@ type ScannerStream interface {
 type eventSubscriptionHandler struct {
 	eventBus events.EventBus
 
-	ackTracker *acknowledgmentTracker
+	ackTracker AckTracker
+
 	// Default timeout for waiting for acknowledgments.
 	ackTimeout   time.Duration
 	timeProvider timeutil.Provider
@@ -63,7 +64,7 @@ type eventSubscriptionHandler struct {
 // NewEventSubscriptionHandler creates a new handler for event subscriptions.
 func NewEventSubscriptionHandler(
 	eventBus events.EventBus,
-	ackTracker *acknowledgmentTracker,
+	ackTracker AckTracker,
 	ackTimeout time.Duration,
 	timeProvider timeutil.Provider,
 	logger *logger.Logger,

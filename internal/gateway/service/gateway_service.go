@@ -108,9 +108,7 @@ type GatewayServiceOption func(*Service)
 // WithAuthKey sets the authentication key for the gateway service.
 // When set, all connecting scanners must provide this key for authentication.
 // If not set, authentication is disabled.
-func WithAuthKey(key string) GatewayServiceOption {
-	return func(g *Service) { g.authKey = key }
-}
+func WithAuthKey(key string) GatewayServiceOption { return func(g *Service) { g.authKey = key } }
 
 // scannerRegistry manages the collection of connected scanners.
 // It provides thread-safe operations for registering, accessing, and removing scanners.
@@ -222,12 +220,11 @@ type Service struct {
 	broadcastScanners *scannerRegistry
 
 	// Manages event subscriptions and acknowledgment tracking.
-	// Components for handling event subscriptions and acknowledgments
-	ackTracker *acknowledgmentTracker
+	ackTracker AckTracker
 
-	// Handlers for different types of event subscriptions
-	regularSubscriptionHandler   *eventSubscriptionHandler
-	broadcastSubscriptionHandler *eventSubscriptionHandler
+	// Handlers for different types of event subscriptions.
+	regularSubscriptionHandler   EventSubscriptionHandler
+	broadcastSubscriptionHandler EventSubscriptionHandler
 
 	// Authentication settings.
 	// TODO: This will likely get ripped out of here and put into an interceptor.
