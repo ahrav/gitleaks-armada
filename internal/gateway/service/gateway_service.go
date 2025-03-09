@@ -222,8 +222,12 @@ type Service struct {
 	broadcastScanners *scannerRegistry
 
 	// Manages event subscriptions and acknowledgment tracking.
-	// This component encapsulates the subscription logic and message reliability model.
-	subscriptionManager EventSubscriptionManager
+	// Components for handling event subscriptions and acknowledgments
+	ackTracker *acknowledgmentTracker
+
+	// Handlers for different types of event subscriptions
+	regularSubscriptionHandler   *eventSubscriptionHandler
+	broadcastSubscriptionHandler *eventSubscriptionHandler
 
 	// Authentication settings.
 	// TODO: This will likely get ripped out of here and put into an interceptor.
@@ -274,17 +278,26 @@ func NewService(
 	}
 
 	const defaultAckTimeout = 30 * time.Second
-	s.subscriptionManager = NewEventSubscriptionManager(
+
+	s.ackTracker = NewAcknowledgmentTracker(logger)
+	s.regularSubscriptionHandler = NewEventSubscriptionHandler(
 		eventBus,
-		broadcastBus,
-		s.convertToScannerMessage,
+		s.ackTracker,
 		defaultAckTimeout,
 		s.timeProvider,
 		logger,
 		tracer,
 	)
 
-	// Apply options
+	s.broadcastSubscriptionHandler = NewEventSubscriptionHandler(
+		broadcastBus,
+		s.ackTracker,
+		defaultAckTimeout,
+		s.timeProvider,
+		logger,
+		tracer,
+	)
+
 	for _, opt := range options {
 		opt(s)
 	}
@@ -403,7 +416,7 @@ func (s *Service) ConnectScanner(stream pb.ScannerGatewayService_ConnectScannerS
 	}
 
 	s.scanners.unregister(ctx, scannerID)
-	s.subscriptionManager.CleanupTracking(ctx, scannerID)
+	s.ackTracker.CleanupAll(ctx, fmt.Errorf("scanner disconnected: %s", scannerID))
 	s.logger.Info(ctx, "Scanner connection closed and resources cleaned up")
 
 	return nil
@@ -540,7 +553,11 @@ func (s *Service) processAcknowledgment(ctx context.Context, ack *pb.MessageAckn
 	defer span.End()
 
 	// Process the acknowledgment using the subscription manager
-	if !s.subscriptionManager.ProcessAcknowledgment(ctx, ack) {
+	var ackErr error
+	if !ack.GetSuccess() {
+		ackErr = fmt.Errorf("%s", ack.GetErrorMessage())
+	}
+	if !s.ackTracker.ResolveAcknowledgment(ctx, ack.GetOriginalMessageId(), ackErr) {
 		// This could happen if the acknowledgment arrived after a timeout
 		// or if the message didn't require an acknowledgment
 		span.AddEvent("unknown_message_id")
@@ -691,12 +708,13 @@ func (s *Service) subscribeToEvents(ctx context.Context, scannerID string) error
 	logger.Info(ctx, "Setting up event subscriptions for scanner",
 		"event_types", fmt.Sprintf("%v", eventTypes))
 
-	// Use the subscription manager to set up the event subscriptions
-	err := s.subscriptionManager.SubscribeToRegularEvents(
+	// Use the regular subscription handler to set up the event subscriptions
+	err := s.regularSubscriptionHandler.Subscribe(
 		ctx,
 		scannerID,
 		conn.stream,
 		eventTypes,
+		s.convertToScannerMessage,
 	)
 
 	if err != nil {
@@ -967,7 +985,7 @@ func (s *Service) SubscribeToBroadcasts(stream pb.ScannerGatewayService_Subscrib
 	}
 
 	s.broadcastScanners.unregister(ctx, scannerID)
-	s.subscriptionManager.CleanupTracking(ctx, scannerID)
+	s.ackTracker.CleanupAll(ctx, fmt.Errorf("broadcast scanner disconnected: %s", scannerID))
 	logger.Info(ctx, "Scanner broadcast connection closed and resources cleaned up")
 
 	return err
@@ -999,12 +1017,13 @@ func (s *Service) subscribeToBroadcastEvents(
 	logger.Info(ctx, "Setting up broadcast event subscriptions for scanner",
 		"event_types", fmt.Sprintf("%v", broadcastEventTypes))
 
-	// Use the subscription manager to set up the broadcast event subscriptions
-	err := s.subscriptionManager.SubscribeToBroadcastEvents(
+	// Use the broadcast subscription handler to set up the event subscriptions
+	err := s.broadcastSubscriptionHandler.Subscribe(
 		ctx,
 		scannerID,
 		stream,
 		broadcastEventTypes,
+		s.convertToScannerMessage,
 	)
 
 	if err != nil {
@@ -1096,7 +1115,7 @@ func (s *Service) processBroadcastMessage(
 		}
 
 		// Use the subscription manager to process the acknowledgment
-		resolved := s.subscriptionManager.ProcessAcknowledgment(ctx, ack)
+		resolved := s.ackTracker.ResolveAcknowledgment(ctx, originalMsgID, ackErr)
 		if !resolved {
 			// This can happen if acknowledgment arrived after timeout.
 			span.AddEvent("acknowledgment_for_expired_message")
