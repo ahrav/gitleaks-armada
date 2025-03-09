@@ -204,7 +204,7 @@ func NewService(
 // ConnectScanner handles a bidirectional gRPC stream connection from a scanner.
 // The first message must be a ScannerRegistrationRequest to establish the connection.
 // All subsequent messages are handled via streaming with acknowledgments for critical messages.
-func (s *Service) ConnectScanner(stream pb.ScannerGatewayService_ConnectScannerServer) error {
+func (s *Service) ConnectScanner(stream pb.ScannerGatewayService_SubscribeToBroadcastsServer) error {
 	logger := logger.NewLoggerContext(s.logger.With("component", "gateway.ConnectScanner"))
 	ctx, span := s.tracer.Start(stream.Context(), "gateway.ConnectScanner")
 	defer span.End()
