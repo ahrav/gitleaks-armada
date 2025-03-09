@@ -1107,36 +1107,18 @@ func (s *Service) subscribeToBroadcastEvents(
 		s.metrics.IncMessagesSent(ctx, getMessageType(gatewayMsg))
 
 		go func() {
-			timeoutCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
+			const defaultAckTimeout = 30 * time.Second
+			ctx, span := s.tracer.Start(ctx, "gateway.subscribeToBroadcastEvents.waitForAcknowledgment",
+				trace.WithAttributes(
+					attribute.String("message_id", gatewayMsg.MessageId),
+					attribute.String("timeout", defaultAckTimeout.String()),
+				),
+			)
+			defer span.End()
 
-			select {
-			case ackErr := <-ackChan:
-				if ackErr != nil {
-					logger.Error(ctx, "Broadcast message acknowledged with error",
-						"message_id", gatewayMsg.MessageId,
-						"error", ackErr)
-					if ack != nil {
-						ack(ackErr)
-					}
-				} else {
-					logger.Debug(ctx, "Broadcast message acknowledged successfully",
-						"message_id", gatewayMsg.MessageId)
-					if ack != nil {
-						ack(nil)
-					}
-				}
-
-			case <-timeoutCtx.Done():
-				timeoutErr := fmt.Errorf("timeout waiting for broadcast acknowledgment for message ID: %s", gatewayMsg.MessageId)
-				logger.Error(ctx, "Timeout waiting for broadcast acknowledgment",
-					"message_id", gatewayMsg.MessageId)
-
-				s.ackTracker.StopTracking(gatewayMsg.MessageId)
-
-				if ack != nil {
-					ack(timeoutErr)
-				}
+			err := s.ackTracker.WaitForAcknowledgment(ctx, gatewayMsg.MessageId, ackChan, defaultAckTimeout)
+			if err != nil {
+				logger.Error(ctx, "Failed to wait for broadcast acknowledgment", "error", err)
 			}
 		}()
 

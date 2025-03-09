@@ -5,6 +5,9 @@ import (
 	"sync"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
 
@@ -41,10 +44,7 @@ type AcknowledgmentTracker struct {
 
 // NewAcknowledgmentTracker creates a new tracker for message acknowledgments.
 func NewAcknowledgmentTracker(logger *logger.Logger) *AcknowledgmentTracker {
-	return &AcknowledgmentTracker{
-		pending: make(map[string]chan error),
-		logger:  logger,
-	}
+	return &AcknowledgmentTracker{pending: make(map[string]chan error), logger: logger}
 }
 
 // TrackMessage starts tracking a message that requires acknowledgment and
@@ -110,7 +110,6 @@ func (t *AcknowledgmentTracker) ResolveAcknowledgment(ctx context.Context, messa
 func (t *AcknowledgmentTracker) StopTracking(messageID string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-
 	delete(t.pending, messageID)
 }
 
@@ -165,22 +164,23 @@ func (t *AcknowledgmentTracker) WaitForAcknowledgment(
 	ackCh <-chan error,
 	timeout time.Duration,
 ) error {
+	span := trace.SpanFromContext(ctx)
 	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	select {
 	case err := <-ackCh:
+		span.AddEvent("ack_received", trace.WithAttributes(attribute.String("error", err.Error())))
 		return err
 	case <-timeoutCtx.Done():
-		t.logger.Warn(ctx, "Timed out waiting for acknowledgment",
-			"message_id", messageID,
-			"timeout", timeout)
+		span.AddEvent("timeout_waiting_for_ack")
+		t.logger.Warn(ctx, "Timed out waiting for acknowledgment")
 		// Clean up the channel since we're no longer waiting.
 		t.StopTracking(messageID)
 		return timeoutCtx.Err()
 	case <-ctx.Done():
-		t.logger.Warn(ctx, "Context canceled while waiting for acknowledgment",
-			"message_id", messageID)
+		span.AddEvent("context_canceled_while_waiting_for_ack")
+		t.logger.Warn(ctx, "Context canceled while waiting for acknowledgment", "message_id", messageID)
 		// Clean up the channel since we're no longer waiting.
 		t.StopTracking(messageID)
 		return ctx.Err()
