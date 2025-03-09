@@ -21,6 +21,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/rules"
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
+	"github.com/ahrav/gitleaks-armada/internal/infra/eventbus/reliability"
 	"github.com/ahrav/gitleaks-armada/internal/infra/eventbus/serialization"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/common/timeutil"
@@ -560,7 +561,7 @@ func (b *EventBus) Publish(ctx context.Context, event events.EventEnvelope, opts
 		return fmt.Errorf("failed to set payload: %w", err)
 	}
 
-	isCritical := b.isCriticalEvent(event.Type)
+	isCritical := reliability.IsCriticalEvent(event.Type)
 	logger.Add("message_is_critical", isCritical)
 	span.SetAttributes(attribute.Bool("message_is_critical", isCritical))
 
@@ -647,35 +648,6 @@ func (b *EventBus) Publish(ctx context.Context, event events.EventEnvelope, opts
 		span.SetStatus(codes.Error, "critical message timeout")
 
 		return fmt.Errorf("event bus shutting down")
-	}
-}
-
-// isCriticalEvent determines if an event type represents a critical message
-// that requires acknowledgment for reliability. This is an internal implementation
-// detail that clients don't need to be aware of.
-//
-// Critical events are usually terminal state changes or final results that:
-// 1. Won't be naturally retransmitted by subsequent messages
-// 2. Would result in data loss or inconsistency if not processed
-// 3. Represent important state transitions in the system
-func (b *EventBus) isCriticalEvent(eventType events.EventType) bool {
-	switch eventType {
-	case scanning.EventTypeTaskCompleted,
-		scanning.EventTypeTaskFailed,
-		scanning.EventTypeTaskCancelled:
-		return true
-	case scanning.EventTypeScannerRegistered,
-		scanning.EventTypeScannerDeregistered,
-		scanning.EventTypeScannerStatusChanged:
-		return true
-	case rules.EventTypeRulesUpdated, rules.EventTypeRulesPublished:
-		return true
-	case scanning.EventTypeTaskProgressed,
-		scanning.EventTypeTaskJobMetric,
-		scanning.EventTypeTaskHeartbeat:
-		return false
-	default:
-		return false
 	}
 }
 

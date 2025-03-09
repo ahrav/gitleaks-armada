@@ -76,6 +76,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/rules"
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	grpcbus "github.com/ahrav/gitleaks-armada/internal/infra/eventbus/grpc"
+	"github.com/ahrav/gitleaks-armada/internal/infra/eventbus/reliability"
 	"github.com/ahrav/gitleaks-armada/internal/infra/eventbus/serialization"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/common/timeutil"
@@ -141,12 +142,18 @@ func (t *acknowledgmentTracker) trackMessage(messageID string) chan error {
 // resolveAcknowledgment resolves the acknowledgment for a message.
 // It sends the error (or nil for success) to the waiting channel if one exists.
 // Returns true if the message was being tracked, false otherwise.
-func (t *acknowledgmentTracker) resolveAcknowledgment(messageID string, err error) bool {
+func (t *acknowledgmentTracker) resolveAcknowledgment(ctx context.Context, messageID string, err error) bool {
+	span := trace.SpanFromContext(ctx)
+	span.SetAttributes(
+		attribute.String("message_id", messageID),
+		attribute.Bool("success", err == nil),
+	)
+
 	t.mu.RLock()
 	ackChan, exists := t.pending[messageID]
 	t.mu.RUnlock()
-
 	if !exists {
+		span.AddEvent("unknown_message_id")
 		return false
 	}
 
@@ -155,6 +162,7 @@ func (t *acknowledgmentTracker) resolveAcknowledgment(messageID string, err erro
 	t.mu.Lock()
 	delete(t.pending, messageID)
 	t.mu.Unlock()
+	span.AddEvent("resolved_acknowledgment")
 
 	return true
 }
@@ -497,7 +505,7 @@ func (s *Service) processIncomingScannerMessage(
 		}
 	}
 
-	isCritical := s.isCriticalEvent(eventType)
+	isCritical := reliability.IsCriticalEvent(eventType)
 
 	logger.Debug(ctx, "Processing scanner message",
 		"event_type", string(eventType),
@@ -563,7 +571,7 @@ func (s *Service) processAcknowledgment(ctx context.Context, ack *pb.MessageAckn
 	}
 
 	// Resolve the acknowledgment
-	if !s.ackTracker.resolveAcknowledgment(originalMsgID, err) {
+	if !s.ackTracker.resolveAcknowledgment(ctx, originalMsgID, err) {
 		// This could happen if the acknowledgment arrived after a timeout
 		// or if the message didn't require an acknowledgment
 		logger.Debug(ctx, "Received acknowledgment for unknown or expired message ID")
@@ -602,29 +610,6 @@ func (s *Service) sendMessageAcknowledgment(
 
 	s.metrics.IncMessagesSent(ctx, "ack")
 	return nil
-}
-
-// isCriticalEvent determines if an event type represents a critical message
-// that requires acknowledgment for reliability.
-func (s *Service) isCriticalEvent(eventType events.EventType) bool {
-	switch eventType {
-	case scanning.EventTypeTaskCompleted,
-		scanning.EventTypeTaskFailed,
-		scanning.EventTypeTaskCancelled:
-		return true
-	case scanning.EventTypeScannerRegistered,
-		scanning.EventTypeScannerDeregistered,
-		scanning.EventTypeScannerStatusChanged:
-		return true
-	case rules.EventTypeRulesUpdated, rules.EventTypeRulesPublished:
-		return true
-	case scanning.EventTypeTaskProgressed,
-		scanning.EventTypeTaskJobMetric,
-		scanning.EventTypeTaskHeartbeat:
-		return false
-	default:
-		return false
-	}
 }
 
 // publishDomainEvent publishes a domain event to the event publisher.
