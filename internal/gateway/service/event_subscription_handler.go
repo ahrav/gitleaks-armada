@@ -24,7 +24,7 @@ type ScannerStream interface {
 	Context() context.Context
 }
 
-// EventSubscriptionHandler manages event subscriptions and routes events to scanners.
+// eventSubscriptionHandler manages event subscriptions and routes events to scanners.
 //
 // Why this component exists:
 //
@@ -48,10 +48,10 @@ type ScannerStream interface {
 // event-driven architecture to the gRPC streaming model used for communicating with
 // on-premise scanners. It ensures commands are delivered reliably despite potential
 // network issues or scanner disconnections.
-type EventSubscriptionHandler struct {
+type eventSubscriptionHandler struct {
 	eventBus events.EventBus
 
-	ackTracker *AcknowledgmentTracker
+	ackTracker *acknowledgmentTracker
 	// Default timeout for waiting for acknowledgments.
 	ackTimeout   time.Duration
 	timeProvider timeutil.Provider
@@ -63,13 +63,13 @@ type EventSubscriptionHandler struct {
 // NewEventSubscriptionHandler creates a new handler for event subscriptions.
 func NewEventSubscriptionHandler(
 	eventBus events.EventBus,
-	ackTracker *AcknowledgmentTracker,
+	ackTracker *acknowledgmentTracker,
 	ackTimeout time.Duration,
 	timeProvider timeutil.Provider,
 	logger *logger.Logger,
 	tracer trace.Tracer,
-) *EventSubscriptionHandler {
-	return &EventSubscriptionHandler{
+) *eventSubscriptionHandler {
+	return &eventSubscriptionHandler{
 		eventBus:     eventBus,
 		ackTracker:   ackTracker,
 		timeProvider: timeProvider,
@@ -93,7 +93,7 @@ func NewEventSubscriptionHandler(
 // delivery guarantees through explicit acknowledgments. This creates a virtual event
 // bus over gRPC that bridges the internal event system with external scanners,
 // while respecting network boundaries and maintaining security.
-func (h *EventSubscriptionHandler) Subscribe(
+func (h *eventSubscriptionHandler) Subscribe(
 	ctx context.Context,
 	scannerID string,
 	stream ScannerStream,

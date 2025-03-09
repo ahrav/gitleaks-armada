@@ -10,11 +10,11 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
 
-// AcknowledgmentTracker handles tracking and resolution of message acknowledgments.
+// acknowledgmentTracker handles tracking and resolution of message acknowledgments.
 //
 // Purpose and Role in the Gateway Architecture:
 // ---------------------------------------------
-// The AcknowledgmentTracker is a component of the gateway service's reliability model.
+// The acknowledgmentTracker is a component of the gateway service's reliability model.
 // Without a persistent message broker like Kafka, this tracker provides application-level
 // guarantees that important commands and events are successfully delivered and processed.
 //
@@ -35,15 +35,15 @@ import (
 // much later than when the original message was sent.
 // TODO: Add metrics to track number, duration, rate, errors, etc.
 // TODO: Make this more reliable, maybe some sort of persistence?
-type AcknowledgmentTracker struct {
+type acknowledgmentTracker struct {
 	mu      sync.RWMutex
 	pending map[string]chan error
 	logger  *logger.Logger
 }
 
 // NewAcknowledgmentTracker creates a new tracker for message acknowledgments.
-func NewAcknowledgmentTracker(logger *logger.Logger) *AcknowledgmentTracker {
-	return &AcknowledgmentTracker{pending: make(map[string]chan error), logger: logger}
+func NewAcknowledgmentTracker(logger *logger.Logger) *acknowledgmentTracker {
+	return &acknowledgmentTracker{pending: make(map[string]chan error), logger: logger}
 }
 
 // TrackMessage starts tracking a message that requires acknowledgment and
@@ -55,7 +55,7 @@ func NewAcknowledgmentTracker(logger *logger.Logger) *AcknowledgmentTracker {
 //
 // The returned channel is buffered with size 1 to prevent blocking when resolving
 // acknowledgments.
-func (t *AcknowledgmentTracker) TrackMessage(messageID string) <-chan error {
+func (t *acknowledgmentTracker) TrackMessage(messageID string) <-chan error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -74,7 +74,7 @@ func (t *AcknowledgmentTracker) TrackMessage(messageID string) <-chan error {
 //
 // This method is the core of the reliability contract, as it closes the feedback
 // loop between command issuance and confirmation of processing.
-func (t *AcknowledgmentTracker) ResolveAcknowledgment(ctx context.Context, messageID string, err error) bool {
+func (t *acknowledgmentTracker) ResolveAcknowledgment(ctx context.Context, messageID string, err error) bool {
 	t.mu.RLock()
 	ch, exists := t.pending[messageID]
 	t.mu.RUnlock()
@@ -106,7 +106,7 @@ func (t *AcknowledgmentTracker) ResolveAcknowledgment(ctx context.Context, messa
 // or when giving up on receiving an acknowledgment (such as after a timeout).
 // It prevents memory leaks by cleaning up channels for messages that will
 // never receive an acknowledgment.
-func (t *AcknowledgmentTracker) StopTracking(messageID string) {
+func (t *acknowledgmentTracker) StopTracking(messageID string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	delete(t.pending, messageID)
@@ -121,7 +121,7 @@ func (t *AcknowledgmentTracker) StopTracking(messageID string) {
 //
 // It ensures that all waiting goroutines are unblocked with a meaningful error,
 // rather than being left to timeout individually.
-func (t *AcknowledgmentTracker) CleanupAll(ctx context.Context, err error) {
+func (t *acknowledgmentTracker) CleanupAll(ctx context.Context, err error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -157,7 +157,7 @@ func (t *AcknowledgmentTracker) CleanupAll(ctx context.Context, err error) {
 // 1. Expected processing time for the command.
 // 2. Network conditions between gateway and scanners.
 // 3. Criticality of timely command execution.
-func (t *AcknowledgmentTracker) WaitForAcknowledgment(
+func (t *acknowledgmentTracker) WaitForAcknowledgment(
 	ctx context.Context,
 	messageID string,
 	ackCh <-chan error,
