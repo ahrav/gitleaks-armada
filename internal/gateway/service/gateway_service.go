@@ -1085,10 +1085,14 @@ func (s *Service) SubscribeToBroadcasts(stream pb.ScannerGatewayService_Subscrib
 	span.AddEvent("broadcast_event_subscription_established")
 
 	// Continue receiving messages from the scanner to keep the connection alive
-	// and handle any messages that need to be processed (like acknowledgments)
-	err = s.handleBroadcastMessages(ctx, broadcastConn, stream)
+	// and handle any messages that need to be processed (like acknowledgments).
+	// This will block until the scanner disconnects, or an error occurs.
+	if err := s.handleBroadcastMessages(ctx, broadcastConn, stream); err != nil {
+		logger.Error(ctx, "Failed to handle broadcast messages", "error", err)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "Failed to handle broadcast messages")
+	}
 
-	// Clean up broadcast connection on exit
 	s.broadcastScanners.unregister(ctx, scannerID)
 
 	return err
@@ -1133,27 +1137,73 @@ func (s *Service) subscribeToBroadcastEvents(
 			return nil // Skip this event but continue processing others
 		}
 
+		// Track broadcast messages the same way we track regular messages.
+		ackChan := s.ackTracker.trackMessage(gatewayMsg.MessageId)
+		span.AddEvent("broadcast_message_tracked_for_acknowledgment")
+
 		if err := stream.Send(gatewayMsg); err != nil {
+			s.ackTracker.stopTracking(gatewayMsg.MessageId)
+
 			logger.Error(ctx, "Failed to send broadcast event to scanner",
-				"event_type", evt.Type, "error", err)
+				"event_type", evt.Type,
+				"message_id", gatewayMsg.MessageId,
+				"error", err)
 			if ack != nil {
-				ack(err) // Acknowledge with error
+				ack(err)
 			}
 			return err
 		}
 
+		logger.Debug(ctx, "Sent broadcast event to scanner",
+			"event_type", evt.Type,
+			"message_id", gatewayMsg.MessageId)
 		s.metrics.IncMessagesSent(ctx, getMessageType(gatewayMsg))
 
-		if ack != nil {
-			ack(nil)
-		}
+		go func() {
+			timeoutCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+
+			select {
+			case ackErr := <-ackChan:
+				if ackErr != nil {
+					logger.Error(ctx, "Broadcast message acknowledged with error",
+						"message_id", gatewayMsg.MessageId,
+						"error", ackErr)
+					if ack != nil {
+						ack(ackErr)
+					}
+				} else {
+					logger.Debug(ctx, "Broadcast message acknowledged successfully",
+						"message_id", gatewayMsg.MessageId)
+					if ack != nil {
+						ack(nil)
+					}
+				}
+
+			case <-timeoutCtx.Done():
+				timeoutErr := fmt.Errorf("timeout waiting for broadcast acknowledgment for message ID: %s", gatewayMsg.MessageId)
+				logger.Error(ctx, "Timeout waiting for broadcast acknowledgment",
+					"message_id", gatewayMsg.MessageId)
+
+				s.ackTracker.stopTracking(gatewayMsg.MessageId)
+
+				if ack != nil {
+					ack(timeoutErr)
+				}
+			}
+		}()
 
 		return nil
 	}
 
-	// Subscribe to broadcast events via the broadcast event bus
-	// This ensures we're listening to the dedicated broadcast topics
-	return s.broadcastBus.Subscribe(ctx, broadcastEventTypes, handler)
+	err := s.broadcastBus.Subscribe(ctx, broadcastEventTypes, handler)
+	if err != nil {
+		logger.Error(ctx, "Failed to subscribe to broadcast events", "error", err)
+		return err
+	}
+
+	logger.Info(ctx, "Successfully subscribed to broadcast events")
+	return nil
 }
 
 // handleBroadcastMessages processes incoming messages on the broadcast stream.
@@ -1165,16 +1215,14 @@ func (s *Service) handleBroadcastMessages(
 	logger := s.logger.With("method", "handleBroadcastMessages", "scanner_id", conn.id)
 
 	for {
-		// Check if context is done
 		select {
 		case <-ctx.Done():
 			logger.Info(ctx, "Context cancelled, closing broadcast stream")
 			return ctx.Err()
 		default:
-			// Continue processing
+			// Continue processing.
 		}
 
-		// Receive message from scanner
 		msg, err := stream.Recv()
 		if err != nil {
 			if errors.Is(err, io.EOF) {
@@ -1182,13 +1230,14 @@ func (s *Service) handleBroadcastMessages(
 				return nil
 			}
 			logger.Error(ctx, "Error receiving message from scanner", "error", err)
+			// TODO: Should we continue instead? maybe after we add retry we can return an error.
 			return err
 		}
 
-		// Process the message (primarily for acknowledgments)
+		// Process the message (primarily for acknowledgments).
 		if err := s.processBroadcastMessage(ctx, conn, msg); err != nil {
 			logger.Error(ctx, "Error processing broadcast message from scanner", "error", err)
-			// Continue rather than failing the entire connection
+			// Continue rather than failing the entire connection.
 		}
 	}
 }
@@ -1209,18 +1258,54 @@ func (s *Service) processBroadcastMessage(
 	conn *scannerConnection,
 	msg *pb.ScannerToGatewayMessage,
 ) error {
-	// Update last activity timestamp
 	conn.lastActivity = time.Now()
 
-	// For broadcast, we only expect acknowledgments
 	if ack := msg.GetAck(); ack != nil {
-		// Process acknowledgment
-		s.metrics.IncMessagesReceived(ctx, "acknowledgment")
-		// No further action needed for acknowledgments
+		ctx, span := s.tracer.Start(ctx, "gateway.processBroadcastAcknowledgment",
+			trace.WithAttributes(
+				attribute.String("original_message_id", ack.GetOriginalMessageId()),
+				attribute.Bool("success", ack.GetSuccess()),
+			),
+		)
+		defer span.End()
+
+		originalMsgID := ack.GetOriginalMessageId()
+
+		var ackErr error
+		if !ack.GetSuccess() {
+			ackErr = fmt.Errorf("scanner reported error: %s", ack.GetErrorMessage())
+			span.RecordError(ackErr)
+			span.SetStatus(codes.Error, "Scanner reported error processing broadcast message")
+		} else {
+			span.SetStatus(codes.Ok, "Scanner successfully processed broadcast message")
+		}
+
+		resolved := s.ackTracker.resolveAcknowledgment(ctx, originalMsgID, ackErr)
+		if !resolved {
+			// This can happen if acknowledgment arrived after timeout.
+			span.AddEvent("acknowledgment_for_expired_message")
+			s.logger.Warn(ctx, "Received broadcast acknowledgment for unknown or expired message ID",
+				"scanner_id", conn.id,
+				"original_message_id", originalMsgID)
+		} else {
+			span.AddEvent("broadcast_acknowledgment_resolved")
+			if ackErr != nil {
+				s.logger.Error(ctx, "Processed broadcast acknowledgment with error",
+					"scanner_id", conn.id,
+					"original_message_id", originalMsgID,
+					"error", ackErr)
+			} else {
+				s.logger.Debug(ctx, "Processed broadcast acknowledgment successfully",
+					"scanner_id", conn.id,
+					"original_message_id", originalMsgID)
+			}
+		}
+
+		s.metrics.IncMessagesReceived(ctx, "broadcast_acknowledgment")
 		return nil
 	}
 
-	// Any other message types on broadcast stream are unexpected
+	// Any other message types on broadcast stream are unexpected.
 	s.metrics.IncMessagesReceived(ctx, "unexpected_broadcast")
 	s.logger.Warn(ctx, "Unexpected message type on broadcast stream",
 		"scanner_id", conn.id, "message_id", msg.GetMessageId())
