@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
-	"github.com/ahrav/gitleaks-armada/proto"
+	"github.com/ahrav/gitleaks-armada/internal/infra/eventbus/grpc"
 )
 
 // ScannerStream represents a gRPC stream connection to a scanner.
@@ -13,7 +13,7 @@ import (
 // to scanners without directly depending on gRPC implementation details.
 type ScannerStream interface {
 	// Send sends a message to the scanner over the stream.
-	Send(*proto.GatewayToScannerMessage) error
+	Send(*grpc.GatewayToScannerMessage) error
 
 	// Context returns the context associated with this stream.
 	Context() context.Context
@@ -22,7 +22,7 @@ type ScannerStream interface {
 // MessageConverter transforms domain events into messages that can be sent to scanners.
 // This adapter function allows the gateway to translate between its internal event-driven
 // architecture and the protobuf-based communication protocol used with scanners.
-type MessageConverter func(ctx context.Context, evt events.EventEnvelope) (*proto.GatewayToScannerMessage, error)
+type MessageConverter func(ctx context.Context, evt events.EventEnvelope) (*grpc.GatewayToScannerMessage, error)
 
 // AckTracker manages the acknowledgment lifecycle for messages sent to scanners.
 // It represents a critical component in the gateway's reliability model, ensuring
