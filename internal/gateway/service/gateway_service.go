@@ -284,7 +284,7 @@ func (s *Service) ConnectScanner(stream pb.ScannerGatewayService_ConnectScannerS
 	logger.Info(ctx, "Scanner registered")
 	span.AddEvent("scanner_registered")
 
-	if err := s.sendRegistrationResponse(ctx, stream, scannerID, msgID); err != nil {
+	if err := s.sendRegistrationResponse(ctx, conn, scannerID, msgID); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
 		s.scanners.Unregister(ctx, scannerID)
@@ -681,23 +681,6 @@ func (s *Service) handleScannerMessages(ctx context.Context, conn *ScannerConnec
 	}
 }
 
-// Helper to track metrics based on message type
-func (g *Service) trackMessageMetrics(ctx context.Context, messageType string) {
-	g.metrics.IncMessagesReceived(ctx, messageType)
-
-	// Track additional metrics based on the message type
-	switch messageType {
-	case "heartbeat":
-		g.metrics.IncScannerHeartbeats(ctx)
-	case "scanner_registered":
-		g.metrics.IncScannerRegistrations(ctx)
-	case "scan_result":
-		g.metrics.IncScanResults(ctx)
-	case "task_progressed":
-		g.metrics.IncTaskProgress(ctx)
-	}
-}
-
 // convertToScannerMessage converts a domain event to a scanner message.
 //
 // This method is a key part of the gateway→scanner reliability model:
@@ -742,7 +725,7 @@ func (s *Service) convertToScannerMessage(
 // sendRegistrationResponse sends a registration response to a scanner.
 func (s *Service) sendRegistrationResponse(
 	ctx context.Context,
-	stream pb.ScannerGatewayService_ConnectScannerServer,
+	conn *ScannerConnection,
 	scannerID string,
 	messageID string,
 ) error {
@@ -768,7 +751,7 @@ func (s *Service) sendRegistrationResponse(
 		},
 	}
 
-	if err := stream.Send(resp); err != nil {
+	if err := conn.Stream.Send(resp); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to send registration response")
 		return fmt.Errorf("failed to send registration response: %w", err)
@@ -779,26 +762,6 @@ func (s *Service) sendRegistrationResponse(
 	logger.Info(ctx, "Registration response sent successfully")
 
 	return nil
-}
-
-// getMessageType extracts the message type from a GatewayToScannerMessage for logging and metrics.
-func getMessageType(msg *pb.GatewayToScannerMessage) string {
-	switch {
-	case msg.GetTaskCreated() != nil:
-		return "task_created"
-	case msg.GetTaskResume() != nil:
-		return "task_resume"
-	case msg.GetJobPaused() != nil:
-		return "job_paused"
-	case msg.GetJobCancelled() != nil:
-		return "job_cancelled"
-	case msg.GetNotification() != nil:
-		return "notification"
-	// case msg.GetRegistrationResponse() != nil:
-	// 	return "registration_response"
-	default:
-		return "unknown"
-	}
 }
 
 // SubscribeToBroadcasts handles connections for broadcast events that should be delivered to all scanners.
@@ -861,7 +824,7 @@ func (s *Service) SubscribeToBroadcasts(stream pb.ScannerGatewayService_Subscrib
 	logger.Info(ctx, "Broadcast connection established",
 		"broadcast_scanners_count", broadcastCount)
 
-	if err := s.subscribeToBroadcastEvents(ctx, scannerID, stream); err != nil {
+	if err := s.subscribeToBroadcastEvents(ctx, scannerID, broadcastConn); err != nil {
 		logger.Error(ctx, "Failed to subscribe to broadcast events", "error", err)
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to subscribe to broadcast events")
@@ -892,7 +855,7 @@ func (s *Service) SubscribeToBroadcasts(stream pb.ScannerGatewayService_Subscrib
 func (s *Service) subscribeToBroadcastEvents(
 	ctx context.Context,
 	scannerID string,
-	stream pb.ScannerGatewayService_ConnectScannerServer,
+	conn *ScannerConnection,
 ) error {
 	logger := s.logger.With("method", "subscribeToBroadcastEvents", "scanner_id", scannerID)
 	ctx, span := s.tracer.Start(ctx, "gateway.subscribeToBroadcastEvents",
@@ -917,7 +880,7 @@ func (s *Service) subscribeToBroadcastEvents(
 	err := s.broadcastSubscriptionHandler.Subscribe(
 		ctx,
 		scannerID,
-		stream,
+		conn.Stream,
 		broadcastEventTypes,
 		s.convertToScannerMessage,
 	)
