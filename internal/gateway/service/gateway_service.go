@@ -200,10 +200,7 @@ func (r *scannerRegistry) count() int {
 type Service struct {
 	pb.UnimplementedScannerGatewayServiceServer
 
-	// Core dependencies.
 	eventPublisher events.DomainEventPublisher
-	eventBus       events.EventBus // For regular scanner-specific events
-	broadcastBus   events.EventBus // For broadcast events to all scanners
 
 	// Active scanner connections and broadcast connections
 
@@ -223,7 +220,7 @@ type Service struct {
 	ackTracker AckTracker
 
 	// Handlers for different types of event subscriptions.
-	regularSubscriptionHandler   EventSubscriptionHandler
+	regSubscriptionHandler       EventSubscriptionHandler
 	broadcastSubscriptionHandler EventSubscriptionHandler
 
 	// Authentication settings.
@@ -255,45 +252,24 @@ type scannerConnection struct {
 // maintaining bidirectional communication with connected scanners.
 func NewService(
 	eventPublisher events.DomainEventPublisher,
-	eventBus events.EventBus,
-	broadcastBus events.EventBus,
+	regSubscriptionHandler EventSubscriptionHandler,
+	broadcastSubscriptionHandler EventSubscriptionHandler,
 	logger *logger.Logger,
 	metrics GatewayMetrics,
 	tracer trace.Tracer,
 	options ...GatewayServiceOption,
 ) *Service {
 	s := &Service{
-		eventPublisher:    eventPublisher,
-		eventBus:          eventBus,
-		broadcastBus:      broadcastBus,
-		scanners:          newScannerRegistry(metrics),
-		broadcastScanners: newScannerRegistry(metrics),
-		timeProvider:      timeutil.Default(),
-		logger:            logger,
-		metrics:           metrics,
-		tracer:            tracer,
+		eventPublisher:               eventPublisher,
+		regSubscriptionHandler:       regSubscriptionHandler,
+		broadcastSubscriptionHandler: broadcastSubscriptionHandler,
+		scanners:                     newScannerRegistry(metrics),
+		broadcastScanners:            newScannerRegistry(metrics),
+		timeProvider:                 timeutil.Default(),
+		logger:                       logger,
+		metrics:                      metrics,
+		tracer:                       tracer,
 	}
-
-	const defaultAckTimeout = 30 * time.Second
-
-	s.ackTracker = NewAcknowledgmentTracker(logger)
-	s.regularSubscriptionHandler = NewEventSubscriptionHandler(
-		eventBus,
-		s.ackTracker,
-		defaultAckTimeout,
-		s.timeProvider,
-		logger,
-		tracer,
-	)
-
-	s.broadcastSubscriptionHandler = NewEventSubscriptionHandler(
-		broadcastBus,
-		s.ackTracker,
-		defaultAckTimeout,
-		s.timeProvider,
-		logger,
-		tracer,
-	)
 
 	for _, opt := range options {
 		opt(s)
@@ -706,7 +682,7 @@ func (s *Service) subscribeToEvents(ctx context.Context, scannerID string) error
 		"event_types", fmt.Sprintf("%v", eventTypes))
 
 	// Use the regular subscription handler to set up the event subscriptions
-	err := s.regularSubscriptionHandler.Subscribe(
+	err := s.regSubscriptionHandler.Subscribe(
 		ctx,
 		scannerID,
 		conn.stream,

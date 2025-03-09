@@ -25,6 +25,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/infra/eventbus/kafka"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/common/otel"
+	"github.com/ahrav/gitleaks-armada/pkg/common/timeutil"
 	pb "github.com/ahrav/gitleaks-armada/proto"
 )
 
@@ -256,12 +257,30 @@ func run(ctx context.Context, log *logger.Logger, hostname string) error {
 	shutdown := make(chan os.Signal, 1)
 	signal.Notify(shutdown, syscall.SIGINT, syscall.SIGTERM)
 
+	const defaultAckTimeout = 30 * time.Second
+	ackTracker := gateway.NewAcknowledgmentTracker(log)
+	regSubscriptionHandler := gateway.NewEventSubscriptionHandler(
+		regularBus,
+		ackTracker,
+		defaultAckTimeout,
+		timeutil.Default(),
+		log,
+		tracer,
+	)
+	broadcastSubscriptionHandler := gateway.NewEventSubscriptionHandler(
+		broadcastBus,
+		ackTracker,
+		defaultAckTimeout,
+		timeutil.Default(),
+		log,
+		tracer,
+	)
 	// Initialize the gateway service with both event buses.
 	authKey := os.Getenv("AUTH_KEY")
 	gatewayService := gateway.NewService(
 		eventPublisher,
-		regularBus,
-		broadcastBus,
+		regSubscriptionHandler,
+		broadcastSubscriptionHandler,
 		log,
 		gatewayMetrics,
 		tracer,
