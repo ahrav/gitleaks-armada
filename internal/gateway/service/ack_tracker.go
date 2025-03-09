@@ -5,7 +5,6 @@ import (
 	"sync"
 	"time"
 
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
@@ -170,7 +169,7 @@ func (t *AcknowledgmentTracker) WaitForAcknowledgment(
 
 	select {
 	case err := <-ackCh:
-		span.AddEvent("ack_received", trace.WithAttributes(attribute.String("error", err.Error())))
+		span.AddEvent("ack_received")
 		return err
 	case <-timeoutCtx.Done():
 		span.AddEvent("timeout_waiting_for_ack")
