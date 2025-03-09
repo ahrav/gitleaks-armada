@@ -92,6 +92,131 @@ type EventBusConfig struct {
 	Capabilities []string // Scanner capabilities
 }
 
+// acknowledgmentManager tracks and manages acknowledgments for critical messages.
+// It provides thread-safe operations for registering, resolving, and clearing acknowledgments.
+type acknowledgmentManager struct {
+	mu       sync.RWMutex
+	channels map[string]chan error
+}
+
+// newAcknowledgmentManager creates a new acknowledgment tracker.
+func newAcknowledgmentManager() *acknowledgmentManager {
+	return &acknowledgmentManager{channels: make(map[string]chan error)}
+}
+
+// createChannel creates an acknowledgment channel for a message and returns it.
+func (m *acknowledgmentManager) createChannel(messageID string) chan error {
+	channel := make(chan error, 1)
+
+	m.mu.Lock()
+	m.channels[messageID] = channel
+	m.mu.Unlock()
+
+	return channel
+}
+
+// resolveAcknowledgment resolves an acknowledgment for a message.
+// It sends the error (or nil for success) to the waiting channel if one exists.
+// Returns true if the message was being tracked, false otherwise.
+func (m *acknowledgmentManager) resolveAcknowledgment(messageID string, err error) bool {
+	m.mu.RLock()
+	channel, exists := m.channels[messageID]
+	m.mu.RUnlock()
+
+	if !exists {
+		return false
+	}
+
+	channel <- err
+
+	m.mu.Lock()
+	delete(m.channels, messageID)
+	m.mu.Unlock()
+
+	return true
+}
+
+// deleteChannel removes a channel without resolving it.
+// This is useful for cleanup during timeouts or bus closure.
+func (m *acknowledgmentManager) deleteChannel(messageID string) {
+	m.mu.Lock()
+	delete(m.channels, messageID)
+	m.mu.Unlock()
+}
+
+// cleanupAllChannels cancels all pending acknowledgments with the given error.
+// This is typically used during shutdown or error conditions.
+func (m *acknowledgmentManager) cleanupAllChannels(err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for id, ch := range m.channels {
+		ch <- err
+		delete(m.channels, id)
+	}
+}
+
+// handlerRegistry manages event handlers for different event types.
+// It provides thread-safe operations for registering and executing handlers.
+type handlerRegistry struct {
+	mu       sync.RWMutex
+	handlers map[events.EventType][]events.HandlerFunc
+}
+
+// newHandlerRegistry creates a new handler registry.
+func newHandlerRegistry() *handlerRegistry {
+	return &handlerRegistry{handlers: make(map[events.EventType][]events.HandlerFunc)}
+}
+
+// registerHandler registers a handler for an event type.
+func (r *handlerRegistry) registerHandler(eventType events.EventType, handler events.HandlerFunc) {
+	r.mu.Lock()
+	r.handlers[eventType] = append(r.handlers[eventType], handler)
+	r.mu.Unlock()
+}
+
+// getHandlers returns the handlers for an event type.
+// Returns the handlers and true if handlers exist, empty slice and false otherwise.
+func (r *handlerRegistry) getHandlers(eventType events.EventType) ([]events.HandlerFunc, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	handlers, exists := r.handlers[eventType]
+	if !exists || len(handlers) == 0 {
+		return nil, false
+	}
+
+	// Return a copy to avoid concurrent modification issues.
+	result := make([]events.HandlerFunc, len(handlers))
+	copy(result, handlers)
+
+	return result, true
+}
+
+// busState manages the state of the event bus.
+// It provides thread-safe operations for checking and changing the bus state.
+type busState struct {
+	mu     sync.RWMutex
+	closed bool
+}
+
+// newBusState creates a new bus state tracker.
+func newBusState() *busState { return &busState{closed: false} }
+
+// isClosed checks if the bus is closed.
+func (s *busState) isClosed() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.closed
+}
+
+// setClosed marks the bus as closed.
+func (s *busState) setClosed() {
+	s.mu.Lock()
+	s.closed = true
+	s.mu.Unlock()
+}
+
 // EventBus implements an asynchronous event bus for gRPC-based communication between
 // scanners and the gateway. It establishes a bidirectional streaming connection where:
 // - Scanner sends messages TO the gateway using ScannerToGatewayMessage
@@ -129,13 +254,14 @@ type EventBus struct {
 	// Maps event types to internal message types.
 	eventToMessageType map[events.EventType]MessageType
 
-	// Mapping from message ID to ack channel for critical messages.
-	ackChannelsMu sync.RWMutex
-	ackChannels   map[string]chan error
+	// Manages acknowledgments for critical messages.
+	ackManager *acknowledgmentManager
 
-	// Handlers for incoming messages.
-	handlersMu sync.RWMutex
-	handlers   map[events.EventType][]events.HandlerFunc
+	// Manages event handlers.
+	handlerRegistry *handlerRegistry
+
+	// Manages bus state.
+	state *busState
 
 	// Context and cancellation for the receiver goroutine.
 	ctx        context.Context
@@ -143,10 +269,6 @@ type EventBus struct {
 
 	// Signal when the receiver goroutine has exited.
 	receiverDone chan struct{}
-
-	// Bus closed signal.
-	closed     bool
-	closedLock sync.RWMutex
 
 	timeProvider timeutil.Provider // Used for consistent time handling and testing
 
@@ -171,8 +293,9 @@ func newEventBus(
 		stream:             stream,
 		config:             cfg,
 		eventToMessageType: eventTypeMap,
-		ackChannels:        make(map[string]chan error),
-		handlers:           make(map[events.EventType][]events.HandlerFunc),
+		ackManager:         newAcknowledgmentManager(),
+		handlerRegistry:    newHandlerRegistry(),
+		state:              newBusState(),
 		ctx:                ctx,
 		cancelFunc:         cancel,
 		receiverDone:       make(chan struct{}),
@@ -464,9 +587,9 @@ func mapBroadcastEventTypes() map[events.EventType]MessageType {
 }
 
 func (b *EventBus) isClosed() bool {
-	b.closedLock.RLock()
-	defer b.closedLock.RUnlock()
-	return b.closed
+	b.state.mu.RLock()
+	defer b.state.mu.RUnlock()
+	return b.state.closed
 }
 
 // Publish sends a domain event from the scanner to the gateway.
@@ -499,7 +622,7 @@ func (b *EventBus) Publish(ctx context.Context, event events.EventEnvelope, opts
 	)
 	defer span.End()
 
-	if b.isClosed() {
+	if b.state.isClosed() {
 		err := errors.New("event bus is closed")
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
@@ -567,11 +690,7 @@ func (b *EventBus) Publish(ctx context.Context, event events.EventEnvelope, opts
 
 	var ackChan chan error
 	if isCritical {
-		ackChan = make(chan error, 1)
-		b.ackChannelsMu.Lock()
-		b.ackChannels[msgID] = ackChan
-		b.ackChannelsMu.Unlock()
-
+		ackChan = b.ackManager.createChannel(msgID)
 		logger.Debug(ctx, "Created acknowledgment channel for critical message",
 			"message_id", msgID,
 			"event_type", string(event.Type))
@@ -579,9 +698,7 @@ func (b *EventBus) Publish(ctx context.Context, event events.EventEnvelope, opts
 
 	if err := b.stream.Send(msg); err != nil {
 		if isCritical {
-			b.ackChannelsMu.Lock()
-			delete(b.ackChannels, msgID)
-			b.ackChannelsMu.Unlock()
+			b.ackManager.deleteChannel(msgID)
 		}
 
 		span.RecordError(err)
@@ -606,9 +723,7 @@ func (b *EventBus) Publish(ctx context.Context, event events.EventEnvelope, opts
 
 	select {
 	case err := <-ackChan:
-		b.ackChannelsMu.Lock()
-		delete(b.ackChannels, msgID)
-		b.ackChannelsMu.Unlock()
+		b.ackManager.deleteChannel(msgID)
 
 		if err != nil {
 			span.RecordError(err)
@@ -619,35 +734,35 @@ func (b *EventBus) Publish(ctx context.Context, event events.EventEnvelope, opts
 			return fmt.Errorf("message acknowledged with error: %w", err)
 		}
 
+		span.AddEvent("message_acknowledged_successfully")
 		span.SetStatus(codes.Ok, "message acknowledged successfully")
-		logger.Debug(ctx, "Message acknowledged successfully", "message_id", msgID)
+		logger.Debug(ctx, "Message acknowledged successfully")
 		return nil
 
 	case <-timeoutCtx.Done():
-		b.ackChannelsMu.Lock()
-		delete(b.ackChannels, msgID)
-		b.ackChannelsMu.Unlock()
+		// The acknowledgment timed out.
+		b.ackManager.deleteChannel(msgID)
 
-		err := fmt.Errorf(
+		timeoutErr := fmt.Errorf(
 			"timeout waiting for acknowledgment for (message_id: %s, event_type: %s): %w",
 			msgID,
 			event.Type,
 			timeoutCtx.Err(),
 		)
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
+		span.RecordError(timeoutErr)
+		span.SetStatus(codes.Error, timeoutErr.Error())
 		logger.Error(ctx, "Timeout waiting for acknowledgment", "timeout", defaultAckTimeout)
-		return err
+		return timeoutErr
 
 	case <-b.ctx.Done():
-		b.ackChannelsMu.Lock()
-		delete(b.ackChannels, msgID)
-		b.ackChannelsMu.Unlock()
+		// The bus is shutting down
+		b.ackManager.deleteChannel(msgID)
 
+		shutdownErr := fmt.Errorf("event bus shutting down")
+		span.RecordError(shutdownErr)
+		span.SetStatus(codes.Error, shutdownErr.Error())
 		span.AddEvent("critical_message_timeout")
-		span.SetStatus(codes.Error, "critical message timeout")
-
-		return fmt.Errorf("event bus shutting down")
+		return shutdownErr
 	}
 }
 
@@ -682,7 +797,7 @@ func (b *EventBus) Subscribe(
 	)
 	defer span.End()
 
-	if b.isClosed() {
+	if b.state.isClosed() {
 		err := errors.New("event bus is closed")
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
@@ -696,16 +811,15 @@ func (b *EventBus) Subscribe(
 		return err
 	}
 
-	b.handlersMu.Lock()
-	defer b.handlersMu.Unlock()
-
+	// Register handler for each event type
 	for _, evtType := range eventTypes {
-		b.handlers[evtType] = append(b.handlers[evtType], handler)
+		b.handlerRegistry.registerHandler(evtType, handler)
 		logger.Debug(ctx, "Subscribed to event type", "event_type", evtType)
 		span.AddEvent("subscribed_to_event_type")
 		span.SetAttributes(attribute.String("event_type", string(evtType)))
 	}
 
+	span.SetStatus(codes.Ok, "Successfully subscribed to events")
 	return nil
 }
 
@@ -721,11 +835,11 @@ func (b *EventBus) receiveLoop() {
 	logger.Info(ctx, "Receive loop started")
 	span.End()
 
-	for !b.isClosed() {
+	for !b.state.isClosed() {
 		ctx, span := b.tracer.Start(ctx, "EventBus.receiveLoop.recv")
 		msg, err := b.stream.Recv()
 		if err != nil {
-			if errors.Is(err, io.EOF) || b.isClosed() {
+			if errors.Is(err, io.EOF) || b.state.isClosed() {
 				span.AddEvent("receive_loop_ended")
 				span.SetStatus(codes.Ok, "receive loop ended")
 				logger.Info(ctx, "Receive loop ended")
@@ -802,10 +916,8 @@ func (b *EventBus) processGatewayMessage(msg *GatewayToScannerMessage) {
 			}
 		}
 
-		b.handlersMu.RLock()
-		handlers, exists := b.handlers[eventType]
-		b.handlersMu.RUnlock()
-
+		// Get handlers for this event type using handlerRegistry
+		handlers, exists := b.handlerRegistry.getHandlers(eventType)
 		if !exists || len(handlers) == 0 {
 			span.AddEvent("no_handlers_registered_for_event_type")
 			span.RecordError(fmt.Errorf("no handlers registered for event type: %s", string(eventType)))
@@ -866,6 +978,7 @@ func (b *EventBus) processGatewayMessage(msg *GatewayToScannerMessage) {
 		return
 	}
 
+	span.SetAttributes(attribute.String("event_type", string(eventType)))
 	if err := callback(ctx, eventType, payload); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
@@ -904,57 +1017,52 @@ func (b *EventBus) processAcknowledgment(
 	originalMsgID := ack.GetOriginalMessageId()
 	span.SetAttributes(attribute.String("original_message_id", originalMsgID))
 
-	b.ackChannelsMu.RLock()
-	ackChan, exists := b.ackChannels[originalMsgID]
-	b.ackChannelsMu.RUnlock()
+	var ackErr error
+	if !ack.GetSuccess() {
+		errMsg := ack.GetErrorMessage()
+		ackErr = fmt.Errorf("message processing failed: %s", errMsg)
+		span.RecordError(ackErr)
+		span.SetStatus(codes.Error, ackErr.Error())
+		span.AddEvent("negative_acknowledgment_received")
+		logger.Error(ctx, "Received negative acknowledgment", "error_message", errMsg)
+	} else {
+		span.AddEvent("positive_acknowledgment_received")
+		span.SetStatus(codes.Ok, "positive acknowledgment received")
+		logger.Debug(ctx, "Received positive acknowledgment")
+	}
 
-	if !exists {
+	// Use the ackManager to resolve the acknowledgment
+	if !b.ackManager.resolveAcknowledgment(originalMsgID, ackErr) {
 		// This could happen if the acknowledgment arrived after a timeout
 		// or for a non-critical message that doesn't require acknowledgment.
 		span.AddEvent("no_acknowledgment_channel_found")
 		span.SetStatus(codes.Ok, "no acknowledgment channel found")
 		span.RecordError(fmt.Errorf("no acknowledgment channel found for message ID: %s", originalMsgID))
 		logger.Debug(ctx, "Received acknowledgment for unknown or expired message ID")
-		return
 	}
-
-	if !ack.GetSuccess() {
-		errMsg := ack.GetErrorMessage()
-		err := fmt.Errorf("message processing failed: %s", errMsg)
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		span.AddEvent("negative_acknowledgment_received")
-		logger.Error(ctx, "Received negative acknowledgment", "error_message", errMsg)
-		ackChan <- err
-		return
-	}
-
-	// Success case.
-	span.AddEvent("positive_acknowledgment_received")
-	span.SetStatus(codes.Ok, "positive acknowledgment received")
-	logger.Debug(ctx, "Received positive acknowledgment")
-	ackChan <- nil
 }
 
 // Close gracefully shuts down the event bus and releases associated resources.
 // It cancels any pending operations, closes the connection, and ensures that
 // the receive loop is terminated before returning.
 func (b *EventBus) Close() error {
-	b.closedLock.Lock()
-	if b.closed {
-		b.closedLock.Unlock()
+	if b.state.isClosed() {
 		return nil
 	}
-	b.closed = true
-	b.closedLock.Unlock()
 
+	b.state.setClosed()
 	b.cancelFunc()
 
-	if err := b.stream.CloseSend(); err != nil {
-		b.logger.Error(b.ctx, "Error closing send direction of stream", "error", err)
+	// Clean up all pending acknowledgments
+	b.ackManager.cleanupAllChannels(errors.New("event bus closed"))
+
+	// Wait for receiver goroutine to exit
+	select {
+	case <-b.receiverDone:
+		// Receiver has exited
+	case <-time.After(5 * time.Second):
+		// Timed out waiting for receiver to exit
 	}
 
-	<-b.receiverDone
-
-	return nil
+	return b.stream.CloseSend()
 }
