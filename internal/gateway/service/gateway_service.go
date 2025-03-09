@@ -112,67 +112,6 @@ func WithAuthKey(key string) GatewayServiceOption {
 	return func(g *Service) { g.authKey = key }
 }
 
-// acknowledgmentTracker manages pending acknowledgments for outgoing messages.
-// It provides thread-safe operations for tracking and resolving acknowledgments.
-// TODO: We can add metrics around timings of acks.
-type acknowledgmentTracker struct {
-	mu      sync.RWMutex
-	pending map[string]chan error
-}
-
-// newAcknowledgmentTracker creates a new acknowledgment tracker.
-func newAcknowledgmentTracker() *acknowledgmentTracker {
-	return &acknowledgmentTracker{pending: make(map[string]chan error)}
-}
-
-// trackMessage starts tracking a message that requires acknowledgment.
-// It returns a channel that will receive the acknowledgment result.
-func (t *acknowledgmentTracker) trackMessage(messageID string) chan error {
-	ackChan := make(chan error, 1)
-
-	t.mu.Lock()
-	t.pending[messageID] = ackChan
-	t.mu.Unlock()
-
-	return ackChan
-}
-
-// resolveAcknowledgment resolves the acknowledgment for a message.
-// It sends the error (or nil for success) to the waiting channel if one exists.
-// Returns true if the message was being tracked, false otherwise.
-func (t *acknowledgmentTracker) resolveAcknowledgment(ctx context.Context, messageID string, err error) bool {
-	span := trace.SpanFromContext(ctx)
-	span.SetAttributes(
-		attribute.String("message_id", messageID),
-		attribute.Bool("success", err == nil),
-	)
-
-	t.mu.RLock()
-	ackChan, exists := t.pending[messageID]
-	t.mu.RUnlock()
-	if !exists {
-		span.AddEvent("unknown_message_id")
-		return false
-	}
-
-	ackChan <- err
-
-	t.mu.Lock()
-	delete(t.pending, messageID)
-	t.mu.Unlock()
-	span.AddEvent("resolved_acknowledgment")
-
-	return true
-}
-
-// stopTracking stops tracking a message without resolving its acknowledgment.
-// This is useful for timeouts or when cleaning up.
-func (t *acknowledgmentTracker) stopTracking(messageID string) {
-	t.mu.Lock()
-	delete(t.pending, messageID)
-	t.mu.Unlock()
-}
-
 // scannerRegistry manages the collection of connected scanners.
 // It provides thread-safe operations for registering, accessing, and removing scanners.
 type scannerRegistry struct {
@@ -295,7 +234,7 @@ type Service struct {
 
 	// Track outgoing messages that require acknowledgment.
 	// Critical for reliability and ensuring scanners process important commands.
-	ackTracker *acknowledgmentTracker
+	ackTracker *AcknowledgmentTracker
 
 	// Authentication settings.
 	// TODO: This will likely get ripped out of here and put into an interceptor.
@@ -333,24 +272,25 @@ func NewService(
 	tracer trace.Tracer,
 	options ...GatewayServiceOption,
 ) *Service {
-	svc := &Service{
+	s := &Service{
 		eventPublisher:    eventPublisher,
 		eventBus:          eventBus,
 		broadcastBus:      broadcastBus,
 		scanners:          newScannerRegistry(metrics),
 		broadcastScanners: newScannerRegistry(metrics),
-		ackTracker:        newAcknowledgmentTracker(),
+		ackTracker:        NewAcknowledgmentTracker(logger),
 		timeProvider:      timeutil.Default(),
 		logger:            logger,
 		metrics:           metrics,
 		tracer:            tracer,
 	}
 
+	// Apply options
 	for _, opt := range options {
-		opt(svc)
+		opt(s)
 	}
 
-	return svc
+	return s
 }
 
 // ConnectScanner handles a bidirectional gRPC stream connection from a scanner.
@@ -610,11 +550,15 @@ func (s *Service) processAcknowledgment(ctx context.Context, ack *pb.MessageAckn
 		logger.Debug(ctx, "Received positive acknowledgment")
 	}
 
-	if !s.ackTracker.resolveAcknowledgment(ctx, originalMsgID, err) {
+	if !s.ackTracker.ResolveAcknowledgment(ctx, originalMsgID, err) {
 		// This could happen if the acknowledgment arrived after a timeout
 		// or if the message didn't require an acknowledgment
 		span.AddEvent("unknown_message_id")
-		logger.Debug(ctx, "Received acknowledgment for unknown or expired message ID")
+		logger.Warn(ctx, "Received acknowledgment for unknown message",
+			"message_id", ack.OriginalMessageId,
+			"success", ack.Success,
+			"error", ack.ErrorMessage,
+		)
 		return
 	}
 	span.AddEvent("acknowledgment_resolved")
@@ -651,16 +595,19 @@ func (s *Service) sendMessageAcknowledgment(
 		ack.ErrorMessage = processingErr.Error()
 	}
 
-	gatewayMsg := &pb.GatewayToScannerMessage{MessageId: messageID}
-	if err := grpcbus.SetGatewayToScannerPayload(gatewayMsg, grpcbus.EventTypeMessageAck, ack); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		return fmt.Errorf("failed to set acknowledgment payload: %w", err)
+	msg := &pb.GatewayToScannerMessage{
+		MessageId: uuid.New().String(),
+		Timestamp: s.timeProvider.Now().UnixNano(),
+		Payload: &pb.GatewayToScannerMessage_Ack{
+			Ack: ack,
+		},
 	}
 
-	if err := conn.stream.Send(gatewayMsg); err != nil {
+	// Send the acknowledgment back to the scanner.
+	// Acknowledgments don't need to be tracked as they don't require acknowledgments themselves.
+	if err := conn.stream.Send(msg); err != nil {
 		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
+		span.SetStatus(codes.Error, "Failed to send acknowledgment")
 		return fmt.Errorf("failed to send acknowledgment: %w", err)
 	}
 	span.AddEvent("acknowledgment_message_sent")
@@ -775,7 +722,7 @@ func (s *Service) subscribeToEvents(ctx context.Context, scannerID string) error
 		span.AddEvent("domain_message_converted_to_scanner_message")
 
 		// All messages from gateway to scanner are critical commands requiring acknowledgment.
-		ackChan := s.ackTracker.trackMessage(msg.MessageId)
+		ackChan := s.ackTracker.TrackMessage(msg.MessageId)
 
 		// Send the message to the scanner.
 		if err := conn.stream.Send(msg); err != nil {
@@ -786,7 +733,7 @@ func (s *Service) subscribeToEvents(ctx context.Context, scannerID string) error
 				"error", err)
 
 			// Clean up the acknowledgment tracking
-			s.ackTracker.stopTracking(msg.MessageId)
+			s.ackTracker.StopTracking(msg.MessageId)
 
 			ack(err)
 			return nil // Continue processing other events
@@ -822,7 +769,7 @@ func (s *Service) subscribeToEvents(ctx context.Context, scannerID string) error
 
 		case <-timeoutCtx.Done():
 			// The acknowledgment timed out
-			s.ackTracker.stopTracking(msg.MessageId)
+			s.ackTracker.StopTracking(msg.MessageId)
 
 			err := fmt.Errorf("acknowledgment timeout for message: %s", msg.MessageId)
 			span.RecordError(err)
@@ -1138,11 +1085,11 @@ func (s *Service) subscribeToBroadcastEvents(
 		}
 
 		// Track broadcast messages the same way we track regular messages.
-		ackChan := s.ackTracker.trackMessage(gatewayMsg.MessageId)
+		ackChan := s.ackTracker.TrackMessage(gatewayMsg.MessageId)
 		span.AddEvent("broadcast_message_tracked_for_acknowledgment")
 
 		if err := stream.Send(gatewayMsg); err != nil {
-			s.ackTracker.stopTracking(gatewayMsg.MessageId)
+			s.ackTracker.StopTracking(gatewayMsg.MessageId)
 
 			logger.Error(ctx, "Failed to send broadcast event to scanner",
 				"event_type", evt.Type,
@@ -1185,7 +1132,7 @@ func (s *Service) subscribeToBroadcastEvents(
 				logger.Error(ctx, "Timeout waiting for broadcast acknowledgment",
 					"message_id", gatewayMsg.MessageId)
 
-				s.ackTracker.stopTracking(gatewayMsg.MessageId)
+				s.ackTracker.StopTracking(gatewayMsg.MessageId)
 
 				if ack != nil {
 					ack(timeoutErr)
@@ -1280,7 +1227,7 @@ func (s *Service) processBroadcastMessage(
 			span.SetStatus(codes.Ok, "Scanner successfully processed broadcast message")
 		}
 
-		resolved := s.ackTracker.resolveAcknowledgment(ctx, originalMsgID, ackErr)
+		resolved := s.ackTracker.ResolveAcknowledgment(ctx, originalMsgID, ackErr)
 		if !resolved {
 			// This can happen if acknowledgment arrived after timeout.
 			span.AddEvent("acknowledgment_for_expired_message")
