@@ -61,7 +61,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"sync"
 	"time"
 
@@ -69,7 +68,6 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 	protoCodes "google.golang.org/grpc/codes"
-	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
@@ -475,7 +473,12 @@ func (s *Service) processIncomingScannerMessage(
 	conn *scannerConnection,
 	msg *pb.ScannerToGatewayMessage,
 ) error {
-	ctx, span := s.tracer.Start(ctx, "gateway.processIncomingScannerMessage")
+	ctx, span := s.tracer.Start(ctx, "gateway.processIncomingScannerMessage",
+		trace.WithAttributes(
+			attribute.String("scanner_id", conn.id),
+			attribute.String("message_id", msg.MessageId),
+		),
+	)
 	defer span.End()
 
 	logger := s.logger.With(
@@ -485,9 +488,9 @@ func (s *Service) processIncomingScannerMessage(
 	)
 
 	conn.lastActivity = s.timeProvider.Now()
-	messageType := msg.MessageId // Simplified for now
+	// messageType := msg.MessageId // Simplified for now
 
-	s.metrics.IncMessagesReceived(ctx, messageType)
+	// s.metrics.IncMessagesReceived(ctx, messageType)
 
 	eventType, payload, err := grpcbus.ExtractScannerMessageInfo(ctx, msg)
 	if err != nil {
@@ -499,44 +502,73 @@ func (s *Service) processIncomingScannerMessage(
 
 	// Handle acknowledgement messages earlier to short-circuit the processing.
 	if eventType == grpcbus.EventTypeMessageAck {
+		span.AddEvent("message_ack_received")
 		if ack, ok := payload.(*pb.MessageAcknowledgment); ok {
 			s.processAcknowledgment(ctx, ack)
+			span.AddEvent("message_ack_processed")
 			return nil
 		}
 	}
 
+	routingKey := msg.GetRoutingKey()
 	isCritical := reliability.IsCriticalEvent(eventType)
-
+	span.SetAttributes(attribute.Bool("is_critical", isCritical))
 	logger.Debug(ctx, "Processing scanner message",
 		"event_type", string(eventType),
 		"is_critical", isCritical,
+		"routing_key", routingKey,
 	)
 
-	var processingErr error
+	var options []events.PublishOption
+	if routingKey != "" {
+		options = append(options, events.WithKey(routingKey))
+	}
+
+	var (
+		domainEvent events.DomainEvent
+		evtType     events.EventType
+	)
+
 	switch eventType {
 	case scanning.EventTypeScannerHeartbeat:
+		span.AddEvent("scanner_heartbeat_received")
 		s.metrics.IncScannerHeartbeats(ctx)
 
 	case scanning.EventTypeTaskProgressed:
+		span.AddEvent("task_progressed_received")
 		s.metrics.IncTaskProgress(ctx)
 		if event, ok := payload.(scanning.TaskProgressedEvent); ok {
-			processingErr = s.publishDomainEvent(ctx, scanning.EventTypeTaskProgressed, event)
+			domainEvent = event
+			evtType = scanning.EventTypeTaskProgressed
 		}
 
 	case scanning.EventTypeTaskCompleted:
+		span.AddEvent("task_completed_received")
 		if result, ok := payload.(scanning.TaskCompletedEvent); ok {
-			s.metrics.IncScanResults(ctx)
-			processingErr = s.publishDomainEvent(ctx, scanning.EventTypeTaskCompleted, result)
+			domainEvent = result
+			evtType = scanning.EventTypeTaskCompleted
 		}
 
 	case scanning.EventTypeTaskFailed:
+		span.AddEvent("task_failed_received")
 		if result, ok := payload.(scanning.TaskFailedEvent); ok {
 			s.metrics.IncScanResults(ctx)
-			processingErr = s.publishDomainEvent(ctx, scanning.EventTypeTaskFailed, result)
+			domainEvent = result
+			evtType = scanning.EventTypeTaskFailed
 		}
 
 	default:
-		processingErr = s.publishDomainEvent(ctx, eventType, payload)
+		span.AddEvent("unknown_event_type")
+		evtType = eventType
+	}
+
+	processingErr := s.publishDomainEvent(ctx, evtType, domainEvent, options...)
+	if processingErr != nil {
+		span.RecordError(processingErr)
+		span.SetStatus(codes.Error, processingErr.Error())
+		logger.Error(ctx, "Failed to publish domain event", "error", processingErr)
+	} else {
+		span.AddEvent("domain_event_published")
 	}
 
 	if isCritical {
@@ -558,6 +590,12 @@ func (s *Service) processAcknowledgment(ctx context.Context, ack *pb.MessageAckn
 		"component", "gateway.processAcknowledgment",
 		"original_message_id", ack.GetOriginalMessageId(),
 	)
+	span := trace.SpanFromContext(ctx)
+	span.SetAttributes(
+		attribute.String("original_message_id", ack.GetOriginalMessageId()),
+		attribute.Bool("success", ack.GetSuccess()),
+	)
+	defer span.End()
 
 	originalMsgID := ack.GetOriginalMessageId()
 
@@ -565,20 +603,26 @@ func (s *Service) processAcknowledgment(ctx context.Context, ack *pb.MessageAckn
 	if !ack.GetSuccess() {
 		errMsg := ack.GetErrorMessage()
 		err = fmt.Errorf("message processing failed: %s", errMsg)
+		span.AddEvent("negative_acknowledgment_received")
 		logger.Error(ctx, "Received negative acknowledgment", "error_message", errMsg)
 	} else {
+		span.AddEvent("positive_acknowledgment_received")
 		logger.Debug(ctx, "Received positive acknowledgment")
 	}
 
-	// Resolve the acknowledgment
 	if !s.ackTracker.resolveAcknowledgment(ctx, originalMsgID, err) {
 		// This could happen if the acknowledgment arrived after a timeout
 		// or if the message didn't require an acknowledgment
+		span.AddEvent("unknown_message_id")
 		logger.Debug(ctx, "Received acknowledgment for unknown or expired message ID")
+		return
 	}
+	span.AddEvent("acknowledgment_resolved")
 }
 
 // sendMessageAcknowledgment sends an acknowledgment for a critical message.
+// TODO: REtry?
+// Maybe retry with an interceptor, not sure if that's possible with streaming RPCs.
 func (s *Service) sendMessageAcknowledgment(
 	ctx context.Context,
 	conn *scannerConnection,
@@ -586,111 +630,80 @@ func (s *Service) sendMessageAcknowledgment(
 	success bool,
 	processingErr error,
 ) error {
-	ack := &pb.MessageAcknowledgment{
-		OriginalMessageId: messageID,
-		Success:           success,
-		ScannerId:         conn.id,
-	}
+	logger := s.logger.With(
+		"component", "gateway.sendMessageAcknowledgment",
+		"message_id", messageID,
+		"success", success,
+	)
+	ctx, span := s.tracer.Start(ctx, "gateway.sendMessageAcknowledgment",
+		trace.WithAttributes(
+			attribute.String("message_id", messageID),
+			attribute.Bool("success", success),
+		),
+	)
+	defer span.End()
+
+	ack := &pb.MessageAcknowledgment{OriginalMessageId: messageID, Success: success, ScannerId: conn.id}
 
 	if !success && processingErr != nil {
+		logger.Warn(ctx, "Failed to process message, sending negative acknowledgment", "error", processingErr)
+		span.AddEvent("sending_negative_acknowledgment")
 		ack.ErrorMessage = processingErr.Error()
 	}
 
-	gatewayMsg := &pb.GatewayToScannerMessage{
-		MessageId: uuid.New().String(),
-	}
-
-	if err := grpcbus.SetGatewayToScannerPayload(gatewayMsg, events.EventType("MessageAck"), ack); err != nil {
+	gatewayMsg := &pb.GatewayToScannerMessage{MessageId: messageID}
+	if err := grpcbus.SetGatewayToScannerPayload(gatewayMsg, grpcbus.EventTypeMessageAck, ack); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return fmt.Errorf("failed to set acknowledgment payload: %w", err)
 	}
 
 	if err := conn.stream.Send(gatewayMsg); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return fmt.Errorf("failed to send acknowledgment: %w", err)
 	}
-
+	span.AddEvent("acknowledgment_message_sent")
+	logger.Debug(ctx, "Sent acknowledgment message")
 	s.metrics.IncMessagesSent(ctx, "ack")
+
 	return nil
 }
 
 // publishDomainEvent publishes a domain event to the event publisher.
 // The payload should already implement the events.DomainEvent interface.
-func (s *Service) publishDomainEvent(ctx context.Context, eventType events.EventType, payload any) error {
+func (s *Service) publishDomainEvent(
+	ctx context.Context,
+	eventType events.EventType,
+	payload any,
+	opts ...events.PublishOption,
+) error {
+	ctx, span := s.tracer.Start(ctx, "gateway.publishDomainEvent",
+		trace.WithAttributes(
+			attribute.String("event_type", string(eventType)),
+		),
+	)
+	defer span.End()
+
 	domainEvent, ok := payload.(events.DomainEvent)
 	if !ok {
+		span.RecordError(fmt.Errorf("payload does not implement the DomainEvent interface: %T", payload))
+		span.SetStatus(codes.Error, fmt.Sprintf("payload does not implement the DomainEvent interface: %T", payload))
 		return fmt.Errorf("payload does not implement the DomainEvent interface: %T", payload)
 	}
 
 	if domainEvent.EventType() != eventType {
+		span.RecordError(fmt.Errorf("event type mismatch: expected %s, got %s", eventType, domainEvent.EventType()))
+		span.SetStatus(codes.Error, fmt.Sprintf("event type mismatch: expected %s, got %s", eventType, domainEvent.EventType()))
 		return fmt.Errorf("event type mismatch: expected %s, got %s", eventType, domainEvent.EventType())
 	}
 
-	options := []events.PublishOption{
-		events.WithHeaders(map[string]string{
-			"source": "gateway",
-			"time":   s.timeProvider.Now().Format(time.RFC3339Nano),
-		}),
-	}
-
-	return s.eventPublisher.PublishDomainEvent(ctx, domainEvent, options...)
-}
-
-// publishScannerRegisteredEvent converts and publishes a scanner registered event
-func (s *Service) publishScannerRegisteredEvent(ctx context.Context, event *pb.ScannerRegisteredEvent) error {
-	logger := s.logger.With(
-		"operation", "publishScannerRegisteredEvent",
-		"scanner_id", event.ScannerName,
-		"scanner_version", event.Version,
-		"scanner_hostname", event.Hostname,
-	)
-	ctx, span := s.tracer.Start(ctx, "gateway.publish_scanner_registered_event")
-	defer span.End()
-
-	ipAddress := ""
-	if peer, ok := peer.FromContext(ctx); ok && peer.Addr != nil {
-		ipAddress = peer.Addr.String()
-		if host, _, err := net.SplitHostPort(ipAddress); err == nil {
-			ipAddress = host
-		}
-		span.SetAttributes(attribute.String("client.ip", ipAddress))
-	}
-
-	// If the event already has an IP address, prioritize that (but fallback to peer info).
-	if event.IpAddress == "" {
-		event.IpAddress = ipAddress
-	}
-
-	regEvent := scanning.NewScannerRegisteredEvent(
-		event.ScannerName,
-		event.Version,
-		event.Capabilities,
-		event.Hostname,
-		event.IpAddress,
-		event.GroupName,
-		event.Tags,
-		scanning.ScannerStatusFromInt32(int32(event.InitialStatus)),
-	)
-	span.SetAttributes(
-		attribute.String("scanner.name", event.ScannerName),
-		attribute.String("scanner.version", event.Version),
-		attribute.String("scanner.hostname", event.Hostname),
-		attribute.StringSlice("scanner.capabilities", event.Capabilities),
-	)
-
-	err := s.eventPublisher.PublishDomainEvent(
-		ctx,
-		regEvent,
-		events.WithKey(fmt.Sprintf("%s:%s", event.ScannerName, event.GroupName)),
-	)
-	if err != nil {
+	if err := s.eventPublisher.PublishDomainEvent(ctx, domainEvent, opts...); err != nil {
 		span.RecordError(err)
-		span.SetStatus(codes.Error, "Failed to publish scanner registration event")
-		return fmt.Errorf("failed to publish scanner registration event: %w", err)
+		span.SetStatus(codes.Error, err.Error())
+		return fmt.Errorf("failed to publish domain event: %w", err)
 	}
-	span.AddEvent("scanner_registration_event_published")
-
-	s.metrics.IncScannerRegistrations(ctx)
-	span.SetStatus(codes.Ok, "Successfully published scanner registration event")
-	logger.Info(ctx, "Scanner registered")
+	span.AddEvent("domain_event_published")
 
 	return nil
 }
@@ -741,7 +754,9 @@ func (s *Service) subscribeToEvents(ctx context.Context, scannerID string) error
 	// all commands from gateway to scanner are treated as critical and must be acknowledged.
 	handler := func(ctx context.Context, evt events.EventEnvelope, ack events.AckFunc) error {
 		ctx, span := s.tracer.Start(ctx, "gateway.subscribeToEvents.handler",
-			trace.WithAttributes(attribute.String("event_type", string(evt.Type))),
+			trace.WithAttributes(
+				attribute.String("event_type", string(evt.Type)),
+			),
 		)
 		defer span.End()
 
@@ -759,7 +774,7 @@ func (s *Service) subscribeToEvents(ctx context.Context, scannerID string) error
 		}
 		span.AddEvent("domain_message_converted_to_scanner_message")
 
-		// All messages from gateway to scanner are critical commands requiring acknowledgment
+		// All messages from gateway to scanner are critical commands requiring acknowledgment.
 		ackChan := s.ackTracker.trackMessage(msg.MessageId)
 
 		// Send the message to the scanner.
