@@ -200,116 +200,143 @@ func NewService(
 	return svc
 }
 
-// ConnectScanner handles bidirectional streaming connection from scanners.
-// This is the primary connection point for scanners to communicate with the system.
-// It handles scanner registration, authentication, and bidirectional message exchange.
-// Each scanner must establish this connection before publishing/subscribing to events.
+// ConnectScanner handles a bidirectional gRPC stream connection from a scanner.
+// The first message must be a ScannerRegistrationRequest to establish the connection.
+// All subsequent messages are handled via streaming with acknowledgments for critical messages.
 func (s *Service) ConnectScanner(stream pb.ScannerGatewayService_ConnectScannerServer) error {
-	logger := logger.NewLoggerContext(s.logger.With("operation", "ConnectScanner"))
-	ctx, span := s.tracer.Start(stream.Context(), "gateway.connect_scanner")
+	logger := logger.NewLoggerContext(s.logger.With("component", "gateway.ConnectScanner"))
+	ctx, span := s.tracer.Start(stream.Context(), "gateway.ConnectScanner")
 	defer span.End()
 
-	logger.Info(ctx, "New scanner connection established")
-
-	// Wait for the initial message which should be a registration.
 	initMsg, err := stream.Recv()
 	if err != nil {
-		logger.Error(ctx, "Failed to receive initial message from scanner", "error", err)
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to receive initial message")
+		logger.Error(ctx, "Failed to receive initial message", "error", err)
 		return status.Errorf(protoCodes.Internal, "Failed to receive initial message: %v", err)
 	}
 
-	scannerID := initMsg.GetScannerId()
-	if scannerID == "" {
-		span.SetStatus(codes.Error, "Scanner ID is required")
-		span.RecordError(errors.New("scanner ID is required"))
-		return status.Errorf(protoCodes.InvalidArgument, "Scanner ID is required")
+	// Wait for the first message which **must** be a "ScannerRegistrationRequest".
+	msgID := initMsg.GetMessageId()
+	if msgID == "" {
+		span.RecordError(errors.New("message ID is empty"))
+		span.SetStatus(codes.Error, "Message ID is empty")
+		logger.Error(ctx, "Message ID is empty")
+		return status.Errorf(protoCodes.InvalidArgument, "Message ID is empty")
+	}
+	logger.Add("message_id", msgID)
+	span.SetAttributes(attribute.String("message_id", msgID))
+
+	regRequest := initMsg.GetRegistration()
+	if regRequest == nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "First message must be a registration request")
+		logger.Error(ctx, "First message must be a registration request")
+		return status.Errorf(protoCodes.InvalidArgument, "First message must be a registration request")
 	}
 
-	logger.Add("scanner_id", scannerID)
+	scannerID := regRequest.ScannerName
+	if scannerID == "" {
+		// TODO: Revist this and maybe return an error. Not sure why we would
+		// want to generate a new UUID if the scanner didn't provide a name.
+		logger.Warn(ctx, "Scanner name is empty, generating UUID")
+		scannerID = uuid.New().String()
+		span.AddEvent("scanner_name_empty")
+	}
 	span.SetAttributes(attribute.String("scanner_id", scannerID))
+	logger.Add("scanner_id", scannerID)
 	logger.Info(ctx, "Scanner connected")
 
+	// TODO: Move all this auth nonsense into an interceptor.
 	if s.authKey != "" && initMsg.GetAuthToken() != s.authKey {
 		logger.Warn(ctx, "Scanner authentication failed")
 		s.metrics.IncAuthErrors(ctx)
+		span.RecordError(errors.New("authentication failed"))
 		span.SetStatus(codes.Error, "Authentication failed")
 		return status.Errorf(protoCodes.Unauthenticated, "Invalid authentication token")
 	}
 
-	// The first message must be a registration
-	var scannerName, version, hostname, groupName string
-	var capabilities []string
-
-	// Check if it's using the new scanner_registered field
-	scannerRegistered := initMsg.GetScannerRegistered()
-	regRequest := initMsg.GetRegistration()
-
-	if scannerRegistered != nil {
-		// New format: using ScannerRegisteredEvent directly
-		scannerName = scannerRegistered.ScannerName
-		version = scannerRegistered.Version
-		hostname = scannerRegistered.Hostname
-		groupName = scannerRegistered.GroupName
-		capabilities = scannerRegistered.Capabilities
-	} else if regRequest != nil {
-		// Legacy format: using ScannerRegistrationRequest
-		scannerName = regRequest.ScannerName
-		version = regRequest.Version
-		hostname = regRequest.Hostname
-		groupName = regRequest.GroupName
-		capabilities = regRequest.Capabilities
-	} else {
-		logger.Error(ctx, "First message from scanner was not a registration")
-		span.SetStatus(codes.Error, "Expected registration message")
-		return status.Errorf(protoCodes.InvalidArgument, "First message must be a registration")
-	}
-
-	// Validate the registration information
-	if scannerName == "" {
-		logger.Error(ctx, "Registration missing scanner name")
-		span.SetStatus(codes.Error, "Invalid registration: missing scanner name")
-		return status.Errorf(protoCodes.InvalidArgument, "Scanner name is required")
-	}
-	span.SetAttributes(
-		attribute.String("scanner_version", version),
-		attribute.String("scanner_group", groupName),
-		attribute.String("scanner_hostname", hostname),
-	)
 	logger.Add(
-		"scanner_version", version,
-		"scanner_group", groupName,
-		"scanner_hostname", hostname,
+		"scanner_name", regRequest.ScannerName,
+		"version", regRequest.Version,
+		"hostname", regRequest.Hostname,
+		"group", regRequest.GroupName,
+		"capabilities", regRequest.Capabilities,
+	)
+	span.SetAttributes(
+		attribute.String("scanner_name", scannerID),
+		attribute.String("version", regRequest.Version),
+		attribute.String("hostname", regRequest.Hostname),
+		attribute.String("group", regRequest.GroupName),
 	)
 
-	if scannerID == "unknown" || scannerID != scannerName {
-		scannerID = scannerName
-		logger.Add("scanner_id", scannerID)
-		span.SetAttributes(attribute.String("scanner_id", scannerID))
-	}
-
-	// Check if scanner already connected.
-	s.scannersMu.RLock()
-	existingConn, exists := s.scanners[scannerID]
-	s.scannersMu.RUnlock()
-
-	if exists {
-		logger.Warn(ctx, "Scanner reconnecting while existing connection is active",
-			"existing_connection_time", existingConn.connected)
-		span.SetAttributes(attribute.Bool("is_reconnect", true))
-		s.removeScanner(ctx, scannerID)
-	}
-
-	now := s.timeProvider.Now()
 	conn := &scannerConnection{
 		id:           scannerID,
 		stream:       stream,
-		connected:    now,
-		lastActivity: now,
-		capabilities: capabilities,
-		version:      version,
+		connected:    s.timeProvider.Now(),
+		lastActivity: s.timeProvider.Now(),
+		capabilities: regRequest.Capabilities,
+		version:      regRequest.Version,
 	}
+
+	if err := s.registerScannerConnection(ctx, scannerID, conn); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return fmt.Errorf("failed to register scanner connection: %w", err)
+	}
+	logger.Info(ctx, "Scanner registered")
+	span.AddEvent("scanner_registered")
+
+	if err := s.sendRegistrationResponse(ctx, stream, scannerID, msgID); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		s.unregisterScanner(ctx, scannerID)
+		return fmt.Errorf("failed to send registration response: %w", err)
+	}
+	logger.Info(ctx, "Registration response sent")
+	span.AddEvent("registration_response_sent")
+
+	if err := s.subscribeToEvents(ctx, scannerID); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		s.unregisterScanner(ctx, scannerID)
+		return fmt.Errorf("failed to subscribe to events: %w", err)
+	}
+	logger.Info(ctx, "Subscribed to events")
+	span.AddEvent("subscribed_to_events")
+
+	if err = s.handleScannerMessages(ctx, conn); err != nil {
+		s.unregisterScanner(ctx, scannerID)
+
+		span.SetStatus(codes.Error, err.Error())
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return err
+	}
+
+	logger.Info(ctx, "Scanner connection closed")
+	return nil
+}
+
+// registerScannerConnection registers a scanner connection in the scanners map.
+func (s *Service) registerScannerConnection(ctx context.Context, scannerID string, conn *scannerConnection) error {
+	logger := s.logger.With("operation", "registerScannerConnection", "scanner_id", scannerID)
+	ctx, span := s.tracer.Start(ctx, "gateway.registerScannerConnection",
+		trace.WithAttributes(attribute.String("scanner_id", scannerID)),
+	)
+	defer span.End()
+
+	span.AddEvent("registering_scanner_connection")
+
+	s.scannersMu.RLock()
+	existingConn, exists := s.scanners[scannerID]
+	if exists {
+		span.AddEvent("scanner_reconnecting_while_active")
+		logger.Warn(ctx, "Scanner reconnecting while existing connection is active",
+			"existing_connection_time", existingConn.connected)
+		s.unregisterScanner(ctx, scannerID)
+	}
+	s.scannersMu.RUnlock()
 
 	s.scannersMu.Lock()
 	s.scanners[scannerID] = conn
@@ -318,51 +345,167 @@ func (s *Service) ConnectScanner(stream pb.ScannerGatewayService_ConnectScannerS
 
 	s.metrics.IncConnectedScanners(ctx)
 	s.metrics.SetConnectedScanners(ctx, connectedScanners)
-	span.SetAttributes(attribute.Int("connected_scanners", connectedScanners))
 
-	if err := s.sendRegistrationResponse(ctx, stream, scannerID, "scanner registered successfully"); err != nil {
-		logger.Error(ctx, "Failed to send registration response", "error", err)
+	span.AddEvent("scanner_connection_registered")
+	logger.Info(ctx, "Scanner connection registered")
+
+	return nil
+}
+
+// processIncomingScannerMessage handles a message from a scanner and sends acknowledgment for critical messages.
+func (s *Service) processIncomingScannerMessage(
+	ctx context.Context,
+	conn *scannerConnection,
+	msg *pb.ScannerToGatewayMessage,
+) error {
+	ctx, span := s.tracer.Start(ctx, "gateway.processIncomingScannerMessage")
+	defer span.End()
+
+	logger := s.logger.With(
+		"component", "gateway.processIncomingScannerMessage",
+		"scanner_id", conn.id,
+		"message_id", msg.MessageId,
+	)
+
+	conn.lastActivity = s.timeProvider.Now()
+	messageType := msg.MessageId // Simplified for now
+
+	s.metrics.IncMessagesReceived(ctx, messageType)
+
+	eventType, payload, err := grpcbus.ExtractScannerMessageInfo(ctx, msg)
+	if err != nil {
+		logger.Error(ctx, "Failed to extract message info", "error", err)
 		span.RecordError(err)
-		span.SetStatus(codes.Error, "Failed to send registration response")
-
-		s.removeScanner(ctx, scannerID)
-		return err
+		span.SetStatus(codes.Error, err.Error())
+		return fmt.Errorf("failed to extract message info: %w", err)
 	}
 
-	logger.Info(ctx, "Scanner registered successfully")
+	isCritical := s.isCriticalEvent(eventType)
 
-	// Publish domain event for scanner registration.
-	if scannerRegistered != nil {
-		if err := s.publishScannerRegisteredEvent(ctx, scannerRegistered); err != nil {
-			logger.Error(ctx, "Failed to publish scanner registered event", "error", err)
-			span.RecordError(err)
-			// Continue even if we fail to publish the event
-			// The scanner is still connected and usable
+	logger.Debug(ctx, "Processing scanner message",
+		"event_type", string(eventType),
+		"is_critical", isCritical,
+	)
+
+	var processingErr error
+	switch eventType {
+	case scanning.EventTypeScannerHeartbeat:
+		s.metrics.IncScannerHeartbeats(ctx)
+
+	case events.EventType("MessageAck"):
+		// Typically no action needed for scanner->gateway acks
+
+	case scanning.EventTypeTaskProgressed:
+		s.metrics.IncTaskProgress(ctx)
+		if event, ok := payload.(scanning.TaskProgressedEvent); ok {
+			processingErr = s.publishDomainEvent(ctx, scanning.EventTypeTaskProgressed, event)
 		}
-	} else if regRequest != nil {
-		// TODO: This eventually won't result in a domain event getting published.
-		if err := s.publishScannerRegistration(ctx, regRequest); err != nil {
-			logger.Error(ctx, "Failed to publish scanner registration event", "error", err)
-			span.RecordError(err)
-			// Continue even if we fail to publish the event
-			// The scanner is still connected and usable
+
+	case scanning.EventTypeTaskCompleted:
+		if result, ok := payload.(scanning.TaskCompletedEvent); ok {
+			s.metrics.IncScanResults(ctx)
+			processingErr = s.publishDomainEvent(ctx, scanning.EventTypeTaskCompleted, result)
+		}
+
+	case scanning.EventTypeTaskFailed:
+		if result, ok := payload.(scanning.TaskFailedEvent); ok {
+			s.metrics.IncScanResults(ctx)
+			processingErr = s.publishDomainEvent(ctx, scanning.EventTypeTaskFailed, result)
+		}
+
+	default:
+		processingErr = s.publishDomainEvent(ctx, eventType, payload)
+	}
+
+	if isCritical {
+		ackErr := s.sendMessageAcknowledgment(ctx, conn, msg.MessageId, processingErr == nil, processingErr)
+		if ackErr != nil {
+			logger.Error(ctx, "Failed to send message acknowledgment", "error", ackErr)
+			span.RecordError(ackErr)
+			// We don't return the ack error as it's secondary to the processing error
 		}
 	}
 
-	// Start event subscription for this scanner.
-	if err := s.subscribeToEvents(ctx, scannerID); err != nil {
-		logger.Error(ctx, "Failed to subscribe to events", "error", err)
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "Failed to subscribe to events")
+	return processingErr
+}
 
-		s.removeScanner(ctx, scannerID)
-		return status.Errorf(protoCodes.Internal, "Failed to subscribe to events: %v", err)
+// sendMessageAcknowledgment sends an acknowledgment for a critical message.
+func (s *Service) sendMessageAcknowledgment(
+	ctx context.Context,
+	conn *scannerConnection,
+	messageID string,
+	success bool,
+	processingErr error,
+) error {
+	ack := &pb.MessageAcknowledgment{
+		OriginalMessageId: messageID,
+		Success:           success,
+		ScannerId:         conn.id,
 	}
-	span.AddEvent("events_subscribed")
 
-	// Handle incoming messages from the scanner.
-	// This will block until the scanner disconnects.
-	return s.handleScannerMessages(ctx, conn)
+	if !success && processingErr != nil {
+		ack.ErrorMessage = processingErr.Error()
+	}
+
+	gatewayMsg := &pb.GatewayToScannerMessage{
+		MessageId: uuid.New().String(),
+	}
+
+	if err := grpcbus.SetGatewayToScannerPayload(gatewayMsg, events.EventType("MessageAck"), ack); err != nil {
+		return fmt.Errorf("failed to set acknowledgment payload: %w", err)
+	}
+
+	if err := conn.stream.Send(gatewayMsg); err != nil {
+		return fmt.Errorf("failed to send acknowledgment: %w", err)
+	}
+
+	s.metrics.IncMessagesSent(ctx, "ack")
+	return nil
+}
+
+// isCriticalEvent determines if an event type represents a critical message
+// that requires acknowledgment for reliability.
+func (s *Service) isCriticalEvent(eventType events.EventType) bool {
+	switch eventType {
+	case scanning.EventTypeTaskCompleted,
+		scanning.EventTypeTaskFailed,
+		scanning.EventTypeTaskCancelled:
+		return true
+	case scanning.EventTypeScannerRegistered,
+		scanning.EventTypeScannerDeregistered,
+		scanning.EventTypeScannerStatusChanged:
+		return true
+	case rules.EventTypeRulesUpdated, rules.EventTypeRulesPublished:
+		return true
+	case scanning.EventTypeTaskProgressed,
+		scanning.EventTypeTaskJobMetric,
+		scanning.EventTypeTaskHeartbeat:
+		return false
+	default:
+		return false
+	}
+}
+
+// publishDomainEvent publishes a domain event to the event publisher.
+// The payload should already implement the events.DomainEvent interface.
+func (s *Service) publishDomainEvent(ctx context.Context, eventType events.EventType, payload any) error {
+	domainEvent, ok := payload.(events.DomainEvent)
+	if !ok {
+		return fmt.Errorf("payload does not implement the DomainEvent interface: %T", payload)
+	}
+
+	if domainEvent.EventType() != eventType {
+		return fmt.Errorf("event type mismatch: expected %s, got %s", eventType, domainEvent.EventType())
+	}
+
+	options := []events.PublishOption{
+		events.WithHeaders(map[string]string{
+			"source": "gateway",
+			"time":   s.timeProvider.Now().Format(time.RFC3339Nano),
+		}),
+	}
+
+	return s.eventPublisher.PublishDomainEvent(ctx, domainEvent, options...)
 }
 
 // publishScannerRegisteredEvent converts and publishes a scanner registered event
@@ -426,67 +569,6 @@ func (s *Service) publishScannerRegisteredEvent(ctx context.Context, event *pb.S
 	return nil
 }
 
-// publishScannerRegistration converts and publishes a scanner registration event
-// TODO: This will eventually be removed since this is a legacy path.
-func (s *Service) publishScannerRegistration(ctx context.Context, req *pb.ScannerRegistrationRequest) error {
-	logger := s.logger.With(
-		"operation", "publishScannerRegistration",
-		"scanner_id", req.ScannerName,
-		"scanner_version", req.Version,
-		"scanner_hostname", req.Hostname,
-		"scanner_group", req.GroupName,
-	)
-	ctx, span := s.tracer.Start(ctx, "gateway.publish_scanner_registration")
-	defer span.End()
-
-	ipAddress := ""
-	if peer, ok := peer.FromContext(ctx); ok && peer.Addr != nil {
-		ipAddress = peer.Addr.String()
-		if host, _, err := net.SplitHostPort(ipAddress); err == nil {
-			ipAddress = host
-		}
-		span.SetAttributes(attribute.String("client.ip", ipAddress))
-	}
-
-	// Create domain event directly using scanner registration data.
-	// This is similar to what scanner_registrar.go does.
-	regEvent := scanning.NewScannerRegisteredEvent(
-		req.ScannerName,
-		req.Version,
-		req.Capabilities,
-		req.Hostname,
-		ipAddress, // IP address extracted from gRPC context
-		req.GroupName,
-		req.Tags,
-		scanning.ScannerStatusOnline, // Default to ONLINE status for new registrations
-	)
-
-	span.SetAttributes(
-		attribute.String("scanner.name", req.ScannerName),
-		attribute.String("scanner.version", req.Version),
-		attribute.String("scanner.hostname", req.Hostname),
-		attribute.StringSlice("scanner.capabilities", req.Capabilities),
-	)
-
-	err := s.eventPublisher.PublishDomainEvent(
-		ctx,
-		regEvent,
-		events.WithKey(fmt.Sprintf("%s:%s", req.ScannerName, req.GroupName)),
-	)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "Failed to publish scanner registration event")
-		return fmt.Errorf("failed to publish scanner registration event: %w", err)
-	}
-	span.AddEvent("scanner_registration_event_published")
-
-	s.metrics.IncScannerRegistrations(ctx)
-	span.SetStatus(codes.Ok, "Successfully published scanner registration event")
-	logger.Info(ctx, "Scanner registered")
-
-	return nil
-}
-
 // subscribeToEvents subscribes to events that should be forwarded to the scanner.
 //
 // This method implements the gateway→scanner direction of the reliability model:
@@ -520,7 +602,8 @@ func (s *Service) subscribeToEvents(ctx context.Context, scannerID string) error
 		return fmt.Errorf("scanner not found: %s", scannerID)
 	}
 
-	// Define event types to subscribe to.
+	// We are only interested in the non-broadcast events that need to be routed
+	// from the controller -> scanner through this gateway.
 	eventTypes := []events.EventType{
 		scanning.EventTypeTaskCreated,
 		scanning.EventTypeTaskResume,
@@ -529,7 +612,7 @@ func (s *Service) subscribeToEvents(ctx context.Context, scannerID string) error
 		grpcbus.EventTypeSystemNotification,
 	}
 
-	// Handler for gateway→scanner commands
+	// Handler for gateway→scanner commands.
 	// This handler converts domain events to gateway messages and sends them to scanners.
 	// It implements the critical command reliability pattern where all messages require acknowledgment.
 	// Unlike the scanner→gateway direction which uses criticality-based reliability,
@@ -604,7 +687,7 @@ func (s *Service) handleScannerMessages(ctx context.Context, conn *scannerConnec
 		if err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "Error receiving message from scanner")
-			s.removeScanner(ctx, conn.id)
+			s.unregisterScanner(ctx, conn.id)
 			return fmt.Errorf("error receiving message from scanner: %w", err)
 		}
 		span.AddEvent("message_received_from_scanner",
@@ -620,7 +703,7 @@ func (s *Service) handleScannerMessages(ctx context.Context, conn *scannerConnec
 			if status.Code(err) == protoCodes.Internal {
 				span.RecordError(err)
 				span.SetStatus(codes.Error, "Error processing message from scanner")
-				s.removeScanner(ctx, conn.id)
+				s.unregisterScanner(ctx, conn.id)
 				return err
 			}
 			span.RecordError(err)
@@ -628,117 +711,6 @@ func (s *Service) handleScannerMessages(ctx context.Context, conn *scannerConnec
 			logger.Warn(ctx, "Non-critical error processing message from scanner", "error", err)
 		}
 	}
-}
-
-// processIncomingScannerMessage handles a message from a scanner and translates it to a domain event.
-// It's responsible for converting protocol messages to domain events and publishing
-// them to the event system for processing by other components.
-//
-// This method implements part of the asymmetric reliability model:
-// - It detects and processes acknowledgments from scanners for critical commands sent from the gateway
-// - It processes all incoming scanner events, regardless of criticality
-// - For scanner events, acknowledgment is handled by the EventBus based on message criticality:
-//   - Critical events (task completion, terminal status) receive acknowledgments
-//   - Non-critical events (heartbeats, metrics) use fire-and-forget pattern
-//
-// Unlike Kafka, there's no durable log or automatic replay of messages - the reliable delivery
-// of critical events depends entirely on the application-level acknowledgment system.
-func (s *Service) processIncomingScannerMessage(
-	ctx context.Context,
-	conn *scannerConnection,
-	msg *pb.ScannerToGatewayMessage,
-) error {
-	ctx, span := s.tracer.Start(ctx, "gateway.processIncomingScannerMessage")
-	defer span.End()
-
-	// Handle acknowledgements.
-	// TODO: Implement acknowledgment tracking and retries.
-	if msg.GetAck() != nil {
-		// When a scanner acknowledges a message, we receive it here.
-		// In a more robust implementation (TODO), we would:
-		// 1. Track which messages were sent and are awaiting acknowledgment
-		// 2. Match the original_message_id to our tracked messages
-		// 3. Mark the message as successfully processed or retry if failed
-		// 4. Implement timeout-based retries for unacknowledged messages
-		//
-		// This would more closely mimic Kafka's consumer offset tracking
-		// where progress is explicitly recorded and messages that fail
-		// processing can be retried.
-
-		// Currently we simply note the acknowledgment but don't take action,
-		// which means we don't have delivery guarantees as strong as Kafka provides.
-		s.metrics.IncMessagesReceived(ctx, "acknowledgment")
-		return nil
-	}
-
-	// Define a callback that will be called by the ProcessIncomingMessage helper.
-	callback := func(callbackCtx context.Context, eventType events.EventType, protoPayload any) error {
-		ctx, span := s.tracer.Start(callbackCtx, "gateway.processIncomingScannerMessage.callback",
-			trace.WithAttributes(attribute.String("event_type", string(eventType))),
-		)
-		defer span.End()
-
-		// Convert proto message to domain event.
-		domainEvent, err := serialization.ProtoToDomainEvent(eventType, protoPayload)
-		if err != nil {
-			s.metrics.IncTranslationErrors(ctx, "incoming")
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "Failed to convert proto to domain event")
-			return fmt.Errorf("failed to convert proto to domain event: %w", err)
-		}
-
-		s.trackMessageMetrics(ctx, string(eventType))
-
-		domainEventObj, ok := domainEvent.(events.DomainEvent)
-		if !ok {
-			span.RecordError(fmt.Errorf("invalid domain event type: %T", domainEvent))
-			span.SetStatus(codes.Error, "Invalid domain event type")
-			return fmt.Errorf("invalid domain event type: %T", domainEvent)
-		}
-
-		err = s.eventPublisher.PublishDomainEvent(
-			ctx,
-			domainEventObj,
-			events.WithKey(msg.GetRoutingKey()),
-		)
-		if err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "Failed to publish domain event")
-			return fmt.Errorf("failed to publish domain event: %w", err)
-		}
-		span.AddEvent("domain_event_published")
-		span.SetStatus(codes.Ok, "Successfully published domain event")
-
-		s.metrics.IncMessagesSent(ctx, string(eventType))
-		s.logger.Debug(ctx, "Published domain event", "event_type", eventType)
-
-		return nil
-	}
-
-	eventType, domainEvent, err := grpcbus.ExtractScannerMessageInfo(ctx, msg)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "Failed to extract scanner message info")
-		s.logger.Error(ctx, "Failed to extract scanner message info", "error", err)
-		return err
-	}
-	span.AddEvent("scanner_message_info_extracted",
-		trace.WithAttributes(
-			attribute.String("event_type", string(eventType)),
-		),
-	)
-
-	if err := callback(ctx, eventType, domainEvent); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "Failed to process domain event")
-		s.logger.Error(ctx, "Failed to process domain event", "error", err)
-		return err
-	}
-	span.AddEvent("domain_event_processed")
-	span.SetStatus(codes.Ok, "Successfully processed domain event")
-	s.logger.Debug(ctx, "Processed domain event", "event_type", eventType)
-
-	return nil
 }
 
 // Helper to track metrics based on message type
@@ -799,33 +771,34 @@ func (s *Service) convertToScannerMessage(
 	return msg, nil
 }
 
-// sendRegistrationResponse sends a registration response to a scanner
+// sendRegistrationResponse sends a registration response to a scanner.
 func (s *Service) sendRegistrationResponse(
 	ctx context.Context,
 	stream pb.ScannerGatewayService_ConnectScannerServer,
 	scannerID string,
-	message string,
+	messageID string,
 ) error {
-	ctx, span := s.tracer.Start(ctx, "gateway.send_registration_response")
+	logger := s.logger.With("operation", "sendRegistrationResponse",
+		"scanner_id", scannerID,
+		"message_id", messageID,
+		"message_type", "registration_response",
+	)
+	ctx, span := s.tracer.Start(ctx, "gateway.send_registration_response",
+		trace.WithAttributes(
+			attribute.String("scanner_id", scannerID),
+			attribute.String("message_id", messageID),
+			attribute.String("message_type", "registration_response"),
+		),
+	)
 	defer span.End()
 
 	resp := &pb.GatewayToScannerMessage{
-		MessageId: fmt.Sprintf("registration-response-%s", s.timeProvider.Now().Format(time.RFC3339Nano)),
+		MessageId: messageID,
 		Timestamp: s.timeProvider.Now().UnixNano(),
-		// Payload: &pb.GatewayToScannerMessage_RegistrationResponse{
-		// 	RegistrationResponse: &pb.ScannerRegistrationResponse{
-		// 		Success:   true,
-		// 		ScannerId: scannerID,
-		// 		Message:   message,
-		// 	},
-		// },
+		Payload: &pb.GatewayToScannerMessage_Ack{
+			Ack: &pb.MessageAcknowledgment{OriginalMessageId: messageID, Success: true},
+		},
 	}
-
-	span.SetAttributes(
-		attribute.String("scanner.id", scannerID),
-		attribute.String("message.id", resp.MessageId),
-		attribute.String("message.type", "registration_response"),
-	)
 
 	if err := stream.Send(resp); err != nil {
 		span.RecordError(err)
@@ -835,22 +808,28 @@ func (s *Service) sendRegistrationResponse(
 	span.AddEvent("registration response sent successfully")
 	span.SetStatus(codes.Ok, "successfully sent registration response")
 	s.metrics.IncMessagesSent(ctx, "registration_response")
+	logger.Info(ctx, "Registration response sent successfully")
 
 	return nil
 }
 
-// removeScanner removes a scanner from the tracked connections.
-func (s *Service) removeScanner(ctx context.Context, scannerID string) {
+// unregisterScanner from our registry.
+func (s *Service) unregisterScanner(ctx context.Context, scannerID string) {
+	span := trace.SpanFromContext(ctx)
+	defer span.End()
+	span.AddEvent("unregistering_scanner", trace.WithAttributes(attribute.String("scanner_id", scannerID)))
+
 	s.scannersMu.Lock()
 	defer s.scannersMu.Unlock()
 
 	if _, exists := s.scanners[scannerID]; exists {
 		delete(s.scanners, scannerID)
+		span.AddEvent("scanner_unregistered")
 
 		s.metrics.SetConnectedScanners(ctx, len(s.scanners))
 		s.metrics.DecConnectedScanners(ctx)
 
-		s.logger.Info(ctx, "Scanner disconnected", "scanner_id", scannerID)
+		s.logger.Info(ctx, "Scanner unregistered", "scanner_id", scannerID)
 	}
 }
 
