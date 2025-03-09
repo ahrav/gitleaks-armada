@@ -1018,11 +1018,10 @@ func getMessageType(msg *pb.GatewayToScannerMessage) string {
 // This separate stream is unidirectional (gateway to scanner) and allows efficient
 // distribution of system-wide events like job control commands and notifications.
 func (s *Service) SubscribeToBroadcasts(stream pb.ScannerGatewayService_SubscribeToBroadcastsServer) error {
-	logger := s.logger.With("method", "SubscribeToBroadcasts")
+	logger := logger.NewLoggerContext(s.logger.With("method", "SubscribeToBroadcasts"))
 	ctx, span := s.tracer.Start(stream.Context(), "gateway.SubscribeToBroadcasts")
 	defer span.End()
 
-	// Receive the initial message
 	initMsg, err := stream.Recv()
 	if err != nil {
 		span.RecordError(err)
@@ -1030,24 +1029,18 @@ func (s *Service) SubscribeToBroadcasts(stream pb.ScannerGatewayService_Subscrib
 		return status.Errorf(protoCodes.Internal, "Failed to receive initial message: %v", err)
 	}
 
-	// Get scanner ID from the message
-	var scannerID string
-	if reg := initMsg.GetScannerRegistered(); reg != nil {
-		scannerID = reg.GetScannerName()
-	} else {
-		scannerID = initMsg.GetScannerId()
-	}
-
+	scannerID := initMsg.GetScannerId()
 	if scannerID == "" {
 		span.SetStatus(codes.Error, "Scanner ID is required")
+		span.RecordError(fmt.Errorf("scanner ID is required"))
 		return status.Errorf(protoCodes.InvalidArgument, "Scanner ID is required")
 	}
 
-	logger = logger.With("scanner_id", scannerID)
+	logger.Add("scanner_id", scannerID)
 	span.SetAttributes(attribute.String("scanner_id", scannerID))
 	logger.Info(ctx, "Scanner requesting broadcast subscription")
 
-	// Verify scanner is already registered via regular connection
+	// Verify scanner is already registered via regular connection.
 	_, regularExists := s.scanners.get(scannerID)
 	if !regularExists {
 		span.SetStatus(codes.Error, "Scanner not registered via primary connection")
@@ -1056,17 +1049,16 @@ func (s *Service) SubscribeToBroadcasts(stream pb.ScannerGatewayService_Subscrib
 			"Scanner must be registered via primary connection before subscribing to broadcasts")
 	}
 
-	// Check if scanner already has a broadcast connection
 	existingBroadcastConn, broadcastExists := s.broadcastScanners.get(scannerID)
 	if broadcastExists {
 		logger.Warn(ctx, "Scanner reconnecting broadcast stream while existing connection is active",
 			"existing_connection_time", existingBroadcastConn.connected)
 
-		// Remove existing broadcast connection
+		// Remove existing broadcast connection.
 		s.broadcastScanners.unregister(ctx, scannerID)
 	}
 
-	// Create the broadcast connection record
+	// Create the broadcast connection record.
 	broadcastConn := &scannerConnection{
 		id:           scannerID,
 		stream:       stream,
@@ -1074,24 +1066,21 @@ func (s *Service) SubscribeToBroadcasts(stream pb.ScannerGatewayService_Subscrib
 		lastActivity: s.timeProvider.Now(),
 	}
 
-	// Store the broadcast connection
 	s.broadcastScanners.register(ctx, scannerID, broadcastConn)
 	broadcastCount := s.broadcastScanners.count()
 
 	logger.Info(ctx, "Broadcast connection established",
 		"broadcast_scanners_count", broadcastCount)
 
-	// Subscribe to broadcast events
 	if err := s.subscribeToBroadcastEvents(ctx, scannerID, stream); err != nil {
 		logger.Error(ctx, "Failed to subscribe to broadcast events", "error", err)
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to subscribe to broadcast events")
 
-		// Remove the broadcast connection
 		s.broadcastScanners.unregister(ctx, scannerID)
-
 		return status.Error(protoCodes.Internal, "Failed to set up broadcast event subscription")
 	}
+	span.AddEvent("broadcast_event_subscription_established")
 
 	// Continue receiving messages from the scanner to keep the connection alive
 	// and handle any messages that need to be processed (like acknowledgments)
@@ -1116,19 +1105,23 @@ func (s *Service) subscribeToBroadcastEvents(
 	// Define broadcast event types - system-wide events that all scanners should receive.
 	// These generally include job control events and system notifications.
 	broadcastEventTypes := []events.EventType{
-		scanning.EventTypeJobPausing,
 		scanning.EventTypeJobPaused,
-		scanning.EventTypeJobResuming,
-		scanning.EventTypeJobCancelling,
 		scanning.EventTypeJobCancelled,
 		grpcbus.EventTypeSystemNotification,
 	}
 
-	// Set up handler for broadcast events
 	handler := func(ctx context.Context, evt events.EventEnvelope, ack events.AckFunc) error {
-		// Convert domain event to gateway message
+		ctx, span := s.tracer.Start(ctx, "gateway.subscribeToBroadcastEvents",
+			trace.WithAttributes(
+				attribute.String("event_type", string(evt.Type)),
+			),
+		)
+		defer span.End()
+
 		gatewayMsg, err := s.convertToScannerMessage(ctx, evt)
 		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "Failed to convert domain event to gateway message")
 			logger.Error(ctx, "Failed to convert domain event to gateway message",
 				"event_type", evt.Type, "error", err)
 			s.metrics.IncTranslationErrors(ctx, "domain_to_gateway")
@@ -1138,7 +1131,6 @@ func (s *Service) subscribeToBroadcastEvents(
 			return nil // Skip this event but continue processing others
 		}
 
-		// Send the broadcast message to this scanner
 		if err := stream.Send(gatewayMsg); err != nil {
 			logger.Error(ctx, "Failed to send broadcast event to scanner",
 				"event_type", evt.Type, "error", err)
@@ -1148,10 +1140,8 @@ func (s *Service) subscribeToBroadcastEvents(
 			return err
 		}
 
-		// Track metrics
 		s.metrics.IncMessagesSent(ctx, getMessageType(gatewayMsg))
 
-		// Acknowledge successful processing
 		if ack != nil {
 			ack(nil)
 		}

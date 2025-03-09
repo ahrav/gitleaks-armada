@@ -548,18 +548,6 @@ func NewBroadcastEventBus(
 ) (*EventBus, error) {
 	idMsg := createBaseMessage(cfg)
 
-	idMsg.Payload = &pb.ScannerToGatewayMessage_ScannerRegistered{
-		ScannerRegistered: &pb.ScannerRegisteredEvent{
-			ScannerName:   cfg.ScannerName,
-			Version:       cfg.Version,
-			Capabilities:  cfg.Capabilities,
-			Hostname:      hostname(),
-			GroupName:     cfg.GroupName,
-			InitialStatus: pb.ScannerStatus_SCANNER_STATUS_ONLINE,
-			Timestamp:     time.Now().UnixNano(),
-		},
-	}
-
 	if err := initializeStream(stream, idMsg, getConnectionTimeout(cfg), logger, tracer); err != nil {
 		return nil, fmt.Errorf("failed to initialize broadcast connection: %w", err)
 	}
@@ -584,12 +572,6 @@ func mapBroadcastEventTypes() map[events.EventType]MessageType {
 		// System messages
 		EventTypeSystemNotification: MessageTypeSystemNotification,
 	}
-}
-
-func (b *EventBus) isClosed() bool {
-	b.state.mu.RLock()
-	defer b.state.mu.RUnlock()
-	return b.state.closed
 }
 
 // Publish sends a domain event from the scanner to the gateway.
@@ -1053,15 +1035,15 @@ func (b *EventBus) Close() error {
 	b.state.setClosed()
 	b.cancelFunc()
 
-	// Clean up all pending acknowledgments
+	// Clean up all pending acknowledgments.
 	b.ackManager.cleanupAllChannels(errors.New("event bus closed"))
 
-	// Wait for receiver goroutine to exit
+	// Wait for receiver goroutine to exit.
 	select {
 	case <-b.receiverDone:
-		// Receiver has exited
+		// Receiver has exited.
 	case <-time.After(5 * time.Second):
-		// Timed out waiting for receiver to exit
+		// Timed out waiting for receiver to exit.
 	}
 
 	return b.stream.CloseSend()
