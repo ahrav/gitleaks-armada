@@ -874,7 +874,7 @@ func (s *Service) SubscribeToBroadcasts(stream pb.ScannerGatewayService_Subscrib
 	// Continue receiving messages from the scanner to keep the connection alive
 	// and handle any messages that need to be processed (like acknowledgments).
 	// This will block until the scanner disconnects, or an error occurs.
-	if err := s.handleBroadcastMessages(ctx, broadcastConn, stream); err != nil {
+	if err := s.handleBroadcastMessages(ctx, broadcastConn); err != nil {
 		logger.Error(ctx, "Failed to handle broadcast messages", "error", err)
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to handle broadcast messages")
@@ -935,11 +935,7 @@ func (s *Service) subscribeToBroadcastEvents(
 }
 
 // handleBroadcastMessages processes incoming messages on the broadcast stream.
-func (s *Service) handleBroadcastMessages(
-	ctx context.Context,
-	conn *ScannerConnection,
-	stream pb.ScannerGatewayService_ConnectScannerServer,
-) error {
+func (s *Service) handleBroadcastMessages(ctx context.Context, conn *ScannerConnection) error {
 	logger := s.logger.With("method", "handleBroadcastMessages", "scanner_id", conn.ID)
 
 	for {
@@ -951,7 +947,7 @@ func (s *Service) handleBroadcastMessages(
 			// Continue processing.
 		}
 
-		msg, err := stream.Recv()
+		msg, err := conn.Stream.Recv()
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				logger.Info(ctx, "Scanner disconnected from broadcast stream")
