@@ -185,15 +185,16 @@ func newScannerRegistry(metrics GatewayMetrics) *scannerRegistry {
 // This call always succeeds.
 func (r *scannerRegistry) register(ctx context.Context, scannerID string, conn *scannerConnection) {
 	span := trace.SpanFromContext(ctx)
-	span.AddEvent("registering_scanner", trace.WithAttributes(attribute.String("scanner_id", scannerID)))
+	span.SetAttributes(attribute.String("scanner_id", scannerID))
+	span.AddEvent("registering_scanner")
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if _, exists := r.scanners[scannerID]; exists {
-		span.AddEvent("scanner_already_registered", trace.WithAttributes(attribute.String("scanner_id", scannerID)))
+		span.AddEvent("scanner_already_registered")
 	}
-
 	r.scanners[scannerID] = conn
+	span.AddEvent("scanner_registered")
 
 	r.metrics.IncConnectedScanners(ctx)
 	r.metrics.SetConnectedScanners(ctx, len(r.scanners))
@@ -206,19 +207,18 @@ func (r *scannerRegistry) unregister(ctx context.Context, scannerID string) bool
 	defer r.mu.Unlock()
 
 	span := trace.SpanFromContext(ctx)
-	span.AddEvent("unregistering_scanner", trace.WithAttributes(attribute.String("scanner_id", scannerID)))
+	span.SetAttributes(attribute.String("scanner_id", scannerID))
+	span.AddEvent("unregistering_scanner")
 
-	_, exists := r.scanners[scannerID]
-	if !exists {
+	if _, exists := r.scanners[scannerID]; !exists {
+		span.AddEvent("scanner_not_found")
 		return false
 	}
-
 	delete(r.scanners, scannerID)
+	span.AddEvent("scanner_unregistered")
 
 	r.metrics.DecConnectedScanners(ctx)
 	r.metrics.SetConnectedScanners(ctx, len(r.scanners))
-
-	span.AddEvent("scanner_unregistered")
 
 	return true
 }
@@ -237,7 +237,6 @@ func (r *scannerRegistry) get(scannerID string) (*scannerConnection, bool) {
 func (r *scannerRegistry) count() int {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-
 	return len(r.scanners)
 }
 
