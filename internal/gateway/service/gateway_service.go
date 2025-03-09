@@ -185,17 +185,6 @@ func (r *scannerRegistry) count() int {
 	return len(r.scanners)
 }
 
-// forEach executes a function for each registered scanner.
-// The registry is locked for reading during the iteration.
-func (r *scannerRegistry) forEach(f func(scannerID string, conn *scannerConnection)) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	for id, conn := range r.scanners {
-		f(id, conn)
-	}
-}
-
 // Service implements the ScannerGatewayService gRPC service.
 // It manages bidirectional communication with scanners, translates between
 // protocol messages and domain events, and maintains scanner connection state.
