@@ -1041,6 +1041,8 @@ func (s *Service) SubscribeToBroadcasts(stream pb.ScannerGatewayService_Subscrib
 	logger.Info(ctx, "Scanner requesting broadcast subscription")
 
 	// Verify scanner is already registered via regular connection.
+	// TODO: Is there a scenario in which a scanner doesn't need the regular connection?
+	// In which case, we would also need a Registration event for this.
 	_, regularExists := s.scanners.get(scannerID)
 	if !regularExists {
 		span.SetStatus(codes.Error, "Scanner not registered via primary connection")
