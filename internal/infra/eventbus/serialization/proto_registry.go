@@ -59,6 +59,12 @@ func ProtoToDomainEvent(eventType events.EventType, message any) (any, error) {
 
 // Register all proto serialization/deserialization functions.
 func registerProtoSerializers() {
+	// Scanner related events.
+	registerProtoSerializeFunc(scanning.EventTypeScannerHeartbeat, ScannerHeartbeatEventToProto)
+	registerProtoSerializeFunc(scanning.EventTypeScannerRegistered, ScannerRegisteredEventToProto)
+	registerProtoSerializeFunc(scanning.EventTypeScannerStatusChanged, ScannerStatusChangedEventToProto)
+	registerProtoSerializeFunc(scanning.EventTypeScannerDeregistered, ScannerDeregisteredEventToProto)
+
 	// Task related events.
 	registerProtoSerializeFunc(scanning.EventTypeTaskCreated, TaskCreatedEventToProto)
 	registerProtoSerializeFunc(scanning.EventTypeTaskStarted, TaskStartedEventToProto)
@@ -88,6 +94,9 @@ func registerProtoSerializers() {
 	// System notifications - using string literal since there doesn't appear to be a constant.
 	registerProtoSerializeFunc(events.EventType("SystemNotification"), SystemNotificationToProto)
 
+	// Add serializer for MessageAck event - using string literal to avoid circular imports
+	registerProtoSerializeFunc(events.EventType("MessageAck"), MessageAckToProto)
+
 	// Register deserialization functions (from proto message type to domain event)
 	// Scanner events.
 	registerProtoDeserializeFunc(scanning.EventTypeScannerHeartbeat, ProtoToScannerHeartbeatEvent)
@@ -102,12 +111,55 @@ func registerProtoSerializers() {
 	registerProtoDeserializeFunc(scanning.EventTypeTaskFailed, ProtoToTaskFailedEvent)
 	registerProtoDeserializeFunc(scanning.EventTypeTaskPaused, ProtoToTaskPausedEvent)
 	registerProtoDeserializeFunc(scanning.EventTypeTaskCancelled, ProtoToTaskCancelledEvent)
+
+	// Add deserializer for MessageAck event - using string literal to avoid circular imports
+	registerProtoDeserializeFunc(events.EventType("MessageAck"), ProtoToMessageAck)
 }
 
 // Initialize the registry when the package is loaded.
 func init() { registerProtoSerializers() }
 
 // Serialization functions for domain events to protocol buffers
+
+// ScannerHeartbeatEventToProto converts a ScannerHeartbeatEvent to a protocol buffer message.
+func ScannerHeartbeatEventToProto(payload any) (any, error) {
+	event, ok := payload.(scanning.ScannerHeartbeatEvent)
+	if !ok {
+		return nil, fmt.Errorf("payload is not a ScannerHeartbeatEvent: %T", payload)
+	}
+
+	return pbscanning.ScannerHeartbeatEventToProto(event), nil
+}
+
+// ScannerRegisteredEventToProto converts a ScannerRegisteredEvent to a protocol buffer message.
+func ScannerRegisteredEventToProto(payload any) (any, error) {
+	event, ok := payload.(scanning.ScannerRegisteredEvent)
+	if !ok {
+		return nil, fmt.Errorf("payload is not a ScannerRegisteredEvent: %T", payload)
+	}
+
+	return pbscanning.ScannerRegisteredEventToProto(event), nil
+}
+
+// ScannerStatusChangedEventToProto converts a ScannerStatusChangedEvent to a protocol buffer message.
+func ScannerStatusChangedEventToProto(payload any) (any, error) {
+	event, ok := payload.(scanning.ScannerStatusChangedEvent)
+	if !ok {
+		return nil, fmt.Errorf("payload is not a ScannerStatusChangedEvent: %T", payload)
+	}
+
+	return pbscanning.ScannerStatusChangedEventToProto(event), nil
+}
+
+// ScannerDeregisteredEventToProto converts a ScannerDeregisteredEvent to a protocol buffer message.
+func ScannerDeregisteredEventToProto(payload any) (any, error) {
+	event, ok := payload.(scanning.ScannerDeregisteredEvent)
+	if !ok {
+		return nil, fmt.Errorf("payload is not a ScannerDeregisteredEvent: %T", payload)
+	}
+
+	return pbscanning.ScannerDeregisteredEventToProto(event), nil
+}
 
 // TaskCreatedEventToProto converts a TaskCreatedEvent to a protocol buffer message.
 func TaskCreatedEventToProto(payload any) (any, error) {
@@ -326,6 +378,16 @@ func SystemNotificationToProto(payload any) (any, error) {
 	return notification, nil
 }
 
+// MessageAckToProto converts a MessageAcknowledgment to its proto representation.
+// In this case, the MessageAcknowledgment is already in proto form, so we simply pass it through.
+func MessageAckToProto(payload any) (any, error) {
+	ack, ok := payload.(*pb.MessageAcknowledgment)
+	if !ok {
+		return nil, fmt.Errorf("payload is not a MessageAcknowledgment: %T", payload)
+	}
+	return ack, nil
+}
+
 // Deserialization functions for protocol buffers to domain events
 
 // ProtoToScannerHeartbeatEvent converts a protocol buffer message to a ScannerHeartbeatEvent.
@@ -356,14 +418,13 @@ func ProtoToScannerRegisteredEvent(message any) (any, error) {
 	}
 
 	// Create a scanner registration event with available fields
-	// Note: ScannerRegisteredEvent constructor parameters may need adjustment based on actual domain model
 	return scanning.NewScannerRegisteredEvent(
 		reg.ScannerName,              // ID
 		reg.Version,                  // Version
 		reg.Capabilities,             // Capabilities
-		"",                           // Auth token (not in this message)
-		"",                           // Address (not provided in proto)
-		reg.Hostname,                 // Host name from request
+		reg.Hostname,                 // Host name from request (corrected order)
+		"",                           // IP Address (not provided in proto)
+		reg.GroupName,                // Group name
 		reg.Tags,                     // Tags from request
 		scanning.ScannerStatusOnline, // Default to Online status
 	), nil
@@ -598,4 +659,14 @@ func ProtoToTaskCancelledEvent(message any) (any, error) {
 		taskID,
 		taskCancelled.RequestedBy,
 	), nil
+}
+
+// ProtoToMessageAck converts a proto MessageAcknowledgment to its domain representation.
+// Since we're directly using the proto type in this case, we simply pass it through.
+func ProtoToMessageAck(message any) (any, error) {
+	ack, ok := message.(*pb.MessageAcknowledgment)
+	if !ok {
+		return nil, fmt.Errorf("message is not a MessageAcknowledgment: %T", message)
+	}
+	return ack, nil
 }

@@ -200,9 +200,9 @@ func SetScannerToGatewayPayload(msg *pb.ScannerToGatewayMessage, eventType event
 	return nil
 }
 
-// GetScannerToGatewayMessageType determines the type of message contained in a ScannerToGatewayMessage.
+// getScannerToGatewayMessageType determines the type of message contained in a ScannerToGatewayMessage.
 // Returns the message type string, the message payload, and any error.
-func GetScannerToGatewayMessageType(msg *pb.ScannerToGatewayMessage) (MessageType, any, error) {
+func getScannerToGatewayMessageType(msg *pb.ScannerToGatewayMessage) (MessageType, any, error) {
 	switch {
 	// Scanner events.
 	case msg.GetHeartbeat() != nil:
@@ -261,7 +261,7 @@ func ExtractScannerMessageInfo(
 	defer span.End()
 
 	// Determine message type and get the payload.
-	messageType, protoMsg, err := GetScannerToGatewayMessageType(msg)
+	messageType, protoMsg, err := getScannerToGatewayMessageType(msg)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
@@ -274,6 +274,26 @@ func ExtractScannerMessageInfo(
 	if eventType == "" {
 		span.SetStatus(codes.Error, "unknown message type")
 		return "", nil, fmt.Errorf("unknown message type for event mapping: %s", messageType)
+	}
+
+	// For acknowledgment messages, we don't need to convert to domain event.
+	if messageType == MessageTypeAck {
+		ack, ok := protoMsg.(*pb.MessageAcknowledgment)
+		if !ok {
+			err := fmt.Errorf("expected MessageAcknowledgment, got %T", protoMsg)
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+			return "", nil, err
+		}
+
+		// Handle special cases for registration acknowledgments.
+		if isRegistrationAck(ack) {
+			span.SetAttributes(attribute.String("event_type", string(EventTypeScannerRegistrationAck)))
+			return EventTypeScannerRegistrationAck, ack, nil
+		}
+
+		span.SetAttributes(attribute.String("event_type", string(EventTypeMessageAck)))
+		return EventTypeMessageAck, ack, nil
 	}
 
 	// Convert proto message to domain event.
@@ -334,7 +354,11 @@ func mapMessageTypeToEventType(messageType MessageType) events.EventType {
 
 	// System events.
 	case MessageTypeSystemNotification:
-		return events.EventType("SystemNotification")
+		return EventTypeSystemNotification
+	case MessageTypeAck:
+		return EventTypeMessageAck
+	case MessageTypeRegistrationResponse:
+		return EventTypeScannerRegistrationAck
 
 	default:
 		return events.EventType("")
