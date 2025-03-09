@@ -10,31 +10,20 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
 
-// acknowledgmentTracker handles tracking and resolution of message acknowledgments.
+var _ AckTracker = (*acknowledgmentTracker)(nil)
+
+// acknowledgmentTracker implements the AckTracker interface.
+// The tracker uses a thread-safe map to store message acknowledgment channels,
+// allowing concurrent tracking and resolution of messages from multiple scanners.
 //
-// Purpose and Role in the Gateway Architecture:
-// ---------------------------------------------
-// The acknowledgmentTracker is a component of the gateway service's reliability model.
-// Without a persistent message broker like Kafka, this tracker provides application-level
-// guarantees that important commands and events are successfully delivered and processed.
+// The implementation uses a mutex-protected map to safely track pending acknowledgments.
+// It provides optimized read patterns using RLock for non-modifying operations.
 //
-// In a distributed system where scanners may be located in various network environments,
-// ensuring command delivery is essential. This tracker implements the acknowledgment
-// half of the reliability contract:
+// Timeout handling is implemented to prevent resource leaks from unacknowledged messages.
+// Safeguards are included against duplicate acknowledgments and race conditions.
 //
-// 1. Messages that require acknowledgment are tracked with unique IDs.
-// 2. The sender awaits confirmation via channels specific to each message.
-// 3. When acknowledgments arrive, they're matched to the original messages.
-// 4. Timeouts ensure the system doesn't wait indefinitely for lost acknowledgments.
-//
-// This approach creates a "at-least-once delivery" semantic similar to what message
-// brokers provide, but implemented at the application level over gRPC streams.
-//
-// Unlike traditional request-response patterns, this tracker allows async acknowledgment
-// of messages sent over bidirectional streams, where the acknowledgment may arrive
-// much later than when the original message was sent.
-// TODO: Add metrics to track number, duration, rate, errors, etc.
-// TODO: Make this more reliable, maybe some sort of persistence?
+// The internal channels pattern enables asynchronous waiting for acknowledgments
+// while maintaining ordered processing guarantees per message.
 type acknowledgmentTracker struct {
 	mu      sync.RWMutex
 	pending map[string]chan error

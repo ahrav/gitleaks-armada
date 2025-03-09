@@ -12,42 +12,28 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/common/timeutil"
-	"github.com/ahrav/gitleaks-armada/proto"
 )
 
-// MessageConverter converts an event envelope to a gateway-to-scanner message.
-type MessageConverter func(ctx context.Context, evt events.EventEnvelope) (*proto.GatewayToScannerMessage, error)
+var _ EventSubscriptionHandler = (*eventSubscriptionHandler)(nil)
 
-// ScannerStream represents a gRPC stream connection to a scanner.
-type ScannerStream interface {
-	Send(*proto.GatewayToScannerMessage) error
-	Context() context.Context
-}
-
-// eventSubscriptionHandler manages event subscriptions and routes events to scanners.
+// eventSubscriptionHandler implements the EventSubscriptionHandler interface.
+// It manages the delivery of events from the central event bus to remote scanners
+// through gRPC streams, with reliability guarantees provided by acknowledgment tracking.
 //
-// Why this component exists:
+// The handler uses AckTracker to ensure reliable delivery of events to scanners
+// with proper acknowledgment handling and timeout mechanisms.
 //
-//  1. Reliability Model Implementation: It provides the core implementation of the reliability
-//     pattern for gateway→scanner communication, where all commands require explicit
-//     acknowledgments from the scanners to confirm receipt and processing.
+// It subscribes to the event bus and routes events to the appropriate
+// scanner based on event types and scanner ID.
 //
-//  2. Separation of Concerns: It isolates the subscription logic from event delivery,
-//     allowing the EventSubscriptionManager to focus on higher-level coordination without
-//     dealing with the mechanics of event bus subscriptions and delivery.
+// Error handling is carefully managed during event delivery and acknowledgment
+// to prevent resource leaks and ensure system stability.
 //
-//  3. Stream Abstraction: It decouples the event bus from gRPC stream mechanics, providing
-//     a clean interface that works with different event bus implementations and stream types
-//     (regular or broadcast).
+// The implementation cleans up subscriptions and tracking resources when the
+// scanner disconnects or the context is canceled.
 //
-//  4. Reusability: The same handler logic is used for both regular and broadcast events,
-//     preventing code duplication while allowing the EventSubscriptionManager to switch
-//     between different event buses.
-//
-// This component represents the critical link in translating the central system's
-// event-driven architecture to the gRPC streaming model used for communicating with
-// on-premise scanners. It ensures commands are delivered reliably despite potential
-// network issues or scanner disconnections.
+// The implementation uses a non-blocking event handling pattern to efficiently process
+// multiple events concurrently while maintaining ordered delivery guarantees per scanner.
 type eventSubscriptionHandler struct {
 	eventBus events.EventBus
 
