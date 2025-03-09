@@ -38,179 +38,248 @@ message Finding {
   google.protobuf.Struct raw_finding = 7;
 }
 
+// Status of a scanning job. Represents the lifecycle states a scan job can be
+// in. This is used for tracking the overall progress and state of scan jobs in
+// the system.
 enum ScanJobStatus {
   SCAN_JOB_STATUS_UNSPECIFIED = 0;
-  SCAN_JOB_STATUS_QUEUED = 1;
-  SCAN_JOB_STATUS_ENUMERATING = 2;
-  SCAN_JOB_STATUS_RUNNING = 3;
-  SCAN_JOB_STATUS_PAUSING = 4;
-  SCAN_JOB_STATUS_PAUSED = 5;
-  SCAN_JOB_STATUS_COMPLETED = 6;
-  SCAN_JOB_STATUS_CANCELLING = 7;
-  SCAN_JOB_STATUS_CANCELLED = 8;
-  SCAN_JOB_STATUS_FAILED = 9;
+  SCAN_JOB_STATUS_QUEUED = 1;      // Job is queued but not yet started
+  SCAN_JOB_STATUS_ENUMERATING = 2; // Identifying all resources to be scanned
+  SCAN_JOB_STATUS_RUNNING = 3;     // Actively scanning resources
+  SCAN_JOB_STATUS_PAUSING = 4;     // In process of pausing (transitional state)
+  SCAN_JOB_STATUS_PAUSED = 5;      // Temporarily stopped but can be resumed
+  SCAN_JOB_STATUS_COMPLETED = 6;   // Successfully finished all scanning
+  SCAN_JOB_STATUS_CANCELLING =
+      7; // In process of cancelling (transitional state)
+  SCAN_JOB_STATUS_CANCELLED = 8; // Permanently stopped before completion
+  SCAN_JOB_STATUS_FAILED = 9;    // Terminated due to errors
 }
 
+// Status of an individual scanning task. Represents the lifecycle states a task
+// can be in. This is more granular than the job status and tracks individual
+// unit of work.
 enum TaskStatus {
   TASK_STATUS_UNSPECIFIED = 0;
-  TASK_STATUS_PENDING = 1;
-  TASK_STATUS_IN_PROGRESS = 2;
-  TASK_STATUS_COMPLETED = 3;
-  TASK_STATUS_FAILED = 4;
-  TASK_STATUS_STALE = 5;
-  TASK_STATUS_PAUSED = 6;
-  TASK_STATUS_CANCELLED = 7;
+  TASK_STATUS_PENDING = 1; // Task created but not yet picked up by a scanner
+  TASK_STATUS_IN_PROGRESS = 2; // Task is actively being processed by a scanner
+  TASK_STATUS_COMPLETED = 3;   // Task successfully finished
+  TASK_STATUS_FAILED = 4; // Task encountered an error and couldn't complete
+  TASK_STATUS_STALE =
+      5; // Task hasn't been updated in too long (potentially abandoned)
+  TASK_STATUS_PAUSED = 6;    // Task temporarily stopped but can be resumed
+  TASK_STATUS_CANCELLED = 7; // Task permanently stopped before completion
 }
 
 // JobRequestedEvent represents a request to create a new scan job.
+// This is the initial event that triggers the job creation process.
 message JobRequestedEvent {
-  string job_id = 1;
-  int64 occurred_at = 2;
-  repeated shared.TargetSpec targets = 3;
-  string requested_by = 4;
+  string job_id = 1; // Unique identifier for the job
+  int64 occurred_at =
+      2; // When the job was requested (Unix timestamp in nanoseconds)
+  repeated shared.TargetSpec targets = 3; // What resources to scan
+  string requested_by = 4; // User or system that initiated the job
 }
 
 // JobCreatedEvent represents the creation of a new scan job.
+// This event is emitted after a job has been successfully created in the
+// system.
 message JobCreatedEvent {
-  string job_id = 1;
-  int64 timestamp = 2;
-  shared.TargetSpec target_spec = 3;
+  string job_id = 1; // Unique identifier for the job
+  int64 timestamp =
+      2; // When the job was created (Unix timestamp in nanoseconds)
+  shared.TargetSpec target_spec = 3; // Specification of the target(s) to scan
 }
 
 // JobEnumerationCompletedEvent signals that all targets for a job have been
-// enumerated.
+// enumerated. This is an important state transition that indicates the system
+// has identified all resources that need to be scanned and can now begin actual
+// scanning.
 message JobEnumerationCompletedEvent {
-  string job_id = 1;
-  int64 timestamp = 2;
-  int32 total_tasks = 3;
+  string job_id = 1; // Unique identifier for the job
+  int64 timestamp =
+      2; // When enumeration completed (Unix timestamp in nanoseconds)
+  int32 total_tasks = 3; // Total number of tasks created for this job
 }
 
 // JobPausingEvent signals that a job is in the process of being paused.
+// This is a transitional state that indicates pause was requested but not yet
+// completed.
 message JobPausingEvent {
-  string job_id = 1;
-  int64 timestamp = 2;
-  string requested_by = 3;
+  string job_id = 1; // Unique identifier for the job
+  int64 timestamp =
+      2; // When pause was initiated (Unix timestamp in nanoseconds)
+  string requested_by = 3; // User or system that initiated the pause
 }
 
 // JobPausedEvent signals that a job has been successfully paused.
+// The job is now in a state where it can be resumed later from where it left
+// off.
 message JobPausedEvent {
-  string job_id = 1;
-  int64 timestamp = 2;
-  int64 paused_at = 3;
-  string reason = 4;
-  string requested_by = 5;
+  string job_id = 1;       // Unique identifier for the job
+  int64 timestamp = 2;     // Event timestamp (Unix timestamp in nanoseconds)
+  int64 paused_at = 3;     // When the job was actually paused
+  string reason = 4;       // Why the job was paused
+  string requested_by = 5; // User or system that initiated the pause
 }
 
 // JobResumingEvent signals that a job is in the process of being resumed.
+// This transitional event indicates that a previously paused job is being
+// prepared to continue execution.
 message JobResumingEvent {
-  string job_id = 1;
-  int64 timestamp = 2;
-  string requested_by = 3;
+  string job_id = 1; // Unique identifier for the job
+  int64 timestamp =
+      2; // When resume was initiated (Unix timestamp in nanoseconds)
+  string requested_by = 3; // User or system that initiated the resume
 }
 
 // JobCancellingEvent signals that a job is in the process of being cancelled.
+// This transitional state allows the system to gracefully terminate tasks
+// and clean up resources before final cancellation.
 message JobCancellingEvent {
-  string job_id = 1;
-  int64 timestamp = 2;
-  string requested_by = 3;
+  string job_id = 1; // Unique identifier for the job
+  int64 timestamp =
+      2; // When cancellation was initiated (Unix timestamp in nanoseconds)
+  string requested_by = 3; // User or system that initiated the cancellation
 }
 
 // JobCancelledEvent signals that a job has been successfully cancelled.
+// This terminal state means the job has been permanently stopped and will not
+// resume.
 message JobCancelledEvent {
-  string job_id = 1;
-  int64 timestamp = 2;
-  int64 cancelled_at = 3;
-  string reason = 4;
-  string requested_by = 5;
+  string job_id = 1;       // Unique identifier for the job
+  int64 timestamp = 2;     // Event timestamp (Unix timestamp in nanoseconds)
+  int64 cancelled_at = 3;  // When the job was actually cancelled
+  string reason = 4;       // Why the job was cancelled
+  string requested_by = 5; // User or system that initiated the cancellation
 }
 
 // TaskCreatedEvent represents a new task discovered for scanning.
+// A task is a discrete unit of work within a job, typically representing
+// a single repository, project, or other scannable resource.
 message TaskCreatedEvent {
-  string job_id = 1;
-  string task_id = 2;
-  shared.SourceType source_type = 3;
-  string resource_uri = 4;
-  map<string, string> metadata = 5;
-  shared.Auth auth = 6;
-  int64 timestamp = 7;
+  string job_id = 1;  // Parent job identifier
+  string task_id = 2; // Unique identifier for this task
+  shared.SourceType source_type =
+      3; // Type of resource being scanned (repo, bucket, etc.)
+  string resource_uri = 4; // URI/location of the resource to scan
+  map<string, string> metadata =
+      5;                // Additional contextual information about the task
+  shared.Auth auth = 6; // Authentication details needed to access the resource
+  int64 timestamp = 7;  // When task was created (Unix timestamp in nanoseconds)
 }
 
+// TaskStartedEvent indicates that a scanner has begun processing a task.
+// This event marks the transition from the queued state to active scanning.
 message TaskStartedEvent {
-  string job_id = 1;
-  string task_id = 2;
-  string resource_uri = 3;
-  int64 timestamp = 4; // Unix timestamp in nanoseconds
+  string job_id = 1;       // Parent job identifier
+  string task_id = 2;      // Unique identifier for this task
+  string resource_uri = 3; // URI/location of the resource being scanned
+  int64 timestamp = 4; // When task was started (Unix timestamp in nanoseconds)
 }
 
+// TaskProgressedEvent provides incremental updates during task execution.
+// These events allow the system to track task progress, provide user feedback,
+// and detect stalled tasks. They also contain checkpoint data for resumability.
 message TaskProgressedEvent {
-  string task_id = 1;
-  string job_id = 2;
-  int64 sequence_num = 3;
-  int64 timestamp = 4;
-  int64 items_processed = 5;
-  int32 error_count = 6;
-  string message = 7;
-  bytes progress_details = 8;
-  Checkpoint checkpoint = 9;
+  string task_id = 1; // Unique identifier for this task
+  string job_id = 2;  // Parent job identifier
+  int64 sequence_num =
+      3; // Monotonically increasing sequence number for ordering
+  int64 timestamp =
+      4; // When this progress update occurred (Unix timestamp in nanoseconds)
+  int64 items_processed =
+      5; // Number of items (files, commits, etc.) processed so far
+  int32 error_count = 6;      // Number of non-fatal errors encountered
+  string message = 7;         // Human-readable progress message
+  bytes progress_details = 8; // Scanner-specific progress data (serialized)
+  Checkpoint checkpoint = 9;  // Resumption data if task is interrupted
 }
 
+// Checkpoint contains the necessary data to resume a task from a specific
+// point. This is crucial for resilience, allowing tasks to be paused and
+// resumed or recovered after failures without losing progress.
 message Checkpoint {
-  string task_id = 1;
-  int64 timestamp = 2;
-  bytes resume_token = 3;
-  map<string, string> metadata = 4;
+  string task_id = 1; // Task this checkpoint belongs to
+  int64 timestamp =
+      2; // When checkpoint was created (Unix timestamp in nanoseconds)
+  bytes resume_token = 3; // Opaque token encoding the position to resume from
+  map<string, string> metadata = 4; // Additional context needed for resumption
 }
 
+// TaskCompletedEvent indicates that a task has successfully finished
+// processing. This terminal state means all work for this task has been done
+// and all results saved.
 message TaskCompletedEvent {
-  string job_id = 1;
-  string task_id = 2;
-  int64 timestamp = 3;
+  string job_id = 1;  // Parent job identifier
+  string task_id = 2; // Unique identifier for this task
+  int64 timestamp =
+      3; // When task was completed (Unix timestamp in nanoseconds)
 }
 
+// TaskFailedEvent indicates that a task encountered an unrecoverable error.
+// This terminal state means the task could not be completed successfully.
 message TaskFailedEvent {
-  string job_id = 1;
-  string task_id = 2;
-  int64 timestamp = 3;
-  string reason = 4;
+  string job_id = 1;   // Parent job identifier
+  string task_id = 2;  // Unique identifier for this task
+  int64 timestamp = 3; // When task failed (Unix timestamp in nanoseconds)
+  string reason = 4;   // Description of what caused the failure
 }
 
+// TaskHeartbeatEvent provides periodic signals that a task is still being
+// actively processed. These events are crucial for detecting stalled tasks and
+// recovering from scanner failures.
 message TaskHeartbeatEvent {
-  string task_id = 1;
-  int64 timestamp = 2;
+  string task_id = 1; // Unique identifier for this task
+  int64 timestamp =
+      2; // When heartbeat was sent (Unix timestamp in nanoseconds)
 }
 
+// TaskResumeEvent instructs a scanner to resume a previously paused or
+// interrupted task. Contains all necessary context to pick up processing from
+// where it left off.
 message TaskResumeEvent {
-  string job_id = 1;
-  string task_id = 2;
-  shared.SourceType source_type = 3;
-  int64 timestamp = 4;
-  string resource_uri = 5;
-  int64 sequence_num = 6;
-  Checkpoint checkpoint = 7;
-  shared.Auth auth = 8;
+  string job_id = 1;                 // Parent job identifier
+  string task_id = 2;                // Unique identifier for this task
+  shared.SourceType source_type = 3; // Type of resource being scanned
+  int64 timestamp =
+      4; // When resume was requested (Unix timestamp in nanoseconds)
+  string resource_uri = 5;   // URI/location of the resource to scan
+  int64 sequence_num = 6;    // Sequence number for ordering
+  Checkpoint checkpoint = 7; // Data needed to resume from the correct position
+  shared.Auth auth = 8; // Authentication details needed to access the resource
 }
 
+// TaskJobMetricEvent provides status updates for job-level metrics tracking.
+// These events help track job progress and maintain accurate system-wide
+// statistics.
 message TaskJobMetricEvent {
-  string job_id = 1;
-  string task_id = 2;
-  TaskStatus status = 3;
-  int64 timestamp = 4;
+  string job_id = 1;     // Parent job identifier
+  string task_id = 2;    // Unique identifier for this task
+  TaskStatus status = 3; // Current status of the task
+  int64 timestamp =
+      4; // When this metric was recorded (Unix timestamp in nanoseconds)
 }
 
+// TaskPausedEvent indicates that a task has been temporarily suspended.
+// The task retains its state and can be resumed later from the saved
+// checkpoint.
 message TaskPausedEvent {
-  string job_id = 1;
-  string task_id = 2;
-  int64 timestamp = 3;
-  string requested_by = 4;
-  TaskProgressedEvent progress = 5;
+  string job_id = 1;   // Parent job identifier
+  string task_id = 2;  // Unique identifier for this task
+  int64 timestamp = 3; // When task was paused (Unix timestamp in nanoseconds)
+  string requested_by = 4;          // User or system that initiated the pause
+  TaskProgressedEvent progress = 5; // Final progress state before pausing
 }
 
+// TaskCancelledEvent indicates that a task has been permanently terminated
+// before completion. This terminal state means the task will not be resumed or
+// retried.
 message TaskCancelledEvent {
-  string job_id = 1;
-  string task_id = 2;
-  int64 timestamp = 3;
-  string requested_by = 4;
-  int64 cancelled_at = 5;
+  string job_id = 1;       // Parent job identifier
+  string task_id = 2;      // Unique identifier for this task
+  int64 timestamp = 3;     // Event timestamp (Unix timestamp in nanoseconds)
+  string requested_by = 4; // User or system that initiated the cancellation
+  int64 cancelled_at = 5;  // When the task was actually cancelled
 }
 
 // ScannerStatus represents the possible states of a scanner in the system.
@@ -224,43 +293,52 @@ enum ScannerStatus {
 }
 
 // ScannerRegisteredEvent is emitted when a scanner registers with the system.
-// TODO: Add validation at the protobuf layer.
+// This event establishes a scanner's presence and capabilities in the scanning
+// fleet.
 message ScannerRegisteredEvent {
-  string scanner_name = 1;
-  string version = 2;
-  repeated string capabilities = 3;
+  string scanner_name = 1; // Unique name of the scanner instance
+  string version = 2;      // Scanner software version
+  repeated string capabilities =
+      3;                 // What types of scanning this instance can perform
   string group_name = 4; // Optional: if not provided, assigned to default group
-  string hostname = 5;
-  string ip_address = 6;
-  int64 timestamp = 7; // Unix timestamp in nanoseconds
-  map<string, string> tags = 8;
+  string hostname = 5;   // Host where scanner is running
+  string ip_address = 6; // Network address of the scanner
+  int64 timestamp =
+      7; // When registration occurred (Unix timestamp in nanoseconds)
+  map<string, string> tags = 8; // Labels for filtering and grouping scanners
   ScannerStatus initial_status = 9; // Initial status of the scanner
 }
 
 // ScannerHeartbeatEvent is emitted periodically by scanners to indicate they're
-// still alive.
+// still alive. These events are critical for detecting scanner failures and
+// maintaining an accurate view of scanner availability in the system.
 message ScannerHeartbeatEvent {
-  string scanner_name = 1;
-  ScannerStatus status = 2; // Current status: online, busy, etc.
-  int64 timestamp = 3;      // Unix timestamp in nanoseconds
+  string scanner_name = 1;  // Unique name of the scanner instance
+  ScannerStatus status = 2; // Current operational status
+  int64 timestamp =
+      3; // When heartbeat was sent (Unix timestamp in nanoseconds)
   map<string, double> metrics =
       4; // Optional metrics about scanner health/performance
+         // Examples: CPU usage, memory utilization, scan throughput
 }
 
 // ScannerStatusChangedEvent is emitted when a scanner's status changes.
+// This event allows the system to track scanner fleet health and adapt task
+// assignments based on scanner availability.
 message ScannerStatusChangedEvent {
-  string scanner_name = 1;
-  ScannerStatus new_status =
-      2; // "online", "offline", "maintenance", "error", "unknown"
-  ScannerStatus previous_status = 3;
-  string reason = 4;   // Reason for the status change
-  int64 timestamp = 5; // Unix timestamp in nanoseconds
+  string scanner_name = 1;           // Unique name of the scanner instance
+  ScannerStatus new_status = 2;      // New operational status
+  ScannerStatus previous_status = 3; // Status before this change
+  string reason = 4;                 // Explanation for the status change
+  int64 timestamp = 5; // When status changed (Unix timestamp in nanoseconds)
 }
 
 // ScannerDeregisteredEvent is emitted when a scanner gracefully deregisters
-// from the system.
+// from the system. This event allows for cleanup of scanner resources and
+// redistribution of any assigned tasks to other available scanners.
 message ScannerDeregisteredEvent {
-  string scanner_name = 1;
-  string reason = 2;
-  int64 timestamp = 3; // Unix timestamp in nanoseconds
+  string scanner_name = 1; // Unique name of the scanner instance
+  string reason = 2;       // Why the scanner is being deregistered
+  int64 timestamp =
+      3; // When deregistration occurred (Unix timestamp in nanoseconds)
 }
