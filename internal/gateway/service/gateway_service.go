@@ -423,7 +423,7 @@ func (s *Service) processIncomingScannerMessage(
 	}
 
 	if isCritical {
-		ackErr := s.sendMessageAcknowledgment(ctx, conn, msg.MessageId, processingErr == nil, processingErr)
+		ackErr := s.sendMessageAcknowledgment(ctx, conn, msg.MessageId, processingErr)
 		if ackErr != nil {
 			logger.Error(ctx, "Failed to send message acknowledgment", "error", ackErr)
 			span.RecordError(ackErr)
@@ -470,25 +470,25 @@ func (s *Service) sendMessageAcknowledgment(
 	ctx context.Context,
 	conn *ScannerConnection,
 	messageID string,
-	success bool,
 	processingErr error,
 ) error {
+	isSuccessful := processingErr == nil
 	logger := s.logger.With(
 		"component", "gateway.sendMessageAcknowledgment",
 		"message_id", messageID,
-		"success", success,
+		"success", isSuccessful,
 	)
 	ctx, span := s.tracer.Start(ctx, "gateway.sendMessageAcknowledgment",
 		trace.WithAttributes(
 			attribute.String("message_id", messageID),
-			attribute.Bool("success", success),
+			attribute.Bool("success", isSuccessful),
 		),
 	)
 	defer span.End()
 
-	ack := &pb.MessageAcknowledgment{OriginalMessageId: messageID, Success: success, ScannerId: conn.ID}
+	ack := &pb.MessageAcknowledgment{OriginalMessageId: messageID, Success: isSuccessful, ScannerId: conn.ID}
 
-	if !success && processingErr != nil {
+	if !isSuccessful {
 		logger.Warn(ctx, "Failed to process message, sending negative acknowledgment", "error", processingErr)
 		span.AddEvent("sending_negative_acknowledgment")
 		ack.ErrorMessage = processingErr.Error()
@@ -497,9 +497,7 @@ func (s *Service) sendMessageAcknowledgment(
 	msg := &pb.GatewayToScannerMessage{
 		MessageId: uuid.New().String(),
 		Timestamp: s.timeProvider.Now().UnixNano(),
-		Payload: &pb.GatewayToScannerMessage_Ack{
-			Ack: ack,
-		},
+		Payload:   &pb.GatewayToScannerMessage_Ack{Ack: ack},
 	}
 
 	// Send the acknowledgment back to the scanner.
