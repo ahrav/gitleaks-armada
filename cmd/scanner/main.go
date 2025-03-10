@@ -26,6 +26,7 @@ import (
 	"syscall"
 	"time"
 
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/automaxprocs/maxprocs"
 	"google.golang.org/grpc"
@@ -270,7 +271,7 @@ func main() {
 			Capabilities: capabilities,
 		}
 
-		conn, err := dialGateway(ctx, gatewayAddr)
+		conn, err := dialGateway(ctx, gatewayAddr, tp)
 		if err != nil {
 			log.Error(ctx, "failed to dial gateway", "error", err)
 			os.Exit(1)
@@ -392,8 +393,12 @@ func main() {
 
 // dialGateway creates a single connection to the gateway.
 // TODO: interceptors, connection opts, etc.
-func dialGateway(ctx context.Context, gatewayAddr string) (*grpc.ClientConn, error) {
-	conn, err := grpc.NewClient(gatewayAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+func dialGateway(ctx context.Context, gatewayAddr string, tp trace.TracerProvider) (*grpc.ClientConn, error) {
+	conn, err := grpc.NewClient(
+		gatewayAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithStatsHandler(otelgrpc.NewClientHandler(otelgrpc.WithTracerProvider(tp))),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to dial gateway: %w", err)
 	}

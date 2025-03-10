@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"maps"
 	"net"
 	"net/http"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
@@ -52,9 +54,7 @@ func main() {
 			}
 
 			// Add any error-specific attributes.
-			for k, v := range r.Attributes {
-				errorAttrs[k] = v
-			}
+			maps.Copy(errorAttrs, r.Attributes)
 
 			errorAttrsJSON, err := json.Marshal(errorAttrs)
 			if err != nil {
@@ -320,7 +320,14 @@ func run(ctx context.Context, log *logger.Logger, hostname string) error {
 	// -------------------------------------------------------------------------
 	// Start gRPC Server
 
-	grpcServer := grpc.NewServer()
+	// TODO: include metrics provider.
+	handler := otelgrpc.NewServerHandler(
+		otelgrpc.WithTracerProvider(traceProvider),
+	)
+
+	grpcServer := grpc.NewServer(
+		grpc.StatsHandler(handler),
+	)
 	pb.RegisterScannerGatewayServiceServer(grpcServer, gatewayService)
 
 	healthServer := health.NewServer()
