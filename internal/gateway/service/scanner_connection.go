@@ -17,7 +17,7 @@ import (
 // It encapsulates the connection details and provides a clean API for
 // sending/receiving messages and managing the connection lifecycle.
 type ScannerConnection struct {
-	ID           string               // Scanner ID
+	ScannerID    string               // Scanner ID
 	Stream       GatewayScannerStream // gRPC stream
 	Connected    time.Time            // When the scanner connected
 	LastActivity time.Time            // Last time we received a message
@@ -41,7 +41,7 @@ func NewScannerConnection(
 ) *ScannerConnection {
 	now := timeProvider.Now()
 	return &ScannerConnection{
-		ID:           id,
+		ScannerID:    id,
 		Stream:       stream,
 		Connected:    now,
 		LastActivity: now,
@@ -77,6 +77,6 @@ func (c *ScannerConnection) CreateAcknowledgment(messageID string, success bool,
 		OriginalMessageId: messageID,
 		Success:           success,
 		ErrorMessage:      errorMessage,
-		ScannerId:         c.ID,
+		ScannerId:         c.ScannerID,
 	}
 }

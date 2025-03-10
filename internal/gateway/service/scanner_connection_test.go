@@ -49,7 +49,7 @@ func TestNewScannerConnection(t *testing.T) {
 		"scanner-1", mockStream, []string{"cap1", "cap2"}, "v2.1", &mockTime, log, tracer,
 	)
 
-	assert.Equal(t, "scanner-1", conn.ID)
+	assert.Equal(t, "scanner-1", conn.ScannerID)
 	assert.Equal(t, mockStream, conn.Stream)
 	assert.Equal(t, mockTime.CurrentTime, conn.Connected)
 	assert.Equal(t, mockTime.CurrentTime, conn.LastActivity)

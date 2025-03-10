@@ -327,7 +327,7 @@ func (s *Service) processIncomingScannerMessage(
 ) error {
 	ctx, span := s.tracer.Start(ctx, "gateway.processIncomingScannerMessage",
 		trace.WithAttributes(
-			attribute.String("scanner_id", conn.ID),
+			attribute.String("scanner_id", conn.ScannerID),
 			attribute.String("message_id", msg.MessageId),
 		),
 	)
@@ -335,7 +335,7 @@ func (s *Service) processIncomingScannerMessage(
 
 	logger := s.logger.With(
 		"component", "gateway.processIncomingScannerMessage",
-		"scanner_id", conn.ID,
+		"scanner_id", conn.ScannerID,
 		"message_id", msg.MessageId,
 	)
 
@@ -487,7 +487,7 @@ func (s *Service) sendMessageAcknowledgment(
 	)
 	defer span.End()
 
-	ack := &pb.MessageAcknowledgment{OriginalMessageId: messageID, Success: isSuccessful, ScannerId: conn.ID}
+	ack := &pb.MessageAcknowledgment{OriginalMessageId: messageID, Success: isSuccessful, ScannerId: conn.ScannerID}
 
 	if !isSuccessful {
 		logger.Warn(ctx, "Failed to process message, sending negative acknowledgment", "error", processingErr)
@@ -628,12 +628,12 @@ func (s *Service) subscribeToEvents(ctx context.Context, scannerID string) error
 // It maintains the connection and routes messages to appropriate handlers,
 // updating activity timestamps and handling disconnections gracefully.
 func (s *Service) handleScannerMessages(ctx context.Context, conn *ScannerConnection) error {
-	logger := s.logger.With("operation", "handleScannerMessages", "scanner_id", conn.ID)
+	logger := s.logger.With("operation", "handleScannerMessages", "scanner_id", conn.ScannerID)
 
 	for {
 		ctx, span := s.tracer.Start(ctx, "gateway.handleScannerMessages",
 			trace.WithAttributes(
-				attribute.String("scanner_id", conn.ID),
+				attribute.String("scanner_id", conn.ScannerID),
 				attribute.String("scanner_version", conn.Version),
 				attribute.String("last_activity_ts", conn.LastActivity.Format(time.RFC3339Nano)),
 			),
@@ -652,7 +652,7 @@ func (s *Service) handleScannerMessages(ctx context.Context, conn *ScannerConnec
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "Error receiving message from scanner")
 			span.End()
-			s.scanners.Unregister(ctx, conn.ID)
+			s.scanners.Unregister(ctx, conn.ScannerID)
 			return fmt.Errorf("error receiving message from scanner: %w", err)
 		}
 		span.AddEvent("message_received_from_scanner",
@@ -669,7 +669,7 @@ func (s *Service) handleScannerMessages(ctx context.Context, conn *ScannerConnec
 				span.RecordError(err)
 				span.SetStatus(codes.Error, "Error processing message from scanner")
 				span.End()
-				s.scanners.Unregister(ctx, conn.ID)
+				s.scanners.Unregister(ctx, conn.ScannerID)
 				return err
 			}
 			span.RecordError(err)
@@ -811,7 +811,7 @@ func (s *Service) SubscribeToBroadcasts(stream pb.ScannerGatewayService_Subscrib
 
 	// Create the broadcast connection record.
 	broadcastConn := &ScannerConnection{
-		ID:           scannerID,
+		ScannerID:    scannerID,
 		Stream:       stream,
 		Connected:    s.timeProvider.Now(),
 		LastActivity: s.timeProvider.Now(),
@@ -898,7 +898,7 @@ func (s *Service) subscribeToBroadcastEvents(
 
 // handleBroadcastMessages processes incoming messages on the broadcast stream.
 func (s *Service) handleBroadcastMessages(ctx context.Context, conn *ScannerConnection) error {
-	logger := s.logger.With("method", "handleBroadcastMessages", "scanner_id", conn.ID)
+	logger := s.logger.With("method", "handleBroadcastMessages", "scanner_id", conn.ScannerID)
 
 	for {
 		select {
@@ -974,18 +974,18 @@ func (s *Service) processBroadcastMessage(
 			// This can happen if acknowledgment arrived after timeout.
 			span.AddEvent("acknowledgment_for_expired_message")
 			s.logger.Warn(ctx, "Received broadcast acknowledgment for unknown or expired message ID",
-				"scanner_id", conn.ID,
+				"scanner_id", conn.ScannerID,
 				"original_message_id", originalMsgID)
 		} else {
 			span.AddEvent("broadcast_acknowledgment_resolved")
 			if ackErr != nil {
 				s.logger.Error(ctx, "Processed broadcast acknowledgment with error",
-					"scanner_id", conn.ID,
+					"scanner_id", conn.ScannerID,
 					"original_message_id", originalMsgID,
 					"error", ackErr)
 			} else {
 				s.logger.Debug(ctx, "Processed broadcast acknowledgment successfully",
-					"scanner_id", conn.ID,
+					"scanner_id", conn.ScannerID,
 					"original_message_id", originalMsgID)
 			}
 		}
@@ -997,6 +997,6 @@ func (s *Service) processBroadcastMessage(
 	// Any other message types on broadcast stream are unexpected.
 	s.metrics.IncMessagesReceived(ctx, "unexpected_broadcast")
 	s.logger.Warn(ctx, "Unexpected message type on broadcast stream",
-		"scanner_id", conn.ID, "message_id", msg.GetMessageId())
+		"scanner_id", conn.ScannerID, "message_id", msg.GetMessageId())
 	return nil
 }

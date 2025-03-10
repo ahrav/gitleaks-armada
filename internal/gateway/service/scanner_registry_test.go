@@ -80,14 +80,14 @@ func TestRegisterNewScanner(t *testing.T) {
 	registry := gateway.NewScannerRegistry(metrics)
 
 	conn := &gateway.ScannerConnection{
-		ID:           "scanner-123",
+		ScannerID:    "scanner-123",
 		Connected:    time.Now(),
 		LastActivity: time.Now(),
 		Capabilities: []string{"cap1", "cap2"},
 		Version:      "v1.0.0",
 	}
 
-	registry.Register(ctx, conn.ID, conn)
+	registry.Register(ctx, conn.ScannerID, conn)
 
 	gotConn, exists := registry.Get("scanner-123")
 	assert.True(t, exists, "Expected the scanner to exist after registration")
@@ -103,12 +103,12 @@ func TestRegisterExistingScanner(t *testing.T) {
 	registry := gateway.NewScannerRegistry(metrics)
 
 	// First registration.
-	firstConn := &gateway.ScannerConnection{ID: "scanner-XYZ", Version: "v1"}
-	registry.Register(ctx, firstConn.ID, firstConn)
+	firstConn := &gateway.ScannerConnection{ScannerID: "scanner-XYZ", Version: "v1"}
+	registry.Register(ctx, firstConn.ScannerID, firstConn)
 
 	// Register a second time with the same ID but different data.
-	secondConn := &gateway.ScannerConnection{ID: "scanner-XYZ", Version: "v2"}
-	registry.Register(ctx, secondConn.ID, secondConn)
+	secondConn := &gateway.ScannerConnection{ScannerID: "scanner-XYZ", Version: "v2"}
+	registry.Register(ctx, secondConn.ScannerID, secondConn)
 
 	// Confirm the stored data is replaced.
 	gotConn, exists := registry.Get("scanner-XYZ")
@@ -125,8 +125,8 @@ func TestUnregisterScannerExists(t *testing.T) {
 	registry := gateway.NewScannerRegistry(metrics)
 
 	// Pre-populate the registry.
-	conn := &gateway.ScannerConnection{ID: "scanner-ABC"}
-	registry.Register(ctx, conn.ID, conn)
+	conn := &gateway.ScannerConnection{ScannerID: "scanner-ABC"}
+	registry.Register(ctx, conn.ScannerID, conn)
 
 	removed := registry.Unregister(ctx, "scanner-ABC")
 	assert.True(t, removed, "Expected true when removing an existing scanner")
@@ -153,12 +153,12 @@ func TestGetScanner(t *testing.T) {
 	metrics := NewMockGatewayMetrics()
 	registry := gateway.NewScannerRegistry(metrics)
 
-	conn := &gateway.ScannerConnection{ID: "get-test"}
-	registry.Register(context.Background(), conn.ID, conn)
+	conn := &gateway.ScannerConnection{ScannerID: "get-test"}
+	registry.Register(context.Background(), conn.ScannerID, conn)
 
 	got, ok := registry.Get("get-test")
 	assert.True(t, ok, "Should find a registered scanner by ID")
-	assert.Equal(t, "get-test", got.ID)
+	assert.Equal(t, "get-test", got.ScannerID)
 }
 
 // TestGetScannerNotFound checks that retrieving a non-existent ID returns false.
