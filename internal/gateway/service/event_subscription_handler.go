@@ -61,7 +61,7 @@ func NewEventSubscriptionHandler(
 		ackTracker:   ackTracker,
 		timeProvider: timeProvider,
 		ackTimeout:   ackTimeout,
-		logger:       logger,
+		logger:       logger.With("component", "event_subscription_handler"),
 		tracer:       tracer,
 	}
 }

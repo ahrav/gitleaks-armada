@@ -3,21 +3,10 @@ package gateway
 import (
 	"context"
 	"sync"
-	"time"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
-
-// ScannerConnection tracks the state of a connected scanner.
-type ScannerConnection struct {
-	ID           string               // Scanner ID
-	Stream       GatewayScannerStream // gRPC stream
-	Connected    time.Time            // When the scanner connected
-	LastActivity time.Time            // Last time we received a message
-	Capabilities []string             // Scanner capabilities
-	Version      string               // Scanner version
-}
 
 // ScannerRegistry manages the collection of connected scanners.
 // It provides thread-safe operations for registering, accessing, and removing scanners.

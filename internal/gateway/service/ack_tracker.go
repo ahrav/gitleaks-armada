@@ -32,7 +32,10 @@ type acknowledgmentTracker struct {
 
 // NewAcknowledgmentTracker creates a new tracker for message acknowledgments.
 func NewAcknowledgmentTracker(logger *logger.Logger) *acknowledgmentTracker {
-	return &acknowledgmentTracker{pending: make(map[string]chan error), logger: logger}
+	return &acknowledgmentTracker{
+		pending: make(map[string]chan error),
+		logger:  logger.With("component", "acknowledgment_tracker"),
+	}
 }
 
 // TrackMessage starts tracking a message that requires acknowledgment and

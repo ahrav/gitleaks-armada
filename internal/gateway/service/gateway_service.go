@@ -186,7 +186,7 @@ func NewService(
 		broadcastScanners: NewScannerRegistry(metrics),
 
 		// Observability.
-		logger:  logger,
+		logger:  logger.With("component", "gateway_service"),
 		metrics: metrics,
 		tracer:  tracer,
 
@@ -271,14 +271,15 @@ func (s *Service) ConnectScanner(stream pb.ScannerGatewayService_SubscribeToBroa
 		attribute.String("group", regRequest.GroupName),
 	)
 
-	conn := &ScannerConnection{
-		ID:           scannerID,
-		Stream:       stream,
-		Connected:    s.timeProvider.Now(),
-		LastActivity: s.timeProvider.Now(),
-		Capabilities: regRequest.Capabilities,
-		Version:      regRequest.Version,
-	}
+	conn := NewScannerConnection(
+		scannerID,
+		stream,
+		regRequest.Capabilities,
+		regRequest.Version,
+		s.timeProvider,
+		s.logger,
+		s.tracer,
+	)
 
 	s.scanners.Register(ctx, scannerID, conn)
 	logger.Info(ctx, "Scanner registered")

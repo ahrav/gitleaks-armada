@@ -473,6 +473,7 @@ func NewScannerEventBus(
 		return nil, fmt.Errorf("failed to initialize scanner connection: %w", err)
 	}
 
+	logger = logger.With("component", "scanner_event_bus")
 	eventBus, err := newEventBus(stream, cfg, mapRegularEventTypes(), logger, tracer)
 	if err != nil {
 		return nil, err
@@ -552,6 +553,7 @@ func NewBroadcastEventBus(
 		return nil, fmt.Errorf("failed to initialize broadcast connection: %w", err)
 	}
 
+	logger = logger.With("component", "broadcast_event_bus")
 	eventBus, err := newEventBus(stream, cfg, mapBroadcastEventTypes(), logger, tracer)
 	if err != nil {
 		return nil, err
