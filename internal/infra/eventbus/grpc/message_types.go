@@ -33,6 +33,10 @@ type GatewayToScannerMessage = pb.GatewayToScannerMessage
 // This is the message that goes from the scanner to the gateway.
 type ScannerToGatewayMessage = pb.ScannerToGatewayMessage
 
+// MessageAck is a wrapper for the protobuf message type.
+// This is the message that goes from the gateway to the scanner to acknowledge a message.
+type MessageAck = pb.MessageAcknowledgment
+
 // ScannerGatewayStream represents the bidirectional stream between scanner and gateway.
 // From the scanner's perspective, this interface provides the correct message direction:
 // - Scanner sends ScannerToGatewayMessage TO the gateway (scanner → gateway)

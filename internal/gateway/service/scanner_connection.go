@@ -7,10 +7,9 @@ import (
 
 	"go.opentelemetry.io/otel/trace"
 
+	grpcbus "github.com/ahrav/gitleaks-armada/internal/infra/eventbus/grpc"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/common/timeutil"
-	grpcbus "github.com/ahrav/gitleaks-armada/proto"
-	pb "github.com/ahrav/gitleaks-armada/proto"
 )
 
 // ScannerConnection tracks the state of a connected scanner and provides
@@ -73,8 +72,8 @@ func (c *ScannerConnection) HasCapability(capability string) bool {
 }
 
 // CreateAcknowledgment creates a message acknowledgment response for this scanner.
-func (c *ScannerConnection) CreateAcknowledgment(messageID string, success bool, errorMessage string) *pb.MessageAcknowledgment {
-	return &pb.MessageAcknowledgment{
+func (c *ScannerConnection) CreateAcknowledgment(messageID string, success bool, errorMessage string) *grpcbus.MessageAck {
+	return &grpcbus.MessageAck{
 		OriginalMessageId: messageID,
 		Success:           success,
 		ErrorMessage:      errorMessage,
