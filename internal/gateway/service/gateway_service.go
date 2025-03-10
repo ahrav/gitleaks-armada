@@ -339,7 +339,7 @@ func (s *Service) processIncomingScannerMessage(
 		"message_id", msg.MessageId,
 	)
 
-	conn.LastActivity = s.timeProvider.Now()
+	conn.UpdateActivity(s.timeProvider.Now())
 	// messageType := msg.MessageId // Simplified for now
 
 	// s.metrics.IncMessagesReceived(ctx, messageType)
@@ -503,7 +503,7 @@ func (s *Service) sendMessageAcknowledgment(
 
 	// Send the acknowledgment back to the scanner.
 	// Acknowledgments don't need to be tracked as they don't require acknowledgments themselves.
-	if err := conn.Stream.Send(msg); err != nil {
+	if err := conn.SendMessage(ctx, msg); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to send acknowledgment")
 		return fmt.Errorf("failed to send acknowledgment: %w", err)
@@ -647,7 +647,7 @@ func (s *Service) handleScannerMessages(ctx context.Context, conn *ScannerConnec
 		}
 
 		// Consume messages from the scanner.
-		msg, err := conn.Stream.Recv()
+		msg, err := conn.ReceiveMessage(ctx)
 		if err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "Error receiving message from scanner")
@@ -661,7 +661,7 @@ func (s *Service) handleScannerMessages(ctx context.Context, conn *ScannerConnec
 			),
 		)
 
-		conn.LastActivity = s.timeProvider.Now()
+		conn.UpdateActivity(s.timeProvider.Now())
 
 		if err := s.processIncomingScannerMessage(ctx, conn, msg); err != nil {
 			// Continue processing messages unless it's a critical error.
@@ -750,7 +750,7 @@ func (s *Service) sendRegistrationResponse(
 		},
 	}
 
-	if err := conn.Stream.Send(resp); err != nil {
+	if err := conn.SendMessage(ctx, resp); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to send registration response")
 		return fmt.Errorf("failed to send registration response: %w", err)
@@ -909,7 +909,7 @@ func (s *Service) handleBroadcastMessages(ctx context.Context, conn *ScannerConn
 			// Continue processing.
 		}
 
-		msg, err := conn.Stream.Recv()
+		msg, err := conn.ReceiveMessage(ctx)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				logger.Info(ctx, "Scanner disconnected from broadcast stream")
@@ -946,7 +946,7 @@ func (s *Service) processBroadcastMessage(
 	conn *ScannerConnection,
 	msg *pb.ScannerToGatewayMessage,
 ) error {
-	conn.LastActivity = time.Now()
+	conn.UpdateActivity(s.timeProvider.Now())
 
 	if ack := msg.GetAck(); ack != nil {
 		ctx, span := s.tracer.Start(ctx, "gateway.processBroadcastAcknowledgment",
