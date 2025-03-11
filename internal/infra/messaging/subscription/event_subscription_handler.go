@@ -1,4 +1,4 @@
-package gateway
+package subscription
 
 import (
 	"context"
@@ -10,6 +10,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
+	"github.com/ahrav/gitleaks-armada/internal/infra/messaging/acktracking"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/common/timeutil"
 )
@@ -37,7 +38,7 @@ var _ EventSubscriptionHandler = (*eventSubscriptionHandler)(nil)
 type eventSubscriptionHandler struct {
 	eventBus events.EventBus
 
-	ackTracker AckTracker
+	ackTracker acktracking.AckTracker
 
 	// Default timeout for waiting for acknowledgments.
 	ackTimeout   time.Duration
@@ -50,7 +51,7 @@ type eventSubscriptionHandler struct {
 // NewEventSubscriptionHandler creates a new handler for event subscriptions.
 func NewEventSubscriptionHandler(
 	eventBus events.EventBus,
-	ackTracker AckTracker,
+	ackTracker acktracking.AckTracker,
 	ackTimeout time.Duration,
 	timeProvider timeutil.Provider,
 	logger *logger.Logger,

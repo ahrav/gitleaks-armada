@@ -1,4 +1,4 @@
-package gateway_test
+package connections_test
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	gateway "github.com/ahrav/gitleaks-armada/internal/gateway/service"
+	"github.com/ahrav/gitleaks-armada/internal/infra/messaging/connections"
 )
 
 // MockGatewayMetrics implements the GatewayMetrics interface for testing.
@@ -77,9 +77,9 @@ func TestRegisterNewScanner(t *testing.T) {
 	ctx := context.Background()
 
 	metrics := NewMockGatewayMetrics()
-	registry := gateway.NewScannerRegistry(metrics)
+	registry := connections.NewScannerRegistry(metrics)
 
-	conn := &gateway.ScannerConnection{
+	conn := &connections.ScannerConnection{
 		ScannerID:    "scanner-123",
 		Connected:    time.Now(),
 		LastActivity: time.Now(),
@@ -100,14 +100,14 @@ func TestRegisterExistingScanner(t *testing.T) {
 	ctx := context.Background()
 
 	metrics := NewMockGatewayMetrics()
-	registry := gateway.NewScannerRegistry(metrics)
+	registry := connections.NewScannerRegistry(metrics)
 
 	// First registration.
-	firstConn := &gateway.ScannerConnection{ScannerID: "scanner-XYZ", Version: "v1"}
+	firstConn := &connections.ScannerConnection{ScannerID: "scanner-XYZ", Version: "v1"}
 	registry.Register(ctx, firstConn.ScannerID, firstConn)
 
 	// Register a second time with the same ID but different data.
-	secondConn := &gateway.ScannerConnection{ScannerID: "scanner-XYZ", Version: "v2"}
+	secondConn := &connections.ScannerConnection{ScannerID: "scanner-XYZ", Version: "v2"}
 	registry.Register(ctx, secondConn.ScannerID, secondConn)
 
 	// Confirm the stored data is replaced.
@@ -122,10 +122,10 @@ func TestUnregisterScannerExists(t *testing.T) {
 	ctx := context.Background()
 
 	metrics := NewMockGatewayMetrics()
-	registry := gateway.NewScannerRegistry(metrics)
+	registry := connections.NewScannerRegistry(metrics)
 
 	// Pre-populate the registry.
-	conn := &gateway.ScannerConnection{ScannerID: "scanner-ABC"}
+	conn := &connections.ScannerConnection{ScannerID: "scanner-ABC"}
 	registry.Register(ctx, conn.ScannerID, conn)
 
 	removed := registry.Unregister(ctx, "scanner-ABC")
@@ -141,7 +141,7 @@ func TestUnregisterScannerNotFound(t *testing.T) {
 	ctx := context.Background()
 
 	metrics := NewMockGatewayMetrics()
-	registry := gateway.NewScannerRegistry(metrics)
+	registry := connections.NewScannerRegistry(metrics)
 
 	// Attempt to remove something that doesn't exist.
 	removed := registry.Unregister(ctx, "scanner-nope")
@@ -151,9 +151,9 @@ func TestUnregisterScannerNotFound(t *testing.T) {
 // TestGetScanner checks basic retrieval of a registered scanner.
 func TestGetScanner(t *testing.T) {
 	metrics := NewMockGatewayMetrics()
-	registry := gateway.NewScannerRegistry(metrics)
+	registry := connections.NewScannerRegistry(metrics)
 
-	conn := &gateway.ScannerConnection{ScannerID: "get-test"}
+	conn := &connections.ScannerConnection{ScannerID: "get-test"}
 	registry.Register(context.Background(), conn.ScannerID, conn)
 
 	got, ok := registry.Get("get-test")
@@ -163,7 +163,7 @@ func TestGetScanner(t *testing.T) {
 
 // TestGetScannerNotFound checks that retrieving a non-existent ID returns false.
 func TestGetScannerNotFound(t *testing.T) {
-	registry := gateway.NewScannerRegistry(&MockGatewayMetrics{})
+	registry := connections.NewScannerRegistry(&MockGatewayMetrics{})
 
 	got, ok := registry.Get("not-registered")
 	assert.False(t, ok, "Should not find an unregistered scanner")
@@ -172,14 +172,14 @@ func TestGetScannerNotFound(t *testing.T) {
 
 // TestCount checks that the registry count reflects the number of registered scanners.
 func TestCount(t *testing.T) {
-	registry := gateway.NewScannerRegistry(&MockGatewayMetrics{})
+	registry := connections.NewScannerRegistry(&MockGatewayMetrics{})
 
 	assert.Equal(t, 0, registry.Count(), "Initial count should be zero")
 
 	// Add some scanners.
-	registry.Register(context.Background(), "A", &gateway.ScannerConnection{})
-	registry.Register(context.Background(), "B", &gateway.ScannerConnection{})
-	registry.Register(context.Background(), "C", &gateway.ScannerConnection{})
+	registry.Register(context.Background(), "A", &connections.ScannerConnection{})
+	registry.Register(context.Background(), "B", &connections.ScannerConnection{})
+	registry.Register(context.Background(), "C", &connections.ScannerConnection{})
 
 	assert.Equal(t, 3, registry.Count(), "Expected 3 registered scanners")
 

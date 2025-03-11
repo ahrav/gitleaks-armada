@@ -23,6 +23,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/internal/infra/eventbus/reliability"
 	"github.com/ahrav/gitleaks-armada/internal/infra/eventbus/serialization"
+	"github.com/ahrav/gitleaks-armada/internal/infra/messaging/protocol"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/common/timeutil"
 	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
@@ -246,13 +247,13 @@ func (s *busState) setClosed() {
 // message criticality, without requiring clients to specify acknowledgment requirements.
 type EventBus struct {
 	// Underlying stream for bidirectional communication.
-	stream ScannerGatewayStream
+	stream protocol.ScannerGatewayStream
 
 	// Configuration for the event bus.
 	config *EventBusConfig
 
 	// Maps event types to internal message types.
-	eventToMessageType map[events.EventType]MessageType
+	eventToMessageType map[events.EventType]protocol.MessageType
 
 	// Manages acknowledgments for critical messages.
 	ackManager *acknowledgmentManager
@@ -280,9 +281,9 @@ type EventBus struct {
 // newEventBus is a common helper function that creates and initializes an event bus
 // with the provided configuration.
 func newEventBus(
-	stream ScannerGatewayStream,
+	stream protocol.ScannerGatewayStream,
 	cfg *EventBusConfig,
-	eventTypeMap map[events.EventType]MessageType,
+	eventTypeMap map[events.EventType]protocol.MessageType,
 	logger *logger.Logger,
 	// metrics GRPCMetrics,
 	tracer trace.Tracer,
@@ -313,7 +314,7 @@ func newEventBus(
 // initializeStream handles sending an initial message to a stream and waiting for a response.
 // This common logic is used by both regular scanner connections and broadcast connections.
 func initializeStream(
-	stream ScannerGatewayStream,
+	stream protocol.ScannerGatewayStream,
 	msg *pb.ScannerToGatewayMessage,
 	timeout time.Duration,
 	logger *logger.Logger,
@@ -494,30 +495,30 @@ func hostname() string {
 // mapRegularEventTypes creates a mapping between domain event types and gRPC message types
 // specifically for regular scanner connections. This includes scanner lifecycle events,
 // task processing, and rule distribution events.
-func mapRegularEventTypes() map[events.EventType]MessageType {
-	return map[events.EventType]MessageType{
+func mapRegularEventTypes() map[events.EventType]protocol.MessageType {
+	return map[events.EventType]protocol.MessageType{
 		// Scanner lifecycle events - scanners send these to the gateway.
-		scanning.EventTypeScannerRegistered:    MessageTypeScannerRegistered,
-		scanning.EventTypeScannerHeartbeat:     MessageTypeScannerHeartbeat,
-		scanning.EventTypeScannerStatusChanged: MessageTypeScannerStatusChanged,
-		scanning.EventTypeScannerDeregistered:  MessageTypeScannerDeregistered,
+		scanning.EventTypeScannerRegistered:    protocol.MessageTypeScannerRegistered,
+		scanning.EventTypeScannerHeartbeat:     protocol.MessageTypeScannerHeartbeat,
+		scanning.EventTypeScannerStatusChanged: protocol.MessageTypeScannerStatusChanged,
+		scanning.EventTypeScannerDeregistered:  protocol.MessageTypeScannerDeregistered,
 
 		// Job control events - scanners receive job control events (broadcasted by the gateway).
-		scanning.EventTypeJobPaused:    MessageTypeScanJobPaused,    // Gateway sends to scanner
-		scanning.EventTypeJobCancelled: MessageTypeScanJobCancelled, // Gateway sends to scanner
+		scanning.EventTypeJobPaused:    protocol.MessageTypeScanJobPaused,    // Gateway sends to scanner
+		scanning.EventTypeJobCancelled: protocol.MessageTypeScanJobCancelled, // Gateway sends to scanner
 
 		// Task processing events - scanners receive task assignments and send progress/results.
-		scanning.EventTypeTaskCreated:    MessageTypeScanTask,           // Gateway sends to scanner
-		scanning.EventTypeTaskStarted:    MessageTypeScanTaskStarted,    // Scanner sends to gateway
-		scanning.EventTypeTaskProgressed: MessageTypeScanTaskProgressed, // Scanner sends to gateway
-		scanning.EventTypeTaskCompleted:  MessageTypeScanTaskCompleted,  // Scanner sends to gateway
-		scanning.EventTypeTaskFailed:     MessageTypeScanTaskFailed,     // Scanner sends to gateway
-		scanning.EventTypeTaskResume:     MessageTypeScanTaskResume,     // Gateway sends to scanner
-		scanning.EventTypeTaskHeartbeat:  MessageTypeScanTaskHeartbeat,  // Scanner sends to gateway
-		scanning.EventTypeTaskJobMetric:  MessageTypeScanTaskJobMetric,  // Scanner sends to gateway
+		scanning.EventTypeTaskCreated:    protocol.MessageTypeScanTask,           // Gateway sends to scanner
+		scanning.EventTypeTaskStarted:    protocol.MessageTypeScanTaskStarted,    // Scanner sends to gateway
+		scanning.EventTypeTaskProgressed: protocol.MessageTypeScanTaskProgressed, // Scanner sends to gateway
+		scanning.EventTypeTaskCompleted:  protocol.MessageTypeScanTaskCompleted,  // Scanner sends to gateway
+		scanning.EventTypeTaskFailed:     protocol.MessageTypeScanTaskFailed,     // Scanner sends to gateway
+		scanning.EventTypeTaskResume:     protocol.MessageTypeScanTaskResume,     // Gateway sends to scanner
+		scanning.EventTypeTaskHeartbeat:  protocol.MessageTypeScanTaskHeartbeat,  // Scanner sends to gateway
+		scanning.EventTypeTaskJobMetric:  protocol.MessageTypeScanTaskJobMetric,  // Scanner sends to gateway
 
 		// Rules events - controller initiates rule distribution to scanners.
-		rules.EventTypeRulesRequested: MessageTypeRulesRequested,
+		rules.EventTypeRulesRequested: protocol.MessageTypeRulesRequested,
 	}
 }
 
@@ -565,14 +566,14 @@ func NewBroadcastEventBus(
 // mapBroadcastEventTypes creates a mapping between domain event types and gRPC message types
 // specifically for broadcast connections. This primarily includes job control events that
 // affect all scanners system-wide.
-func mapBroadcastEventTypes() map[events.EventType]MessageType {
-	return map[events.EventType]MessageType{
+func mapBroadcastEventTypes() map[events.EventType]protocol.MessageType {
+	return map[events.EventType]protocol.MessageType{
 		// Job control messages
-		scanning.EventTypeJobPaused:    MessageTypeScanJobPaused,    // Broadcast to all scanners
-		scanning.EventTypeJobCancelled: MessageTypeScanJobCancelled, // Broadcast to all scanners
+		scanning.EventTypeJobPaused:    protocol.MessageTypeScanJobPaused,    // Broadcast to all scanners
+		scanning.EventTypeJobCancelled: protocol.MessageTypeScanJobCancelled, // Broadcast to all scanners
 
 		// System messages
-		EventTypeSystemNotification: MessageTypeSystemNotification,
+		protocol.EventTypeSystemNotification: protocol.MessageTypeSystemNotification,
 	}
 }
 
@@ -628,7 +629,7 @@ func (b *EventBus) Publish(ctx context.Context, event events.EventEnvelope, opts
 	logger.Add("message_id", msgID)
 	span.SetAttributes(attribute.String("message_id", msgID))
 
-	msg := &ScannerToGatewayMessage{
+	msg := &pb.ScannerToGatewayMessage{
 		MessageId: msgID,
 		Timestamp: b.timeProvider.Now().UnixNano(),
 		ScannerId: b.config.ScannerName,
@@ -857,7 +858,7 @@ func (b *EventBus) receiveLoop() {
 // This implements the "Gateway→Scanner: Application-level acknowledgments" pattern
 // described in the EventBus documentation, which is essential for reliability since
 // gRPC streams don't provide message persistence or replay capabilities like Kafka.
-func (b *EventBus) processGatewayMessage(msg *GatewayToScannerMessage) {
+func (b *EventBus) processGatewayMessage(msg *pb.GatewayToScannerMessage) {
 	logger := b.logger.With("operation", "processGatewayMessage", "message_id", msg.GetMessageId())
 	ctx, span := b.tracer.Start(context.Background(), "EventBus.processGatewayMessage",
 		trace.WithAttributes(
@@ -891,7 +892,7 @@ func (b *EventBus) processGatewayMessage(msg *GatewayToScannerMessage) {
 		}
 
 		// Handle acknowledgments for critical messages.
-		if eventType == EventTypeMessageAck {
+		if eventType == protocol.EventTypeMessageAck {
 			if ack, ok := protoPayload.(*pb.MessageAcknowledgment); ok {
 				b.processAcknowledgment(callbackCtx, ack)
 				span.AddEvent("acknowledgment_processed")
@@ -917,7 +918,7 @@ func (b *EventBus) processGatewayMessage(msg *GatewayToScannerMessage) {
 					errorMsg = ackErr.Error()
 				}
 
-				ackMsg := &ScannerToGatewayMessage{
+				ackMsg := &pb.ScannerToGatewayMessage{
 					MessageId:  fmt.Sprintf("ack-%s", msg.GetMessageId()),
 					Timestamp:  b.timeProvider.Now().UnixNano(),
 					ScannerId:  b.config.ScannerName,

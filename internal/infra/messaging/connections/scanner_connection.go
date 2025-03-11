@@ -1,4 +1,4 @@
-package gateway
+package connections
 
 import (
 	"context"
@@ -9,7 +9,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
-	grpcbus "github.com/ahrav/gitleaks-armada/internal/infra/eventbus/grpc"
+	"github.com/ahrav/gitleaks-armada/internal/infra/messaging/protocol"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/common/timeutil"
 )
@@ -56,7 +56,7 @@ func NewScannerConnection(
 }
 
 // SendMessage sends a message to the scanner and handles any errors.
-func (c *ScannerConnection) SendMessage(ctx context.Context, msg *grpcbus.GatewayToScannerMessage) error {
+func (c *ScannerConnection) SendMessage(ctx context.Context, msg *protocol.GatewayToScannerMessage) error {
 	ctx, span := c.tracer.Start(ctx, "gateway.ScannerConnection.SendMessage")
 	defer span.End()
 
@@ -78,7 +78,7 @@ func (c *ScannerConnection) SendMessage(ctx context.Context, msg *grpcbus.Gatewa
 }
 
 // ReceiveMessage receives a message from the scanner.
-func (c *ScannerConnection) ReceiveMessage(ctx context.Context) (*grpcbus.ScannerToGatewayMessage, error) {
+func (c *ScannerConnection) ReceiveMessage(ctx context.Context) (*protocol.ScannerToGatewayMessage, error) {
 	ctx, span := c.tracer.Start(ctx, "gateway.ScannerConnection.ReceiveMessage")
 	defer span.End()
 
@@ -106,8 +106,8 @@ func (c *ScannerConnection) HasCapability(capability string) bool {
 }
 
 // CreateAcknowledgment creates a message acknowledgment response for this scanner.
-func (c *ScannerConnection) CreateAcknowledgment(messageID string, success bool, errorMessage string) *grpcbus.MessageAck {
-	return &grpcbus.MessageAck{
+func (c *ScannerConnection) CreateAcknowledgment(messageID string, success bool, errorMessage string) *protocol.MessageAck {
+	return &protocol.MessageAck{
 		OriginalMessageId: messageID,
 		Success:           success,
 		ErrorMessage:      errorMessage,

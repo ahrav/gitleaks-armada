@@ -75,6 +75,10 @@ import (
 	grpcbus "github.com/ahrav/gitleaks-armada/internal/infra/eventbus/grpc"
 	"github.com/ahrav/gitleaks-armada/internal/infra/eventbus/reliability"
 	"github.com/ahrav/gitleaks-armada/internal/infra/eventbus/serialization"
+	"github.com/ahrav/gitleaks-armada/internal/infra/messaging/acktracking"
+	"github.com/ahrav/gitleaks-armada/internal/infra/messaging/connections"
+	"github.com/ahrav/gitleaks-armada/internal/infra/messaging/protocol"
+	"github.com/ahrav/gitleaks-armada/internal/infra/messaging/subscription"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/common/timeutil"
 	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
@@ -87,7 +91,6 @@ type GatewayMetrics interface {
 	IncConnectedScanners(ctx context.Context)
 	DecConnectedScanners(ctx context.Context)
 	SetConnectedScanners(ctx context.Context, count int)
-
 	// Message metrics.
 	IncMessagesReceived(ctx context.Context, messageType string)
 	IncMessagesSent(ctx context.Context, messageType string)
@@ -134,20 +137,20 @@ type Service struct {
 	// These connections handle scanner-specific commands and events, enabling
 	// direct communication with individual scanners for tasks and status updates.
 	// The registry maintains the mapping between scanner IDs and their connection state.
-	scanners *ScannerRegistry
+	scanners *connections.ScannerRegistry
 
 	// broadcastScanners tracks connections established via SubscribeToBroadcasts.
 	// These connections are dedicated to system-wide events, and job control commands
 	// that need to reach all scanners, enabling efficient distribution of broadcast
 	// messages without interrupting the primary command channels.
-	broadcastScanners *ScannerRegistry
+	broadcastScanners *connections.ScannerRegistry
 
 	// Manages event subscriptions and acknowledgment tracking.
-	ackTracker AckTracker
+	ackTracker acktracking.AckTracker
 
 	// Handlers for different types of event subscriptions.
-	regSubscriptionHandler       EventSubscriptionHandler
-	broadcastSubscriptionHandler EventSubscriptionHandler
+	regSubscriptionHandler       subscription.EventSubscriptionHandler
+	broadcastSubscriptionHandler subscription.EventSubscriptionHandler
 
 	// Authentication settings.
 	// TODO: This will likely get ripped out of here and put into an interceptor.
@@ -166,8 +169,8 @@ type Service struct {
 // broadcast event bus for events that should be sent to all scanners.
 func NewService(
 	eventPublisher events.DomainEventPublisher,
-	regSubscriptionHandler EventSubscriptionHandler,
-	broadcastSubscriptionHandler EventSubscriptionHandler,
+	regSubscriptionHandler subscription.EventSubscriptionHandler,
+	broadcastSubscriptionHandler subscription.EventSubscriptionHandler,
 	logger *logger.Logger,
 	metrics GatewayMetrics,
 	tracer trace.Tracer,
@@ -177,13 +180,13 @@ func NewService(
 		eventPublisher: eventPublisher,
 
 		// Event subscription handlers.
-		ackTracker:                   NewAcknowledgmentTracker(logger),
+		ackTracker:                   acktracking.NewTracker(logger),
 		regSubscriptionHandler:       regSubscriptionHandler,
 		broadcastSubscriptionHandler: broadcastSubscriptionHandler,
 
 		// Registry of connected scanners.
-		scanners:          NewScannerRegistry(metrics),
-		broadcastScanners: NewScannerRegistry(metrics),
+		scanners:          connections.NewScannerRegistry(metrics),
+		broadcastScanners: connections.NewScannerRegistry(metrics),
 
 		// Observability.
 		logger:  logger.With("component", "gateway_service"),
@@ -271,7 +274,7 @@ func (s *Service) ConnectScanner(stream pb.ScannerGatewayService_SubscribeToBroa
 		attribute.String("group", regRequest.GroupName),
 	)
 
-	conn := NewScannerConnection(
+	conn := connections.NewScannerConnection(
 		scannerID,
 		stream,
 		regRequest.Capabilities,
@@ -322,7 +325,7 @@ func (s *Service) ConnectScanner(stream pb.ScannerGatewayService_SubscribeToBroa
 // processIncomingScannerMessage handles a message from a scanner and sends acknowledgment for critical messages.
 func (s *Service) processIncomingScannerMessage(
 	ctx context.Context,
-	conn *ScannerConnection,
+	conn *connections.ScannerConnection,
 	msg *pb.ScannerToGatewayMessage,
 ) error {
 	ctx, span := s.tracer.Start(ctx, "gateway.processIncomingScannerMessage",
@@ -353,7 +356,7 @@ func (s *Service) processIncomingScannerMessage(
 	}
 
 	// Handle acknowledgement messages earlier to short-circuit the processing.
-	if eventType == grpcbus.EventTypeMessageAck {
+	if eventType == protocol.EventTypeMessageAck {
 		span.AddEvent("message_ack_received")
 		if ack, ok := payload.(*pb.MessageAcknowledgment); ok {
 			s.processAcknowledgment(ctx, ack)
@@ -469,7 +472,7 @@ func (s *Service) processAcknowledgment(ctx context.Context, ack *pb.MessageAckn
 // Maybe retry with an interceptor, not sure if that's possible with streaming RPCs.
 func (s *Service) sendMessageAcknowledgment(
 	ctx context.Context,
-	conn *ScannerConnection,
+	conn *connections.ScannerConnection,
 	messageID string,
 	processingErr error,
 ) error {
@@ -597,7 +600,7 @@ func (s *Service) subscribeToEvents(ctx context.Context, scannerID string) error
 		rules.EventTypeRulesRequested,
 
 		// System events.
-		grpcbus.EventTypeSystemNotification,
+		protocol.EventTypeSystemNotification,
 	}
 
 	logger.Info(ctx, "Setting up event subscriptions for scanner",
@@ -627,7 +630,7 @@ func (s *Service) subscribeToEvents(ctx context.Context, scannerID string) error
 // handleScannerMessages processes incoming messages from a connected scanner.
 // It maintains the connection and routes messages to appropriate handlers,
 // updating activity timestamps and handling disconnections gracefully.
-func (s *Service) handleScannerMessages(ctx context.Context, conn *ScannerConnection) error {
+func (s *Service) handleScannerMessages(ctx context.Context, conn *connections.ScannerConnection) error {
 	logger := s.logger.With("operation", "handleScannerMessages", "scanner_id", conn.ScannerID)
 
 	for {
@@ -724,7 +727,7 @@ func (s *Service) convertToScannerMessage(
 // sendRegistrationResponse sends a registration response to a scanner.
 func (s *Service) sendRegistrationResponse(
 	ctx context.Context,
-	conn *ScannerConnection,
+	conn *connections.ScannerConnection,
 	scannerID string,
 	messageID string,
 ) error {
@@ -810,12 +813,15 @@ func (s *Service) SubscribeToBroadcasts(stream pb.ScannerGatewayService_Subscrib
 	}
 
 	// Create the broadcast connection record.
-	broadcastConn := &ScannerConnection{
-		ScannerID:    scannerID,
-		Stream:       stream,
-		Connected:    s.timeProvider.Now(),
-		LastActivity: s.timeProvider.Now(),
-	}
+	broadcastConn := connections.NewScannerConnection(
+		scannerID,
+		stream,
+		nil,
+		"",
+		s.timeProvider,
+		s.logger,
+		s.tracer,
+	)
 
 	s.broadcastScanners.Register(ctx, scannerID, broadcastConn)
 	broadcastCount := s.broadcastScanners.Count()
@@ -854,7 +860,7 @@ func (s *Service) SubscribeToBroadcasts(stream pb.ScannerGatewayService_Subscrib
 func (s *Service) subscribeToBroadcastEvents(
 	ctx context.Context,
 	scannerID string,
-	conn *ScannerConnection,
+	conn *connections.ScannerConnection,
 ) error {
 	logger := s.logger.With("method", "subscribeToBroadcastEvents", "scanner_id", scannerID)
 	ctx, span := s.tracer.Start(ctx, "gateway.subscribeToBroadcastEvents",
@@ -869,7 +875,7 @@ func (s *Service) subscribeToBroadcastEvents(
 	broadcastEventTypes := []events.EventType{
 		scanning.EventTypeJobPaused,
 		scanning.EventTypeJobCancelled,
-		grpcbus.EventTypeSystemNotification,
+		protocol.EventTypeSystemNotification,
 	}
 
 	logger.Info(ctx, "Setting up broadcast event subscriptions for scanner",
@@ -897,7 +903,7 @@ func (s *Service) subscribeToBroadcastEvents(
 }
 
 // handleBroadcastMessages processes incoming messages on the broadcast stream.
-func (s *Service) handleBroadcastMessages(ctx context.Context, conn *ScannerConnection) error {
+func (s *Service) handleBroadcastMessages(ctx context.Context, conn *connections.ScannerConnection) error {
 	logger := s.logger.With("method", "handleBroadcastMessages", "scanner_id", conn.ScannerID)
 
 	for {
@@ -943,7 +949,7 @@ func (s *Service) handleBroadcastMessages(ctx context.Context, conn *ScannerConn
 // failed message processing would be retried automatically based on consumer offset commits.
 func (s *Service) processBroadcastMessage(
 	ctx context.Context,
-	conn *ScannerConnection,
+	conn *connections.ScannerConnection,
 	msg *pb.ScannerToGatewayMessage,
 ) error {
 	conn.UpdateActivity(s.timeProvider.Now())

@@ -14,6 +14,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/rules"
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/internal/infra/eventbus/serialization"
+	"github.com/ahrav/gitleaks-armada/internal/infra/messaging/protocol"
 	pb "github.com/ahrav/gitleaks-armada/proto"
 )
 
@@ -202,49 +203,49 @@ func SetScannerToGatewayPayload(msg *pb.ScannerToGatewayMessage, eventType event
 
 // getScannerToGatewayMessageType determines the type of message contained in a ScannerToGatewayMessage.
 // Returns the message type string, the message payload, and any error.
-func getScannerToGatewayMessageType(msg *pb.ScannerToGatewayMessage) (MessageType, any, error) {
+func getScannerToGatewayMessageType(msg *pb.ScannerToGatewayMessage) (protocol.MessageType, any, error) {
 	switch {
 	// Scanner events.
 	case msg.GetHeartbeat() != nil:
-		return MessageTypeScannerHeartbeat, msg.GetHeartbeat(), nil
+		return protocol.MessageTypeScannerHeartbeat, msg.GetHeartbeat(), nil
 
 	case msg.GetRegistration() != nil:
-		return MessageTypeScannerRegistered, msg.GetRegistration(), nil
+		return protocol.MessageTypeScannerRegistered, msg.GetRegistration(), nil
 
 	case msg.GetStatusChanged() != nil:
-		return MessageTypeScannerStatusChanged, msg.GetStatusChanged(), nil
+		return protocol.MessageTypeScannerStatusChanged, msg.GetStatusChanged(), nil
 
 	case msg.GetDeregistered() != nil:
-		return MessageTypeScannerDeregistered, msg.GetDeregistered(), nil
+		return protocol.MessageTypeScannerDeregistered, msg.GetDeregistered(), nil
 
 	// Task events.
 	case msg.GetTaskStarted() != nil:
-		return MessageTypeScanTaskStarted, msg.GetTaskStarted(), nil
+		return protocol.MessageTypeScanTaskStarted, msg.GetTaskStarted(), nil
 
 	case msg.GetTaskProgressed() != nil:
-		return MessageTypeScanTaskProgressed, msg.GetTaskProgressed(), nil
+		return protocol.MessageTypeScanTaskProgressed, msg.GetTaskProgressed(), nil
 
 	case msg.GetTaskCompleted() != nil:
-		return MessageTypeScanTaskCompleted, msg.GetTaskCompleted(), nil
+		return protocol.MessageTypeScanTaskCompleted, msg.GetTaskCompleted(), nil
 
 	case msg.GetTaskFailed() != nil:
-		return MessageTypeScanTaskFailed, msg.GetTaskFailed(), nil
+		return protocol.MessageTypeScanTaskFailed, msg.GetTaskFailed(), nil
 
 	case msg.GetTaskPaused() != nil:
-		return MessageTypeScanTaskPaused, msg.GetTaskPaused(), nil
+		return protocol.MessageTypeScanTaskPaused, msg.GetTaskPaused(), nil
 
 	case msg.GetTaskCancelled() != nil:
-		return MessageTypeScanTaskCancelled, msg.GetTaskCancelled(), nil
+		return protocol.MessageTypeScanTaskCancelled, msg.GetTaskCancelled(), nil
 
 	case msg.GetTaskJobMetric() != nil:
-		return MessageTypeScanTaskJobMetric, msg.GetTaskJobMetric(), nil
+		return protocol.MessageTypeScanTaskJobMetric, msg.GetTaskJobMetric(), nil
 
 	case msg.GetTaskHeartbeat() != nil:
-		return MessageTypeScanTaskHeartbeat, msg.GetTaskHeartbeat(), nil
+		return protocol.MessageTypeScanTaskHeartbeat, msg.GetTaskHeartbeat(), nil
 
 	// Acknowledgment.
 	case msg.GetAck() != nil:
-		return MessageTypeAck, msg.GetAck(), nil
+		return protocol.MessageTypeAck, msg.GetAck(), nil
 
 	default:
 		return "", nil, fmt.Errorf("unknown message type in ScannerToGatewayMessage")
@@ -277,7 +278,7 @@ func ExtractScannerMessageInfo(
 	}
 
 	// For acknowledgment messages, we don't need to convert to domain event.
-	if messageType == MessageTypeAck {
+	if messageType == protocol.MessageTypeAck {
 		ack, ok := protoMsg.(*pb.MessageAcknowledgment)
 		if !ok {
 			err := fmt.Errorf("expected MessageAcknowledgment, got %T", protoMsg)
@@ -288,12 +289,12 @@ func ExtractScannerMessageInfo(
 
 		// Handle special cases for registration acknowledgments.
 		if isRegistrationAck(ack) {
-			span.SetAttributes(attribute.String("event_type", string(EventTypeScannerRegistrationAck)))
-			return EventTypeScannerRegistrationAck, ack, nil
+			span.SetAttributes(attribute.String("event_type", string(protocol.EventTypeScannerRegistrationAck)))
+			return protocol.EventTypeScannerRegistrationAck, ack, nil
 		}
 
-		span.SetAttributes(attribute.String("event_type", string(EventTypeMessageAck)))
-		return EventTypeMessageAck, ack, nil
+		span.SetAttributes(attribute.String("event_type", string(protocol.EventTypeMessageAck)))
+		return protocol.EventTypeMessageAck, ack, nil
 	}
 
 	// Convert proto message to domain event.
@@ -308,57 +309,57 @@ func ExtractScannerMessageInfo(
 }
 
 // mapMessageTypeToEventType maps a message type string to a domain event type.
-func mapMessageTypeToEventType(messageType MessageType) events.EventType {
+func mapMessageTypeToEventType(messageType protocol.MessageType) events.EventType {
 	switch messageType {
 	// Scanner events.
-	case MessageTypeScannerHeartbeat:
+	case protocol.MessageTypeScannerHeartbeat:
 		return scanning.EventTypeScannerHeartbeat
-	case MessageTypeScannerRegistered:
+	case protocol.MessageTypeScannerRegistered:
 		return scanning.EventTypeScannerRegistered
-	case MessageTypeScannerStatusChanged:
+	case protocol.MessageTypeScannerStatusChanged:
 		return scanning.EventTypeScannerStatusChanged
-	case MessageTypeScannerDeregistered:
+	case protocol.MessageTypeScannerDeregistered:
 		return scanning.EventTypeScannerDeregistered
 
 	// Task events.
-	case MessageTypeScanTaskStarted:
+	case protocol.MessageTypeScanTaskStarted:
 		return scanning.EventTypeTaskStarted
-	case MessageTypeScanTaskProgressed:
+	case protocol.MessageTypeScanTaskProgressed:
 		return scanning.EventTypeTaskProgressed
-	case MessageTypeScanTaskCompleted:
+	case protocol.MessageTypeScanTaskCompleted:
 		return scanning.EventTypeTaskCompleted
-	case MessageTypeScanTaskFailed:
+	case protocol.MessageTypeScanTaskFailed:
 		return scanning.EventTypeTaskFailed
-	case MessageTypeScanTaskPaused:
+	case protocol.MessageTypeScanTaskPaused:
 		return scanning.EventTypeTaskPaused
-	case MessageTypeScanTaskCancelled:
+	case protocol.MessageTypeScanTaskCancelled:
 		return scanning.EventTypeTaskCancelled
-	case MessageTypeScanTaskResume:
+	case protocol.MessageTypeScanTaskResume:
 		return scanning.EventTypeTaskResume
-	case MessageTypeScanTaskHeartbeat:
+	case protocol.MessageTypeScanTaskHeartbeat:
 		return scanning.EventTypeTaskHeartbeat
-	case MessageTypeScanTaskJobMetric:
+	case protocol.MessageTypeScanTaskJobMetric:
 		return scanning.EventTypeTaskJobMetric
 
 	// Job events.
-	case MessageTypeScanJobPaused:
+	case protocol.MessageTypeScanJobPaused:
 		return scanning.EventTypeJobPaused
-	case MessageTypeScanJobCancelled:
+	case protocol.MessageTypeScanJobCancelled:
 		return scanning.EventTypeJobCancelled
 
 	// Rule events.
-	case MessageTypeRulesRequested:
+	case protocol.MessageTypeRulesRequested:
 		return rules.EventTypeRulesRequested
-	case MessageTypeRulesResponse:
+	case protocol.MessageTypeRulesResponse:
 		return rules.EventTypeRulesUpdated
 
 	// System events.
-	case MessageTypeSystemNotification:
-		return EventTypeSystemNotification
-	case MessageTypeAck:
-		return EventTypeMessageAck
-	case MessageTypeRegistrationResponse:
-		return EventTypeScannerRegistrationAck
+	case protocol.MessageTypeSystemNotification:
+		return events.EventType("SystemNotification")
+	case protocol.MessageTypeAck:
+		return protocol.EventTypeMessageAck
+	case protocol.MessageTypeRegistrationResponse:
+		return protocol.EventTypeScannerRegistrationAck
 
 	default:
 		return events.EventType("")
@@ -384,13 +385,13 @@ func extractGatewayMessageInfo(
 	// Registration acknowledgment (using MessageAcknowledgment)
 	case msg.GetAck() != nil && isRegistrationAck(msg.GetAck()):
 		span.SetAttributes(attribute.String("message_type", "registration_ack"))
-		eventType = EventTypeScannerRegistrationAck
+		eventType = protocol.EventTypeScannerRegistrationAck
 		payload = msg.GetAck()
 
 	// Regular message acknowledgment
 	case msg.GetAck() != nil:
 		span.SetAttributes(attribute.String("message_type", "ack"))
-		eventType = EventTypeMessageAck
+		eventType = protocol.EventTypeMessageAck
 		payload = msg.GetAck()
 
 	// Task events.

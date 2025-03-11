@@ -1,4 +1,4 @@
-package grpc
+package protocol
 
 import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"

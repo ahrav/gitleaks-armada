@@ -1,4 +1,4 @@
-package gateway_test
+package acktracking_test
 
 import (
 	"context"
@@ -10,13 +10,13 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	gateway "github.com/ahrav/gitleaks-armada/internal/gateway/service"
+	"github.com/ahrav/gitleaks-armada/internal/infra/messaging/acktracking"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 )
 
 func TestNewAcknowledgmentTracker(t *testing.T) {
 	log := logger.Noop()
-	tracker := gateway.NewAcknowledgmentTracker(log)
+	tracker := acktracking.NewTracker(log)
 	assert.NotNil(t, tracker, "Expected non-nil tracker")
 }
 
@@ -24,7 +24,7 @@ func TestNewAcknowledgmentTracker(t *testing.T) {
 // resolving with nil will unblock the channel with a nil error.
 func TestTrackMessageReceivesNilAck(t *testing.T) {
 	log := logger.Noop()
-	tracker := gateway.NewAcknowledgmentTracker(log)
+	tracker := acktracking.NewTracker(log)
 
 	messageID := "test-track-nil"
 	ackCh := tracker.TrackMessage(messageID)
@@ -41,7 +41,7 @@ func TestTrackMessageReceivesNilAck(t *testing.T) {
 // resolving with a non-nil error will unblock the channel with that error.
 func TestTrackMessageReceivesErrorAck(t *testing.T) {
 	log := logger.Noop()
-	tracker := gateway.NewAcknowledgmentTracker(log)
+	tracker := acktracking.NewTracker(log)
 
 	messageID := "test-track-error"
 	ackCh := tracker.TrackMessage(messageID)
@@ -59,7 +59,7 @@ func TestTrackMessageReceivesErrorAck(t *testing.T) {
 // message returns false.
 func TestResolveAcknowledgmentUnknown(t *testing.T) {
 	log := logger.Noop()
-	tracker := gateway.NewAcknowledgmentTracker(log)
+	tracker := acktracking.NewTracker(log)
 
 	messageID := "unknown-id"
 	ok := tracker.ResolveAcknowledgment(context.Background(), messageID, nil)
@@ -70,7 +70,7 @@ func TestResolveAcknowledgmentUnknown(t *testing.T) {
 // any subsequent acknowledgment attempts fail.
 func TestStopTracking(t *testing.T) {
 	log := logger.Noop()
-	tracker := gateway.NewAcknowledgmentTracker(log)
+	tracker := acktracking.NewTracker(log)
 
 	messageID := "test-stop-tracking"
 	ackCh := tracker.TrackMessage(messageID)
@@ -94,7 +94,7 @@ func TestStopTracking(t *testing.T) {
 // to all pending channels.
 func TestCleanupAll(t *testing.T) {
 	log := logger.Noop()
-	tracker := gateway.NewAcknowledgmentTracker(log)
+	tracker := acktracking.NewTracker(log)
 
 	msg1 := "test-cleanup-1"
 	msg2 := "test-cleanup-2"
@@ -116,7 +116,7 @@ func TestCleanupAll(t *testing.T) {
 // returns nil if the message was resolved with a nil error.
 func TestWaitForAcknowledgmentReturnsNil(t *testing.T) {
 	log := logger.Noop()
-	tracker := gateway.NewAcknowledgmentTracker(log)
+	tracker := acktracking.NewTracker(log)
 
 	ctx := context.Background()
 	msgID := "test-wait-success"
@@ -134,7 +134,7 @@ func TestWaitForAcknowledgmentReturnsNil(t *testing.T) {
 // returns the same error that was resolved.
 func TestWaitForAcknowledgmentReturnsError(t *testing.T) {
 	log := logger.Noop()
-	tracker := gateway.NewAcknowledgmentTracker(log)
+	tracker := acktracking.NewTracker(log)
 
 	ctx := context.Background()
 	msgID := "test-wait-error"
@@ -154,7 +154,7 @@ func TestWaitForAcknowledgmentReturnsError(t *testing.T) {
 func TestWaitForAcknowledgmentTimesOut(t *testing.T) {
 	synctest.Run(func() {
 		log := logger.Noop()
-		tracker := gateway.NewAcknowledgmentTracker(log)
+		tracker := acktracking.NewTracker(log)
 
 		ctx := context.Background()
 		msgID := "test-wait-timeout"
@@ -175,7 +175,7 @@ func TestWaitForAcknowledgmentTimesOut(t *testing.T) {
 // WaitForAcknowledgment returns immediately with that error instead of waiting for the timeout.
 func TestWaitForAcknowledgmentContextCancel(t *testing.T) {
 	log := logger.Noop()
-	tracker := gateway.NewAcknowledgmentTracker(log)
+	tracker := acktracking.NewTracker(log)
 
 	msgID := "test-wait-context-cancel"
 	ackCh := tracker.TrackMessage(msgID)
@@ -193,7 +193,7 @@ func TestWaitForAcknowledgmentContextCancel(t *testing.T) {
 // occurs when multiple goroutines call ResolveAcknowledgment for the same message.
 func TestConcurrentResolvesNoDataRace(t *testing.T) {
 	log := logger.Noop()
-	tracker := gateway.NewAcknowledgmentTracker(log)
+	tracker := acktracking.NewTracker(log)
 
 	msgID := "test-concurrent"
 	ackCh := tracker.TrackMessage(msgID)
@@ -217,7 +217,7 @@ func TestConcurrentResolvesNoDataRace(t *testing.T) {
 // any subsequent attempts to resolve it will fail.
 func TestDoubleResolveAcknowledgment(t *testing.T) {
 	log := logger.Noop()
-	tracker := gateway.NewAcknowledgmentTracker(log)
+	tracker := acktracking.NewTracker(log)
 	ctx := context.Background()
 
 	messageID := "test-message-8"
@@ -243,7 +243,7 @@ func TestDoubleResolveAcknowledgment(t *testing.T) {
 // non-existent message does not panic.
 func TestStopTrackingNonExistentMessage(t *testing.T) {
 	log := logger.Noop()
-	tracker := gateway.NewAcknowledgmentTracker(log)
+	tracker := acktracking.NewTracker(log)
 
 	// Should not panic when stopping tracking for a non-existent message.
 	assert.NotPanics(t, func() {
@@ -255,7 +255,7 @@ func TestStopTrackingNonExistentMessage(t *testing.T) {
 // there are no pending messages.
 func TestCleanupAllWithNoMessages(t *testing.T) {
 	log := logger.Noop()
-	tracker := gateway.NewAcknowledgmentTracker(log)
+	tracker := acktracking.NewTracker(log)
 	ctx := context.Background()
 
 	// Should not panic when cleaning up with no pending messages.

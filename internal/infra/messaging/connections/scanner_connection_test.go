@@ -1,4 +1,4 @@
-package gateway_test
+package connections_test
 
 import (
 	"context"
@@ -10,8 +10,8 @@ import (
 	"go.opentelemetry.io/otel/trace/noop"
 	"google.golang.org/grpc"
 
-	gateway "github.com/ahrav/gitleaks-armada/internal/gateway/service"
-	grpcbus "github.com/ahrav/gitleaks-armada/internal/infra/eventbus/grpc"
+	"github.com/ahrav/gitleaks-armada/internal/infra/messaging/connections"
+	"github.com/ahrav/gitleaks-armada/internal/infra/messaging/protocol"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/common/timeutil"
 	pb "github.com/ahrav/gitleaks-armada/proto"
@@ -19,20 +19,20 @@ import (
 
 // MockGatewayScannerStream implements the "GatewayScannerStream" interface.
 type MockGatewayScannerStream struct {
-	SendFunc func(msg *grpcbus.GatewayToScannerMessage) error
-	RecvFunc func() (*grpcbus.ScannerToGatewayMessage, error)
+	SendFunc func(msg *protocol.GatewayToScannerMessage) error
+	RecvFunc func() (*protocol.ScannerToGatewayMessage, error)
 
 	grpc.ServerStream
 }
 
-func (m *MockGatewayScannerStream) Send(msg *grpcbus.GatewayToScannerMessage) error {
+func (m *MockGatewayScannerStream) Send(msg *protocol.GatewayToScannerMessage) error {
 	if m.SendFunc != nil {
 		return m.SendFunc(msg)
 	}
 	return nil
 }
 
-func (m *MockGatewayScannerStream) Recv() (*grpcbus.ScannerToGatewayMessage, error) {
+func (m *MockGatewayScannerStream) Recv() (*protocol.ScannerToGatewayMessage, error) {
 	if m.RecvFunc != nil {
 		return m.RecvFunc()
 	}
@@ -45,7 +45,7 @@ func TestNewScannerConnection(t *testing.T) {
 	log := logger.Noop()
 	tracer := noop.NewTracerProvider().Tracer("test")
 
-	conn := gateway.NewScannerConnection(
+	conn := connections.NewScannerConnection(
 		"scanner-1", mockStream, []string{"cap1", "cap2"}, "v2.1", &mockTime, log, tracer,
 	)
 
@@ -58,15 +58,15 @@ func TestNewScannerConnection(t *testing.T) {
 }
 
 func TestScannerConnection_SendMessage(t *testing.T) {
-	sentMessages := []*grpcbus.GatewayToScannerMessage{}
+	sentMessages := []*protocol.GatewayToScannerMessage{}
 	mockStream := &MockGatewayScannerStream{
-		SendFunc: func(msg *grpcbus.GatewayToScannerMessage) error {
+		SendFunc: func(msg *protocol.GatewayToScannerMessage) error {
 			sentMessages = append(sentMessages, msg)
 			return nil
 		},
 	}
 	tracer := noop.NewTracerProvider().Tracer("test")
-	conn := gateway.NewScannerConnection(
+	conn := connections.NewScannerConnection(
 		"scanner-1", mockStream, nil, "", timeutil.Default(), logger.Noop(), tracer,
 	)
 
@@ -80,10 +80,10 @@ func TestScannerConnection_SendMessage(t *testing.T) {
 func TestScannerConnection_SendMessage_Error(t *testing.T) {
 	// If stream.Send fails, we ensure the error is returned up the chain.
 	mockStream := &MockGatewayScannerStream{
-		SendFunc: func(msg *grpcbus.GatewayToScannerMessage) error { return errors.New("network error") },
+		SendFunc: func(msg *protocol.GatewayToScannerMessage) error { return errors.New("network error") },
 	}
 	tracer := noop.NewTracerProvider().Tracer("test")
-	conn := gateway.NewScannerConnection(
+	conn := connections.NewScannerConnection(
 		"scanner-1", mockStream, nil, "", timeutil.Default(), logger.Noop(), tracer,
 	)
 
@@ -95,12 +95,12 @@ func TestScannerConnection_SendMessage_Error(t *testing.T) {
 
 func TestScannerConnection_ReceiveMessage(t *testing.T) {
 	mockStream := &MockGatewayScannerStream{
-		RecvFunc: func() (*grpcbus.ScannerToGatewayMessage, error) {
-			return &grpcbus.ScannerToGatewayMessage{MessageId: "scanner-msg-1"}, nil
+		RecvFunc: func() (*protocol.ScannerToGatewayMessage, error) {
+			return &protocol.ScannerToGatewayMessage{MessageId: "scanner-msg-1"}, nil
 		},
 	}
 	tracer := noop.NewTracerProvider().Tracer("test")
-	conn := gateway.NewScannerConnection(
+	conn := connections.NewScannerConnection(
 		"scanner-1", mockStream, nil, "", timeutil.Default(), logger.Noop(), tracer,
 	)
 
@@ -112,10 +112,10 @@ func TestScannerConnection_ReceiveMessage(t *testing.T) {
 
 func TestScannerConnection_ReceiveMessage_Error(t *testing.T) {
 	mockStream := &MockGatewayScannerStream{
-		RecvFunc: func() (*grpcbus.ScannerToGatewayMessage, error) { return nil, errors.New("recv failed") },
+		RecvFunc: func() (*protocol.ScannerToGatewayMessage, error) { return nil, errors.New("recv failed") },
 	}
 	tracer := noop.NewTracerProvider().Tracer("test")
-	conn := gateway.NewScannerConnection(
+	conn := connections.NewScannerConnection(
 		"scanner-1", mockStream, nil, "", timeutil.Default(), logger.Noop(), tracer,
 	)
 
@@ -127,7 +127,7 @@ func TestScannerConnection_ReceiveMessage_Error(t *testing.T) {
 
 func TestScannerConnection_UpdateActivity(t *testing.T) {
 	tracer := noop.NewTracerProvider().Tracer("test")
-	conn := gateway.NewScannerConnection(
+	conn := connections.NewScannerConnection(
 		"scanner-1", new(MockGatewayScannerStream), nil, "", timeutil.Default(), logger.Noop(), tracer,
 	)
 	oldTime := conn.LastActivity
@@ -141,7 +141,7 @@ func TestScannerConnection_UpdateActivity(t *testing.T) {
 func TestScannerConnection_HasCapability(t *testing.T) {
 	caps := []string{"cap1", "cap2", "advanced-mode"}
 	tracer := noop.NewTracerProvider().Tracer("test")
-	conn := gateway.NewScannerConnection(
+	conn := connections.NewScannerConnection(
 		"scanner-X", new(MockGatewayScannerStream), caps, "v1", timeutil.Default(), logger.Noop(), tracer,
 	)
 
@@ -152,7 +152,7 @@ func TestScannerConnection_HasCapability(t *testing.T) {
 
 func TestScannerConnection_CreateAcknowledgment(t *testing.T) {
 	tracer := noop.NewTracerProvider().Tracer("test")
-	conn := gateway.NewScannerConnection(
+	conn := connections.NewScannerConnection(
 		"scanner-ACK", new(MockGatewayScannerStream), nil, "v1", timeutil.Default(), logger.Noop(), tracer,
 	)
 

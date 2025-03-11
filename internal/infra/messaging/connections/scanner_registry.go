@@ -1,4 +1,4 @@
-package gateway
+package connections
 
 import (
 	"context"
@@ -7,6 +7,14 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
+
+// GatewayMetrics interface defines metrics collected by the gateway service.
+type GatewayMetrics interface {
+	// Connection metrics.
+	IncConnectedScanners(ctx context.Context)
+	DecConnectedScanners(ctx context.Context)
+	SetConnectedScanners(ctx context.Context, count int)
+}
 
 // ScannerRegistry manages the collection of connected scanners.
 // It provides thread-safe operations for registering, accessing, and removing scanners.

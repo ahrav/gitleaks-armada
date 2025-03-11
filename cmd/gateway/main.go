@@ -25,6 +25,8 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	gateway "github.com/ahrav/gitleaks-armada/internal/gateway/service"
 	"github.com/ahrav/gitleaks-armada/internal/infra/eventbus/kafka"
+	"github.com/ahrav/gitleaks-armada/internal/infra/messaging/acktracking"
+	"github.com/ahrav/gitleaks-armada/internal/infra/messaging/subscription"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/common/otel"
 	"github.com/ahrav/gitleaks-armada/pkg/common/timeutil"
@@ -258,8 +260,8 @@ func run(ctx context.Context, log *logger.Logger, hostname string) error {
 	signal.Notify(shutdown, syscall.SIGINT, syscall.SIGTERM)
 
 	const defaultAckTimeout = 30 * time.Second
-	ackTracker := gateway.NewAcknowledgmentTracker(log)
-	regSubscriptionHandler := gateway.NewEventSubscriptionHandler(
+	ackTracker := acktracking.NewTracker(log)
+	regSubscriptionHandler := subscription.NewEventSubscriptionHandler(
 		regularBus,
 		ackTracker,
 		defaultAckTimeout,
@@ -267,7 +269,7 @@ func run(ctx context.Context, log *logger.Logger, hostname string) error {
 		log,
 		tracer,
 	)
-	broadcastSubscriptionHandler := gateway.NewEventSubscriptionHandler(
+	broadcastSubscriptionHandler := subscription.NewEventSubscriptionHandler(
 		broadcastBus,
 		ackTracker,
 		defaultAckTimeout,

@@ -11,6 +11,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/rules"
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
+	"github.com/ahrav/gitleaks-armada/internal/infra/messaging/protocol"
 	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 	pb "github.com/ahrav/gitleaks-armada/proto"
 )
@@ -228,102 +229,102 @@ func TestSetScannerToGatewayPayload(t *testing.T) {
 func TestMapMessageTypeToEventType(t *testing.T) {
 	tests := []struct {
 		name        string
-		messageType MessageType
+		messageType protocol.MessageType
 		want        events.EventType
 	}{
 		{
 			name:        "Scanner Heartbeat",
-			messageType: MessageTypeScannerHeartbeat,
+			messageType: protocol.MessageTypeScannerHeartbeat,
 			want:        scanning.EventTypeScannerHeartbeat,
 		},
 		{
 			name:        "Scanner Registered",
-			messageType: MessageTypeScannerRegistered,
+			messageType: protocol.MessageTypeScannerRegistered,
 			want:        scanning.EventTypeScannerRegistered,
 		},
 		{
 			name:        "Scanner Status Changed",
-			messageType: MessageTypeScannerStatusChanged,
+			messageType: protocol.MessageTypeScannerStatusChanged,
 			want:        scanning.EventTypeScannerStatusChanged,
 		},
 		{
 			name:        "Scanner Deregistered",
-			messageType: MessageTypeScannerDeregistered,
+			messageType: protocol.MessageTypeScannerDeregistered,
 			want:        scanning.EventTypeScannerDeregistered,
 		},
 		{
 			name:        "Task Started",
-			messageType: MessageTypeScanTaskStarted,
+			messageType: protocol.MessageTypeScanTaskStarted,
 			want:        scanning.EventTypeTaskStarted,
 		},
 		{
 			name:        "Task Progressed",
-			messageType: MessageTypeScanTaskProgressed,
+			messageType: protocol.MessageTypeScanTaskProgressed,
 			want:        scanning.EventTypeTaskProgressed,
 		},
 		{
 			name:        "Task Completed",
-			messageType: MessageTypeScanTaskCompleted,
+			messageType: protocol.MessageTypeScanTaskCompleted,
 			want:        scanning.EventTypeTaskCompleted,
 		},
 		{
 			name:        "Task Failed",
-			messageType: MessageTypeScanTaskFailed,
+			messageType: protocol.MessageTypeScanTaskFailed,
 			want:        scanning.EventTypeTaskFailed,
 		},
 		{
 			name:        "Task Paused",
-			messageType: MessageTypeScanTaskPaused,
+			messageType: protocol.MessageTypeScanTaskPaused,
 			want:        scanning.EventTypeTaskPaused,
 		},
 		{
 			name:        "Task Cancelled",
-			messageType: MessageTypeScanTaskCancelled,
+			messageType: protocol.MessageTypeScanTaskCancelled,
 			want:        scanning.EventTypeTaskCancelled,
 		},
 		{
 			name:        "Task Resume",
-			messageType: MessageTypeScanTaskResume,
+			messageType: protocol.MessageTypeScanTaskResume,
 			want:        scanning.EventTypeTaskResume,
 		},
 		{
 			name:        "Task Heartbeat",
-			messageType: MessageTypeScanTaskHeartbeat,
+			messageType: protocol.MessageTypeScanTaskHeartbeat,
 			want:        scanning.EventTypeTaskHeartbeat,
 		},
 		{
 			name:        "Task Job Metric",
-			messageType: MessageTypeScanTaskJobMetric,
+			messageType: protocol.MessageTypeScanTaskJobMetric,
 			want:        scanning.EventTypeTaskJobMetric,
 		},
 		{
 			name:        "Job Paused",
-			messageType: MessageTypeScanJobPaused,
+			messageType: protocol.MessageTypeScanJobPaused,
 			want:        scanning.EventTypeJobPaused,
 		},
 		{
 			name:        "Job Cancelled",
-			messageType: MessageTypeScanJobCancelled,
+			messageType: protocol.MessageTypeScanJobCancelled,
 			want:        scanning.EventTypeJobCancelled,
 		},
 		{
 			name:        "Rules Requested",
-			messageType: MessageTypeRulesRequested,
+			messageType: protocol.MessageTypeRulesRequested,
 			want:        rules.EventTypeRulesRequested,
 		},
 		{
 			name:        "Rules Response",
-			messageType: MessageTypeRulesResponse,
+			messageType: protocol.MessageTypeRulesResponse,
 			want:        rules.EventTypeRulesUpdated,
 		},
 		{
 			name:        "System Notification",
-			messageType: MessageTypeSystemNotification,
+			messageType: protocol.MessageTypeSystemNotification,
 			want:        events.EventType("SystemNotification"),
 		},
 		{
 			name:        "Unknown Type",
-			messageType: MessageType("unknown_type"),
+			messageType: protocol.MessageType("unknown_type"),
 			want:        events.EventType(""),
 		},
 	}
@@ -559,7 +560,7 @@ func TestExtractScannerMessageInfo(t *testing.T) {
 					},
 				}
 			},
-			expectedType: EventTypeMessageAck,
+			expectedType: protocol.EventTypeMessageAck,
 			validateEvent: func(t *testing.T, event any) {
 				// The ack message is passed through directly
 				ack, ok := event.(*pb.MessageAcknowledgment)
@@ -648,7 +649,7 @@ func TestGetScannerToGatewayMessageType(t *testing.T) {
 	tests := []struct {
 		name            string
 		message         *pb.ScannerToGatewayMessage
-		expectedType    MessageType
+		expectedType    protocol.MessageType
 		expectedPayload any
 		expectError     bool
 	}{
@@ -661,7 +662,7 @@ func TestGetScannerToGatewayMessageType(t *testing.T) {
 					},
 				},
 			},
-			expectedType:    MessageTypeScannerHeartbeat,
+			expectedType:    protocol.MessageTypeScannerHeartbeat,
 			expectedPayload: &pb.ScannerHeartbeatEvent{ScannerName: "test-scanner"},
 			expectError:     false,
 		},
@@ -675,7 +676,7 @@ func TestGetScannerToGatewayMessageType(t *testing.T) {
 					},
 				},
 			},
-			expectedType:    MessageTypeScannerRegistered,
+			expectedType:    protocol.MessageTypeScannerRegistered,
 			expectedPayload: &pb.ScannerRegistrationRequest{ScannerName: "test-scanner", Version: "1.0.0"},
 			expectError:     false,
 		},
@@ -689,7 +690,7 @@ func TestGetScannerToGatewayMessageType(t *testing.T) {
 					},
 				},
 			},
-			expectedType:    MessageTypeScannerStatusChanged,
+			expectedType:    protocol.MessageTypeScannerStatusChanged,
 			expectedPayload: &pb.ScannerStatusChangedEvent{ScannerName: "test-scanner", NewStatus: pb.ScannerStatus_SCANNER_STATUS_ONLINE},
 			expectError:     false,
 		},
@@ -702,7 +703,7 @@ func TestGetScannerToGatewayMessageType(t *testing.T) {
 					},
 				},
 			},
-			expectedType:    MessageTypeScannerDeregistered,
+			expectedType:    protocol.MessageTypeScannerDeregistered,
 			expectedPayload: &pb.ScannerDeregisteredEvent{ScannerName: "test-scanner"},
 			expectError:     false,
 		},
@@ -716,7 +717,7 @@ func TestGetScannerToGatewayMessageType(t *testing.T) {
 					},
 				},
 			},
-			expectedType:    MessageTypeScanTaskStarted,
+			expectedType:    protocol.MessageTypeScanTaskStarted,
 			expectedPayload: &pb.TaskStartedEvent{TaskId: "task-123", JobId: "job-456"},
 			expectError:     false,
 		},
@@ -730,7 +731,7 @@ func TestGetScannerToGatewayMessageType(t *testing.T) {
 					},
 				},
 			},
-			expectedType:    MessageTypeScanTaskProgressed,
+			expectedType:    protocol.MessageTypeScanTaskProgressed,
 			expectedPayload: &pb.TaskProgressedEvent{TaskId: "task-123", JobId: "job-456"},
 			expectError:     false,
 		},
@@ -744,7 +745,7 @@ func TestGetScannerToGatewayMessageType(t *testing.T) {
 					},
 				},
 			},
-			expectedType:    MessageTypeScanTaskCompleted,
+			expectedType:    protocol.MessageTypeScanTaskCompleted,
 			expectedPayload: &pb.TaskCompletedEvent{TaskId: "task-123", JobId: "job-456"},
 			expectError:     false,
 		},
@@ -759,7 +760,7 @@ func TestGetScannerToGatewayMessageType(t *testing.T) {
 					},
 				},
 			},
-			expectedType:    MessageTypeScanTaskFailed,
+			expectedType:    protocol.MessageTypeScanTaskFailed,
 			expectedPayload: &pb.TaskFailedEvent{TaskId: "task-123", JobId: "job-456", Reason: "Something went wrong"},
 			expectError:     false,
 		},
@@ -773,7 +774,7 @@ func TestGetScannerToGatewayMessageType(t *testing.T) {
 					},
 				},
 			},
-			expectedType:    MessageTypeScanTaskPaused,
+			expectedType:    protocol.MessageTypeScanTaskPaused,
 			expectedPayload: &pb.TaskPausedEvent{TaskId: "task-123", JobId: "job-456"},
 			expectError:     false,
 		},
@@ -787,7 +788,7 @@ func TestGetScannerToGatewayMessageType(t *testing.T) {
 					},
 				},
 			},
-			expectedType:    MessageTypeScanTaskCancelled,
+			expectedType:    protocol.MessageTypeScanTaskCancelled,
 			expectedPayload: &pb.TaskCancelledEvent{TaskId: "task-123", JobId: "job-456"},
 			expectError:     false,
 		},
@@ -801,7 +802,7 @@ func TestGetScannerToGatewayMessageType(t *testing.T) {
 					},
 				},
 			},
-			expectedType:    MessageTypeScanTaskJobMetric,
+			expectedType:    protocol.MessageTypeScanTaskJobMetric,
 			expectedPayload: &pb.TaskJobMetricEvent{TaskId: "task-123", JobId: "job-456"},
 			expectError:     false,
 		},
@@ -814,7 +815,7 @@ func TestGetScannerToGatewayMessageType(t *testing.T) {
 					},
 				},
 			},
-			expectedType:    MessageTypeScanTaskHeartbeat,
+			expectedType:    protocol.MessageTypeScanTaskHeartbeat,
 			expectedPayload: &pb.TaskHeartbeatEvent{TaskId: "task-123"},
 			expectError:     false,
 		},
@@ -828,7 +829,7 @@ func TestGetScannerToGatewayMessageType(t *testing.T) {
 					},
 				},
 			},
-			expectedType:    MessageTypeAck,
+			expectedType:    protocol.MessageTypeAck,
 			expectedPayload: &pb.MessageAcknowledgment{OriginalMessageId: "msg-123", Success: true},
 			expectError:     false,
 		},
@@ -942,7 +943,7 @@ func TestExtractGatewayMessageInfo(t *testing.T) {
 					},
 				},
 			},
-			wantEventType: EventTypeScannerRegistrationAck,
+			wantEventType: protocol.EventTypeScannerRegistrationAck,
 			wantErr:       false,
 		},
 		{
@@ -955,7 +956,7 @@ func TestExtractGatewayMessageInfo(t *testing.T) {
 					},
 				},
 			},
-			wantEventType: EventTypeMessageAck,
+			wantEventType: protocol.EventTypeMessageAck,
 			wantErr:       false,
 		},
 		{

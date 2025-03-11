@@ -1,4 +1,4 @@
-package gateway
+package acktracking
 
 import (
 	"context"
@@ -30,8 +30,8 @@ type acknowledgmentTracker struct {
 	logger  *logger.Logger
 }
 
-// NewAcknowledgmentTracker creates a new tracker for message acknowledgments.
-func NewAcknowledgmentTracker(logger *logger.Logger) *acknowledgmentTracker {
+// NewTracker creates a new tracker for message acknowledgments.
+func NewTracker(logger *logger.Logger) *acknowledgmentTracker {
 	return &acknowledgmentTracker{
 		pending: make(map[string]chan error),
 		logger:  logger.With("component", "acknowledgment_tracker"),

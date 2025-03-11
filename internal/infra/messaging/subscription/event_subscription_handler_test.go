@@ -1,4 +1,4 @@
-package gateway_test
+package subscription_test
 
 import (
 	"context"
@@ -11,7 +11,8 @@ import (
 	"go.opentelemetry.io/otel/trace/noop"
 
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
-	gateway "github.com/ahrav/gitleaks-armada/internal/gateway/service"
+	"github.com/ahrav/gitleaks-armada/internal/infra/messaging/acktracking"
+	"github.com/ahrav/gitleaks-armada/internal/infra/messaging/subscription"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/common/timeutil"
 	"github.com/ahrav/gitleaks-armada/proto"
@@ -77,10 +78,10 @@ func TestEventSubscriptionHandlerSubscribeSuccess(t *testing.T) {
 		}
 
 		mockLogger := logger.Noop()
-		ackTracker := gateway.NewAcknowledgmentTracker(mockLogger)
+		ackTracker := acktracking.NewTracker(mockLogger)
 
 		// Create the subscription handler under test.
-		subHandler := gateway.NewEventSubscriptionHandler(
+		subHandler := subscription.NewEventSubscriptionHandler(
 			mockBus,
 			ackTracker,
 			20*time.Millisecond, // ackTimeout
@@ -147,10 +148,10 @@ func TestEventSubscriptionHandlerSubscribeFailureOnBusSubscribe(t *testing.T) {
 	}
 
 	mockLogger := logger.Noop()
-	ackTracker := gateway.NewAcknowledgmentTracker(mockLogger)
+	ackTracker := acktracking.NewTracker(mockLogger)
 	tracer := noop.NewTracerProvider().Tracer("test")
 
-	subHandler := gateway.NewEventSubscriptionHandler(
+	subHandler := subscription.NewEventSubscriptionHandler(
 		mockBus,
 		ackTracker,
 		20*time.Millisecond,
@@ -191,10 +192,10 @@ func TestEventSubscriptionHandlerSubscribeConverterError(t *testing.T) {
 		}
 
 		mockLogger := logger.Noop()
-		ackTracker := gateway.NewAcknowledgmentTracker(mockLogger)
+		ackTracker := acktracking.NewTracker(mockLogger)
 		tracer := noop.NewTracerProvider().Tracer("test")
 
-		subHandler := gateway.NewEventSubscriptionHandler(
+		subHandler := subscription.NewEventSubscriptionHandler(
 			mockBus,
 			ackTracker,
 			20*time.Millisecond,
@@ -244,10 +245,10 @@ func TestEventSubscriptionHandlerSubscribeSendFails(t *testing.T) {
 		}
 
 		mockLogger := logger.Noop()
-		ackTracker := gateway.NewAcknowledgmentTracker(mockLogger)
+		ackTracker := acktracking.NewTracker(mockLogger)
 		tracer := noop.NewTracerProvider().Tracer("test")
 
-		subHandler := gateway.NewEventSubscriptionHandler(
+		subHandler := subscription.NewEventSubscriptionHandler(
 			mockBus,
 			ackTracker,
 			20*time.Millisecond,
@@ -299,11 +300,11 @@ func TestEventSubscriptionHandlerSubscribeAckTimeout(t *testing.T) {
 		}
 
 		mockLogger := logger.Noop()
-		ackTracker := gateway.NewAcknowledgmentTracker(mockLogger)
+		ackTracker := acktracking.NewTracker(mockLogger)
 		tracer := noop.NewTracerProvider().Tracer("test")
 
 		// We set a short ackTimeout.
-		subHandler := gateway.NewEventSubscriptionHandler(
+		subHandler := subscription.NewEventSubscriptionHandler(
 			mockBus,
 			ackTracker,
 			5*time.Millisecond, // short for test
