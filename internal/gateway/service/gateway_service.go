@@ -455,15 +455,26 @@ func (s *Service) processAcknowledgment(ctx context.Context, ack *pb.MessageAckn
 	// Process the acknowledgment using the subscription manager
 	var ackErr error
 	if !ack.GetSuccess() {
-		ackErr = fmt.Errorf("%s", ack.GetErrorMessage())
+		errMsg := ack.GetErrorMessage()
+		ackErr = fmt.Errorf("message processing failed: %s", errMsg)
+		span.RecordError(ackErr)
+		span.SetStatus(codes.Error, ackErr.Error())
+		logger.Error(ctx, "Message processing failed", "error", ackErr)
+	} else {
+		span.AddEvent("positive_acknowledgment_received")
+		span.SetStatus(codes.Ok, "positive acknowledgment received")
+		logger.Debug(ctx, "Received positive acknowledgment")
 	}
+
 	if !s.ackTracker.ResolveAcknowledgment(ctx, ack.GetOriginalMessageId(), ackErr) {
 		// This could happen if the acknowledgment arrived after a timeout
 		// or if the message didn't require an acknowledgment
-		span.AddEvent("unknown_message_id")
+		span.SetStatus(codes.Error, "unknown or expired message ID")
+		span.RecordError(fmt.Errorf("no acknowledgment channel found for message ID: %s", ack.GetOriginalMessageId()))
 		logger.Debug(ctx, "Received acknowledgment for unknown or expired message ID")
 		return
 	}
+
 	span.AddEvent("acknowledgment_resolved")
 }
 

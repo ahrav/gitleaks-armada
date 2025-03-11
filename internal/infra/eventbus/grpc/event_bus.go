@@ -914,10 +914,7 @@ func (b *EventBus) processGatewayMessage(msg *pb.GatewayToScannerMessage) {
 //
 // This completes the "critical event acknowledgment" pattern where publishers
 // of important events wait for confirmation of successful processing.
-func (b *EventBus) processAcknowledgment(
-	ctx context.Context,
-	ack *pb.MessageAcknowledgment,
-) {
+func (b *EventBus) processAcknowledgment(ctx context.Context, ack *pb.MessageAcknowledgment) {
 	logger := b.logger.With("original_message_id", ack.GetOriginalMessageId())
 	ctx, span := b.tracer.Start(ctx, "EventBus.processAcknowledgment",
 		trace.WithAttributes(
@@ -946,11 +943,13 @@ func (b *EventBus) processAcknowledgment(
 	if !b.ackTracker.ResolveAcknowledgment(ctx, originalMsgID, ackErr) {
 		// This could happen if the acknowledgment arrived after a timeout
 		// or for a non-critical message that doesn't require acknowledgment.
-		span.AddEvent("no_acknowledgment_channel_found")
 		span.SetStatus(codes.Ok, "no acknowledgment channel found")
 		span.RecordError(fmt.Errorf("no acknowledgment channel found for message ID: %s", originalMsgID))
 		logger.Debug(ctx, "Received acknowledgment for unknown or expired message ID")
+		return
 	}
+
+	span.AddEvent("acknowledgment_resolved")
 }
 
 // Close gracefully shuts down the event bus and releases associated resources.
