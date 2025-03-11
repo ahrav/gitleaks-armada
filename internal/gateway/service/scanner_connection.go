@@ -5,6 +5,8 @@ import (
 	"slices"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
 	grpcbus "github.com/ahrav/gitleaks-armada/internal/infra/eventbus/grpc"
@@ -55,12 +57,44 @@ func NewScannerConnection(
 
 // SendMessage sends a message to the scanner and handles any errors.
 func (c *ScannerConnection) SendMessage(ctx context.Context, msg *grpcbus.GatewayToScannerMessage) error {
-	return c.Stream.Send(msg)
+	ctx, span := c.tracer.Start(ctx, "gateway.ScannerConnection.SendMessage")
+	defer span.End()
+
+	span.SetAttributes(
+		attribute.String("scanner_id", c.ScannerID),
+		attribute.String("message_id", msg.GetMessageId()),
+	)
+
+	err := c.Stream.Send(msg)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "Failed to send message")
+		c.logger.Error(ctx, "Failed to send message", "error", err)
+	}
+	span.AddEvent("Message sent")
+	span.SetStatus(codes.Ok, "Message sent")
+
+	return err
 }
 
 // ReceiveMessage receives a message from the scanner.
 func (c *ScannerConnection) ReceiveMessage(ctx context.Context) (*grpcbus.ScannerToGatewayMessage, error) {
-	return c.Stream.Recv()
+	ctx, span := c.tracer.Start(ctx, "gateway.ScannerConnection.ReceiveMessage")
+	defer span.End()
+
+	span.SetAttributes(attribute.String("scanner_id", c.ScannerID))
+
+	msg, err := c.Stream.Recv()
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "Failed to receive message")
+		c.logger.Error(ctx, "Failed to receive message", "error", err)
+		return nil, err
+	}
+	span.AddEvent("Message received")
+	span.SetStatus(codes.Ok, "Message received")
+
+	return msg, nil
 }
 
 // UpdateActivity updates the last activity timestamp for this connection.
