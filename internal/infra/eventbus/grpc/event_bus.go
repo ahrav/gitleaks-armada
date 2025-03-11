@@ -23,6 +23,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/internal/infra/eventbus/reliability"
 	"github.com/ahrav/gitleaks-armada/internal/infra/eventbus/serialization"
+	"github.com/ahrav/gitleaks-armada/internal/infra/messaging/acktracking"
 	"github.com/ahrav/gitleaks-armada/internal/infra/messaging/protocol"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/common/timeutil"
@@ -91,70 +92,6 @@ type EventBusConfig struct {
 	Version      string   // Scanner version
 	GroupName    string   // Scanner group name
 	Capabilities []string // Scanner capabilities
-}
-
-// acknowledgmentManager tracks and manages acknowledgments for critical messages.
-// It provides thread-safe operations for registering, resolving, and clearing acknowledgments.
-type acknowledgmentManager struct {
-	mu       sync.RWMutex
-	channels map[string]chan error
-}
-
-// newAcknowledgmentManager creates a new acknowledgment tracker.
-func newAcknowledgmentManager() *acknowledgmentManager {
-	return &acknowledgmentManager{channels: make(map[string]chan error)}
-}
-
-// createChannel creates an acknowledgment channel for a message and returns it.
-func (m *acknowledgmentManager) createChannel(messageID string) chan error {
-	channel := make(chan error, 1)
-
-	m.mu.Lock()
-	m.channels[messageID] = channel
-	m.mu.Unlock()
-
-	return channel
-}
-
-// resolveAcknowledgment resolves an acknowledgment for a message.
-// It sends the error (or nil for success) to the waiting channel if one exists.
-// Returns true if the message was being tracked, false otherwise.
-func (m *acknowledgmentManager) resolveAcknowledgment(messageID string, err error) bool {
-	m.mu.RLock()
-	channel, exists := m.channels[messageID]
-	m.mu.RUnlock()
-
-	if !exists {
-		return false
-	}
-
-	channel <- err
-
-	m.mu.Lock()
-	delete(m.channels, messageID)
-	m.mu.Unlock()
-
-	return true
-}
-
-// deleteChannel removes a channel without resolving it.
-// This is useful for cleanup during timeouts or bus closure.
-func (m *acknowledgmentManager) deleteChannel(messageID string) {
-	m.mu.Lock()
-	delete(m.channels, messageID)
-	m.mu.Unlock()
-}
-
-// cleanupAllChannels cancels all pending acknowledgments with the given error.
-// This is typically used during shutdown or error conditions.
-func (m *acknowledgmentManager) cleanupAllChannels(err error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	for id, ch := range m.channels {
-		ch <- err
-		delete(m.channels, id)
-	}
 }
 
 // handlerRegistry manages event handlers for different event types.
@@ -256,7 +193,7 @@ type EventBus struct {
 	eventToMessageType map[events.EventType]protocol.MessageType
 
 	// Manages acknowledgments for critical messages.
-	ackManager *acknowledgmentManager
+	ackTracker acktracking.AckTracker
 
 	// Manages event handlers.
 	handlerRegistry *handlerRegistry
@@ -290,11 +227,14 @@ func newEventBus(
 ) (*EventBus, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
+	// Use the shared AckTracker implementation
+	ackTracker := acktracking.NewTracker(logger)
+
 	bus := &EventBus{
 		stream:             stream,
 		config:             cfg,
 		eventToMessageType: eventTypeMap,
-		ackManager:         newAcknowledgmentManager(),
+		ackTracker:         ackTracker,
 		handlerRegistry:    newHandlerRegistry(),
 		state:              newBusState(),
 		ctx:                ctx,
@@ -673,9 +613,9 @@ func (b *EventBus) Publish(ctx context.Context, event events.EventEnvelope, opts
 	logger.Add("message_is_critical", isCritical)
 	span.SetAttributes(attribute.Bool("message_is_critical", isCritical))
 
-	var ackChan chan error
+	var ackChan <-chan error
 	if isCritical {
-		ackChan = b.ackManager.createChannel(msgID)
+		ackChan = b.ackTracker.TrackMessage(msgID)
 		logger.Debug(ctx, "Created acknowledgment channel for critical message",
 			"message_id", msgID,
 			"event_type", string(event.Type))
@@ -683,7 +623,7 @@ func (b *EventBus) Publish(ctx context.Context, event events.EventEnvelope, opts
 
 	if err := b.stream.Send(msg); err != nil {
 		if isCritical {
-			b.ackManager.deleteChannel(msgID)
+			b.ackTracker.StopTracking(msgID)
 		}
 
 		span.RecordError(err)
@@ -702,53 +642,40 @@ func (b *EventBus) Publish(ctx context.Context, event events.EventEnvelope, opts
 	span.AddEvent("critical_message_sent")
 	logger.Debug(ctx, "Critical message sent successfully")
 
-	const defaultAckTimeout = 30 * time.Second
-	timeoutCtx, cancel := context.WithTimeout(ctx, defaultAckTimeout)
-	defer cancel()
+	go func() {
+		const defaultAckTimeout = 30 * time.Second
 
-	select {
-	case err := <-ackChan:
-		b.ackManager.deleteChannel(msgID)
+		childCtx, childSpan := b.tracer.Start(ctx, "WaitForAcknowledgment",
+			trace.WithAttributes(
+				attribute.String("message_id", msgID),
+				attribute.String("event_type", string(event.Type)),
+			),
+		)
+		defer childSpan.End()
 
-		if err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, err.Error())
-			logger.Error(ctx, "Message acknowledged with error",
+		ackErr := b.ackTracker.WaitForAcknowledgment(childCtx, msgID, ackChan, defaultAckTimeout)
+		if ackErr != nil {
+			childSpan.RecordError(ackErr)
+			childSpan.SetStatus(codes.Error, ackErr.Error())
+			b.logger.Error(childCtx, "Acknowledgment failed",
 				"message_id", msgID,
-				"error", err)
-			return fmt.Errorf("message acknowledged with error: %w", err)
+				"event_type", string(event.Type),
+				"error", ackErr)
+			return
 		}
 
-		span.AddEvent("message_acknowledged_successfully")
-		span.SetStatus(codes.Ok, "message acknowledged successfully")
-		logger.Debug(ctx, "Message acknowledged successfully")
-		return nil
+		childSpan.AddEvent("message_acknowledged_successfully")
+		childSpan.SetStatus(codes.Ok, "acknowledgment successful")
+		b.logger.Debug(childCtx, "Message acknowledged successfully",
+			"message_id", msgID,
+			"event_type", string(event.Type))
+	}()
 
-	case <-timeoutCtx.Done():
-		// The acknowledgment timed out.
-		b.ackManager.deleteChannel(msgID)
+	span.AddEvent("message_sent_awaiting_acknowledgment")
+	span.SetStatus(codes.Ok, "message sent, acknowledgment being processed asynchronously")
+	logger.Debug(ctx, "Message sent, waiting for acknowledgment in background")
 
-		timeoutErr := fmt.Errorf(
-			"timeout waiting for acknowledgment for (message_id: %s, event_type: %s): %w",
-			msgID,
-			event.Type,
-			timeoutCtx.Err(),
-		)
-		span.RecordError(timeoutErr)
-		span.SetStatus(codes.Error, timeoutErr.Error())
-		logger.Error(ctx, "Timeout waiting for acknowledgment", "timeout", defaultAckTimeout)
-		return timeoutErr
-
-	case <-b.ctx.Done():
-		// The bus is shutting down
-		b.ackManager.deleteChannel(msgID)
-
-		shutdownErr := fmt.Errorf("event bus shutting down")
-		span.RecordError(shutdownErr)
-		span.SetStatus(codes.Error, shutdownErr.Error())
-		span.AddEvent("critical_message_timeout")
-		return shutdownErr
-	}
+	return nil
 }
 
 // Subscribe registers a handler function to process domain events (commands) from the gateway.
@@ -1016,8 +943,7 @@ func (b *EventBus) processAcknowledgment(
 		logger.Debug(ctx, "Received positive acknowledgment")
 	}
 
-	// Use the ackManager to resolve the acknowledgment
-	if !b.ackManager.resolveAcknowledgment(originalMsgID, ackErr) {
+	if !b.ackTracker.ResolveAcknowledgment(ctx, originalMsgID, ackErr) {
 		// This could happen if the acknowledgment arrived after a timeout
 		// or for a non-critical message that doesn't require acknowledgment.
 		span.AddEvent("no_acknowledgment_channel_found")
@@ -1038,8 +964,7 @@ func (b *EventBus) Close() error {
 	b.state.setClosed()
 	b.cancelFunc()
 
-	// Clean up all pending acknowledgments.
-	b.ackManager.cleanupAllChannels(errors.New("event bus closed"))
+	b.ackTracker.CleanupAll(b.ctx, errors.New("event bus closed"))
 
 	// Wait for receiver goroutine to exit.
 	select {
