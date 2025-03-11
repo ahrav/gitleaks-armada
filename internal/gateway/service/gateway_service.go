@@ -78,6 +78,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/infra/messaging/acktracking"
 	"github.com/ahrav/gitleaks-armada/internal/infra/messaging/connections"
 	"github.com/ahrav/gitleaks-armada/internal/infra/messaging/protocol"
+	"github.com/ahrav/gitleaks-armada/internal/infra/messaging/registry"
 	"github.com/ahrav/gitleaks-armada/internal/infra/messaging/subscription"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/common/timeutil"
@@ -137,13 +138,13 @@ type Service struct {
 	// These connections handle scanner-specific commands and events, enabling
 	// direct communication with individual scanners for tasks and status updates.
 	// The registry maintains the mapping between scanner IDs and their connection state.
-	scanners *connections.ScannerRegistry
+	scanners *registry.ScannerRegistry
 
 	// broadcastScanners tracks connections established via SubscribeToBroadcasts.
 	// These connections are dedicated to system-wide events, and job control commands
 	// that need to reach all scanners, enabling efficient distribution of broadcast
 	// messages without interrupting the primary command channels.
-	broadcastScanners *connections.ScannerRegistry
+	broadcastScanners *registry.ScannerRegistry
 
 	// Manages event subscriptions and acknowledgment tracking.
 	ackTracker acktracking.AckTracker
@@ -185,8 +186,8 @@ func NewService(
 		broadcastSubscriptionHandler: broadcastSubscriptionHandler,
 
 		// Registry of connected scanners.
-		scanners:          connections.NewScannerRegistry(metrics),
-		broadcastScanners: connections.NewScannerRegistry(metrics),
+		scanners:          registry.NewScannerRegistry(metrics),
+		broadcastScanners: registry.NewScannerRegistry(metrics),
 
 		// Observability.
 		logger:  logger.With("component", "gateway_service"),

@@ -25,6 +25,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/infra/eventbus/serialization"
 	"github.com/ahrav/gitleaks-armada/internal/infra/messaging/acktracking"
 	"github.com/ahrav/gitleaks-armada/internal/infra/messaging/protocol"
+	"github.com/ahrav/gitleaks-armada/internal/infra/messaging/registry"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/common/timeutil"
 	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
@@ -94,43 +95,6 @@ type EventBusConfig struct {
 	Capabilities []string // Scanner capabilities
 }
 
-// handlerRegistry manages event handlers for different event types.
-// It provides thread-safe operations for registering and executing handlers.
-type handlerRegistry struct {
-	mu       sync.RWMutex
-	handlers map[events.EventType][]events.HandlerFunc
-}
-
-// newHandlerRegistry creates a new handler registry.
-func newHandlerRegistry() *handlerRegistry {
-	return &handlerRegistry{handlers: make(map[events.EventType][]events.HandlerFunc)}
-}
-
-// registerHandler registers a handler for an event type.
-func (r *handlerRegistry) registerHandler(eventType events.EventType, handler events.HandlerFunc) {
-	r.mu.Lock()
-	r.handlers[eventType] = append(r.handlers[eventType], handler)
-	r.mu.Unlock()
-}
-
-// getHandlers returns the handlers for an event type.
-// Returns the handlers and true if handlers exist, empty slice and false otherwise.
-func (r *handlerRegistry) getHandlers(eventType events.EventType) ([]events.HandlerFunc, bool) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	handlers, exists := r.handlers[eventType]
-	if !exists || len(handlers) == 0 {
-		return nil, false
-	}
-
-	// Return a copy to avoid concurrent modification issues.
-	result := make([]events.HandlerFunc, len(handlers))
-	copy(result, handlers)
-
-	return result, true
-}
-
 // busState manages the state of the event bus.
 // It provides thread-safe operations for checking and changing the bus state.
 type busState struct {
@@ -196,7 +160,7 @@ type EventBus struct {
 	ackTracker acktracking.AckTracker
 
 	// Manages event handlers.
-	handlerRegistry *handlerRegistry
+	handlerRegistry *registry.HandlerRegistry
 
 	// Manages bus state.
 	state *busState
@@ -230,12 +194,14 @@ func newEventBus(
 	// Use the shared AckTracker implementation
 	ackTracker := acktracking.NewTracker(logger)
 
+	handlerRegistry := registry.NewHandlerRegistry(logger, tracer)
+
 	bus := &EventBus{
 		stream:             stream,
 		config:             cfg,
 		eventToMessageType: eventTypeMap,
 		ackTracker:         ackTracker,
-		handlerRegistry:    newHandlerRegistry(),
+		handlerRegistry:    handlerRegistry,
 		state:              newBusState(),
 		ctx:                ctx,
 		cancelFunc:         cancel,
@@ -723,9 +689,8 @@ func (b *EventBus) Subscribe(
 		return err
 	}
 
-	// Register handler for each event type
 	for _, evtType := range eventTypes {
-		b.handlerRegistry.registerHandler(evtType, handler)
+		b.handlerRegistry.RegisterHandler(ctx, evtType, handler)
 		logger.Debug(ctx, "Subscribed to event type", "event_type", evtType)
 		span.AddEvent("subscribed_to_event_type")
 		span.SetAttributes(attribute.String("event_type", string(evtType)))
@@ -828,8 +793,7 @@ func (b *EventBus) processGatewayMessage(msg *pb.GatewayToScannerMessage) {
 			}
 		}
 
-		// Get handlers for this event type using handlerRegistry
-		handlers, exists := b.handlerRegistry.getHandlers(eventType)
+		handlers, exists := b.handlerRegistry.GetHandlers(ctx, eventType)
 		if !exists || len(handlers) == 0 {
 			span.AddEvent("no_handlers_registered_for_event_type")
 			span.RecordError(fmt.Errorf("no handlers registered for event type: %s", string(eventType)))
