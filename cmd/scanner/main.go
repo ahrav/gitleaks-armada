@@ -44,7 +44,60 @@ import (
 	pb "github.com/ahrav/gitleaks-armada/proto"
 )
 
+// setDefaultEnvVars sets default values for environment variables if they're not already set.
+// This allows running the scanner binary directly without having to specify all environment variables.
+func setDefaultEnvVars() {
+	// Define default values for required environment variables
+	defaults := map[string]string{
+		// Kafka topics
+		"KAFKA_TASK_CREATED_TOPIC":           "task-created",
+		"KAFKA_SCANNING_TASK_TOPIC":          "scanning-tasks",
+		"KAFKA_RESULTS_TOPIC":                "results",
+		"KAFKA_PROGRESS_TOPIC":               "progress",
+		"KAFKA_HIGH_PRIORITY_TASK_TOPIC":     "high-priority-tasks",
+		"KAFKA_JOB_LIFECYCLE_TOPIC":          "job-lifecycle",
+		"KAFKA_SCANNER_LIFECYCLE_TOPIC":      "scanner-lifecycle",
+		"KAFKA_RULES_REQUEST_TOPIC":          "rules-requests",
+		"KAFKA_RULES_RESPONSE_TOPIC":         "rules-responses",
+		"KAFKA_JOB_BROADCAST_TOPIC":          "job-broadcast",
+		"KAFKA_GATEWAY_NOTIFICATION_TOPIC":   "gateway-notifications",
+		"KAFKA_GATEWAY_TO_SCANNER_ACK_TOPIC": "gateway-to-scanner-acks",
+		"KAFKA_SCANNER_TO_GATEWAY_ACK_TOPIC": "scanner-to-gateway-acks",
+
+		// Kafka connection
+		"KAFKA_BROKERS":  "localhost:9092",
+		"KAFKA_GROUP_ID": "scanner",
+
+		// Gateway connection (for on-prem mode)
+		"GATEWAY_ADDR":               "localhost:9090",
+		"GATEWAY_CONNECTION_TIMEOUT": "30s",
+
+		// OpenTelemetry
+		"OTEL_SERVICE_NAME":           "scanner-worker",
+		"OTEL_EXPORTER_OTLP_ENDPOINT": "localhost:4317",
+		"OTEL_SAMPLING_RATIO":         "0.1",
+
+		// Scanner configuration
+		"SCANNER_VERSION":      "1.0.0",
+		"SCANNER_CAPABILITIES": "secrets_scanning",
+
+		// The POD_NAME and POD_NAMESPACE are used for K8s but we provide defaults for local development
+		"POD_NAME":      "local-scanner",
+		"POD_NAMESPACE": "local-dev",
+	}
+
+	// Only set environment variables that aren't already set
+	for key, defaultValue := range defaults {
+		if os.Getenv(key) == "" {
+			os.Setenv(key, defaultValue)
+		}
+	}
+}
+
 func main() {
+	// Set default environment variables for local development
+	setDefaultEnvVars()
+
 	_, _ = maxprocs.Set()
 
 	hostname, err := os.Hostname()
@@ -98,11 +151,17 @@ func main() {
 	defer cancel()
 
 	// Initialize telemetry.
-	prob, err := strconv.ParseFloat(os.Getenv("OTEL_SAMPLING_RATIO"), 64)
-	if err != nil {
-		log.Error(ctx, "failed to parse TEMPO_PROBABILITY", "error", err)
-		os.Exit(1)
+	probStr := os.Getenv("OTEL_SAMPLING_RATIO")
+	var prob float64 = 0.1 // Default sampling ratio
+	if probStr != "" {
+		parsedProb, err := strconv.ParseFloat(probStr, 64)
+		if err != nil {
+			log.Warn(ctx, "Failed to parse OTEL_SAMPLING_RATIO, using default", "error", err, "default", prob)
+		} else {
+			prob = parsedProb
+		}
 	}
+
 	tp, telemetryTeardown, err := otel.InitTelemetry(log, otel.Config{
 		ServiceName:      os.Getenv("OTEL_SERVICE_NAME"),
 		ExporterEndpoint: os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
@@ -144,55 +203,6 @@ func main() {
 
 	scannerID := fmt.Sprintf("scanner-%s", hostname)
 
-	// Create shared Kafka client.
-	kafkaClient, err := kafka.NewClient(&kafka.ClientConfig{
-		Brokers:     strings.Split(os.Getenv("KAFKA_BROKERS"), ","),
-		GroupID:     os.Getenv("KAFKA_GROUP_ID"),
-		ClientID:    scannerID,
-		ServiceType: "scanner",
-	})
-	if err != nil {
-		log.Error(ctx, "failed to create kafka client", "error", err)
-		os.Exit(1)
-	}
-	defer kafkaClient.Close()
-
-	// Create a Kafka client for broadcast events where every scanner instance
-	// needs to receive the message (e.g., job pause events)
-	broadcastClient, err := kafka.NewClient(&kafka.ClientConfig{
-		Brokers:     strings.Split(os.Getenv("KAFKA_BROKERS"), ","),
-		GroupID:     fmt.Sprintf("scanner-broadcast-%s", hostname), // Unique group per pod for broadcast events
-		ClientID:    fmt.Sprintf("scanner-broadcast-%s", hostname),
-		ServiceType: "scanner",
-	})
-	if err != nil {
-		log.Error(ctx, "failed to create broadcast kafka client", "error", err)
-		os.Exit(1)
-	}
-	defer broadcastClient.Close()
-
-	kafkaCfg := &kafka.EventBusConfig{
-		TaskCreatedTopic:      os.Getenv("KAFKA_TASK_CREATED_TOPIC"),
-		ScanningTaskTopic:     os.Getenv("KAFKA_SCANNING_TASK_TOPIC"),
-		ResultsTopic:          os.Getenv("KAFKA_RESULTS_TOPIC"),
-		ProgressTopic:         os.Getenv("KAFKA_PROGRESS_TOPIC"),
-		HighPriorityTaskTopic: os.Getenv("KAFKA_HIGH_PRIORITY_TASK_TOPIC"),
-		JobLifecycleTopic:     os.Getenv("KAFKA_JOB_LIFECYCLE_TOPIC"),
-		ScannerLifecycleTopic: os.Getenv("KAFKA_SCANNER_LIFECYCLE_TOPIC"),
-		RulesRequestTopic:     os.Getenv("KAFKA_RULES_REQUEST_TOPIC"),
-		RulesResponseTopic:    os.Getenv("KAFKA_RULES_RESPONSE_TOPIC"),
-		GroupID:               os.Getenv("KAFKA_GROUP_ID"),
-		ClientID:              scannerID,
-	}
-
-	// Create a separate config for broadcast events.
-	broadcastCfg := &kafka.EventBusConfig{
-		JobLifecycleTopic: os.Getenv("KAFKA_JOB_LIFECYCLE_TOPIC"),
-		GroupID:           fmt.Sprintf("scanner-broadcast-%s", hostname),
-		ClientID:          fmt.Sprintf("scanner-broadcast-%s", hostname),
-		ServiceType:       "scanner",
-	}
-
 	const defaultScannerGroupName = "system_default"
 	scannerGroupName := os.Getenv("SCANNER_GROUP_NAME")
 
@@ -206,6 +216,55 @@ func main() {
 	if scannerGroupName == defaultScannerGroupName || scannerGroupName == "" {
 		// System default scanners use Kafka directly for communication.
 		log.Info(ctx, "Using Kafka event bus for system_default scanner group")
+
+		kafkaCfg := &kafka.EventBusConfig{
+			TaskCreatedTopic:      os.Getenv("KAFKA_TASK_CREATED_TOPIC"),
+			ScanningTaskTopic:     os.Getenv("KAFKA_SCANNING_TASK_TOPIC"),
+			ResultsTopic:          os.Getenv("KAFKA_RESULTS_TOPIC"),
+			ProgressTopic:         os.Getenv("KAFKA_PROGRESS_TOPIC"),
+			HighPriorityTaskTopic: os.Getenv("KAFKA_HIGH_PRIORITY_TASK_TOPIC"),
+			JobLifecycleTopic:     os.Getenv("KAFKA_JOB_LIFECYCLE_TOPIC"),
+			ScannerLifecycleTopic: os.Getenv("KAFKA_SCANNER_LIFECYCLE_TOPIC"),
+			RulesRequestTopic:     os.Getenv("KAFKA_RULES_REQUEST_TOPIC"),
+			RulesResponseTopic:    os.Getenv("KAFKA_RULES_RESPONSE_TOPIC"),
+			GroupID:               os.Getenv("KAFKA_GROUP_ID"),
+			ClientID:              scannerID,
+		}
+
+		// Create a separate config for broadcast events.
+		broadcastCfg := &kafka.EventBusConfig{
+			JobBroadcastTopic: os.Getenv("KAFKA_JOB_BROADCAST_TOPIC"),
+			GroupID:           fmt.Sprintf("scanner-broadcast-%s", hostname),
+			ClientID:          fmt.Sprintf("scanner-broadcast-%s", hostname),
+			ServiceType:       "scanner",
+		}
+
+		// Create shared Kafka client.
+		kafkaClient, err := kafka.NewClient(&kafka.ClientConfig{
+			Brokers:     strings.Split(os.Getenv("KAFKA_BROKERS"), ","),
+			GroupID:     os.Getenv("KAFKA_GROUP_ID"),
+			ClientID:    scannerID,
+			ServiceType: "scanner",
+		})
+		if err != nil {
+			log.Error(ctx, "failed to create kafka client", "error", err)
+			os.Exit(1)
+		}
+		defer kafkaClient.Close()
+
+		// Create a Kafka client for broadcast events where every scanner instance
+		// needs to receive the message (e.g., job pause events)
+		broadcastClient, err := kafka.NewClient(&kafka.ClientConfig{
+			Brokers:     strings.Split(os.Getenv("KAFKA_BROKERS"), ","),
+			GroupID:     fmt.Sprintf("scanner-broadcast-%s", hostname), // Unique group per pod for broadcast events
+			ClientID:    fmt.Sprintf("scanner-broadcast-%s", hostname),
+			ServiceType: "scanner",
+		})
+		if err != nil {
+			log.Error(ctx, "failed to create broadcast kafka client", "error", err)
+			os.Exit(1)
+		}
+		defer broadcastClient.Close()
 
 		kafkaEventBus, err := kafka.ConnectEventBus(kafkaCfg, kafkaClient, log, metricsCollector, tracer)
 		if err != nil {
@@ -250,7 +309,6 @@ func main() {
 			}
 		}
 
-		// Get capabilities from environment or use defaults
 		capabilities := []string{"secrets_scanning"}
 		if capStr := os.Getenv("SCANNER_CAPABILITIES"); capStr != "" {
 			capabilities = strings.Split(capStr, ",")
@@ -278,7 +336,6 @@ func main() {
 		}
 		defer conn.Close()
 
-		// Connect to the gateway using gRPC
 		grpcEventBus, err := connectToRegularGateway(
 			ctx,
 			conn,
@@ -308,8 +365,11 @@ func main() {
 			Capabilities: capabilities,
 		}
 
-		// Connect to the gateway's broadcast stream.
-		grpcBroadcastBus, err := connectToBroadcastGateway(
+		// Use gRPC as the event bus implementation.
+		eventBus = grpcEventBus
+
+		// Try to establish the broadcast connection
+		broadcastEventBus, err = connectToBroadcastGateway(
 			ctx,
 			conn,
 			grpcBroadcastConfig,
@@ -317,14 +377,12 @@ func main() {
 			tracer,
 		)
 		if err != nil {
-			log.Error(ctx, "failed to connect to gateway broadcast stream", "error", err)
+			log.Error(ctx, "Failed to connect to gateway broadcast stream - continuing with primary connection only",
+				"error", err)
 			os.Exit(1)
 		}
 		log.Info(ctx, "Scanner connected to gateway broadcast stream")
 
-		// Use gRPC as the event bus implementation.
-		eventBus = grpcEventBus
-		broadcastEventBus = grpcBroadcastBus
 		domainEventTranslator = events.NewDomainEventTranslator(nil) // gRPC doesn't need a position translator
 		eventPublisher = grpcbus.NewDomainEventPublisher(eventBus, domainEventTranslator)
 	}
@@ -421,12 +479,7 @@ func connectToRegularGateway(
 		return nil, fmt.Errorf("failed to start regular stream: %w", err)
 	}
 
-	eventBus, err := grpcbus.NewScannerEventBus(
-		stream,
-		cfg,
-		log,
-		tracer,
-	)
+	eventBus, err := grpcbus.NewScannerEventBus(stream, cfg, log, tracer)
 	if err != nil {
 		conn.Close()
 		return nil, fmt.Errorf("failed to create regular gRPC event bus: %w", err)
@@ -446,25 +499,18 @@ func connectToBroadcastGateway(
 	client := pb.NewScannerGatewayServiceClient(conn)
 	stream, err := client.SubscribeToBroadcasts(ctx)
 	if err != nil {
-		conn.Close()
 		return nil, fmt.Errorf("failed to start broadcast stream: %w", err)
 	}
 
-	broadcastBus, err := grpcbus.NewBroadcastEventBus(
-		stream,
-		cfg,
-		log,
-		tracer,
-	)
+	broadcastBus, err := grpcbus.NewBroadcastEventBus(stream, cfg, log, tracer)
 	if err != nil {
-		conn.Close()
 		return nil, fmt.Errorf("failed to create broadcast gRPC event bus: %w", err)
 	}
 
+	log.Info(ctx, "Successfully connected to broadcast stream")
 	return broadcastBus, nil
 }
 
-// Get scanner version from environment or use a default
 func getScannerVersion() string {
 	version := os.Getenv("SCANNER_VERSION")
 	if version == "" {

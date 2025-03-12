@@ -386,6 +386,13 @@ func (s *Service) processIncomingScannerMessage(
 	)
 
 	switch eventType {
+	case scanning.EventTypeScannerRegistered:
+		span.AddEvent("scanner_registered_received")
+		if event, ok := payload.(scanning.ScannerRegisteredEvent); ok {
+			domainEvent = event
+			evtType = scanning.EventTypeScannerRegistered
+		}
+
 	case scanning.EventTypeScannerHeartbeat:
 		span.AddEvent("scanner_heartbeat_received")
 		s.metrics.IncScannerHeartbeats(ctx)
@@ -414,8 +421,10 @@ func (s *Service) processIncomingScannerMessage(
 		}
 
 	default:
-		span.AddEvent("unknown_event_type")
-		evtType = eventType
+		err := fmt.Errorf("unknown event type: %s", eventType)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return err
 	}
 
 	processingErr := s.publishDomainEvent(ctx, evtType, domainEvent, options...)
@@ -610,9 +619,6 @@ func (s *Service) subscribeToEvents(ctx context.Context, scannerID string) error
 
 		// Rule-related events.
 		rules.EventTypeRulesRequested,
-
-		// System events.
-		protocol.EventTypeSystemNotification,
 	}
 
 	logger.Info(ctx, "Setting up event subscriptions for scanner",
@@ -835,6 +841,17 @@ func (s *Service) SubscribeToBroadcasts(stream pb.ScannerGatewayService_Subscrib
 		s.tracer,
 	)
 
+	// Send acknowledgment for the initial message
+	messageID := initMsg.GetMessageId()
+	if err := s.sendBroadcastAcknowledgment(ctx, broadcastConn, messageID); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "Failed to send broadcast acknowledgment")
+		logger.Error(ctx, "Failed to send broadcast acknowledgment", "error", err)
+		return status.Errorf(protoCodes.Internal, "Failed to send broadcast acknowledgment: %v", err)
+	}
+	span.AddEvent("broadcast_acknowledgment_sent")
+	logger.Info(ctx, "Broadcast acknowledgment sent")
+
 	s.broadcastScanners.Register(ctx, scannerID, broadcastConn)
 	broadcastCount := s.broadcastScanners.Count()
 
@@ -867,6 +884,39 @@ func (s *Service) SubscribeToBroadcasts(stream pb.ScannerGatewayService_Subscrib
 	return err
 }
 
+// sendBroadcastAcknowledgment sends an acknowledgment for a broadcast message.
+func (s *Service) sendBroadcastAcknowledgment(
+	ctx context.Context,
+	conn *connections.ScannerConnection,
+	messageID string,
+) error {
+	logger := s.logger.With("operation", "sendBroadcastAcknowledgment", "message_id", messageID)
+	ctx, span := s.tracer.Start(ctx, "gateway.sendBroadcastAcknowledgment",
+		trace.WithAttributes(
+			attribute.String("message_id", messageID),
+		),
+	)
+	defer span.End()
+
+	ack := &pb.MessageAcknowledgment{OriginalMessageId: messageID, Success: true, ScannerId: conn.ScannerID}
+	msg := &pb.GatewayToScannerMessage{
+		MessageId: uuid.New().String(),
+		Timestamp: s.timeProvider.Now().UnixNano(),
+		Payload:   &pb.GatewayToScannerMessage_Ack{Ack: ack},
+	}
+
+	if err := conn.SendMessage(ctx, msg); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "Failed to send broadcast acknowledgment")
+		return fmt.Errorf("failed to send broadcast acknowledgment: %w", err)
+	}
+	span.AddEvent("broadcast_acknowledgment_message_sent")
+	logger.Debug(ctx, "Sent broadcast acknowledgment message")
+	s.metrics.IncMessagesSent(ctx, "broadcast_acknowledgment")
+
+	return nil
+}
+
 // subscribeToBroadcastEvents subscribes to broadcast events that should be distributed
 // to all scanners, such as job control commands (pause, cancel) and system notifications.
 func (s *Service) subscribeToBroadcastEvents(
@@ -887,7 +937,6 @@ func (s *Service) subscribeToBroadcastEvents(
 	broadcastEventTypes := []events.EventType{
 		scanning.EventTypeJobPaused,
 		scanning.EventTypeJobCancelled,
-		protocol.EventTypeSystemNotification,
 	}
 
 	logger.Info(ctx, "Setting up broadcast event subscriptions for scanner",

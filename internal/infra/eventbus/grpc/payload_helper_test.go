@@ -107,7 +107,7 @@ func TestSetScannerToGatewayPayload(t *testing.T) {
 		{
 			name:      "ScannerRegistered event",
 			eventType: scanning.EventTypeScannerRegistered,
-			payload:   &pb.ScannerRegistrationRequest{ScannerName: "scanner-1"},
+			payload:   &pb.ScannerRegisteredEvent{ScannerName: "scanner-1"},
 			wantErr:   false,
 		},
 		{

@@ -321,7 +321,7 @@ dev-down:
 
 # A single shortcut target that sets up everything for a new dev
 dev-all: build-all docker-all dev-up dev-load create-config-secret \
-         dev-apply-extras kafka-setup postgres-setup dev-apply dev-apply-kong
+         dev-apply-extras kafka-setup postgres-setup dev-apply dev-apply-kong dev-apply-scanner-gateway
 
 
 ################################################################################

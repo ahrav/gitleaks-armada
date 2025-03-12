@@ -87,11 +87,11 @@ func SetScannerToGatewayPayload(msg *pb.ScannerToGatewayMessage, eventType event
 	switch eventType {
 	// Scanner lifecycle events - scanner to controller.
 	case scanning.EventTypeScannerRegistered:
-		registration, ok := payload.(*pb.ScannerRegistrationRequest)
+		registration, ok := payload.(*pb.ScannerRegisteredEvent)
 		if !ok {
-			return fmt.Errorf("payload is not a ScannerRegistrationRequest: %T", payload)
+			return fmt.Errorf("payload is not a ScannerRegisteredEvent: %T", payload)
 		}
-		msg.Payload = &pb.ScannerToGatewayMessage_Registration{Registration: registration}
+		msg.Payload = &pb.ScannerToGatewayMessage_ScannerRegistered{ScannerRegistered: registration}
 
 	case scanning.EventTypeScannerHeartbeat:
 		heartbeat, ok := payload.(*pb.ScannerHeartbeatEvent)

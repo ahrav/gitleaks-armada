@@ -417,6 +417,10 @@ func mapRegularEventTypes() map[events.EventType]protocol.MessageType {
 
 		// Rules events - controller initiates rule distribution to scanners.
 		rules.EventTypeRulesRequested: protocol.MessageTypeRulesRequested,
+		rules.EventTypeRulesUpdated:   protocol.MessageTypeRulesResponse,
+
+		// System messages
+		protocol.EventTypeMessageAck: protocol.MessageTypeAck, // Acknowledgments for critical messages
 	}
 }
 
@@ -471,7 +475,7 @@ func mapBroadcastEventTypes() map[events.EventType]protocol.MessageType {
 		scanning.EventTypeJobCancelled: protocol.MessageTypeScanJobCancelled, // Broadcast to all scanners
 
 		// System messages
-		protocol.EventTypeSystemNotification: protocol.MessageTypeSystemNotification,
+		protocol.EventTypeMessageAck: protocol.MessageTypeAck, // Acknowledgments for broadcast messages
 	}
 }
 

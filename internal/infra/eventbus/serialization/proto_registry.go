@@ -112,6 +112,9 @@ func registerProtoSerializers() {
 	registerProtoDeserializeFunc(scanning.EventTypeTaskPaused, ProtoToTaskPausedEvent)
 	registerProtoDeserializeFunc(scanning.EventTypeTaskCancelled, ProtoToTaskCancelledEvent)
 
+	// Rule events.
+	registerProtoDeserializeFunc(rules.EventTypeRulesRequested, ProtoToRuleRequestedEvent)
+
 	// Add deserializer for MessageAck event - using string literal to avoid circular imports
 	registerProtoDeserializeFunc(events.EventType("MessageAck"), ProtoToMessageAck)
 }
@@ -659,6 +662,16 @@ func ProtoToTaskCancelledEvent(message any) (any, error) {
 		taskID,
 		taskCancelled.RequestedBy,
 	), nil
+}
+
+// ProtoToRuleRequestedEvent converts a protocol buffer message to a RuleRequestedEvent.
+func ProtoToRuleRequestedEvent(message any) (any, error) {
+	_, ok := message.(*pb.RuleRequestedEvent)
+	if !ok {
+		return nil, fmt.Errorf("message is not a RuleRequestedEvent: %T", message)
+	}
+
+	return rules.NewRuleRequestedEvent(), nil
 }
 
 // ProtoToMessageAck converts a proto MessageAcknowledgment to its domain representation.
