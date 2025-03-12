@@ -153,7 +153,7 @@ func main() {
 
 	// Initialize telemetry.
 	probStr := os.Getenv("OTEL_SAMPLING_RATIO")
-	var prob float64 = 0.1 // Default sampling ratio
+	var prob float64 = 0.7 // Default sampling ratio
 	if probStr != "" {
 		parsedProb, err := strconv.ParseFloat(probStr, 64)
 		if err != nil {
