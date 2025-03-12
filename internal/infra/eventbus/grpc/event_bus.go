@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"maps"
-	"os"
 	"sync"
 	"time"
 
@@ -91,6 +90,7 @@ type EventBusConfig struct {
 
 	// Registration details for scanner connections
 	Version      string   // Scanner version
+	Hostname     string   // Scanner hostname
 	GroupName    string   // Scanner group name
 	Capabilities []string // Scanner capabilities
 }
@@ -298,10 +298,12 @@ func initializeStream(
 		logger.Info(ctx, "Stream initialized successfully")
 
 		return nil
+
 	case err := <-errChan:
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
 		return fmt.Errorf("error receiving response: %w", err)
+
 	case <-ctx.Done():
 		span.RecordError(ctx.Err())
 		span.SetStatus(codes.Error, ctx.Err().Error())
@@ -372,7 +374,7 @@ func NewScannerEventBus(
 			Version:      version,
 			Capabilities: cfg.Capabilities,
 			GroupName:    groupName,
-			Hostname:     hostname(),
+			Hostname:     cfg.Hostname,
 		},
 	}
 
@@ -387,15 +389,6 @@ func NewScannerEventBus(
 	}
 
 	return eventBus, nil
-}
-
-// hostname returns the machine's hostname or "unknown" if it can't be determined
-func hostname() string {
-	host, err := os.Hostname()
-	if err != nil {
-		return "unknown"
-	}
-	return host
 }
 
 // mapRegularEventTypes creates a mapping between domain event types and gRPC message types

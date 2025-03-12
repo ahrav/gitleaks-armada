@@ -303,6 +303,7 @@ func main() {
 			RetryMaxDelay:     30 * time.Second,
 			// Add registration details (same as regular connection)
 			Version:      getScannerVersion(),
+			Hostname:     hostname,
 			GroupName:    scannerGroupName,
 			Capabilities: capabilities,
 		}

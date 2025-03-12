@@ -75,5 +75,6 @@ func (r *HandlerRegistry) GetHandlers(ctx context.Context, eventType events.Even
 	r.logger.Debug(ctx, "Found handlers for event type",
 		"event_type", string(eventType),
 		"handler_count", len(handlers))
+
 	return handlers, true
 }
