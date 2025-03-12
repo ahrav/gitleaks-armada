@@ -150,8 +150,7 @@ type EventBus struct {
 	// Underlying stream for bidirectional communication.
 	stream protocol.ScannerGatewayStream
 
-	// Configuration for the event bus.
-	config *EventBusConfig
+	scannerID string
 
 	// Maps event types to internal message types.
 	eventToMessageType map[events.EventType]protocol.MessageType
@@ -198,7 +197,7 @@ func newEventBus(
 
 	bus := &EventBus{
 		stream:             stream,
-		config:             cfg,
+		scannerID:          cfg.ScannerName,
 		eventToMessageType: eventTypeMap,
 		ackTracker:         ackTracker,
 		handlerRegistry:    handlerRegistry,
@@ -495,7 +494,7 @@ func mapBroadcastEventTypes() map[events.EventType]protocol.MessageType {
 func (b *EventBus) Publish(ctx context.Context, event events.EventEnvelope, opts ...events.PublishOption) error {
 	logger := logger.NewLoggerContext(b.logger.With(
 		"operation", "Publish",
-		"scanner_id", b.config.ScannerName,
+		"scanner_id", b.scannerID,
 		"event_type", event.Type,
 	))
 
@@ -531,7 +530,7 @@ func (b *EventBus) Publish(ctx context.Context, event events.EventEnvelope, opts
 	msg := &pb.ScannerToGatewayMessage{
 		MessageId: msgID,
 		Timestamp: b.timeProvider.Now().UnixNano(),
-		ScannerId: b.config.ScannerName,
+		ScannerId: b.scannerID,
 	}
 
 	var pParams events.PublishParams
@@ -660,10 +659,10 @@ func (b *EventBus) Subscribe(
 	eventTypes []events.EventType,
 	handler events.HandlerFunc,
 ) error {
-	logger := b.logger.With("operation", "Subscribe", "scanner_id", b.config.ScannerName)
+	logger := b.logger.With("operation", "Subscribe", "scanner_id", b.scannerID)
 	_, span := b.tracer.Start(ctx, "EventBus.Subscribe",
 		trace.WithAttributes(
-			attribute.String("scanner_id", b.config.ScannerName),
+			attribute.String("scanner_id", b.scannerID),
 		),
 	)
 	defer span.End()
@@ -805,7 +804,7 @@ func (b *EventBus) processGatewayMessage(msg *pb.GatewayToScannerMessage) {
 				ackMsg := &pb.ScannerToGatewayMessage{
 					MessageId:  fmt.Sprintf("ack-%s", msg.GetMessageId()),
 					Timestamp:  b.timeProvider.Now().UnixNano(),
-					ScannerId:  b.config.ScannerName,
+					ScannerId:  b.scannerID,
 					RoutingKey: msg.GetRoutingKey(),
 					Payload: &pb.ScannerToGatewayMessage_Ack{
 						Ack: &pb.MessageAcknowledgment{
