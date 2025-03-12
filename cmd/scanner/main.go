@@ -46,6 +46,7 @@ import (
 
 // setDefaultEnvVars sets default values for environment variables if they're not already set.
 // This allows running the scanner binary directly without having to specify all environment variables.
+// TODO: This needs to be reworked. This is just a temporary solution to test on-prem mode.
 func setDefaultEnvVars() {
 	// Define default values for required environment variables
 	defaults := map[string]string{
