@@ -21,19 +21,22 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// Status of a scanning job. Represents the lifecycle states a scan job can be
+// in. This is used for tracking the overall progress and state of scan jobs in
+// the system.
 type ScanJobStatus int32
 
 const (
 	ScanJobStatus_SCAN_JOB_STATUS_UNSPECIFIED ScanJobStatus = 0
-	ScanJobStatus_SCAN_JOB_STATUS_QUEUED      ScanJobStatus = 1
-	ScanJobStatus_SCAN_JOB_STATUS_ENUMERATING ScanJobStatus = 2
-	ScanJobStatus_SCAN_JOB_STATUS_RUNNING     ScanJobStatus = 3
-	ScanJobStatus_SCAN_JOB_STATUS_PAUSING     ScanJobStatus = 4
-	ScanJobStatus_SCAN_JOB_STATUS_PAUSED      ScanJobStatus = 5
-	ScanJobStatus_SCAN_JOB_STATUS_COMPLETED   ScanJobStatus = 6
-	ScanJobStatus_SCAN_JOB_STATUS_CANCELLING  ScanJobStatus = 7
-	ScanJobStatus_SCAN_JOB_STATUS_CANCELLED   ScanJobStatus = 8
-	ScanJobStatus_SCAN_JOB_STATUS_FAILED      ScanJobStatus = 9
+	ScanJobStatus_SCAN_JOB_STATUS_QUEUED      ScanJobStatus = 1 // Job is queued but not yet started
+	ScanJobStatus_SCAN_JOB_STATUS_ENUMERATING ScanJobStatus = 2 // Identifying all resources to be scanned
+	ScanJobStatus_SCAN_JOB_STATUS_RUNNING     ScanJobStatus = 3 // Actively scanning resources
+	ScanJobStatus_SCAN_JOB_STATUS_PAUSING     ScanJobStatus = 4 // In process of pausing (transitional state)
+	ScanJobStatus_SCAN_JOB_STATUS_PAUSED      ScanJobStatus = 5 // Temporarily stopped but can be resumed
+	ScanJobStatus_SCAN_JOB_STATUS_COMPLETED   ScanJobStatus = 6 // Successfully finished all scanning
+	ScanJobStatus_SCAN_JOB_STATUS_CANCELLING  ScanJobStatus = 7 // In process of cancelling (transitional state)
+	ScanJobStatus_SCAN_JOB_STATUS_CANCELLED   ScanJobStatus = 8 // Permanently stopped before completion
+	ScanJobStatus_SCAN_JOB_STATUS_FAILED      ScanJobStatus = 9 // Terminated due to errors
 )
 
 // Enum value maps for ScanJobStatus.
@@ -91,17 +94,20 @@ func (ScanJobStatus) EnumDescriptor() ([]byte, []int) {
 	return file_proto_scanning_proto_rawDescGZIP(), []int{0}
 }
 
+// Status of an individual scanning task. Represents the lifecycle states a task
+// can be in. This is more granular than the job status and tracks individual
+// unit of work.
 type TaskStatus int32
 
 const (
 	TaskStatus_TASK_STATUS_UNSPECIFIED TaskStatus = 0
-	TaskStatus_TASK_STATUS_PENDING     TaskStatus = 1
-	TaskStatus_TASK_STATUS_IN_PROGRESS TaskStatus = 2
-	TaskStatus_TASK_STATUS_COMPLETED   TaskStatus = 3
-	TaskStatus_TASK_STATUS_FAILED      TaskStatus = 4
-	TaskStatus_TASK_STATUS_STALE       TaskStatus = 5
-	TaskStatus_TASK_STATUS_PAUSED      TaskStatus = 6
-	TaskStatus_TASK_STATUS_CANCELLED   TaskStatus = 7
+	TaskStatus_TASK_STATUS_PENDING     TaskStatus = 1 // Task created but not yet picked up by a scanner
+	TaskStatus_TASK_STATUS_IN_PROGRESS TaskStatus = 2 // Task is actively being processed by a scanner
+	TaskStatus_TASK_STATUS_COMPLETED   TaskStatus = 3 // Task successfully finished
+	TaskStatus_TASK_STATUS_FAILED      TaskStatus = 4 // Task encountered an error and couldn't complete
+	TaskStatus_TASK_STATUS_STALE       TaskStatus = 5 // Task hasn't been updated in too long (potentially abandoned)
+	TaskStatus_TASK_STATUS_PAUSED      TaskStatus = 6 // Task temporarily stopped but can be resumed
+	TaskStatus_TASK_STATUS_CANCELLED   TaskStatus = 7 // Task permanently stopped before completion
 )
 
 // Enum value maps for TaskStatus.
@@ -392,15 +398,16 @@ func (x *Finding) GetRawFinding() *structpb.Struct {
 }
 
 // JobRequestedEvent represents a request to create a new scan job.
+// This is the initial event that triggers the job creation process.
 type JobRequestedEvent struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	JobId       string        `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
-	OccurredAt  int64         `protobuf:"varint,2,opt,name=occurred_at,json=occurredAt,proto3" json:"occurred_at,omitempty"`
-	Targets     []*TargetSpec `protobuf:"bytes,3,rep,name=targets,proto3" json:"targets,omitempty"`
-	RequestedBy string        `protobuf:"bytes,4,opt,name=requested_by,json=requestedBy,proto3" json:"requested_by,omitempty"`
+	JobId       string        `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`                   // Unique identifier for the job
+	OccurredAt  int64         `protobuf:"varint,2,opt,name=occurred_at,json=occurredAt,proto3" json:"occurred_at,omitempty"`   // When the job was requested (Unix timestamp in nanoseconds)
+	Targets     []*TargetSpec `protobuf:"bytes,3,rep,name=targets,proto3" json:"targets,omitempty"`                            // What resources to scan
+	RequestedBy string        `protobuf:"bytes,4,opt,name=requested_by,json=requestedBy,proto3" json:"requested_by,omitempty"` // User or system that initiated the job
 }
 
 func (x *JobRequestedEvent) Reset() {
@@ -464,14 +471,16 @@ func (x *JobRequestedEvent) GetRequestedBy() string {
 }
 
 // JobCreatedEvent represents the creation of a new scan job.
+// This event is emitted after a job has been successfully created in the
+// system.
 type JobCreatedEvent struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	JobId      string      `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
-	Timestamp  int64       `protobuf:"varint,2,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
-	TargetSpec *TargetSpec `protobuf:"bytes,3,opt,name=target_spec,json=targetSpec,proto3" json:"target_spec,omitempty"`
+	JobId      string      `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`                // Unique identifier for the job
+	Timestamp  int64       `protobuf:"varint,2,opt,name=timestamp,proto3" json:"timestamp,omitempty"`                    // When the job was created (Unix timestamp in nanoseconds)
+	TargetSpec *TargetSpec `protobuf:"bytes,3,opt,name=target_spec,json=targetSpec,proto3" json:"target_spec,omitempty"` // Specification of the target(s) to scan
 }
 
 func (x *JobCreatedEvent) Reset() {
@@ -528,15 +537,17 @@ func (x *JobCreatedEvent) GetTargetSpec() *TargetSpec {
 }
 
 // JobEnumerationCompletedEvent signals that all targets for a job have been
-// enumerated.
+// enumerated. This is an important state transition that indicates the system
+// has identified all resources that need to be scanned and can now begin actual
+// scanning.
 type JobEnumerationCompletedEvent struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	JobId      string `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
-	Timestamp  int64  `protobuf:"varint,2,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
-	TotalTasks int32  `protobuf:"varint,3,opt,name=total_tasks,json=totalTasks,proto3" json:"total_tasks,omitempty"`
+	JobId      string `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`                 // Unique identifier for the job
+	Timestamp  int64  `protobuf:"varint,2,opt,name=timestamp,proto3" json:"timestamp,omitempty"`                     // When enumeration completed (Unix timestamp in nanoseconds)
+	TotalTasks int32  `protobuf:"varint,3,opt,name=total_tasks,json=totalTasks,proto3" json:"total_tasks,omitempty"` // Total number of tasks created for this job
 }
 
 func (x *JobEnumerationCompletedEvent) Reset() {
@@ -593,14 +604,16 @@ func (x *JobEnumerationCompletedEvent) GetTotalTasks() int32 {
 }
 
 // JobPausingEvent signals that a job is in the process of being paused.
+// This is a transitional state that indicates pause was requested but not yet
+// completed.
 type JobPausingEvent struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	JobId       string `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
-	Timestamp   int64  `protobuf:"varint,2,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
-	RequestedBy string `protobuf:"bytes,3,opt,name=requested_by,json=requestedBy,proto3" json:"requested_by,omitempty"`
+	JobId       string `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`                   // Unique identifier for the job
+	Timestamp   int64  `protobuf:"varint,2,opt,name=timestamp,proto3" json:"timestamp,omitempty"`                       // When pause was initiated (Unix timestamp in nanoseconds)
+	RequestedBy string `protobuf:"bytes,3,opt,name=requested_by,json=requestedBy,proto3" json:"requested_by,omitempty"` // User or system that initiated the pause
 }
 
 func (x *JobPausingEvent) Reset() {
@@ -657,16 +670,18 @@ func (x *JobPausingEvent) GetRequestedBy() string {
 }
 
 // JobPausedEvent signals that a job has been successfully paused.
+// The job is now in a state where it can be resumed later from where it left
+// off.
 type JobPausedEvent struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	JobId       string `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
-	Timestamp   int64  `protobuf:"varint,2,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
-	PausedAt    int64  `protobuf:"varint,3,opt,name=paused_at,json=pausedAt,proto3" json:"paused_at,omitempty"`
-	Reason      string `protobuf:"bytes,4,opt,name=reason,proto3" json:"reason,omitempty"`
-	RequestedBy string `protobuf:"bytes,5,opt,name=requested_by,json=requestedBy,proto3" json:"requested_by,omitempty"`
+	JobId       string `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`                   // Unique identifier for the job
+	Timestamp   int64  `protobuf:"varint,2,opt,name=timestamp,proto3" json:"timestamp,omitempty"`                       // Event timestamp (Unix timestamp in nanoseconds)
+	PausedAt    int64  `protobuf:"varint,3,opt,name=paused_at,json=pausedAt,proto3" json:"paused_at,omitempty"`         // When the job was actually paused
+	Reason      string `protobuf:"bytes,4,opt,name=reason,proto3" json:"reason,omitempty"`                              // Why the job was paused
+	RequestedBy string `protobuf:"bytes,5,opt,name=requested_by,json=requestedBy,proto3" json:"requested_by,omitempty"` // User or system that initiated the pause
 }
 
 func (x *JobPausedEvent) Reset() {
@@ -737,14 +752,16 @@ func (x *JobPausedEvent) GetRequestedBy() string {
 }
 
 // JobResumingEvent signals that a job is in the process of being resumed.
+// This transitional event indicates that a previously paused job is being
+// prepared to continue execution.
 type JobResumingEvent struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	JobId       string `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
-	Timestamp   int64  `protobuf:"varint,2,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
-	RequestedBy string `protobuf:"bytes,3,opt,name=requested_by,json=requestedBy,proto3" json:"requested_by,omitempty"`
+	JobId       string `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`                   // Unique identifier for the job
+	Timestamp   int64  `protobuf:"varint,2,opt,name=timestamp,proto3" json:"timestamp,omitempty"`                       // When resume was initiated (Unix timestamp in nanoseconds)
+	RequestedBy string `protobuf:"bytes,3,opt,name=requested_by,json=requestedBy,proto3" json:"requested_by,omitempty"` // User or system that initiated the resume
 }
 
 func (x *JobResumingEvent) Reset() {
@@ -801,14 +818,16 @@ func (x *JobResumingEvent) GetRequestedBy() string {
 }
 
 // JobCancellingEvent signals that a job is in the process of being cancelled.
+// This transitional state allows the system to gracefully terminate tasks
+// and clean up resources before final cancellation.
 type JobCancellingEvent struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	JobId       string `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
-	Timestamp   int64  `protobuf:"varint,2,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
-	RequestedBy string `protobuf:"bytes,3,opt,name=requested_by,json=requestedBy,proto3" json:"requested_by,omitempty"`
+	JobId       string `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`                   // Unique identifier for the job
+	Timestamp   int64  `protobuf:"varint,2,opt,name=timestamp,proto3" json:"timestamp,omitempty"`                       // When cancellation was initiated (Unix timestamp in nanoseconds)
+	RequestedBy string `protobuf:"bytes,3,opt,name=requested_by,json=requestedBy,proto3" json:"requested_by,omitempty"` // User or system that initiated the cancellation
 }
 
 func (x *JobCancellingEvent) Reset() {
@@ -865,16 +884,18 @@ func (x *JobCancellingEvent) GetRequestedBy() string {
 }
 
 // JobCancelledEvent signals that a job has been successfully cancelled.
+// This terminal state means the job has been permanently stopped and will not
+// resume.
 type JobCancelledEvent struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	JobId       string `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
-	Timestamp   int64  `protobuf:"varint,2,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
-	CancelledAt int64  `protobuf:"varint,3,opt,name=cancelled_at,json=cancelledAt,proto3" json:"cancelled_at,omitempty"`
-	Reason      string `protobuf:"bytes,4,opt,name=reason,proto3" json:"reason,omitempty"`
-	RequestedBy string `protobuf:"bytes,5,opt,name=requested_by,json=requestedBy,proto3" json:"requested_by,omitempty"`
+	JobId       string `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`                    // Unique identifier for the job
+	Timestamp   int64  `protobuf:"varint,2,opt,name=timestamp,proto3" json:"timestamp,omitempty"`                        // Event timestamp (Unix timestamp in nanoseconds)
+	CancelledAt int64  `protobuf:"varint,3,opt,name=cancelled_at,json=cancelledAt,proto3" json:"cancelled_at,omitempty"` // When the job was actually cancelled
+	Reason      string `protobuf:"bytes,4,opt,name=reason,proto3" json:"reason,omitempty"`                               // Why the job was cancelled
+	RequestedBy string `protobuf:"bytes,5,opt,name=requested_by,json=requestedBy,proto3" json:"requested_by,omitempty"`  // User or system that initiated the cancellation
 }
 
 func (x *JobCancelledEvent) Reset() {
@@ -945,18 +966,20 @@ func (x *JobCancelledEvent) GetRequestedBy() string {
 }
 
 // TaskCreatedEvent represents a new task discovered for scanning.
+// A task is a discrete unit of work within a job, typically representing
+// a single repository, project, or other scannable resource.
 type TaskCreatedEvent struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	JobId       string            `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
-	TaskId      string            `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	SourceType  SourceType        `protobuf:"varint,3,opt,name=source_type,json=sourceType,proto3,enum=shared.SourceType" json:"source_type,omitempty"`
-	ResourceUri string            `protobuf:"bytes,4,opt,name=resource_uri,json=resourceUri,proto3" json:"resource_uri,omitempty"`
-	Metadata    map[string]string `protobuf:"bytes,5,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
-	Auth        *Auth             `protobuf:"bytes,6,opt,name=auth,proto3" json:"auth,omitempty"`
-	Timestamp   int64             `protobuf:"varint,7,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	JobId       string            `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`                                                                                  // Parent job identifier
+	TaskId      string            `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`                                                                               // Unique identifier for this task
+	SourceType  SourceType        `protobuf:"varint,3,opt,name=source_type,json=sourceType,proto3,enum=shared.SourceType" json:"source_type,omitempty"`                                           // Type of resource being scanned (repo, bucket, etc.)
+	ResourceUri string            `protobuf:"bytes,4,opt,name=resource_uri,json=resourceUri,proto3" json:"resource_uri,omitempty"`                                                                // URI/location of the resource to scan
+	Metadata    map[string]string `protobuf:"bytes,5,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"` // Additional contextual information about the task
+	Auth        *Auth             `protobuf:"bytes,6,opt,name=auth,proto3" json:"auth,omitempty"`                                                                                                 // Authentication details needed to access the resource
+	Timestamp   int64             `protobuf:"varint,7,opt,name=timestamp,proto3" json:"timestamp,omitempty"`                                                                                      // When task was created (Unix timestamp in nanoseconds)
 }
 
 func (x *TaskCreatedEvent) Reset() {
@@ -1040,15 +1063,17 @@ func (x *TaskCreatedEvent) GetTimestamp() int64 {
 	return 0
 }
 
+// TaskStartedEvent indicates that a scanner has begun processing a task.
+// This event marks the transition from the queued state to active scanning.
 type TaskStartedEvent struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	JobId       string `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
-	TaskId      string `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	ResourceUri string `protobuf:"bytes,3,opt,name=resource_uri,json=resourceUri,proto3" json:"resource_uri,omitempty"`
-	Timestamp   int64  `protobuf:"varint,4,opt,name=timestamp,proto3" json:"timestamp,omitempty"` // Unix timestamp in nanoseconds
+	JobId       string `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`                   // Parent job identifier
+	TaskId      string `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`                // Unique identifier for this task
+	ResourceUri string `protobuf:"bytes,3,opt,name=resource_uri,json=resourceUri,proto3" json:"resource_uri,omitempty"` // URI/location of the resource being scanned
+	Timestamp   int64  `protobuf:"varint,4,opt,name=timestamp,proto3" json:"timestamp,omitempty"`                       // When task was started (Unix timestamp in nanoseconds)
 }
 
 func (x *TaskStartedEvent) Reset() {
@@ -1111,20 +1136,23 @@ func (x *TaskStartedEvent) GetTimestamp() int64 {
 	return 0
 }
 
+// TaskProgressedEvent provides incremental updates during task execution.
+// These events allow the system to track task progress, provide user feedback,
+// and detect stalled tasks. They also contain checkpoint data for resumability.
 type TaskProgressedEvent struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	TaskId          string      `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	JobId           string      `protobuf:"bytes,2,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
-	SequenceNum     int64       `protobuf:"varint,3,opt,name=sequence_num,json=sequenceNum,proto3" json:"sequence_num,omitempty"`
-	Timestamp       int64       `protobuf:"varint,4,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
-	ItemsProcessed  int64       `protobuf:"varint,5,opt,name=items_processed,json=itemsProcessed,proto3" json:"items_processed,omitempty"`
-	ErrorCount      int32       `protobuf:"varint,6,opt,name=error_count,json=errorCount,proto3" json:"error_count,omitempty"`
-	Message         string      `protobuf:"bytes,7,opt,name=message,proto3" json:"message,omitempty"`
-	ProgressDetails []byte      `protobuf:"bytes,8,opt,name=progress_details,json=progressDetails,proto3" json:"progress_details,omitempty"`
-	Checkpoint      *Checkpoint `protobuf:"bytes,9,opt,name=checkpoint,proto3" json:"checkpoint,omitempty"`
+	TaskId          string      `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`                            // Unique identifier for this task
+	JobId           string      `protobuf:"bytes,2,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`                               // Parent job identifier
+	SequenceNum     int64       `protobuf:"varint,3,opt,name=sequence_num,json=sequenceNum,proto3" json:"sequence_num,omitempty"`            // Monotonically increasing sequence number for ordering
+	Timestamp       int64       `protobuf:"varint,4,opt,name=timestamp,proto3" json:"timestamp,omitempty"`                                   // When this progress update occurred (Unix timestamp in nanoseconds)
+	ItemsProcessed  int64       `protobuf:"varint,5,opt,name=items_processed,json=itemsProcessed,proto3" json:"items_processed,omitempty"`   // Number of items (files, commits, etc.) processed so far
+	ErrorCount      int32       `protobuf:"varint,6,opt,name=error_count,json=errorCount,proto3" json:"error_count,omitempty"`               // Number of non-fatal errors encountered
+	Message         string      `protobuf:"bytes,7,opt,name=message,proto3" json:"message,omitempty"`                                        // Human-readable progress message
+	ProgressDetails []byte      `protobuf:"bytes,8,opt,name=progress_details,json=progressDetails,proto3" json:"progress_details,omitempty"` // Scanner-specific progress data (serialized)
+	Checkpoint      *Checkpoint `protobuf:"bytes,9,opt,name=checkpoint,proto3" json:"checkpoint,omitempty"`                                  // Resumption data if task is interrupted
 }
 
 func (x *TaskProgressedEvent) Reset() {
@@ -1222,15 +1250,18 @@ func (x *TaskProgressedEvent) GetCheckpoint() *Checkpoint {
 	return nil
 }
 
+// Checkpoint contains the necessary data to resume a task from a specific
+// point. This is crucial for resilience, allowing tasks to be paused and
+// resumed or recovered after failures without losing progress.
 type Checkpoint struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	TaskId      string            `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	Timestamp   int64             `protobuf:"varint,2,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
-	ResumeToken []byte            `protobuf:"bytes,3,opt,name=resume_token,json=resumeToken,proto3" json:"resume_token,omitempty"`
-	Metadata    map[string]string `protobuf:"bytes,4,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
+	TaskId      string            `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`                                                                               // Task this checkpoint belongs to
+	Timestamp   int64             `protobuf:"varint,2,opt,name=timestamp,proto3" json:"timestamp,omitempty"`                                                                                      // When checkpoint was created (Unix timestamp in nanoseconds)
+	ResumeToken []byte            `protobuf:"bytes,3,opt,name=resume_token,json=resumeToken,proto3" json:"resume_token,omitempty"`                                                                // Opaque token encoding the position to resume from
+	Metadata    map[string]string `protobuf:"bytes,4,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"` // Additional context needed for resumption
 }
 
 func (x *Checkpoint) Reset() {
@@ -1293,14 +1324,17 @@ func (x *Checkpoint) GetMetadata() map[string]string {
 	return nil
 }
 
+// TaskCompletedEvent indicates that a task has successfully finished
+// processing. This terminal state means all work for this task has been done
+// and all results saved.
 type TaskCompletedEvent struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	JobId     string `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
-	TaskId    string `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	Timestamp int64  `protobuf:"varint,3,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	JobId     string `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`    // Parent job identifier
+	TaskId    string `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"` // Unique identifier for this task
+	Timestamp int64  `protobuf:"varint,3,opt,name=timestamp,proto3" json:"timestamp,omitempty"`        // When task was completed (Unix timestamp in nanoseconds)
 }
 
 func (x *TaskCompletedEvent) Reset() {
@@ -1356,15 +1390,17 @@ func (x *TaskCompletedEvent) GetTimestamp() int64 {
 	return 0
 }
 
+// TaskFailedEvent indicates that a task encountered an unrecoverable error.
+// This terminal state means the task could not be completed successfully.
 type TaskFailedEvent struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	JobId     string `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
-	TaskId    string `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	Timestamp int64  `protobuf:"varint,3,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
-	Reason    string `protobuf:"bytes,4,opt,name=reason,proto3" json:"reason,omitempty"`
+	JobId     string `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`    // Parent job identifier
+	TaskId    string `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"` // Unique identifier for this task
+	Timestamp int64  `protobuf:"varint,3,opt,name=timestamp,proto3" json:"timestamp,omitempty"`        // When task failed (Unix timestamp in nanoseconds)
+	Reason    string `protobuf:"bytes,4,opt,name=reason,proto3" json:"reason,omitempty"`               // Description of what caused the failure
 }
 
 func (x *TaskFailedEvent) Reset() {
@@ -1427,13 +1463,16 @@ func (x *TaskFailedEvent) GetReason() string {
 	return ""
 }
 
+// TaskHeartbeatEvent provides periodic signals that a task is still being
+// actively processed. These events are crucial for detecting stalled tasks and
+// recovering from scanner failures.
 type TaskHeartbeatEvent struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	TaskId    string `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	Timestamp int64  `protobuf:"varint,2,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	TaskId    string `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"` // Unique identifier for this task
+	Timestamp int64  `protobuf:"varint,2,opt,name=timestamp,proto3" json:"timestamp,omitempty"`        // When heartbeat was sent (Unix timestamp in nanoseconds)
 }
 
 func (x *TaskHeartbeatEvent) Reset() {
@@ -1482,19 +1521,22 @@ func (x *TaskHeartbeatEvent) GetTimestamp() int64 {
 	return 0
 }
 
+// TaskResumeEvent instructs a scanner to resume a previously paused or
+// interrupted task. Contains all necessary context to pick up processing from
+// where it left off.
 type TaskResumeEvent struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	JobId       string      `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
-	TaskId      string      `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	SourceType  SourceType  `protobuf:"varint,3,opt,name=source_type,json=sourceType,proto3,enum=shared.SourceType" json:"source_type,omitempty"`
-	Timestamp   int64       `protobuf:"varint,4,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
-	ResourceUri string      `protobuf:"bytes,5,opt,name=resource_uri,json=resourceUri,proto3" json:"resource_uri,omitempty"`
-	SequenceNum int64       `protobuf:"varint,6,opt,name=sequence_num,json=sequenceNum,proto3" json:"sequence_num,omitempty"`
-	Checkpoint  *Checkpoint `protobuf:"bytes,7,opt,name=checkpoint,proto3" json:"checkpoint,omitempty"`
-	Auth        *Auth       `protobuf:"bytes,8,opt,name=auth,proto3" json:"auth,omitempty"`
+	JobId       string      `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`                                        // Parent job identifier
+	TaskId      string      `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`                                     // Unique identifier for this task
+	SourceType  SourceType  `protobuf:"varint,3,opt,name=source_type,json=sourceType,proto3,enum=shared.SourceType" json:"source_type,omitempty"` // Type of resource being scanned
+	Timestamp   int64       `protobuf:"varint,4,opt,name=timestamp,proto3" json:"timestamp,omitempty"`                                            // When resume was requested (Unix timestamp in nanoseconds)
+	ResourceUri string      `protobuf:"bytes,5,opt,name=resource_uri,json=resourceUri,proto3" json:"resource_uri,omitempty"`                      // URI/location of the resource to scan
+	SequenceNum int64       `protobuf:"varint,6,opt,name=sequence_num,json=sequenceNum,proto3" json:"sequence_num,omitempty"`                     // Sequence number for ordering
+	Checkpoint  *Checkpoint `protobuf:"bytes,7,opt,name=checkpoint,proto3" json:"checkpoint,omitempty"`                                           // Data needed to resume from the correct position
+	Auth        *Auth       `protobuf:"bytes,8,opt,name=auth,proto3" json:"auth,omitempty"`                                                       // Authentication details needed to access the resource
 }
 
 func (x *TaskResumeEvent) Reset() {
@@ -1585,15 +1627,18 @@ func (x *TaskResumeEvent) GetAuth() *Auth {
 	return nil
 }
 
+// TaskJobMetricEvent provides status updates for job-level metrics tracking.
+// These events help track job progress and maintain accurate system-wide
+// statistics.
 type TaskJobMetricEvent struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	JobId     string     `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
-	TaskId    string     `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	Status    TaskStatus `protobuf:"varint,3,opt,name=status,proto3,enum=scanner.TaskStatus" json:"status,omitempty"`
-	Timestamp int64      `protobuf:"varint,4,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	JobId     string     `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`               // Parent job identifier
+	TaskId    string     `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`            // Unique identifier for this task
+	Status    TaskStatus `protobuf:"varint,3,opt,name=status,proto3,enum=scanner.TaskStatus" json:"status,omitempty"` // Current status of the task
+	Timestamp int64      `protobuf:"varint,4,opt,name=timestamp,proto3" json:"timestamp,omitempty"`                   // When this metric was recorded (Unix timestamp in nanoseconds)
 }
 
 func (x *TaskJobMetricEvent) Reset() {
@@ -1656,16 +1701,19 @@ func (x *TaskJobMetricEvent) GetTimestamp() int64 {
 	return 0
 }
 
+// TaskPausedEvent indicates that a task has been temporarily suspended.
+// The task retains its state and can be resumed later from the saved
+// checkpoint.
 type TaskPausedEvent struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	JobId       string               `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
-	TaskId      string               `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	Timestamp   int64                `protobuf:"varint,3,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
-	RequestedBy string               `protobuf:"bytes,4,opt,name=requested_by,json=requestedBy,proto3" json:"requested_by,omitempty"`
-	Progress    *TaskProgressedEvent `protobuf:"bytes,5,opt,name=progress,proto3" json:"progress,omitempty"`
+	JobId       string               `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`                   // Parent job identifier
+	TaskId      string               `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`                // Unique identifier for this task
+	Timestamp   int64                `protobuf:"varint,3,opt,name=timestamp,proto3" json:"timestamp,omitempty"`                       // When task was paused (Unix timestamp in nanoseconds)
+	RequestedBy string               `protobuf:"bytes,4,opt,name=requested_by,json=requestedBy,proto3" json:"requested_by,omitempty"` // User or system that initiated the pause
+	Progress    *TaskProgressedEvent `protobuf:"bytes,5,opt,name=progress,proto3" json:"progress,omitempty"`                          // Final progress state before pausing
 }
 
 func (x *TaskPausedEvent) Reset() {
@@ -1735,16 +1783,19 @@ func (x *TaskPausedEvent) GetProgress() *TaskProgressedEvent {
 	return nil
 }
 
+// TaskCancelledEvent indicates that a task has been permanently terminated
+// before completion. This terminal state means the task will not be resumed or
+// retried.
 type TaskCancelledEvent struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	JobId       string `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
-	TaskId      string `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	Timestamp   int64  `protobuf:"varint,3,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
-	RequestedBy string `protobuf:"bytes,4,opt,name=requested_by,json=requestedBy,proto3" json:"requested_by,omitempty"`
-	CancelledAt int64  `protobuf:"varint,5,opt,name=cancelled_at,json=cancelledAt,proto3" json:"cancelled_at,omitempty"`
+	JobId       string `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`                    // Parent job identifier
+	TaskId      string `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`                 // Unique identifier for this task
+	Timestamp   int64  `protobuf:"varint,3,opt,name=timestamp,proto3" json:"timestamp,omitempty"`                        // Event timestamp (Unix timestamp in nanoseconds)
+	RequestedBy string `protobuf:"bytes,4,opt,name=requested_by,json=requestedBy,proto3" json:"requested_by,omitempty"`  // User or system that initiated the cancellation
+	CancelledAt int64  `protobuf:"varint,5,opt,name=cancelled_at,json=cancelledAt,proto3" json:"cancelled_at,omitempty"` // When the task was actually cancelled
 }
 
 func (x *TaskCancelledEvent) Reset() {
@@ -1815,21 +1866,22 @@ func (x *TaskCancelledEvent) GetCancelledAt() int64 {
 }
 
 // ScannerRegisteredEvent is emitted when a scanner registers with the system.
-// TODO: Add validation at the protobuf layer.
+// This event establishes a scanner's presence and capabilities in the scanning
+// fleet.
 type ScannerRegisteredEvent struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	ScannerName   string            `protobuf:"bytes,1,opt,name=scanner_name,json=scannerName,proto3" json:"scanner_name,omitempty"`
-	Version       string            `protobuf:"bytes,2,opt,name=version,proto3" json:"version,omitempty"`
-	Capabilities  []string          `protobuf:"bytes,3,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
-	GroupName     string            `protobuf:"bytes,4,opt,name=group_name,json=groupName,proto3" json:"group_name,omitempty"` // Optional: if not provided, assigned to default group
-	Hostname      string            `protobuf:"bytes,5,opt,name=hostname,proto3" json:"hostname,omitempty"`
-	IpAddress     string            `protobuf:"bytes,6,opt,name=ip_address,json=ipAddress,proto3" json:"ip_address,omitempty"`
-	Timestamp     int64             `protobuf:"varint,7,opt,name=timestamp,proto3" json:"timestamp,omitempty"` // Unix timestamp in nanoseconds
-	Tags          map[string]string `protobuf:"bytes,8,rep,name=tags,proto3" json:"tags,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
-	InitialStatus ScannerStatus     `protobuf:"varint,9,opt,name=initial_status,json=initialStatus,proto3,enum=scanner.ScannerStatus" json:"initial_status,omitempty"` // Initial status of the scanner
+	ScannerName   string            `protobuf:"bytes,1,opt,name=scanner_name,json=scannerName,proto3" json:"scanner_name,omitempty"`                                                        // Unique name of the scanner instance
+	Version       string            `protobuf:"bytes,2,opt,name=version,proto3" json:"version,omitempty"`                                                                                   // Scanner software version
+	Capabilities  []string          `protobuf:"bytes,3,rep,name=capabilities,proto3" json:"capabilities,omitempty"`                                                                         // What types of scanning this instance can perform
+	GroupName     string            `protobuf:"bytes,4,opt,name=group_name,json=groupName,proto3" json:"group_name,omitempty"`                                                              // Optional: if not provided, assigned to default group
+	Hostname      string            `protobuf:"bytes,5,opt,name=hostname,proto3" json:"hostname,omitempty"`                                                                                 // Host where scanner is running
+	IpAddress     string            `protobuf:"bytes,6,opt,name=ip_address,json=ipAddress,proto3" json:"ip_address,omitempty"`                                                              // Network address of the scanner
+	Timestamp     int64             `protobuf:"varint,7,opt,name=timestamp,proto3" json:"timestamp,omitempty"`                                                                              // When registration occurred (Unix timestamp in nanoseconds)
+	Tags          map[string]string `protobuf:"bytes,8,rep,name=tags,proto3" json:"tags,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"` // Labels for filtering and grouping scanners
+	InitialStatus ScannerStatus     `protobuf:"varint,9,opt,name=initial_status,json=initialStatus,proto3,enum=scanner.ScannerStatus" json:"initial_status,omitempty"`                      // Initial status of the scanner
 }
 
 func (x *ScannerRegisteredEvent) Reset() {
@@ -1928,15 +1980,16 @@ func (x *ScannerRegisteredEvent) GetInitialStatus() ScannerStatus {
 }
 
 // ScannerHeartbeatEvent is emitted periodically by scanners to indicate they're
-// still alive.
+// still alive. These events are critical for detecting scanner failures and
+// maintaining an accurate view of scanner availability in the system.
 type ScannerHeartbeatEvent struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	ScannerName string             `protobuf:"bytes,1,opt,name=scanner_name,json=scannerName,proto3" json:"scanner_name,omitempty"`
-	Status      ScannerStatus      `protobuf:"varint,2,opt,name=status,proto3,enum=scanner.ScannerStatus" json:"status,omitempty"`                                                                 // Current status: online, busy, etc.
-	Timestamp   int64              `protobuf:"varint,3,opt,name=timestamp,proto3" json:"timestamp,omitempty"`                                                                                      // Unix timestamp in nanoseconds
+	ScannerName string             `protobuf:"bytes,1,opt,name=scanner_name,json=scannerName,proto3" json:"scanner_name,omitempty"`                                                                // Unique name of the scanner instance
+	Status      ScannerStatus      `protobuf:"varint,2,opt,name=status,proto3,enum=scanner.ScannerStatus" json:"status,omitempty"`                                                                 // Current operational status
+	Timestamp   int64              `protobuf:"varint,3,opt,name=timestamp,proto3" json:"timestamp,omitempty"`                                                                                      // When heartbeat was sent (Unix timestamp in nanoseconds)
 	Metrics     map[string]float64 `protobuf:"bytes,4,rep,name=metrics,proto3" json:"metrics,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"fixed64,2,opt,name=value,proto3"` // Optional metrics about scanner health/performance
 }
 
@@ -2001,16 +2054,18 @@ func (x *ScannerHeartbeatEvent) GetMetrics() map[string]float64 {
 }
 
 // ScannerStatusChangedEvent is emitted when a scanner's status changes.
+// This event allows the system to track scanner fleet health and adapt task
+// assignments based on scanner availability.
 type ScannerStatusChangedEvent struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	ScannerName    string        `protobuf:"bytes,1,opt,name=scanner_name,json=scannerName,proto3" json:"scanner_name,omitempty"`
-	NewStatus      ScannerStatus `protobuf:"varint,2,opt,name=new_status,json=newStatus,proto3,enum=scanner.ScannerStatus" json:"new_status,omitempty"` // "online", "offline", "maintenance", "error", "unknown"
-	PreviousStatus ScannerStatus `protobuf:"varint,3,opt,name=previous_status,json=previousStatus,proto3,enum=scanner.ScannerStatus" json:"previous_status,omitempty"`
-	Reason         string        `protobuf:"bytes,4,opt,name=reason,proto3" json:"reason,omitempty"`        // Reason for the status change
-	Timestamp      int64         `protobuf:"varint,5,opt,name=timestamp,proto3" json:"timestamp,omitempty"` // Unix timestamp in nanoseconds
+	ScannerName    string        `protobuf:"bytes,1,opt,name=scanner_name,json=scannerName,proto3" json:"scanner_name,omitempty"`                                      // Unique name of the scanner instance
+	NewStatus      ScannerStatus `protobuf:"varint,2,opt,name=new_status,json=newStatus,proto3,enum=scanner.ScannerStatus" json:"new_status,omitempty"`                // New operational status
+	PreviousStatus ScannerStatus `protobuf:"varint,3,opt,name=previous_status,json=previousStatus,proto3,enum=scanner.ScannerStatus" json:"previous_status,omitempty"` // Status before this change
+	Reason         string        `protobuf:"bytes,4,opt,name=reason,proto3" json:"reason,omitempty"`                                                                   // Explanation for the status change
+	Timestamp      int64         `protobuf:"varint,5,opt,name=timestamp,proto3" json:"timestamp,omitempty"`                                                            // When status changed (Unix timestamp in nanoseconds)
 }
 
 func (x *ScannerStatusChangedEvent) Reset() {
@@ -2081,15 +2136,16 @@ func (x *ScannerStatusChangedEvent) GetTimestamp() int64 {
 }
 
 // ScannerDeregisteredEvent is emitted when a scanner gracefully deregisters
-// from the system.
+// from the system. This event allows for cleanup of scanner resources and
+// redistribution of any assigned tasks to other available scanners.
 type ScannerDeregisteredEvent struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	ScannerName string `protobuf:"bytes,1,opt,name=scanner_name,json=scannerName,proto3" json:"scanner_name,omitempty"`
-	Reason      string `protobuf:"bytes,2,opt,name=reason,proto3" json:"reason,omitempty"`
-	Timestamp   int64  `protobuf:"varint,3,opt,name=timestamp,proto3" json:"timestamp,omitempty"` // Unix timestamp in nanoseconds
+	ScannerName string `protobuf:"bytes,1,opt,name=scanner_name,json=scannerName,proto3" json:"scanner_name,omitempty"` // Unique name of the scanner instance
+	Reason      string `protobuf:"bytes,2,opt,name=reason,proto3" json:"reason,omitempty"`                              // Why the scanner is being deregistered
+	Timestamp   int64  `protobuf:"varint,3,opt,name=timestamp,proto3" json:"timestamp,omitempty"`                       // When deregistration occurred (Unix timestamp in nanoseconds)
 }
 
 func (x *ScannerDeregisteredEvent) Reset() {

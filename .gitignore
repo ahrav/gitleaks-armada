@@ -4,6 +4,7 @@
 /secret-scanner
 /client-api
 /api-gateway
+/scanner-gateway
 .cursor
 
 # Build and environment
