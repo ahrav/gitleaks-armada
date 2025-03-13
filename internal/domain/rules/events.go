@@ -20,10 +20,7 @@ type RuleUpdatedEvent struct {
 
 // NewRuleUpdatedEvent creates a new RuleUpdatedEvent, setting the occurrence time to now.
 func NewRuleUpdatedEvent(msg GitleaksRuleMessage) RuleUpdatedEvent {
-	return RuleUpdatedEvent{
-		occurredAt: time.Now(),
-		Rule:       msg,
-	}
+	return RuleUpdatedEvent{occurredAt: time.Now(), Rule: msg}
 }
 
 // EventType satisfies the events.DomainEvent interface,
@@ -35,9 +32,7 @@ func (e RuleUpdatedEvent) EventType() events.EventType { return EventTypeRulesUp
 func (e RuleUpdatedEvent) OccurredAt() time.Time { return e.occurredAt }
 
 // RuleRequestedEvent signals that rules should be published
-type RuleRequestedEvent struct {
-	occurredAt time.Time
-}
+type RuleRequestedEvent struct{ occurredAt time.Time }
 
 func NewRuleRequestedEvent() RuleRequestedEvent { return RuleRequestedEvent{occurredAt: time.Now()} }
 
@@ -45,15 +40,11 @@ func (e RuleRequestedEvent) EventType() events.EventType { return EventTypeRules
 func (e RuleRequestedEvent) OccurredAt() time.Time       { return e.occurredAt }
 
 // RulePublishingCompletedEvent signals that all rules have been published
-type RulePublishingCompletedEvent struct {
-	occurredAt time.Time
-}
+type RulePublishingCompletedEvent struct{ occurredAt time.Time }
 
 func NewRulePublishingCompletedEvent() RulePublishingCompletedEvent {
 	return RulePublishingCompletedEvent{occurredAt: time.Now()}
 }
 
-func (e RulePublishingCompletedEvent) EventType() events.EventType {
-	return EventTypeRulesPublished
-}
-func (e RulePublishingCompletedEvent) OccurredAt() time.Time { return e.occurredAt }
+func (e RulePublishingCompletedEvent) EventType() events.EventType { return EventTypeRulesPublished }
+func (e RulePublishingCompletedEvent) OccurredAt() time.Time       { return e.occurredAt }

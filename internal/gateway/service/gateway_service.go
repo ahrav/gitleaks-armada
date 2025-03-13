@@ -337,11 +337,11 @@ func (s *Service) processIncomingScannerMessage(
 	)
 	defer span.End()
 
-	logger := s.logger.With(
+	logger := logger.NewLoggerContext(s.logger.With(
 		"component", "gateway.processIncomingScannerMessage",
 		"scanner_id", conn.ScannerID,
 		"message_id", msg.MessageId,
-	)
+	))
 
 	conn.UpdateActivity(s.timeProvider.Now())
 	// messageType := msg.MessageId // Simplified for now
@@ -420,12 +420,20 @@ func (s *Service) processIncomingScannerMessage(
 			evtType = scanning.EventTypeTaskFailed
 		}
 
+	case rules.EventTypeRulesRequested:
+		span.AddEvent("rules_requested_received")
+		if event, ok := payload.(rules.RuleUpdatedEvent); ok {
+			domainEvent = event
+			evtType = rules.EventTypeRulesUpdated
+		}
+
 	default:
 		err := fmt.Errorf("unknown event type: %s", eventType)
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
 		return err
 	}
+	logger.Add("event_type", string(evtType))
 
 	processingErr := s.publishDomainEvent(ctx, evtType, domainEvent, options...)
 	if processingErr != nil {

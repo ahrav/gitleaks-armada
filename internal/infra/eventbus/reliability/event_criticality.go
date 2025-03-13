@@ -30,7 +30,7 @@ func IsCriticalEvent(eventType events.EventType) bool {
 		scanning.EventTypeScannerStatusChanged:
 		return true
 
-	case rules.EventTypeRulesUpdated, rules.EventTypeRulesPublished:
+	case rules.EventTypeRulesUpdated, rules.EventTypeRulesRequested:
 		return true
 
 	case scanning.EventTypeTaskProgressed,

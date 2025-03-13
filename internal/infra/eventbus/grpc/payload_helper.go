@@ -212,6 +212,9 @@ func getScannerToGatewayMessageType(msg *pb.ScannerToGatewayMessage) (protocol.M
 	case msg.GetRegistration() != nil:
 		return protocol.MessageTypeScannerRegistered, msg.GetRegistration(), nil
 
+	case msg.GetScannerRegistered() != nil:
+		return protocol.MessageTypeScannerRegistered, msg.GetScannerRegistered(), nil
+
 	case msg.GetStatusChanged() != nil:
 		return protocol.MessageTypeScannerStatusChanged, msg.GetStatusChanged(), nil
 
@@ -242,6 +245,9 @@ func getScannerToGatewayMessageType(msg *pb.ScannerToGatewayMessage) (protocol.M
 
 	case msg.GetTaskHeartbeat() != nil:
 		return protocol.MessageTypeScanTaskHeartbeat, msg.GetTaskHeartbeat(), nil
+
+	case msg.GetRuleMessage() != nil:
+		return protocol.MessageTypeRulesRequested, msg.GetRuleMessage(), nil
 
 	// Acknowledgment.
 	case msg.GetAck() != nil:

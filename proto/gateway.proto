@@ -35,9 +35,8 @@ service ScannerGatewayService {
 // 1-9:   Common message metadata fields
 // 10-19: Scanner lifecycle events
 // 20-29: Task processing events
-// 30-39: Scan results and findings
+// 30-39: Rules-related events
 // 40-49: Control messages (acknowledgments, etc.)
-// 50-59: Rules-related events
 message ScannerToGatewayMessage {
   // Unique identifier for this message.
   string message_id = 1;
@@ -78,11 +77,11 @@ message ScannerToGatewayMessage {
     TaskJobMetricEvent task_job_metric = 26;
     TaskHeartbeatEvent task_heartbeat = 27;
 
-    // Acknowledgments of received messages.
-    MessageAcknowledgment ack = 30;
-
     // Rules-related events.
-    RuleMessage rule_message = 50;
+    RuleMessage rule_message = 30;
+
+    // Acknowledgments of received messages.
+    MessageAcknowledgment ack = 40;
   }
 }
 
@@ -131,11 +130,11 @@ message SystemNotification {
 //
 // Field numbering strategy:
 // 1-9:   Common message metadata fields
-// 10-19: Registration and scanner control responses
-// 20-29: Task related events
-// 30-39: Job control events
+// 10-19: Task related events
+// 20-29: Job control events
+// 30-39: Rules-related events
 // 40-49: System messages
-// 50-59: Rules-related events
+// 50-59: Control messages (acknowledgments, etc.)
 message GatewayToScannerMessage {
   // Unique identifier for this message.
   string message_id = 1;
