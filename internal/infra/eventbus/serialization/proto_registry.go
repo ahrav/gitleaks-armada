@@ -104,9 +104,12 @@ func registerProtoSerializers() {
 	// Rule related events.
 	registerProtoSerializeFunc(rules.EventTypeRulesUpdated, RuleUpdatedEventToProto)
 	registerProtoSerializeFunc(rules.EventTypeRulesRequested, RuleRequestedEventToProto)
+	registerProtoSerializeFunc(rules.EventTypeRulesPublished, RulePublishedEventToProto)
 
 	// Rule related deserialization functions.
+	registerProtoDeserializeFunc(rules.EventTypeRulesUpdated, ProtoToRuleUpdatedEvent)
 	registerProtoDeserializeFunc(rules.EventTypeRulesRequested, ProtoToRuleRequestedEvent)
+	registerProtoDeserializeFunc(rules.EventTypeRulesPublished, ProtoToRulePublishedEvent)
 
 	// System related events.
 	registerProtoSerializeFunc(events.EventType("SystemNotification"), SystemNotificationToProto)
@@ -367,6 +370,16 @@ func RuleRequestedEventToProto(payload any) (any, error) {
 	// It's an internal event in the controller that triggers rule distribution
 	// to all connected scanners via the established streams
 	return &pb.RuleRequestedEvent{}, nil
+}
+
+// RulePublishedEventToProto converts a RulePublishedEvent to a protocol buffer message.
+func RulePublishedEventToProto(payload any) (any, error) {
+	_, ok := payload.(rules.RulePublishingCompletedEvent)
+	if !ok {
+		return nil, fmt.Errorf("payload is not a RulePublishingCompletedEvent: %T", payload)
+	}
+
+	return &pb.RulePublishingCompletedEvent{}, nil
 }
 
 // SystemNotificationToProto handles system notifications which are already in proto form.
@@ -659,6 +672,28 @@ func ProtoToTaskCancelledEvent(message any) (any, error) {
 		taskID,
 		taskCancelled.RequestedBy,
 	), nil
+}
+
+// ProtoToRuleUpdatedEvent converts a protocol buffer message to a RuleUpdatedEvent.
+func ProtoToRuleUpdatedEvent(message any) (any, error) {
+	msg, ok := message.(*pb.RuleMessage)
+	if !ok {
+		return nil, fmt.Errorf("message is not a RuleMessage: %T", message)
+	}
+
+	// Convert pb.RuleMessage to domain GitleaksRuleMessage using the proper converter
+	ruleMsg := pbrules.ProtoToGitleaksRuleMessage(msg)
+	return rules.NewRuleUpdatedEvent(ruleMsg), nil
+}
+
+// ProtoToRulePublishedEvent converts a protocol buffer message to a RulePublishingCompletedEvent.
+func ProtoToRulePublishedEvent(message any) (any, error) {
+	_, ok := message.(*pb.RulePublishingCompletedEvent)
+	if !ok {
+		return nil, fmt.Errorf("message is not a RulePublishingCompletedEvent: %T", message)
+	}
+
+	return rules.NewRulePublishingCompletedEvent(), nil
 }
 
 // ProtoToRuleRequestedEvent converts a protocol buffer message to a RuleRequestedEvent.

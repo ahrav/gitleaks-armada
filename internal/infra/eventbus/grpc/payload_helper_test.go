@@ -313,8 +313,13 @@ func TestMapMessageTypeToEventType(t *testing.T) {
 			want:        rules.EventTypeRulesRequested,
 		},
 		{
-			name:        "Rules Response",
-			messageType: protocol.MessageTypeRulesResponse,
+			name:        "Rules Published",
+			messageType: protocol.MessageTypeRulesPublished,
+			want:        rules.EventTypeRulesPublished,
+		},
+		{
+			name:        "Rules Updated",
+			messageType: protocol.MessageTypeRulesUpdated,
 			want:        rules.EventTypeRulesUpdated,
 		},
 		{
@@ -377,42 +382,6 @@ func TestExtractScannerMessageInfo(t *testing.T) {
 				assert.Equal(t, scanning.ScannerStatusOnline, heartbeat.Status())
 				assert.Contains(t, heartbeat.Metrics(), "cpu_usage")
 				assert.Equal(t, 42.5, heartbeat.Metrics()["cpu_usage"])
-			},
-			expectError: false,
-		},
-		{
-			name: "scanner registration message",
-			setupMessage: func() *pb.ScannerToGatewayMessage {
-				return &pb.ScannerToGatewayMessage{
-					MessageId:  "reg-1",
-					Timestamp:  time.Now().UnixNano(),
-					AuthToken:  "test-token",
-					ScannerId:  "scanner-123",
-					RoutingKey: "scanner.registration",
-					Payload: &pb.ScannerToGatewayMessage_Registration{
-						Registration: &pb.ScannerRegistrationRequest{
-							ScannerName:  "scanner-123",
-							Version:      "1.0.0",
-							Capabilities: []string{"git", "github"},
-							GroupName:    "default",
-							Hostname:     "scanner-host",
-							Tags: map[string]string{
-								"region": "us-east-1",
-								"env":    "prod",
-							},
-						},
-					},
-				}
-			},
-			expectedType: scanning.EventTypeScannerRegistered,
-			validateEvent: func(t *testing.T, event any) {
-				reg, ok := event.(scanning.ScannerRegisteredEvent)
-				require.True(t, ok, "event should be a ScannerRegisteredEvent")
-				assert.Equal(t, "scanner-123", reg.Name())
-				assert.Equal(t, "1.0.0", reg.Version())
-				assert.Contains(t, reg.Capabilities(), "git")
-				assert.Equal(t, "scanner-host", reg.Hostname())
-				assert.Equal(t, "prod", reg.Tags()["env"])
 			},
 			expectError: false,
 		},

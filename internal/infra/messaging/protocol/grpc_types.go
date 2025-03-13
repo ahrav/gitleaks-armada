@@ -110,8 +110,10 @@ const (
 
 	// MessageTypeRulesRequested represents a rules distribution request message.
 	MessageTypeRulesRequested MessageType = "controller_initiated_rule_distribution"
-	// MessageTypeRulesResponse represents a rules distribution response message.
-	MessageTypeRulesResponse MessageType = "scan_rule"
+	// MessageTypeRulesUpdated represents a rules update message.
+	MessageTypeRulesUpdated MessageType = "scan_rule_updated"
+	// MessageTypeRulesPublished represents a rules distribution completion message.
+	MessageTypeRulesPublished MessageType = "scan_rule_publishing_completed"
 
 	// --------------------------------------------------------------------------
 	// Job control message types (broadcast)

@@ -79,6 +79,7 @@ message ScannerToGatewayMessage {
 
     // Rules-related events.
     RuleMessage rule_message = 30;
+    RulePublishingCompletedEvent rule_publishing_completed = 31;
 
     // Acknowledgments of received messages.
     MessageAcknowledgment ack = 40;

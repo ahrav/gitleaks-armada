@@ -17,6 +17,9 @@ func NewDomainEventTranslator(positionTranslator PositionTranslator) *DomainEven
 // system-specific stream position. This is necessary because the event bus operates
 // on stream positions, while the domain layer works with abstract domain positions.
 func (t *DomainEventTranslator) ToStreamPosition(metadata PositionMetadata) (StreamPosition, error) {
+	if t.positionTranslator == nil {
+		return nil, nil
+	}
 	return t.positionTranslator.ToStreamPosition(metadata)
 }
 

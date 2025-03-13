@@ -385,7 +385,7 @@ func main() {
 		log.Info(ctx, "Scanner connected to gateway broadcast stream")
 
 		domainEventTranslator = events.NewDomainEventTranslator(nil) // gRPC doesn't need a position translator
-		eventPublisher = grpcbus.NewDomainEventPublisher(eventBus, domainEventTranslator)
+		eventPublisher = kafka.NewDomainEventPublisher(eventBus, domainEventTranslator)
 	}
 
 	// Now use the selected event bus and publisher for the scanner.

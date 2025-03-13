@@ -180,11 +180,11 @@ func SetScannerToGatewayPayload(msg *pb.ScannerToGatewayMessage, eventType event
 		msg.Payload = &pb.ScannerToGatewayMessage_RuleMessage{RuleMessage: rulesUpdate}
 
 	case rules.EventTypeRulesPublished:
-		rulesPublished, ok := payload.(*pb.RuleMessage)
+		rulesPublished, ok := payload.(*pb.RulePublishingCompletedEvent)
 		if !ok {
-			return fmt.Errorf("payload is not a RuleMessage: %T", payload)
+			return fmt.Errorf("payload is not a RulePublishingCompletedEvent: %T", payload)
 		}
-		msg.Payload = &pb.ScannerToGatewayMessage_RuleMessage{RuleMessage: rulesPublished}
+		msg.Payload = &pb.ScannerToGatewayMessage_RulePublishingCompleted{RulePublishingCompleted: rulesPublished}
 
 	// Acknowledgment event.
 	case events.EventType("MessageAcknowledgment"):
@@ -210,7 +210,7 @@ func getScannerToGatewayMessageType(msg *pb.ScannerToGatewayMessage) (protocol.M
 		return protocol.MessageTypeScannerHeartbeat, msg.GetHeartbeat(), nil
 
 	case msg.GetRegistration() != nil:
-		return protocol.MessageTypeScannerRegistered, msg.GetRegistration(), nil
+		return protocol.MessageTypeScannerRegistration, msg.GetRegistration(), nil
 
 	case msg.GetScannerRegistered() != nil:
 		return protocol.MessageTypeScannerRegistered, msg.GetScannerRegistered(), nil
@@ -247,7 +247,10 @@ func getScannerToGatewayMessageType(msg *pb.ScannerToGatewayMessage) (protocol.M
 		return protocol.MessageTypeScanTaskHeartbeat, msg.GetTaskHeartbeat(), nil
 
 	case msg.GetRuleMessage() != nil:
-		return protocol.MessageTypeRulesRequested, msg.GetRuleMessage(), nil
+		return protocol.MessageTypeRulesUpdated, msg.GetRuleMessage(), nil
+
+	case msg.GetRulePublishingCompleted() != nil:
+		return protocol.MessageTypeRulesPublished, msg.GetRulePublishingCompleted(), nil
 
 	// Acknowledgment.
 	case msg.GetAck() != nil:
@@ -356,7 +359,9 @@ func mapMessageTypeToEventType(messageType protocol.MessageType) events.EventTyp
 	// Rule events.
 	case protocol.MessageTypeRulesRequested:
 		return rules.EventTypeRulesRequested
-	case protocol.MessageTypeRulesResponse:
+	case protocol.MessageTypeRulesPublished:
+		return rules.EventTypeRulesPublished
+	case protocol.MessageTypeRulesUpdated:
 		return rules.EventTypeRulesUpdated
 
 	// System events.

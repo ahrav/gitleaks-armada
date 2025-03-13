@@ -118,7 +118,7 @@ func NewEventBus(
 	topicMap := map[events.EventType]string{
 		rules.EventTypeRulesRequested: cfg.RulesRequestTopic,  // controller -> scanner
 		rules.EventTypeRulesUpdated:   cfg.RulesResponseTopic, // scanner -> controller
-		rules.EventTypeRulesPublished: cfg.RulesResponseTopic, // controller -> controller
+		rules.EventTypeRulesPublished: cfg.RulesResponseTopic, // scanner -> controller
 
 		scanning.EventTypeJobRequested:            cfg.JobLifecycleTopic, // api -> controller
 		scanning.EventTypeJobScheduled:            cfg.JobLifecycleTopic, // controller -> controller

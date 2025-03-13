@@ -417,7 +417,8 @@ func mapRegularEventTypes() map[events.EventType]protocol.MessageType {
 
 		// Rules events - controller initiates rule distribution to scanners.
 		rules.EventTypeRulesRequested: protocol.MessageTypeRulesRequested,
-		rules.EventTypeRulesUpdated:   protocol.MessageTypeRulesResponse,
+		rules.EventTypeRulesUpdated:   protocol.MessageTypeRulesUpdated,
+		rules.EventTypeRulesPublished: protocol.MessageTypeRulesPublished,
 
 		// System messages
 		protocol.EventTypeMessageAck: protocol.MessageTypeAck, // Acknowledgments for critical messages
