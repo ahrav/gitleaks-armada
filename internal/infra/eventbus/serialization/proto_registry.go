@@ -65,6 +65,12 @@ func registerProtoSerializers() {
 	registerProtoSerializeFunc(scanning.EventTypeScannerStatusChanged, ScannerStatusChangedEventToProto)
 	registerProtoSerializeFunc(scanning.EventTypeScannerDeregistered, ScannerDeregisteredEventToProto)
 
+	// Scanner related deserialization functions.
+	registerProtoDeserializeFunc(scanning.EventTypeScannerHeartbeat, ProtoToScannerHeartbeatEvent)
+	registerProtoDeserializeFunc(scanning.EventTypeScannerRegistered, ProtoToScannerRegisteredEvent)
+	registerProtoDeserializeFunc(scanning.EventTypeScannerStatusChanged, ProtoToScannerStatusChangedEvent)
+	registerProtoDeserializeFunc(scanning.EventTypeScannerDeregistered, ProtoToScannerDeregisteredEvent)
+
 	// Task related events.
 	registerProtoSerializeFunc(scanning.EventTypeTaskCreated, TaskCreatedEventToProto)
 	registerProtoSerializeFunc(scanning.EventTypeTaskStarted, TaskStartedEventToProto)
@@ -76,6 +82,14 @@ func registerProtoSerializers() {
 	registerProtoSerializeFunc(scanning.EventTypeTaskResume, TaskResumeEventToProto)
 	registerProtoSerializeFunc(scanning.EventTypeTaskHeartbeat, TaskHeartbeatEventToProto)
 	registerProtoSerializeFunc(scanning.EventTypeTaskJobMetric, TaskJobMetricEventToProto)
+
+	// Task related deserialization functions.
+	registerProtoDeserializeFunc(scanning.EventTypeTaskStarted, ProtoToTaskStartedEvent)
+	registerProtoDeserializeFunc(scanning.EventTypeTaskProgressed, ProtoToTaskProgressedEvent)
+	registerProtoDeserializeFunc(scanning.EventTypeTaskCompleted, ProtoToTaskCompletedEvent)
+	registerProtoDeserializeFunc(scanning.EventTypeTaskFailed, ProtoToTaskFailedEvent)
+	registerProtoDeserializeFunc(scanning.EventTypeTaskPaused, ProtoToTaskPausedEvent)
+	registerProtoDeserializeFunc(scanning.EventTypeTaskCancelled, ProtoToTaskCancelledEvent)
 
 	// Job related events.
 	registerProtoSerializeFunc(scanning.EventTypeJobRequested, JobRequestedEventToProto)
@@ -91,31 +105,14 @@ func registerProtoSerializers() {
 	registerProtoSerializeFunc(rules.EventTypeRulesUpdated, RuleUpdatedEventToProto)
 	registerProtoSerializeFunc(rules.EventTypeRulesRequested, RuleRequestedEventToProto)
 
-	// System notifications - using string literal since there doesn't appear to be a constant.
-	registerProtoSerializeFunc(events.EventType("SystemNotification"), SystemNotificationToProto)
-
-	// Add serializer for MessageAck event - using string literal to avoid circular imports
-	registerProtoSerializeFunc(events.EventType("MessageAck"), MessageAckToProto)
-
-	// Register deserialization functions (from proto message type to domain event)
-	// Scanner events.
-	registerProtoDeserializeFunc(scanning.EventTypeScannerHeartbeat, ProtoToScannerHeartbeatEvent)
-	registerProtoDeserializeFunc(scanning.EventTypeScannerRegistered, ProtoToScannerRegisteredEvent)
-	registerProtoDeserializeFunc(scanning.EventTypeScannerStatusChanged, ProtoToScannerStatusChangedEvent)
-	registerProtoDeserializeFunc(scanning.EventTypeScannerDeregistered, ProtoToScannerDeregisteredEvent)
-
-	// Task events.
-	registerProtoDeserializeFunc(scanning.EventTypeTaskStarted, ProtoToTaskStartedEvent)
-	registerProtoDeserializeFunc(scanning.EventTypeTaskProgressed, ProtoToTaskProgressedEvent)
-	registerProtoDeserializeFunc(scanning.EventTypeTaskCompleted, ProtoToTaskCompletedEvent)
-	registerProtoDeserializeFunc(scanning.EventTypeTaskFailed, ProtoToTaskFailedEvent)
-	registerProtoDeserializeFunc(scanning.EventTypeTaskPaused, ProtoToTaskPausedEvent)
-	registerProtoDeserializeFunc(scanning.EventTypeTaskCancelled, ProtoToTaskCancelledEvent)
-
-	// Rule events.
+	// Rule related deserialization functions.
 	registerProtoDeserializeFunc(rules.EventTypeRulesRequested, ProtoToRuleRequestedEvent)
 
-	// Add deserializer for MessageAck event - using string literal to avoid circular imports
+	// System related events.
+	registerProtoSerializeFunc(events.EventType("SystemNotification"), SystemNotificationToProto)
+
+	// Add serializer for MessageAck event - using string literal to avoid circular imports.
+	registerProtoSerializeFunc(events.EventType("MessageAck"), MessageAckToProto)
 	registerProtoDeserializeFunc(events.EventType("MessageAck"), ProtoToMessageAck)
 }
 
@@ -415,9 +412,9 @@ func ProtoToScannerHeartbeatEvent(message any) (any, error) {
 
 // ProtoToScannerRegisteredEvent converts a protocol buffer message to a ScannerRegisteredEvent.
 func ProtoToScannerRegisteredEvent(message any) (any, error) {
-	reg, ok := message.(*pb.ScannerRegistrationRequest)
+	reg, ok := message.(*pb.ScannerRegisteredEvent)
 	if !ok {
-		return nil, fmt.Errorf("message is not a ScannerRegistrationRequest: %T", message)
+		return nil, fmt.Errorf("message is not a ScannerRegisteredEvent: %T", message)
 	}
 
 	// Create a scanner registration event with available fields
