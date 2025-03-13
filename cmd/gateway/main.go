@@ -87,13 +87,13 @@ func main() {
 
 	ctx := context.Background()
 
-	if err := run(ctx, log, hostname); err != nil {
+	if err := run(ctx, log, hostname, svcName); err != nil {
 		log.Error(ctx, "startup", "err", err)
 		os.Exit(1)
 	}
 }
 
-func run(ctx context.Context, log *logger.Logger, hostname string) error {
+func run(ctx context.Context, log *logger.Logger, hostname string, svcName string) error {
 	// -------------------------------------------------------------------------
 	// GOMAXPROCS
 	log.Info(ctx, "startup", "GOMAXPROCS", runtime.GOMAXPROCS(0))
@@ -226,7 +226,7 @@ func run(ctx context.Context, log *logger.Logger, hostname string) error {
 		RulesRequestTopic:     os.Getenv("KAFKA_RULES_REQUEST_TOPIC"),
 		RulesResponseTopic:    os.Getenv("KAFKA_RULES_RESPONSE_TOPIC"),
 		GroupID:               os.Getenv("KAFKA_GROUP_ID"),
-		ClientID:              os.Getenv("OTEL_SERVICE_NAME"),
+		ClientID:              svcName,
 		ServiceType:           serviceType,
 	}
 

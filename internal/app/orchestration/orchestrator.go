@@ -226,6 +226,7 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 		runSpan.End()
 		return err
 	}
+	logger.Info(runCtx, "Events subscribed")
 	runSpan.AddEvent("events_subscribed")
 
 	runSpan.AddEvent("orchestrator_ready")
