@@ -395,6 +395,10 @@ func (s *Service) processIncomingScannerMessage(
 
 	case scanning.EventTypeScannerHeartbeat:
 		span.AddEvent("scanner_heartbeat_received")
+		if event, ok := payload.(scanning.ScannerHeartbeatEvent); ok {
+			domainEvent = event
+			evtType = scanning.EventTypeScannerHeartbeat
+		}
 		s.metrics.IncScannerHeartbeats(ctx)
 
 	case scanning.EventTypeTaskProgressed:
@@ -420,8 +424,8 @@ func (s *Service) processIncomingScannerMessage(
 			evtType = scanning.EventTypeTaskFailed
 		}
 
-	case rules.EventTypeRulesRequested:
-		span.AddEvent("rules_requested_received")
+	case rules.EventTypeRulesUpdated:
+		span.AddEvent("rules_updated_received")
 		if event, ok := payload.(rules.RuleUpdatedEvent); ok {
 			domainEvent = event
 			evtType = rules.EventTypeRulesUpdated
