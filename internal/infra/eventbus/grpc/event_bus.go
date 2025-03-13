@@ -807,7 +807,7 @@ func (b *EventBus) processGatewayMessage(msg *pb.GatewayToScannerMessage) {
 				}
 
 				ackMsg := &pb.ScannerToGatewayMessage{
-					MessageId:  fmt.Sprintf("ack-%s", msg.GetMessageId()),
+					MessageId:  uuid.New().String(),
 					Timestamp:  b.timeProvider.Now().UnixNano(),
 					ScannerId:  b.scannerID,
 					RoutingKey: msg.GetRoutingKey(),

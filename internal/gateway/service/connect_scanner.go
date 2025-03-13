@@ -318,15 +318,16 @@ func (s *Service) processIncomingScannerMessage(
 	ctx, span := s.tracer.Start(ctx, "gateway.processIncomingScannerMessage",
 		trace.WithAttributes(
 			attribute.String("scanner_id", conn.ScannerID),
-			attribute.String("message_id", msg.MessageId),
+			attribute.String("message_id", msg.GetMessageId()),
 		),
 	)
 	defer span.End()
 
+	msgID := msg.GetMessageId()
 	logger := logger.NewLoggerContext(s.logger.With(
 		"component", "gateway.processIncomingScannerMessage",
 		"scanner_id", conn.ScannerID,
-		"message_id", msg.MessageId,
+		"message_id", msgID,
 	))
 
 	conn.UpdateActivity(s.timeProvider.Now())
@@ -435,7 +436,7 @@ func (s *Service) processIncomingScannerMessage(
 	}
 
 	if isCritical {
-		ackErr := s.sendMessageAcknowledgment(ctx, conn, msg.MessageId, processingErr)
+		ackErr := s.sendMessageAcknowledgment(ctx, conn, msgID, processingErr)
 		if ackErr != nil {
 			logger.Error(ctx, "Failed to send message acknowledgment", "error", ackErr)
 			span.RecordError(ackErr)
