@@ -220,15 +220,6 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	}
 	runSpan.AddEvent("coordinator_started")
 
-	if err := o.subscribeToEvents(runCtx); err != nil {
-		runSpan.RecordError(err)
-		runSpan.SetStatus(codes.Error, "failed to subscribe to events")
-		runSpan.End()
-		return err
-	}
-	logger.Info(runCtx, "Events subscribed")
-	runSpan.AddEvent("events_subscribed")
-
 	runSpan.AddEvent("orchestrator_ready")
 	runSpan.End() // Avoid a long running span.
 
@@ -320,6 +311,14 @@ func (o *Orchestrator) handleLeadership(ctx context.Context, isLeader bool, read
 	}
 	leaderSpan.AddEvent("default_scanner_group_ensured")
 	logger.Info(leaderCtx, "Default scanner group ensured")
+
+	if err := o.subscribeToEvents(leaderCtx); err != nil {
+		leaderSpan.RecordError(err)
+		leaderSpan.SetStatus(codes.Error, "failed to subscribe to events")
+		logger.Error(leaderCtx, "Failed to subscribe to events", "error", err)
+	}
+	logger.Info(leaderCtx, "Events subscribed")
+	leaderSpan.AddEvent("events_subscribed")
 
 	// TODO: Figure out an overall strategy to reslient publishing of events across the system.
 	if err := o.requestRulesUpdate(ctx); err != nil {
