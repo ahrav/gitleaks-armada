@@ -57,8 +57,8 @@ func TestIsCriticalEvent(t *testing.T) {
 			want:      true,
 		},
 		{
-			name:      "RulesPublished is critical",
-			eventType: rules.EventTypeRulesPublished,
+			name:      "RulesRequested is critical",
+			eventType: rules.EventTypeRulesRequested,
 			want:      true,
 		},
 
