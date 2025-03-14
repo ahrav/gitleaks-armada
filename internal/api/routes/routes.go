@@ -22,7 +22,7 @@ func (add) Add(app *web.App, cfg mux.Config) {
 	health.Routes(app, health.Config{Build: cfg.Build, Log: cfg.Log})
 
 	scanJobRepo := scanningStore.NewJobStore(cfg.DB, cfg.Tracer)
-	scanService := scanning.NewService(cfg.Log, cfg.CmdHandler, cfg.EventBus, scanJobRepo)
+	scanService := scanning.NewService(cfg.CmdHandler, cfg.EventBus, scanJobRepo, cfg.Log, cfg.Tracer)
 	// Scan routes.
 	scanning.Routes(app, scanning.Config{
 		Log:         cfg.Log,
@@ -30,7 +30,7 @@ func (add) Add(app *web.App, cfg mux.Config) {
 	})
 
 	// Scanner routes.
-	scannerService := scanning.NewScannerService(cfg.Log, cfg.ScannerService)
+	scannerService := scanning.NewScannerService(cfg.ScannerService, cfg.Log, cfg.Tracer)
 	scanning.ScannerRoutes(app, scanning.ScannerConfig{
 		Log:            cfg.Log,
 		ScannerService: scannerService,
