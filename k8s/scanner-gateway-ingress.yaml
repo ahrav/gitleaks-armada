@@ -6,6 +6,9 @@ metadata:
   annotations:
     konghq.com/strip-path: "true"
     konghq.com/protocols: "grpc,grpcs"
+    # Kong API Gateway is used for both gRPC (scanner-gateway) and HTTP (client-api) services
+    # Both ingress resources (this one and client-http-ingress.yaml) use the same Kong ingress controller
+    # instead of using separate controllers (Kong for gRPC and Nginx for HTTP)
     # konghq.com/plugins: scanner-gateway-rate-limiting
 spec:
   ingressClassName: kong

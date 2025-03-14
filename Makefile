@@ -110,6 +110,7 @@ help:
 	@echo "Monitoring:"
 	@echo "  monitoring-port-forward  Port-forward common monitoring services (Grafana, etc.)"
 	@echo "  monitoring-cleanup     Delete the monitoring deployments/services"
+	@echo "  kong-port-forward     Port-forward Kong proxy for local API testing"
 	@echo ""
 	@echo "Misc / Advanced:"
 	@echo "  logs-controller       Tail logs for the controller deployment"
@@ -321,7 +322,7 @@ dev-down:
 
 # A single shortcut target that sets up everything for a new dev
 dev-all: build-all docker-all dev-up dev-load create-config-secret \
-         dev-apply-extras kafka-setup postgres-setup dev-apply dev-apply-kong dev-apply-scanner-gateway
+         dev-apply-extras kafka-setup postgres-setup dev-apply-kong dev-apply-scanner-gateway dev-apply
 
 
 ################################################################################
@@ -664,3 +665,7 @@ test-coverage:
 clean:
 	rm -f $(CONTROLLER_APP) $(SCANNER_APP) $(CLIENT_API_APP) $(SCANNER_GATEWAY_APP)
 	@echo "Cleaned up local binaries."
+
+kong-port-forward:
+	@echo "Port forwarding Kong proxy service to localhost:8000 (HTTP) and localhost:9000 (gRPC)"
+	kubectl port-forward -n kong svc/kong-proxy 8000:80 9000:9080 &

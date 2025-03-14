@@ -7,10 +7,12 @@ metadata:
     app: client-api
     component: api
   annotations:
-    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
-    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    konghq.com/strip-path: "true"
+    konghq.com/preserve-host: "true"
+    # Support for larger request bodies (same as previous nginx config)
+    konghq.com/request-size-limit: "50m"
 spec:
-  ingressClassName: nginx
+  ingressClassName: kong
   rules:
   - host: api.local.gitleaks.armada
     http:
