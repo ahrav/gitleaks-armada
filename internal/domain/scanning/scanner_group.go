@@ -22,7 +22,7 @@ const (
 var (
 	// allowedNamePattern defines the allowed character pattern for names.
 	// Allows alphanumeric characters, spaces, hyphens, and underscores.
-	allowedNamePattern = regexp.MustCompile(`^[a-zA-Z0-9\s\-_]+$`)
+	allowedNamePattern = regexp.MustCompile(`^[a-zA-Z0-9\s\-_\.]+$`)
 
 	// Validation errors.
 	ErrNameTooShort       = errors.New("name is too short")

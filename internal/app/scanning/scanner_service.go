@@ -117,7 +117,10 @@ func (s *scannerService) CreateScanner(
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to get scanner group ID")
-		return nil, fmt.Errorf("failed to get scanner group ID: %w", err)
+		return nil, fmt.Errorf("failed to get scanner group ID (group_name: %s): %w",
+			cmd.GroupName,
+			err,
+		)
 	}
 	span.SetAttributes(attribute.String("group_id", groupID.String()))
 	span.AddEvent("scanner_group_id_found")

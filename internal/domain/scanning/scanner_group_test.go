@@ -25,6 +25,12 @@ func TestNewScannerGroup(t *testing.T) {
 			expectedError: nil,
 		},
 		{
+			name:          "valid_group_with_period",
+			groupName:     "scanner-Ahravs-MacBook-Pro.local",
+			description:   "Scanner group with hostname containing periods",
+			expectedError: nil,
+		},
+		{
 			name:          "name_too_short",
 			groupName:     "",
 			description:   "Valid description",

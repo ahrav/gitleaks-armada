@@ -81,6 +81,7 @@ func setDefaultEnvVars() {
 		// Scanner configuration
 		"SCANNER_VERSION":      "1.0.0",
 		"SCANNER_CAPABILITIES": "secrets_scanning",
+		"SCANNER_GROUP_NAME":   "Production Scanners",
 
 		// The POD_NAME and POD_NAMESPACE are used for K8s but we provide defaults for local development
 		"POD_NAME":      "local-scanner",

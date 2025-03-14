@@ -95,7 +95,7 @@ type CreateScannerCommand struct {
 // NewCreateScannerCommand creates a new CreateScannerCommand.
 func NewCreateScannerCommand(
 	groupName string,
-	name,
+	name string,
 	version string,
 	metadata map[string]any,
 ) CreateScannerCommand {
