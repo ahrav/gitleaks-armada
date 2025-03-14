@@ -75,7 +75,8 @@ SCANNER_PARTITIONS := 5     # Matches scanner replicas
         monitoring-port-forward monitoring-cleanup postgres-setup postgres-logs \
         postgres-restart postgres-delete sqlc-proto-gen proto-gen test test-coverage \
         rollout-restart rollout-restart-controller rollout-restart-scanner \
-        rollout-restart-client-api clean dev-all clean-hosts verify-kong update-hosts
+        rollout-restart-client-api clean dev-all clean-hosts verify-kong update-hosts \
+        test-api
 
 help:
 	@echo "Usage: make <command>"
@@ -91,6 +92,7 @@ help:
 	@echo "  verify-kong           Verify Kong ingress controller is working correctly"
 	@echo "  update-hosts          Update hosts file to use Kong NodePort (30080)"
 	@echo "  clean-hosts           Remove DNS entries from /etc/hosts file"
+	@echo "  test-api              Test API connectivity with curl"
 	@echo ""
 	@echo "Build & Docker:"
 	@echo "  build-all             Build all binaries (controller, scanner, client-api)"
@@ -722,9 +724,15 @@ verify-kong:
 
 # Update hosts file to use the nodePort 30080 instead of default port 80
 update-hosts:
-	@echo "Updating hosts file to use Kong NodePort..."
+	@echo "Updating hosts file for Kong..."
 	sudo sed -i '' '/local.gitleaks.armada/d' /etc/hosts
 	echo "127.0.0.1 api.local.gitleaks.armada" | sudo tee -a /etc/hosts
 	echo "127.0.0.1 scanner-api.local.gitleaks.armada" | sudo tee -a /etc/hosts
 	@echo "Hosts file updated."
-	@echo "Remember to use URLs with port 30080: http://api.local.gitleaks.armada:30080/v1/scanners/groups"
+	@echo "To test the API, use: make test-api"
+	@echo "Or manually: curl -v http://api.local.gitleaks.armada:30080/v1/scanners/groups"
+
+# Test the client API endpoint
+test-api:
+	@echo "Testing API endpoint with curl..."
+	curl -v http://api.local.gitleaks.armada:30080/v1/scanners/groups || echo "Failed to connect. Try recreating your cluster with 'make dev-down' followed by 'make dev-all'"
