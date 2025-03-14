@@ -183,9 +183,9 @@ func TestSetScannerToGatewayPayload(t *testing.T) {
 			wantErr:   false,
 		},
 		{
-			name:      "RulesPublished event",
+			name:      "RulePublishingCompleted event",
 			eventType: rules.EventTypeRulesPublished,
-			payload:   &pb.RuleMessage{},
+			payload:   &pb.RulePublishingCompletedEvent{},
 			wantErr:   false,
 		},
 		{
@@ -645,7 +645,7 @@ func TestGetScannerToGatewayMessageType(t *testing.T) {
 					},
 				},
 			},
-			expectedType:    protocol.MessageTypeScannerRegistered,
+			expectedType:    protocol.MessageTypeScannerRegistration,
 			expectedPayload: &pb.ScannerRegistrationRequest{ScannerName: "test-scanner", Version: "1.0.0"},
 			expectError:     false,
 		},
