@@ -11,6 +11,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/api/mid"
 	"github.com/ahrav/gitleaks-armada/internal/app/commands"
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
+	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/web"
 )
@@ -50,12 +51,13 @@ func WithFileServer(react bool, static embed.FS, dir string, path string) func(o
 
 // Config contains all the mandatory systems required by handlers.
 type Config struct {
-	Build      string
-	Log        *logger.Logger
-	DB         *pgxpool.Pool // Database connection pool
-	EventBus   events.DomainEventPublisher
-	CmdHandler commands.Handler
-	Tracer     trace.Tracer
+	Build          string
+	Log            *logger.Logger
+	DB             *pgxpool.Pool // Database connection pool
+	EventBus       events.DomainEventPublisher
+	CmdHandler     commands.Handler
+	Tracer         trace.Tracer
+	ScannerService scanning.ScannerService
 }
 
 // RouteAdder defines behavior that sets the routes to bind for an instance

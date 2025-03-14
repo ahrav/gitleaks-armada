@@ -28,4 +28,11 @@ func (add) Add(app *web.App, cfg mux.Config) {
 		Log:         cfg.Log,
 		ScanService: scanService,
 	})
+
+	// Scanner routes.
+	scannerService := scanning.NewScannerService(cfg.Log, cfg.ScannerService)
+	scanning.ScannerRoutes(app, scanning.ScannerConfig{
+		Log:            cfg.Log,
+		ScannerService: scannerService,
+	})
 }
