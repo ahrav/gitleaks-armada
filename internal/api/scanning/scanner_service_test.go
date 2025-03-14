@@ -3,11 +3,11 @@ package scanning
 import (
 	"context"
 	"errors"
-	"io"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"go.opentelemetry.io/otel/trace/noop"
 
 	domain "github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
@@ -35,8 +35,9 @@ func (m *mockDomainScannerService) CreateScanner(ctx context.Context, cmd domain
 
 func TestCreateScannerGroup(t *testing.T) {
 	mockService := new(mockDomainScannerService)
-	log := logger.New(io.Discard, logger.LevelDebug, "test", nil)
-	apiService := NewScannerService(log, mockService)
+	log := logger.Noop()
+	tracer := noop.NewTracerProvider().Tracer("test")
+	apiService := NewScannerService(mockService, log, tracer)
 
 	tests := []struct {
 		name          string

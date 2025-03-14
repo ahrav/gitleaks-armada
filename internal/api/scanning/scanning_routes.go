@@ -106,10 +106,12 @@ func start(cfg Config) web.HandlerFunc {
 	return func(ctx context.Context, r *http.Request) web.Encoder {
 		var req startRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			cfg.Log.Error(ctx, "Failed to decode start request", "error", err)
 			return errs.New(errs.InvalidArgument, err)
 		}
 
 		if err := errs.Check(req); err != nil {
+			cfg.Log.Error(ctx, "Invalid start request", "error", err)
 			return errs.New(errs.InvalidArgument, err)
 		}
 
@@ -120,6 +122,7 @@ func start(cfg Config) web.HandlerFunc {
 
 		jobs, err := cfg.ScanService.StartScan(ctx, req.Name, targets, req.Metadata, "system") // TODO: Use JWT user instead of "system"
 		if err != nil {
+			cfg.Log.Error(ctx, "Failed to start scan", "error", err)
 			return errs.New(errs.Internal, err)
 		}
 
@@ -184,10 +187,12 @@ func pause(cfg Config) web.HandlerFunc {
 
 		var req pauseRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+			cfg.Log.Error(ctx, "Failed to decode pause request", "error", err)
 			return errs.New(errs.InvalidArgument, err)
 		}
 
 		if err := cfg.ScanService.PauseJob(ctx, jobIDStr, "system"); err != nil {
+			cfg.Log.Error(ctx, "Failed to pause job", "error", err)
 			return errs.New(errs.InvalidArgument, err)
 		}
 
@@ -292,10 +297,12 @@ func resume(cfg Config) web.HandlerFunc {
 
 		var req resumeRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+			cfg.Log.Error(ctx, "Failed to decode resume request", "error", err)
 			return errs.New(errs.InvalidArgument, err)
 		}
 
 		if err := cfg.ScanService.ResumeJob(ctx, jobIDStr, "system"); err != nil {
+			cfg.Log.Error(ctx, "Failed to resume job", "error", err)
 			return errs.New(errs.InvalidArgument, err)
 		}
 
@@ -396,11 +403,13 @@ func cancel(cfg Config) web.HandlerFunc {
 
 		var req cancelRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+			cfg.Log.Error(ctx, "Failed to decode cancel request", "error", err)
 			return errs.New(errs.InvalidArgument, err)
 		}
 
 		// Call service to cancel job
 		if err := cfg.ScanService.CancelJob(ctx, jobIDStr, req.Reason); err != nil {
+			cfg.Log.Error(ctx, "Failed to cancel job", "error", err)
 			return errs.New(errs.InvalidArgument, err)
 		}
 
@@ -437,14 +446,17 @@ func bulkCancel(cfg Config) web.HandlerFunc {
 	return func(ctx context.Context, r *http.Request) web.Encoder {
 		var req bulkCancelRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			cfg.Log.Error(ctx, "Failed to decode bulk cancel request", "error", err)
 			return errs.New(errs.InvalidArgument, err)
 		}
 
 		if err := errs.Check(req); err != nil {
+			cfg.Log.Error(ctx, "Invalid bulk cancel request", "error", err)
 			return errs.New(errs.InvalidArgument, err)
 		}
 
 		if len(req.JobIDs) > maxBulkJobCount {
+			cfg.Log.Error(ctx, "Too many job IDs", "error", fmt.Errorf("too many job IDs: maximum allowed is %d", maxBulkJobCount))
 			return errs.New(errs.InvalidArgument, fmt.Errorf("too many job IDs: maximum allowed is %d", maxBulkJobCount))
 		}
 
@@ -467,8 +479,10 @@ func getJob(cfg Config) web.HandlerFunc {
 		jobDetail, err := cfg.ScanService.GetJob(ctx, jobID)
 		if err != nil {
 			if errors.Is(err, scanDomain.ErrJobNotFound) {
+				cfg.Log.Error(ctx, "Job not found", "error", fmt.Errorf("job not found: %s", jobID))
 				return errs.New(errs.NotFound, fmt.Errorf("job not found: %s", jobID))
 			}
+			cfg.Log.Error(ctx, "Failed to retrieve job details", "error", fmt.Errorf("failed to retrieve job details: %w", err))
 			return errs.New(errs.Internal, fmt.Errorf("failed to retrieve job details: %w", err))
 		}
 
