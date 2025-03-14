@@ -23,8 +23,10 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/api/mux"
 	"github.com/ahrav/gitleaks-armada/internal/api/routes"
 	"github.com/ahrav/gitleaks-armada/internal/app/commands/scanning"
+	appScanning "github.com/ahrav/gitleaks-armada/internal/app/scanning"
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/infra/eventbus/kafka"
+	scanningStore "github.com/ahrav/gitleaks-armada/internal/infra/storage/scanning/postgres"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/common/otel"
 )
@@ -267,14 +269,18 @@ func run(ctx context.Context, log *logger.Logger, hostname string) error {
 
 	cmdHandler := scanning.NewCommandHandler(log, tracer, eventBus)
 
+	scannerRepo := scanningStore.NewScannerStore(pool, tracer)
+	scannerService := appScanning.NewScannerService(hostname, scannerRepo, log, tracer)
+
 	// Initialize centralized mux configuration with all dependencies.
 	cfgMux := mux.Config{
-		Build:      build,
-		Log:        log,
-		DB:         pool,
-		EventBus:   eventBus,
-		CmdHandler: cmdHandler,
-		Tracer:     tracer,
+		Build:          build,
+		Log:            log,
+		DB:             pool,
+		EventBus:       eventBus,
+		CmdHandler:     cmdHandler,
+		Tracer:         tracer,
+		ScannerService: scannerService,
 	}
 
 	// Create the web API with all routes and middleware.
