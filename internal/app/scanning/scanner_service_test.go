@@ -51,6 +51,7 @@ func TestCreateScannerGroup(t *testing.T) {
 		description string
 		setup       func(*mockScannerRepository)
 		wantErr     bool
+		wantErrType error
 	}{
 		{
 			name:        "successful_creation",
@@ -100,6 +101,17 @@ func TestCreateScannerGroup(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			name:        "duplicate_scanner_group",
+			groupName:   "Existing Group",
+			description: "This group already exists",
+			setup: func(repo *mockScannerRepository) {
+				repo.On("CreateScannerGroup", mock.Anything, mock.AnythingOfType("*scanning.ScannerGroup")).
+					Return(domain.ErrScannerGroupAlreadyExists)
+			},
+			wantErr:     true,
+			wantErrType: domain.ErrScannerGroupAlreadyExists,
+		},
 	}
 
 	for _, tt := range tests {
@@ -113,6 +125,11 @@ func TestCreateScannerGroup(t *testing.T) {
 			if tt.wantErr {
 				assert.Error(t, err)
 				assert.Nil(t, group)
+
+				if tt.wantErrType != nil {
+					assert.ErrorIs(t, err, tt.wantErrType,
+						"Expected error type %v but got %v", tt.wantErrType, err)
+				}
 			} else {
 				require.NoError(t, err)
 				require.NotNil(t, group)

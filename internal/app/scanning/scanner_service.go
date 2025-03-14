@@ -2,6 +2,7 @@ package scanning
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -76,6 +77,13 @@ func (s *scannerService) CreateScannerGroup(
 	if err := s.scannerRepo.CreateScannerGroup(ctx, group); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to create scanner group")
+
+		// Preserve the exact error for conflict cases
+		if errors.Is(err, domain.ErrScannerGroupAlreadyExists) {
+			s.logger.Info(ctx, "Scanner group already exists", "name", cmd.Name, "error", err)
+			return nil, domain.ErrScannerGroupAlreadyExists
+		}
+
 		return nil, fmt.Errorf(
 			"failed to create scanner group (name: %s, id: %s): %w",
 			group.Name(),
