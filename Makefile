@@ -75,19 +75,22 @@ SCANNER_PARTITIONS := 5     # Matches scanner replicas
         monitoring-port-forward monitoring-cleanup postgres-setup postgres-logs \
         postgres-restart postgres-delete sqlc-proto-gen proto-gen test test-coverage \
         rollout-restart rollout-restart-controller rollout-restart-scanner \
-        rollout-restart-client-api clean dev-all
+        rollout-restart-client-api clean dev-all clean-hosts verify-kong update-hosts
 
 help:
 	@echo "Usage: make <command>"
 	@echo ""
 	@echo "Local dev setup:"
 	@echo "  dev-setup             Install brew pkgs, Go tooling, pull Docker images"
-	@echo "  dev-up                Create KinD cluster + ingress namespace"
+	@echo "  dev-up                Create KinD cluster + Kong ingress namespace"
 	@echo "  dev-load              Load your local Docker images into the cluster"
 	@echo "  dev-apply             Apply core manifests for controller/scanner/gateway"
 	@echo "  dev-apply-extras      Apply Kafka, Postgres, monitoring, etc."
 	@echo "  dev-down              Delete the KinD cluster"
 	@echo "  dev-all               Full cycle: build, cluster up, load images, apply manifests"
+	@echo "  verify-kong           Verify Kong ingress controller is working correctly"
+	@echo "  update-hosts          Update hosts file to use Kong NodePort (30080)"
+	@echo "  clean-hosts           Remove DNS entries from /etc/hosts file"
 	@echo ""
 	@echo "Build & Docker:"
 	@echo "  build-all             Build all binaries (controller, scanner, client-api)"
@@ -119,7 +122,6 @@ help:
 	@echo "  rollout-restart       Restart all main deployments (controller, scanner, gateway)"
 	@echo "  test                  Run Go tests with race detection"
 	@echo "  test-coverage         Run tests and produce a coverage report"
-	@echo "  c
 
 ################################################################################
 # 1) Developer Setup Targets
@@ -224,21 +226,28 @@ dev-up:
 	kind create cluster --name $(KIND_CLUSTER) --config $(K8S_MANIFESTS)/kind-config.yaml
 	kubectl create namespace $(NAMESPACE)
 	kubectl config set-context --current --namespace=$(NAMESPACE)
-	echo "Installing NGINX Ingress Controller for local development..."
-	kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/$(NGINX_INGRESS_VERSION)/deploy/static/provider/kind/deploy.yaml
 
-	echo "Waiting for ingress-nginx namespace..."
-	sleep 10  # Give k8s time to create the namespace
+	# Remove NGINX ingress controller and use Kong instead
+	echo "Installing Kong Ingress Controller as the default ingress..."
+	kubectl create namespace kong --dry-run=client -o yaml | kubectl apply -f -
+	helm repo add kong https://charts.konghq.com
+	helm repo update
+	helm install kong kong/kong --namespace kong \
+	  --set ingressController.enabled=true \
+	  --set ingressController.installCRDs=false \
+	  --set proxy.type=NodePort \
+	  --set proxy.http.nodePort=30080 \
+	  --set proxy.tls.nodePort=30443 \
+	  --set admin.enabled=true \
+	  --set admin.http.enabled=true \
+	  --set env.database=off \
+	  --set postgresql.enabled=false
 
-	echo "Waiting for NGINX Ingress Controller deployment to be available..."
-	kubectl wait --namespace ingress-nginx \
-		--for=condition=available deployment ingress-nginx-controller \
-		--timeout=300s
-
-	kubectl wait --namespace ingress-nginx \
+	echo "Waiting for Kong controller to be ready..."
+	kubectl wait --namespace kong \
 		--for=condition=ready pod \
-		--selector=app.kubernetes.io/component=controller \
-		--timeout=120s
+		--selector=app.kubernetes.io/instance=kong \
+		--timeout=300s
 
 	echo "Checking if DNS entries exist in /etc/hosts..."
 	api_exists=$$(grep -q "127.0.0.1 api.local.gitleaks.armada" /etc/hosts && echo "yes" || echo "no")
@@ -322,13 +331,14 @@ dev-down:
 
 # A single shortcut target that sets up everything for a new dev
 dev-all: build-all docker-all dev-up dev-load create-config-secret \
-         dev-apply-extras kafka-setup postgres-setup dev-apply-kong dev-apply-scanner-gateway dev-apply
+         dev-apply-extras kafka-setup postgres-setup dev-apply-scanner-gateway dev-apply
 
 
 ################################################################################
 # Kong API Gateway
 ################################################################################
 
+# Note: Kong installation is now primarily done in the dev-up target
 dev-apply-kong:
 	kubectl create namespace kong --dry-run=client -o yaml | kubectl apply -f -
 	helm repo add kong https://charts.konghq.com
@@ -336,6 +346,9 @@ dev-apply-kong:
 	helm install kong kong/kong --namespace kong \
 	  --set ingressController.enabled=true \
 	  --set ingressController.installCRDs=false \
+	  --set proxy.type=NodePort \
+	  --set proxy.http.nodePort=30080 \
+	  --set proxy.tls.nodePort=30443 \
 	  --set admin.enabled=true \
 	  --set admin.http.enabled=true \
 	  --set env.database=off \
@@ -669,3 +682,49 @@ clean:
 kong-port-forward:
 	@echo "Port forwarding Kong proxy service to localhost:8000 (HTTP) and localhost:9000 (gRPC)"
 	kubectl port-forward -n kong svc/kong-proxy 8000:80 9000:9080 &
+
+################################################################################
+# Utility Targets
+################################################################################
+
+# Remove the DNS entries from /etc/hosts file
+clean-hosts:
+	@echo "Removing gitleaks.armada DNS entries from /etc/hosts..."
+	sudo sed -i '' '/local.gitleaks.armada/d' /etc/hosts
+	@echo "DNS entries removed successfully."
+
+verify-kong:
+	@echo "Verifying Kong ingress controller setup..."
+	@echo "1. Checking if Kong pods are running..."
+	kubectl get pods -n kong
+
+	@echo "\n2. Checking ingress classes..."
+	kubectl get ingressclass
+
+	@echo "\n3. Checking Kong proxy service..."
+	kubectl get svc -n kong kong-kong-proxy -o wide
+
+	@echo "\n4. Setting up port-forwarding to access Kong..."
+	kubectl port-forward --namespace kong service/kong-kong-proxy 30080:80 > /dev/null 2>&1 &
+	PF_PID=$$!
+	echo "Port forwarding started with PID: $$PF_PID"
+	sleep 3
+
+	@echo "\n5. Testing connection to Kong proxy..."
+	curl -v http://localhost:30080 || true
+
+	@echo "\n6. Testing connection to api.local.gitleaks.armada..."
+	curl -v http://api.local.gitleaks.armada:30080 || true
+
+	@echo "\nKong verification complete. You may need to adjust your hosts file"
+	@echo "or run 'make update-hosts' to update your DNS entries to point to port 30080"
+	@echo "Kill the port forwarding with: kill $$PF_PID"
+
+# Update hosts file to use the nodePort 30080 instead of default port 80
+update-hosts:
+	@echo "Updating hosts file to use Kong NodePort..."
+	sudo sed -i '' '/local.gitleaks.armada/d' /etc/hosts
+	echo "127.0.0.1 api.local.gitleaks.armada" | sudo tee -a /etc/hosts
+	echo "127.0.0.1 scanner-api.local.gitleaks.armada" | sudo tee -a /etc/hosts
+	@echo "Hosts file updated."
+	@echo "Remember to use URLs with port 30080: http://api.local.gitleaks.armada:30080/v1/scanners/groups"
