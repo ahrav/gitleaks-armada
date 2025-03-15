@@ -195,10 +195,10 @@ func TestCreateJob(t *testing.T) {
 }
 
 func TestAssociateEnumeratedTargets(t *testing.T) {
-	jobID := uuid.MustParse("429735d7-ec1b-4d96-8749-938ca0a744be")
+	jobID := uuid.New()
 	targetIDs := []uuid.UUID{
-		uuid.MustParse("b1f7eff4-2921-4e6c-9d88-da2de5707a2b"),
-		uuid.MustParse("c2f8eff4-3922-4e6c-9d88-da2de5707a2c"),
+		uuid.New(),
+		uuid.New(),
 	}
 	cmd := domain.NewAssociateEnumeratedTargetsCommand(jobID, targetIDs)
 
@@ -259,7 +259,7 @@ func TestAssociateEnumeratedTargets(t *testing.T) {
 }
 
 func TestGetJobConfigInfo(t *testing.T) {
-	jobID := uuid.MustParse("429735d7-ec1b-4d96-8749-938ca0a744be")
+	jobID := uuid.New()
 
 	tests := []struct {
 		name    string
@@ -604,9 +604,9 @@ func (m *mockTimeProvider) Sleep(duration time.Duration) {
 }
 
 func TestStartTask(t *testing.T) {
-	jobID := uuid.MustParse("429735d7-ec1b-4d96-8749-938ca0a744be")
-	taskID := uuid.MustParse("b1f7eff4-2921-4e6c-9d88-da2de5707a2b")
-	scannerID := uuid.MustParse("8b2b37e0-da29-4aef-9c24-9dc7b22cb329")
+	jobID := uuid.New()
+	taskID := uuid.New()
+	scannerID := uuid.New()
 
 	tests := []struct {
 		name      string
@@ -752,8 +752,8 @@ func TestStartTask(t *testing.T) {
 }
 
 func TestUpdateTaskProgress(t *testing.T) {
-	jobID := uuid.MustParse("c30b6e0a-25e9-4856-aada-5f2ad03718f2")
-	taskID := uuid.MustParse("0ee1a5ba-2543-4ab8-8ceb-fba7aefd7947")
+	jobID := uuid.New()
+	taskID := uuid.New()
 
 	tests := []struct {
 		name    string
