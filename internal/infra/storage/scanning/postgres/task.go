@@ -111,6 +111,11 @@ func (s *taskStore) GetTask(ctx context.Context, taskID uuid.UUID) (*scanning.Ta
 			pausedAt = pgtype.Timestamptz{Time: row.PausedAt.Time, Valid: true}
 		}
 
+		var scannerID uuid.UUID
+		if row.ScannerID.Valid {
+			scannerID = row.ScannerID.Bytes
+		}
+
 		domainTask = scanning.ReconstructTask(
 			row.TaskID.Bytes,
 			row.JobID.Bytes,
@@ -127,6 +132,7 @@ func (s *taskStore) GetTask(ctx context.Context, taskID uuid.UUID) (*scanning.Ta
 			row.StalledAt.Time,
 			pausedAt.Time,
 			int(row.RecoveryAttempts),
+			scannerID,
 		)
 		return nil
 	})
@@ -178,6 +184,13 @@ func (s *taskStore) UpdateTask(ctx context.Context, task *scanning.Task) error {
 			stallReason.ScanTaskStallReason = db.ScanTaskStallReason(*task.StallReason())
 		}
 
+		var scannerIDParam pgtype.UUID
+		if task.ScannerID() != nil {
+			scannerIDParam = pgtype.UUID{Bytes: *task.ScannerID(), Valid: true}
+		} else {
+			scannerIDParam = pgtype.UUID{Valid: false}
+		}
+
 		params := db.UpdateScanTaskParams{
 			TaskID:           pgtype.UUID{Bytes: task.TaskID(), Valid: true},
 			Status:           db.ScanTaskStatus(task.Status()),
@@ -191,6 +204,7 @@ func (s *taskStore) UpdateTask(ctx context.Context, task *scanning.Task) error {
 			StalledAt:        pgtype.Timestamptz{Time: task.StalledAt(), Valid: !task.StalledAt().IsZero()},
 			PausedAt:         pgtype.Timestamptz{Time: task.PausedAt(), Valid: !task.PausedAt().IsZero()},
 			RecoveryAttempts: int32(task.RecoveryAttempts()),
+			ScannerID:        scannerIDParam,
 		}
 
 		rowsAff, err := s.q.UpdateScanTask(ctx, params)
@@ -201,6 +215,48 @@ func (s *taskStore) UpdateTask(ctx context.Context, task *scanning.Task) error {
 			span.SetAttributes(attribute.Bool("update_task_no_rows_affected", true))
 			span.RecordError(errors.New("task not found"))
 			return fmt.Errorf("UpdateScanTask no rows affected")
+		}
+
+		return nil
+	})
+}
+
+// UpdateTaskScanner updates just the scanner_id for a task.
+// This is used when a task is reassigned to a different scanner.
+// TODO: Use this...
+func (s *taskStore) UpdateTaskScanner(ctx context.Context, taskID uuid.UUID, scannerID *uuid.UUID) error {
+	dbAttrs := append(
+		defaultDBAttributes,
+		attribute.String("task_id", taskID.String()),
+	)
+
+	if scannerID != nil {
+		dbAttrs = append(dbAttrs, attribute.String("scanner_id", scannerID.String()))
+	}
+
+	return storage.ExecuteAndTrace(ctx, s.tracer, "postgres.update_task_scanner", dbAttrs, func(ctx context.Context) error {
+		var scannerIDParam pgtype.UUID
+		if scannerID != nil {
+			scannerIDParam = pgtype.UUID{Bytes: *scannerID, Valid: true}
+		} else {
+			scannerIDParam = pgtype.UUID{Valid: false}
+		}
+
+		query := `
+			UPDATE scan_tasks
+			SET scanner_id = $1, updated_at = NOW()
+			WHERE task_id = $2
+		`
+		result, err := s.db.Exec(ctx, query,
+			scannerIDParam,
+			pgtype.UUID{Bytes: taskID, Valid: true},
+		)
+		if err != nil {
+			return fmt.Errorf("update task scanner error: %w", err)
+		}
+
+		if result.RowsAffected() == 0 {
+			return scanning.ErrTaskNotFound
 		}
 
 		return nil

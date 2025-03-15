@@ -8,6 +8,7 @@ import (
 
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	serializationerrors "github.com/ahrav/gitleaks-armada/internal/infra/eventbus/serialization/errors"
+	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 	pb "github.com/ahrav/gitleaks-armada/proto"
 )
 
@@ -23,6 +24,7 @@ func TestScannerRegisteredEventConversion(t *testing.T) {
 		initialStatus := scanning.ScannerStatusOnline
 
 		domainEvent := scanning.NewScannerRegisteredEvent(
+			uuid.New(),
 			name,
 			version,
 			capabilities,
@@ -36,6 +38,7 @@ func TestScannerRegisteredEventConversion(t *testing.T) {
 		// Test domain to proto conversion.
 		protoEvent := ScannerRegisteredEventToProto(domainEvent)
 		require.NotNil(t, protoEvent)
+		assert.Equal(t, domainEvent.ScannerID().String(), protoEvent.ScannerId)
 		assert.Equal(t, name, protoEvent.ScannerName)
 		assert.Equal(t, version, protoEvent.Version)
 		assert.Equal(t, capabilities, protoEvent.Capabilities)
@@ -49,6 +52,7 @@ func TestScannerRegisteredEventConversion(t *testing.T) {
 		// Test proto to domain conversion.
 		convertedEvent, err := ProtoToScannerRegisteredEvent(protoEvent)
 		require.NoError(t, err)
+		assert.Equal(t, domainEvent.ScannerID().String(), convertedEvent.ScannerID().String())
 		assert.Equal(t, name, convertedEvent.Name())
 		assert.Equal(t, version, convertedEvent.Version())
 		assert.Equal(t, capabilities, convertedEvent.Capabilities())
@@ -75,11 +79,12 @@ func TestScannerHeartbeatEventConversion(t *testing.T) {
 			"memory_usage": 0.5,
 		}
 
-		domainEvent := scanning.NewScannerHeartbeatEvent(scannerName, status, metrics)
+		domainEvent := scanning.NewScannerHeartbeatEvent(uuid.New(), scannerName, status, metrics)
 
 		// Test domain to proto conversion.
 		protoEvent := ScannerHeartbeatEventToProto(domainEvent)
 		require.NotNil(t, protoEvent)
+		assert.Equal(t, domainEvent.ScannerID().String(), protoEvent.ScannerId)
 		assert.Equal(t, scannerName, protoEvent.ScannerName)
 		assert.Equal(t, pb.ScannerStatus(status.Int32()), protoEvent.Status)
 		assert.Equal(t, metrics, protoEvent.Metrics)
@@ -88,6 +93,7 @@ func TestScannerHeartbeatEventConversion(t *testing.T) {
 		// Test proto to domain conversion.
 		convertedEvent, err := ProtoToScannerHeartbeatEvent(protoEvent)
 		require.NoError(t, err)
+		assert.Equal(t, domainEvent.ScannerID().String(), convertedEvent.ScannerID().String())
 		assert.Equal(t, scannerName, convertedEvent.ScannerName())
 		assert.Equal(t, status, convertedEvent.Status())
 		assert.Equal(t, metrics, convertedEvent.Metrics())
@@ -107,11 +113,12 @@ func TestScannerStatusChangedEventConversion(t *testing.T) {
 		previousStatus := scanning.ScannerStatusOnline
 		reason := "scanner started processing tasks"
 
-		domainEvent := scanning.NewScannerStatusChangedEvent(scannerName, newStatus, previousStatus, reason)
+		domainEvent := scanning.NewScannerStatusChangedEvent(uuid.New(), scannerName, newStatus, previousStatus, reason)
 
 		// Test domain to proto conversion.
 		protoEvent := ScannerStatusChangedEventToProto(domainEvent)
 		require.NotNil(t, protoEvent)
+		assert.Equal(t, domainEvent.ScannerID().String(), protoEvent.ScannerId)
 		assert.Equal(t, scannerName, protoEvent.ScannerName)
 		assert.Equal(t, pb.ScannerStatus(newStatus.Int32()), protoEvent.NewStatus)
 		assert.Equal(t, pb.ScannerStatus(previousStatus.Int32()), protoEvent.PreviousStatus)
@@ -121,6 +128,7 @@ func TestScannerStatusChangedEventConversion(t *testing.T) {
 		// Test proto to domain conversion.
 		convertedEvent, err := ProtoToScannerStatusChangedEvent(protoEvent)
 		require.NoError(t, err)
+		assert.Equal(t, domainEvent.ScannerID().String(), convertedEvent.ScannerID().String())
 		assert.Equal(t, scannerName, convertedEvent.ScannerName())
 		assert.Equal(t, newStatus, convertedEvent.NewStatus())
 		assert.Equal(t, previousStatus, convertedEvent.PreviousStatus())
@@ -139,11 +147,12 @@ func TestScannerDeregisteredEventConversion(t *testing.T) {
 		scannerName := "test-scanner"
 		reason := "scanner shutdown gracefully"
 
-		domainEvent := scanning.NewScannerDeregisteredEvent(scannerName, reason)
+		domainEvent := scanning.NewScannerDeregisteredEvent(uuid.New(), scannerName, reason)
 
 		// Test domain to proto conversion.
 		protoEvent := ScannerDeregisteredEventToProto(domainEvent)
 		require.NotNil(t, protoEvent)
+		assert.Equal(t, domainEvent.ScannerID().String(), protoEvent.ScannerId)
 		assert.Equal(t, scannerName, protoEvent.ScannerName)
 		assert.Equal(t, reason, protoEvent.Reason)
 		assert.Equal(t, domainEvent.OccurredAt().UnixNano(), protoEvent.Timestamp)
@@ -151,6 +160,7 @@ func TestScannerDeregisteredEventConversion(t *testing.T) {
 		// Test proto to domain conversion.
 		convertedEvent, err := ProtoToScannerDeregisteredEvent(protoEvent)
 		require.NoError(t, err)
+		assert.Equal(t, domainEvent.ScannerID().String(), convertedEvent.ScannerID().String())
 		assert.Equal(t, scannerName, convertedEvent.ScannerName())
 		assert.Equal(t, reason, convertedEvent.Reason())
 	})

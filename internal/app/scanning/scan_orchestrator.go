@@ -40,7 +40,7 @@ type RuleProvider interface {
 // It subscribes to enumeration events and distributes scanning work to maintain optimal
 // resource utilization.
 type ScanOrchestrator struct {
-	scannerID string
+	scannerID uuid.UUID
 
 	eventBus          events.EventBus // Main event bus for task events
 	broadcastEventBus events.EventBus // Event bus for broadcast events where all scanners need to receive the message
@@ -73,7 +73,7 @@ type ScanOrchestrator struct {
 // NewScanOrchestrator creates a new scan orchestrator with the specified dependencies.
 // It configures worker pools based on available CPU cores to optimize scanning throughput.
 func NewScanOrchestrator(
-	id string,
+	id uuid.UUID,
 	eventBus events.EventBus,
 	broadcastEventBus events.EventBus,
 	dp events.DomainEventPublisher,
@@ -101,7 +101,7 @@ func NewScanOrchestrator(
 		progressReporter:   pr,
 		ruleProvider:       ruleProvider,
 		enumACL:            acl.EnumerationACL{},
-		jobStateController: NewJobTaskStateController(id, logger, tracer),
+		jobStateController: NewJobTaskStateController(id.String(), logger, tracer),
 		workers:            workerCount,
 		stopCh:             make(chan struct{}),
 		taskEvent:          make(chan *dtos.ScanRequest, workerCount*10),
@@ -122,7 +122,7 @@ func (s *ScanOrchestrator) Run(ctx context.Context) error {
 	initCtx, initSpan := s.tracer.Start(ctx, "scanner_service.scanning.init",
 		trace.WithAttributes(
 			attribute.String("component", "scanner_service"),
-			attribute.String("scanner_id", s.scannerID),
+			attribute.String("scanner_id", s.scannerID.String()),
 			attribute.Int("num_workers", s.workers),
 		))
 
@@ -220,7 +220,7 @@ func (s *ScanOrchestrator) handleRuleRequest(
 	ctx, span := s.tracer.Start(ctx, "scanner_service.scanning.handle_rule_request",
 		trace.WithAttributes(
 			attribute.String("component", "scanner_service"),
-			attribute.String("scanner_id", s.scannerID),
+			attribute.String("scanner_id", s.scannerID.String()),
 			attribute.String("event_type", string(evt.Type)),
 		))
 	defer span.End()
@@ -395,7 +395,7 @@ func (s *ScanOrchestrator) handleJobPausedEvent(
 	ctx, span := s.tracer.Start(ctx, "scanner_service.scanning.handle_job_paused_event",
 		trace.WithAttributes(
 			attribute.String("component", "scanner_service"),
-			attribute.String("scanner_id", s.scannerID),
+			attribute.String("scanner_id", s.scannerID.String()),
 			attribute.String("event_type", string(evt.Type)),
 		))
 	defer span.End()
@@ -439,7 +439,7 @@ func (s *ScanOrchestrator) handleJobCancelledEvent(
 	ctx, span := s.tracer.Start(ctx, "scanner_service.scanning.handle_job_cancelled_event",
 		trace.WithAttributes(
 			attribute.String("component", "scanner_service"),
-			attribute.String("scanner_id", s.scannerID),
+			attribute.String("scanner_id", s.scannerID.String()),
 			attribute.String("event_type", string(evt.Type)),
 		))
 	defer span.End()
@@ -611,13 +611,15 @@ func (s *ScanOrchestrator) handleScanTask(ctx context.Context, req *dtos.ScanReq
 			attribute.String("resource_uri", req.ResourceURI),
 			attribute.String("task_id", req.TaskID.String()),
 			attribute.String("job_id", req.JobID.String()),
+			attribute.String("scanner_id", s.scannerID.String()),
 		))
 	defer span.End()
 
 	logger.Info(ctx, "Handling scan task")
 	span.AddEvent("starting_scan")
 
-	startedEvt := scanning.NewTaskStartedEvent(req.JobID, req.TaskID, req.ResourceURI)
+	// Create a copy of the scanner ID to ensure it's not affected by external changes
+	startedEvt := scanning.NewTaskStartedEvent(req.JobID, req.TaskID, s.scannerID, req.ResourceURI)
 	if err := s.domainPublisher.PublishDomainEvent(ctx, startedEvt, events.WithKey(req.TaskID.String())); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to publish task started event")
@@ -648,6 +650,7 @@ func (s *ScanOrchestrator) executeScanTask(ctx context.Context, req *dtos.ScanRe
 			attribute.String("resource_uri", req.ResourceURI),
 			attribute.String("task_id", req.TaskID.String()),
 			attribute.String("job_id", req.JobID.String()),
+			attribute.String("scanner_id", s.scannerID.String()),
 		))
 	defer span.End()
 

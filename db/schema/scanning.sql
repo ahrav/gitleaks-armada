@@ -89,6 +89,7 @@ CREATE TABLE scan_tasks (
     task_id           UUID PRIMARY KEY REFERENCES tasks(task_id),
     job_id            UUID NOT NULL,
     owner_controller_id VARCHAR(255) NOT NULL,
+    scanner_id        UUID REFERENCES scanners(id),
     status            scan_task_status NOT NULL,
     resource_uri      VARCHAR(1024) NOT NULL,
     last_sequence_num BIGINT NOT NULL DEFAULT 0,

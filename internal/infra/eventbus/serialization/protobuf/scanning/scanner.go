@@ -3,12 +3,14 @@ package scanning
 import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	serializationerrors "github.com/ahrav/gitleaks-armada/internal/infra/eventbus/serialization/errors"
+	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 	pb "github.com/ahrav/gitleaks-armada/proto"
 )
 
 // ScannerRegisteredEventToProto converts a domain ScannerRegisteredEvent to a protobuf message.
 func ScannerRegisteredEventToProto(event scanning.ScannerRegisteredEvent) *pb.ScannerRegisteredEvent {
 	return &pb.ScannerRegisteredEvent{
+		ScannerId:     event.ScannerID().String(),
 		ScannerName:   event.Name(),
 		Version:       event.Version(),
 		Capabilities:  event.Capabilities(),
@@ -27,8 +29,17 @@ func ProtoToScannerRegisteredEvent(event *pb.ScannerRegisteredEvent) (scanning.S
 		return scanning.ScannerRegisteredEvent{}, serializationerrors.ErrNilEvent{}
 	}
 
+	scannerID, err := uuid.Parse(event.ScannerId)
+	if err != nil {
+		return scanning.ScannerRegisteredEvent{}, serializationerrors.ErrInvalidUUID{
+			Field: "ScannerId",
+			Err:   err,
+		}
+	}
+
 	status := scanning.ScannerStatusFromInt32(int32(event.InitialStatus))
 	regEvent := scanning.NewScannerRegisteredEvent(
+		scannerID,
 		event.ScannerName,
 		event.Version,
 		event.Capabilities,
@@ -45,6 +56,7 @@ func ProtoToScannerRegisteredEvent(event *pb.ScannerRegisteredEvent) (scanning.S
 // ScannerHeartbeatEventToProto converts a domain ScannerHeartbeatEvent to a protobuf message.
 func ScannerHeartbeatEventToProto(event scanning.ScannerHeartbeatEvent) *pb.ScannerHeartbeatEvent {
 	return &pb.ScannerHeartbeatEvent{
+		ScannerId:   event.ScannerID().String(),
 		ScannerName: event.ScannerName(),
 		Status:      pb.ScannerStatus(event.Status().Int32()),
 		Timestamp:   event.OccurredAt().UnixNano(),
@@ -57,9 +69,16 @@ func ProtoToScannerHeartbeatEvent(event *pb.ScannerHeartbeatEvent) (scanning.Sca
 	if event == nil {
 		return scanning.ScannerHeartbeatEvent{}, serializationerrors.ErrNilEvent{}
 	}
+	scannerID, err := uuid.Parse(event.ScannerId)
+	if err != nil {
+		return scanning.ScannerHeartbeatEvent{}, serializationerrors.ErrInvalidUUID{
+			Field: "ScannerId",
+			Err:   err,
+		}
+	}
 
 	status := scanning.ScannerStatusFromInt32(int32(event.Status))
-	heartbeatEvent := scanning.NewScannerHeartbeatEvent(event.ScannerName, status, event.Metrics)
+	heartbeatEvent := scanning.NewScannerHeartbeatEvent(scannerID, event.ScannerName, status, event.Metrics)
 
 	return heartbeatEvent, nil
 }
@@ -67,6 +86,7 @@ func ProtoToScannerHeartbeatEvent(event *pb.ScannerHeartbeatEvent) (scanning.Sca
 // ScannerStatusChangedEventToProto converts a domain ScannerStatusChangedEvent to a protobuf message.
 func ScannerStatusChangedEventToProto(event scanning.ScannerStatusChangedEvent) *pb.ScannerStatusChangedEvent {
 	return &pb.ScannerStatusChangedEvent{
+		ScannerId:      event.ScannerID().String(),
 		ScannerName:    event.ScannerName(),
 		NewStatus:      pb.ScannerStatus(event.NewStatus().Int32()),
 		PreviousStatus: pb.ScannerStatus(event.PreviousStatus().Int32()),
@@ -80,10 +100,16 @@ func ProtoToScannerStatusChangedEvent(event *pb.ScannerStatusChangedEvent) (scan
 	if event == nil {
 		return scanning.ScannerStatusChangedEvent{}, serializationerrors.ErrNilEvent{}
 	}
-
+	scannerID, err := uuid.Parse(event.ScannerId)
+	if err != nil {
+		return scanning.ScannerStatusChangedEvent{}, serializationerrors.ErrInvalidUUID{
+			Field: "ScannerId",
+			Err:   err,
+		}
+	}
 	newStatus := scanning.ScannerStatusFromInt32(int32(event.NewStatus))
 	prevStatus := scanning.ScannerStatusFromInt32(int32(event.PreviousStatus))
-	statusEvent := scanning.NewScannerStatusChangedEvent(event.ScannerName, newStatus, prevStatus, event.Reason)
+	statusEvent := scanning.NewScannerStatusChangedEvent(scannerID, event.ScannerName, newStatus, prevStatus, event.Reason)
 
 	return statusEvent, nil
 }
@@ -91,6 +117,7 @@ func ProtoToScannerStatusChangedEvent(event *pb.ScannerStatusChangedEvent) (scan
 // ScannerDeregisteredEventToProto converts a domain ScannerDeregisteredEvent to a protobuf message.
 func ScannerDeregisteredEventToProto(event scanning.ScannerDeregisteredEvent) *pb.ScannerDeregisteredEvent {
 	return &pb.ScannerDeregisteredEvent{
+		ScannerId:   event.ScannerID().String(),
 		ScannerName: event.ScannerName(),
 		Reason:      event.Reason(),
 		Timestamp:   event.OccurredAt().UnixNano(),
@@ -102,7 +129,13 @@ func ProtoToScannerDeregisteredEvent(event *pb.ScannerDeregisteredEvent) (scanni
 	if event == nil {
 		return scanning.ScannerDeregisteredEvent{}, serializationerrors.ErrNilEvent{}
 	}
-
-	deregEvent := scanning.NewScannerDeregisteredEvent(event.ScannerName, event.Reason)
+	scannerID, err := uuid.Parse(event.ScannerId)
+	if err != nil {
+		return scanning.ScannerDeregisteredEvent{}, serializationerrors.ErrInvalidUUID{
+			Field: "ScannerId",
+			Err:   err,
+		}
+	}
+	deregEvent := scanning.NewScannerDeregisteredEvent(scannerID, event.ScannerName, event.Reason)
 	return deregEvent, nil
 }

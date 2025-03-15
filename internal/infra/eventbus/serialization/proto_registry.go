@@ -416,7 +416,13 @@ func ProtoToScannerHeartbeatEvent(message any) (any, error) {
 	// Convert status directly from proto enum
 	status := scanning.ScannerStatusFromProtoEnum(heartbeat.Status)
 
+	scannerID, err := uuid.Parse(heartbeat.ScannerId)
+	if err != nil {
+		return nil, fmt.Errorf("invalid scanner ID: %w", err)
+	}
+
 	return scanning.NewScannerHeartbeatEvent(
+		scannerID,
 		heartbeat.ScannerName,
 		status,
 		metrics,
@@ -430,8 +436,14 @@ func ProtoToScannerRegisteredEvent(message any) (any, error) {
 		return nil, fmt.Errorf("message is not a ScannerRegisteredEvent: %T", message)
 	}
 
+	scannerID, err := uuid.Parse(reg.ScannerId)
+	if err != nil {
+		return nil, fmt.Errorf("invalid scanner ID: %w", err)
+	}
+
 	// Create a scanner registration event with available fields
 	return scanning.NewScannerRegisteredEvent(
+		scannerID,
 		reg.ScannerName,              // ID
 		reg.Version,                  // Version
 		reg.Capabilities,             // Capabilities
@@ -454,7 +466,13 @@ func ProtoToScannerStatusChangedEvent(message any) (any, error) {
 	oldStatus := scanning.ScannerStatusFromProtoEnum(status.PreviousStatus)
 	newStatus := scanning.ScannerStatusFromProtoEnum(status.NewStatus)
 
+	scannerID, err := uuid.Parse(status.ScannerId)
+	if err != nil {
+		return nil, fmt.Errorf("invalid scanner ID: %w", err)
+	}
+
 	return scanning.NewScannerStatusChangedEvent(
+		scannerID,
 		status.ScannerName,
 		oldStatus,
 		newStatus,
@@ -469,7 +487,13 @@ func ProtoToScannerDeregisteredEvent(message any) (any, error) {
 		return nil, fmt.Errorf("message is not a ScannerDeregisteredEvent: %T", message)
 	}
 
+	scannerID, err := uuid.Parse(dereg.ScannerId)
+	if err != nil {
+		return nil, fmt.Errorf("invalid scanner ID: %w", err)
+	}
+
 	return scanning.NewScannerDeregisteredEvent(
+		scannerID,
 		dereg.ScannerName,
 		dereg.Reason,
 	), nil
@@ -492,10 +516,16 @@ func ProtoToTaskStartedEvent(message any) (any, error) {
 		return nil, fmt.Errorf("invalid task ID: %w", err)
 	}
 
+	scannerID, err := uuid.Parse(taskStarted.ScannerId)
+	if err != nil {
+		return nil, fmt.Errorf("invalid scanner ID: %w", err)
+	}
+
 	// Convert the task started event to domain event
 	return scanning.NewTaskStartedEvent(
 		jobID,
 		taskID,
+		scannerID,
 		taskStarted.ResourceUri,
 	), nil
 }

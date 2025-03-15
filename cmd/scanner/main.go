@@ -41,6 +41,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/common"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/common/otel"
+	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 	pb "github.com/ahrav/gitleaks-armada/proto"
 )
 
@@ -107,6 +108,8 @@ func main() {
 		log.Fatalf("Failed to get hostname: %v", err)
 	}
 
+	scannerID := uuid.New()
+
 	var log *logger.Logger
 
 	logEvents := logger.Events{
@@ -115,6 +118,7 @@ func main() {
 				"error_message": r.Message,
 				"error_time":    r.Time.UTC().Format(time.RFC3339),
 				"trace_id":      otel.GetTraceID(ctx),
+				"scanner_id":    scannerID.String(),
 			}
 
 			// Add any error-specific attributes.
@@ -139,11 +143,12 @@ func main() {
 
 	const svcName = "scanner-service"
 	metadata := map[string]string{
-		"service":   svcName,
-		"hostname":  hostname,
-		"pod":       os.Getenv("POD_NAME"),
-		"namespace": os.Getenv("POD_NAMESPACE"),
-		"app":       "scanner",
+		"service":    svcName,
+		"hostname":   hostname,
+		"pod":        os.Getenv("POD_NAME"),
+		"namespace":  os.Getenv("POD_NAMESPACE"),
+		"app":        "scanner",
+		"scanner_id": scannerID.String(),
 	}
 
 	// TODO: Adjust the min log level via env var.
@@ -203,8 +208,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	scannerID := fmt.Sprintf("scanner-%s", hostname)
-
 	const defaultScannerGroupName = "system_default"
 	scannerGroupName := os.Getenv("SCANNER_GROUP_NAME")
 
@@ -230,14 +233,14 @@ func main() {
 			RulesRequestTopic:     os.Getenv("KAFKA_RULES_REQUEST_TOPIC"),
 			RulesResponseTopic:    os.Getenv("KAFKA_RULES_RESPONSE_TOPIC"),
 			GroupID:               os.Getenv("KAFKA_GROUP_ID"),
-			ClientID:              scannerID,
+			ClientID:              scannerID.String(),
 		}
 
 		// Create a separate config for broadcast events.
 		broadcastCfg := &kafka.EventBusConfig{
 			JobBroadcastTopic: os.Getenv("KAFKA_JOB_BROADCAST_TOPIC"),
 			GroupID:           fmt.Sprintf("scanner-broadcast-%s", hostname),
-			ClientID:          fmt.Sprintf("scanner-broadcast-%s", hostname),
+			ClientID:          fmt.Sprintf("scanner-broadcast-%s", scannerID.String()),
 			ServiceType:       "scanner",
 		}
 
@@ -245,7 +248,7 @@ func main() {
 		kafkaClient, err := kafka.NewClient(&kafka.ClientConfig{
 			Brokers:     strings.Split(os.Getenv("KAFKA_BROKERS"), ","),
 			GroupID:     os.Getenv("KAFKA_GROUP_ID"),
-			ClientID:    scannerID,
+			ClientID:    scannerID.String(),
 			ServiceType: "scanner",
 		})
 		if err != nil {
@@ -259,7 +262,7 @@ func main() {
 		broadcastClient, err := kafka.NewClient(&kafka.ClientConfig{
 			Brokers:     strings.Split(os.Getenv("KAFKA_BROKERS"), ","),
 			GroupID:     fmt.Sprintf("scanner-broadcast-%s", hostname), // Unique group per pod for broadcast events
-			ClientID:    fmt.Sprintf("scanner-broadcast-%s", hostname),
+			ClientID:    fmt.Sprintf("scanner-broadcast-%s", scannerID.String()),
 			ServiceType: "scanner",
 		})
 		if err != nil {
@@ -318,7 +321,7 @@ func main() {
 
 		// Create main gRPC stream for scanner-specific events.
 		grpcEventBusConfig := &grpcbus.EventBusConfig{
-			ScannerName:       scannerID,
+			ScannerName:       scannerID.String(),
 			ServiceType:       "scanner",
 			AuthToken:         authToken,
 			ConnectionTimeout: connectionTimeout,
@@ -353,7 +356,7 @@ func main() {
 
 		// Create a separate gRPC stream for broadcast events.
 		grpcBroadcastConfig := &grpcbus.EventBusConfig{
-			ScannerName:       scannerID,
+			ScannerName:       scannerID.String(),
 			ServiceType:       "scanner_broadcast",
 			AuthToken:         authToken,
 			ConnectionTimeout: connectionTimeout,
@@ -391,15 +394,17 @@ func main() {
 
 	// Now use the selected event bus and publisher for the scanner.
 
+	scannerName := hostname + "-" + "scanner"
 	// Update scannerRegistrar initialization to use the variables.
 	scannerRegistrar := scanning.NewScannerRegistrar(scanning.ScannerConfig{
-		Name:         scannerID,
+		ScannerID:    scannerID,
+		Name:         scannerName,
 		GroupName:    scannerGroupName,
 		Hostname:     hostname,
 		Version:      os.Getenv("SCANNER_VERSION"),
 		Capabilities: strings.Split(os.Getenv("SCANNER_CAPABILITIES"), ","),
 	}, eventPublisher, log, tracer)
-	if err := scannerRegistrar.Register(ctx); err != nil {
+	if err = scannerRegistrar.Register(ctx); err != nil {
 		log.Error(ctx, "failed to register scanner", "error", err)
 		os.Exit(1)
 	}
@@ -407,14 +412,14 @@ func main() {
 
 	// Start the scanner heartbeat agent.
 	// This will send heartbeat events to the controller(s) to indicate that the scanner is alive.
-	scannerHeartbeatAgent := scanning.NewScannerHeartbeatAgent(scannerID, eventPublisher, log, tracer)
+	scannerHeartbeatAgent := scanning.NewScannerHeartbeatAgent(scannerID, scannerName, eventPublisher, log, tracer)
 	if err := scannerHeartbeatAgent.Start(ctx); err != nil {
 		log.Error(ctx, "failed to start scanner heartbeat agent", "error", err)
 		os.Exit(1)
 	}
 	log.Info(ctx, "Scanner heartbeat agent started")
 
-	gitleaksScanner, err := scanner.NewGitLeaks(scannerID, eventPublisher, log, tracer, metricsCollector)
+	gitleaksScanner, err := scanner.NewGitLeaks(scannerID.String(), eventPublisher, log, tracer, metricsCollector)
 	if err != nil {
 		log.Error(ctx, "failed to create gitleaks scanner", "error", err)
 		os.Exit(1)
@@ -425,7 +430,7 @@ func main() {
 		eventBus,
 		broadcastEventBus,
 		eventPublisher,
-		progressreporter.New(scannerID, eventPublisher, tracer),
+		progressreporter.New(scannerID.String(), eventPublisher, tracer),
 		gitleaksScanner,
 		log,
 		metricsCollector,

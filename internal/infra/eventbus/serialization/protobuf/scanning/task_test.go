@@ -19,14 +19,16 @@ func TestTaskStartedEventConversion(t *testing.T) {
 	t.Run("successful conversions", func(t *testing.T) {
 		jobID := uuid.New()
 		taskID := uuid.New()
+		scannerID := uuid.New()
 		resourceURI := "test://resource"
-		domainEvent := scanning.NewTaskStartedEvent(jobID, taskID, resourceURI)
+		domainEvent := scanning.NewTaskStartedEvent(jobID, taskID, scannerID, resourceURI)
 
 		// Test domain to proto conversion.
 		protoEvent := TaskStartedEventToProto(domainEvent)
 		require.NotNil(t, protoEvent)
 		assert.Equal(t, jobID.String(), protoEvent.JobId)
 		assert.Equal(t, taskID.String(), protoEvent.TaskId)
+		assert.Equal(t, scannerID.String(), protoEvent.ScannerId)
 		assert.Equal(t, resourceURI, protoEvent.ResourceUri)
 
 		// Test proto to domain conversion.
@@ -35,6 +37,7 @@ func TestTaskStartedEventConversion(t *testing.T) {
 		require.NotNil(t, convertedEvent)
 		assert.Equal(t, jobID, convertedEvent.JobID)
 		assert.Equal(t, taskID, convertedEvent.TaskID)
+		assert.Equal(t, scannerID, convertedEvent.ScannerID)
 		assert.Equal(t, resourceURI, convertedEvent.ResourceURI)
 	})
 

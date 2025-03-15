@@ -11,12 +11,15 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
+	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 )
 
 // ScannerConfig encapsulates the configuration parameters for a scanner.
 // It contains identification and capability information that defines
 // how the scanner presents itself to the registration system.
 type ScannerConfig struct {
+	// ScannerID is the unique identifier for this scanner instance.
+	ScannerID uuid.UUID
 	// Name is the unique identifier for this scanner instance.
 	Name string
 	// GroupName is the logical group this scanner belongs to.
@@ -33,6 +36,7 @@ type ScannerConfig struct {
 // It manages scanner identity, capabilities, and publishing registration events
 // to make scanners available for scanning operations.
 type ScannerRegistrar struct {
+	scannerID        uuid.UUID
 	scannerName      string
 	scannerGroupName string
 	hostname         string
@@ -57,6 +61,7 @@ func NewScannerRegistrar(
 	tracer trace.Tracer,
 ) *ScannerRegistrar {
 	return &ScannerRegistrar{
+		scannerID:        config.ScannerID,
 		scannerName:      config.Name,
 		scannerGroupName: config.GroupName,
 		hostname:         config.Hostname,
@@ -80,15 +85,18 @@ func (s *ScannerRegistrar) Register(ctx context.Context) error {
 			attribute.String("scanner_name", s.scannerName),
 			attribute.String("hostname", s.hostname),
 			attribute.String("group_name", s.scannerGroupName),
+			attribute.String("scanner_id", s.scannerID.String()),
 		))
 	defer span.End()
 
 	s.logger.Info(ctx, "Registering scanner",
+		"scanner_id", s.scannerID.String(),
 		"scanner_name", s.scannerName,
 		"hostname", s.hostname,
 		"group_name", s.scannerGroupName)
 
 	regEvent := scanning.NewScannerRegisteredEvent(
+		s.scannerID,
 		s.scannerName,
 		s.version,
 		s.capabilities,

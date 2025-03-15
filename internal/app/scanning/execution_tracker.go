@@ -311,17 +311,19 @@ func (t *executionTracker) signalEnumerationComplete(ctx context.Context, jobID 
 // HandleTaskStart registers and initializes progress tracking for a newly started task.
 // This may transition the job's overall status to RUNNING if this is the first active task.
 func (t *executionTracker) HandleTaskStart(ctx context.Context, evt scanning.TaskStartedEvent) error {
-	taskID, jobID, resourceURI := evt.TaskID, evt.JobID, evt.ResourceURI
+	taskID, jobID, resourceURI, scannerID := evt.TaskID, evt.JobID, evt.ResourceURI, evt.ScannerID
 	ctx, span := t.tracer.Start(ctx, "execution_tracker.scanning.start_tracking",
 		trace.WithAttributes(
 			attribute.String("controller_id", t.controllerID),
 			attribute.String("task_id", taskID.String()),
+			attribute.String("scanner_id", scannerID.String()),
 			attribute.String("job_id", jobID.String()),
 			attribute.String("resource_uri", resourceURI),
 		))
 	defer span.End()
 
-	err := t.jobTaskSvc.StartTask(ctx, taskID, resourceURI)
+	cmd := domain.NewStartTaskCommand(taskID, scannerID, resourceURI)
+	err := t.jobTaskSvc.StartTask(ctx, cmd)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to start task tracking")

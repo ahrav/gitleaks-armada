@@ -144,6 +144,7 @@ func fromProtoAny(m map[string]*structpb.Value) map[string]any {
 // TaskStartedEventToProto converts a domain TaskStartedEvent to its protobuf representation.
 func TaskStartedEventToProto(event scanning.TaskStartedEvent) *pb.TaskStartedEvent {
 	return &pb.TaskStartedEvent{
+		ScannerId:   event.ScannerID.String(),
 		JobId:       event.JobID.String(),
 		TaskId:      event.TaskID.String(),
 		Timestamp:   event.OccurredAt().UnixNano(),
@@ -167,7 +168,12 @@ func ProtoToTaskStartedEvent(event *pb.TaskStartedEvent) (scanning.TaskStartedEv
 		return scanning.TaskStartedEvent{}, serializationerrors.ErrInvalidUUID{Field: "task ID", Err: err}
 	}
 
-	return scanning.NewTaskStartedEvent(jobID, taskID, event.ResourceUri), nil
+	scannerID, err := uuid.Parse(event.ScannerId)
+	if err != nil {
+		return scanning.TaskStartedEvent{}, serializationerrors.ErrInvalidUUID{Field: "scanner ID", Err: err}
+	}
+
+	return scanning.NewTaskStartedEvent(jobID, taskID, scannerID, event.ResourceUri), nil
 }
 
 // TaskProgressedEventToProto converts a domain TaskProgressedEvent to its protobuf representation.

@@ -522,6 +522,7 @@ const getScanTask = `-- name: GetScanTask :one
 SELECT
     task_id,
     job_id,
+    scanner_id,
     status,
     resource_uri,
     last_sequence_num,
@@ -544,6 +545,7 @@ WHERE task_id = $1
 type GetScanTaskRow struct {
 	TaskID           pgtype.UUID
 	JobID            pgtype.UUID
+	ScannerID        pgtype.UUID
 	Status           ScanTaskStatus
 	ResourceUri      string
 	LastSequenceNum  int64
@@ -567,6 +569,7 @@ func (q *Queries) GetScanTask(ctx context.Context, taskID pgtype.UUID) (GetScanT
 	err := row.Scan(
 		&i.TaskID,
 		&i.JobID,
+		&i.ScannerID,
 		&i.Status,
 		&i.ResourceUri,
 		&i.LastSequenceNum,
@@ -788,6 +791,7 @@ SET
     paused_at = $10,
     recovery_attempts = $11,
     start_time = $12,
+    scanner_id = $13,
     updated_at = NOW()
 WHERE task_id = $1
 `
@@ -805,6 +809,7 @@ type UpdateScanTaskParams struct {
 	PausedAt         pgtype.Timestamptz
 	RecoveryAttempts int32
 	StartTime        pgtype.Timestamptz
+	ScannerID        pgtype.UUID
 }
 
 func (q *Queries) UpdateScanTask(ctx context.Context, arg UpdateScanTaskParams) (int64, error) {
@@ -821,6 +826,7 @@ func (q *Queries) UpdateScanTask(ctx context.Context, arg UpdateScanTaskParams) 
 		arg.PausedAt,
 		arg.RecoveryAttempts,
 		arg.StartTime,
+		arg.ScannerID,
 	)
 	if err != nil {
 		return 0, err

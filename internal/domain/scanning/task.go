@@ -227,6 +227,7 @@ type Task struct {
 	jobID uuid.UUID
 
 	resourceURI string
+	scannerID   *uuid.UUID // ID of the scanner assigned to this task (nullable)
 
 	status           TaskStatus
 	stallReason      *StallReason
@@ -288,7 +289,15 @@ func (e TaskInvalidStateError) Reason() TaskInvalidStateReason { return e.reason
 
 // NewScanTask creates a new ScanTask instance for tracking an individual scan operation.
 // It establishes the task's relationship to its parent job and initializes monitoring state.
-func NewScanTask(jobID uuid.UUID, sourceType shared.SourceType, taskID uuid.UUID, resourceURI string, opts ...TaskOption) *Task {
+// The scannerID is not required at creation time and can be set later using the WithScannerID
+// option or by calling SetScannerID when a scanner is assigned to execute the task.
+func NewScanTask(
+	jobID uuid.UUID,
+	sourceType shared.SourceType,
+	taskID uuid.UUID,
+	resourceURI string,
+	opts ...TaskOption,
+) *Task {
 	task := &Task{
 		CoreTask: shared.CoreTask{
 			ID:         taskID,
@@ -296,6 +305,7 @@ func NewScanTask(jobID uuid.UUID, sourceType shared.SourceType, taskID uuid.UUID
 		},
 		jobID:           jobID,
 		resourceURI:     resourceURI,
+		scannerID:       nil, // Initially unassigned
 		status:          TaskStatusPending,
 		timeline:        NewTimeline(new(realTimeProvider)),
 		lastSequenceNum: 0,
@@ -327,6 +337,7 @@ func ReconstructTask(
 	stalledAt time.Time,
 	pausedAt time.Time,
 	recoveryAttempts int,
+	scannerID uuid.UUID,
 ) *Task {
 	return &Task{
 		CoreTask: shared.CoreTask{
@@ -345,6 +356,7 @@ func ReconstructTask(
 		stalledAt:        stalledAt,
 		pausedAt:         pausedAt,
 		recoveryAttempts: recoveryAttempts,
+		scannerID:        &scannerID,
 	}
 }
 
@@ -353,6 +365,9 @@ func (t *Task) JobID() uuid.UUID { return t.jobID }
 
 // Status returns the current execution status of the scan task.
 func (t *Task) Status() TaskStatus { return t.status }
+
+// ScannerID returns the ID of the scanner assigned to this task, or nil if unassigned.
+func (t *Task) ScannerID() *uuid.UUID { return t.scannerID }
 
 // ResourceURI returns the URI of the resource being scanned.
 func (t *Task) ResourceURI() string { return t.resourceURI }
@@ -550,6 +565,44 @@ func (t *Task) UpdateStatus(newStatus TaskStatus) error {
 	t.status = newStatus
 	return nil
 }
+
+// TaskScannerAlreadyAssignedError is an error type for indicating that a scanner is already
+// assigned to a task. This enforces the domain invariant that a task can only be assigned
+// to one scanner at a time.
+type TaskScannerAlreadyAssignedError struct {
+	taskID         uuid.UUID
+	currentScanner uuid.UUID
+	newScanner     uuid.UUID
+}
+
+// Error returns a string representation of the error.
+func (e TaskScannerAlreadyAssignedError) Error() string {
+	return fmt.Sprintf("task %s already assigned to scanner %s, cannot reassign to %s",
+		e.taskID, e.currentScanner, e.newScanner)
+}
+
+// HasScanner returns true if the task has been assigned to a scanner.
+func (t *Task) HasScanner() bool { return t.scannerID != nil }
+
+// SetScannerID assigns a scanner to this task. Returns an error if a scanner
+// is already assigned to enforce the invariant that a task can only be
+// assigned to one scanner at a time.
+func (t *Task) SetScannerID(scannerID uuid.UUID) error {
+	if t.scannerID != nil {
+		return TaskScannerAlreadyAssignedError{
+			taskID:         t.ID,
+			currentScanner: *t.scannerID,
+			newScanner:     scannerID,
+		}
+	}
+
+	id := scannerID // Make a copy
+	t.scannerID = &id
+	return nil
+}
+
+// ClearScannerID removes the scanner assignment from this task.
+func (t *Task) ClearScannerID() { t.scannerID = nil }
 
 // ----------------------------------------------------
 // Progress Handling

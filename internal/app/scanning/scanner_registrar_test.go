@@ -146,6 +146,7 @@ func TestScannerRegistrar_Register(t *testing.T) {
 				require.NoError(t, err)
 			}
 
+			require.NoError(t, err)
 			suite.domainPublisher.AssertExpectations(t)
 		})
 	}

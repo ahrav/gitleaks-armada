@@ -58,8 +58,8 @@ func (m *mockJobTaskSvc) CreateTask(ctx context.Context, task *scanning.Task) er
 	return args.Error(0)
 }
 
-func (m *mockJobTaskSvc) StartTask(ctx context.Context, taskID uuid.UUID, resourceURI string) error {
-	args := m.Called(ctx, taskID, resourceURI)
+func (m *mockJobTaskSvc) StartTask(ctx context.Context, cmd scanning.StartTaskCommand) error {
+	args := m.Called(ctx, cmd)
 	return args.Error(0)
 }
 

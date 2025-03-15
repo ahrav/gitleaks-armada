@@ -76,6 +76,7 @@ INSERT INTO scan_tasks (
 SELECT
     task_id,
     job_id,
+    scanner_id,
     status,
     resource_uri,
     last_sequence_num,
@@ -108,6 +109,7 @@ SET
     paused_at = $10,
     recovery_attempts = $11,
     start_time = $12,
+    scanner_id = $13,
     updated_at = NOW()
 WHERE task_id = $1;
 

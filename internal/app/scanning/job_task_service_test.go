@@ -606,12 +606,14 @@ func (m *mockTimeProvider) Sleep(duration time.Duration) {
 func TestStartTask(t *testing.T) {
 	jobID := uuid.MustParse("429735d7-ec1b-4d96-8749-938ca0a744be")
 	taskID := uuid.MustParse("b1f7eff4-2921-4e6c-9d88-da2de5707a2b")
+	scannerID := uuid.MustParse("8b2b37e0-da29-4aef-9c24-9dc7b22cb329")
 
 	tests := []struct {
-		name    string
-		setup   func(*mockTaskRepository)
-		taskID  uuid.UUID
-		wantErr bool
+		name      string
+		setup     func(*mockTaskRepository)
+		cmd       domain.StartTaskCommand
+		wantErr   bool
+		errorType interface{}
 	}{
 		{
 			name: "successful task start",
@@ -622,16 +624,46 @@ func TestStartTask(t *testing.T) {
 					taskID,
 					"https://github.com/org/repo",
 				)
-				// Task should be in PENDING state initially
+				// Task should be in PENDING state initially.
 				require.Equal(t, scanning.TaskStatusPending, task.Status())
 
 				repo.On("GetTask", mock.Anything, taskID).Return(task, nil)
 				repo.On("UpdateTask", mock.Anything, mock.MatchedBy(func(t *scanning.Task) bool {
-					return t.Status() == scanning.TaskStatusInProgress
+					return t.Status() == scanning.TaskStatusInProgress &&
+						t.HasScanner() &&
+						*t.ScannerID() == scannerID
 				})).Return(nil)
 			},
-			taskID:  taskID,
+			cmd: domain.StartTaskCommand{
+				ScannerID:   scannerID,
+				TaskID:      taskID,
+				ResourceURI: "https://github.com/org/repo",
+			},
 			wantErr: false,
+		},
+		{
+			name: "task already has scanner assigned",
+			setup: func(repo *mockTaskRepository) {
+				task := scanning.NewScanTask(
+					jobID,
+					shared.SourceTypeGitHub,
+					taskID,
+					"https://github.com/org/repo",
+				)
+				// Pre-assign a scanner - this is an invalid state.
+				existingScannerId := uuid.New()
+				err := task.SetScannerID(existingScannerId)
+				require.NoError(t, err)
+
+				repo.On("GetTask", mock.Anything, taskID).Return(task, nil)
+			},
+			cmd: domain.StartTaskCommand{
+				ScannerID:   scannerID,
+				TaskID:      taskID,
+				ResourceURI: "https://github.com/org/repo",
+			},
+			wantErr:   true,
+			errorType: scanning.TaskScannerAlreadyAssignedError{},
 		},
 		{
 			name: "invalid state transition",
@@ -642,14 +674,19 @@ func TestStartTask(t *testing.T) {
 					taskID,
 					"https://github.com/org/repo",
 				)
-				// Set task to FAILED state - can't transition to IN_PROGRESS from FAILED
+				// Set task to FAILED state - can't transition to IN_PROGRESS from FAILED.
 				err := task.Fail()
 				require.NoError(t, err)
 
 				repo.On("GetTask", mock.Anything, mock.Anything).Return(task, nil)
 			},
-			taskID:  taskID,
-			wantErr: true,
+			cmd: domain.StartTaskCommand{
+				ScannerID:   scannerID,
+				TaskID:      taskID,
+				ResourceURI: "https://github.com/org/repo",
+			},
+			wantErr:   true,
+			errorType: scanning.TaskInvalidStateError{},
 		},
 		{
 			name: "task not found",
@@ -657,7 +694,11 @@ func TestStartTask(t *testing.T) {
 				repo.On("GetTask", mock.Anything, mock.Anything).
 					Return(nil, assert.AnError)
 			},
-			taskID:  uuid.New(),
+			cmd: domain.StartTaskCommand{
+				ScannerID:   scannerID,
+				TaskID:      uuid.New(),
+				ResourceURI: "https://github.com/org/repo",
+			},
 			wantErr: true,
 		},
 		{
@@ -673,7 +714,11 @@ func TestStartTask(t *testing.T) {
 				repo.On("UpdateTask", mock.Anything, mock.Anything).
 					Return(assert.AnError)
 			},
-			taskID:  taskID,
+			cmd: domain.StartTaskCommand{
+				ScannerID:   scannerID,
+				TaskID:      taskID,
+				ResourceURI: "https://github.com/org/repo",
+			},
 			wantErr: true,
 		},
 	}
@@ -683,9 +728,20 @@ func TestStartTask(t *testing.T) {
 			suite := newJobTaskService(t)
 			tt.setup(suite.taskRepo.(*mockTaskRepository))
 
-			err := suite.StartTask(context.Background(), tt.taskID, "https://github.com/org/repo")
+			err := suite.StartTask(context.Background(), tt.cmd)
 			if tt.wantErr {
 				require.Error(t, err)
+				if tt.errorType != nil {
+					switch tt.errorType.(type) {
+					case scanning.TaskScannerAlreadyAssignedError:
+						var scannerErr scanning.TaskScannerAlreadyAssignedError
+						require.True(t, errors.As(err, &scannerErr), "Expected error of type TaskScannerAlreadyAssignedError, got %T", err)
+					case scanning.TaskInvalidStateError:
+						var invalidStateErr scanning.TaskInvalidStateError
+						require.True(t, errors.As(err, &invalidStateErr), "Expected error of type TaskInvalidStateError, got %T", err)
+					default:
+					}
+				}
 				return
 			}
 
@@ -723,6 +779,7 @@ func TestUpdateTaskProgress(t *testing.T) {
 					time.Time{},
 					time.Time{},
 					0,
+					uuid.New(),
 				)
 
 				repo.On("GetTask", mock.Anything, taskID).
@@ -761,6 +818,7 @@ func TestUpdateTaskProgress(t *testing.T) {
 					time.Time{},
 					time.Now(), // Completion time set
 					0,
+					uuid.New(),
 				)
 
 				repo.On("GetTask", mock.Anything, taskID).
@@ -788,6 +846,7 @@ func TestUpdateTaskProgress(t *testing.T) {
 					time.Time{},
 					time.Time{},
 					0,
+					uuid.New(),
 				)
 
 				repo.On("GetTask", mock.Anything, taskID).
@@ -815,6 +874,7 @@ func TestUpdateTaskProgress(t *testing.T) {
 					time.Time{},
 					time.Time{},
 					0,
+					uuid.New(),
 				)
 
 				repo.On("GetTask", mock.Anything, taskID).
@@ -845,6 +905,7 @@ func TestUpdateTaskProgress(t *testing.T) {
 					time.Time{},
 					time.Time{},
 					0,
+					uuid.New(),
 				)
 
 				repo.On("GetTask", mock.Anything, taskID).
@@ -874,6 +935,7 @@ func TestUpdateTaskProgress(t *testing.T) {
 					time.Time{},
 					time.Now().Add(-1*time.Hour), // Paused 1 hour ago
 					0,
+					uuid.New(),
 				)
 
 				repo.On("GetTask", mock.Anything, taskID).
@@ -1007,6 +1069,7 @@ func TestPauseTask(t *testing.T) {
 				task := scanning.NewScanTask(uuid.New(), shared.SourceTypeGitHub, uuid.New(), "test://uri")
 				err := task.Start() // Transition to IN_PROGRESS state
 				require.NoError(t, err)
+
 				m.On("GetTask", mock.Anything, mock.Anything).Return(task, nil)
 				m.On("UpdateTask", mock.Anything, mock.MatchedBy(func(t *scanning.Task) bool {
 					return t.Status() == scanning.TaskStatusPaused
@@ -1252,6 +1315,7 @@ func TestMarkTaskStale(t *testing.T) {
 					time.Time{},
 					time.Time{},
 					0,
+					uuid.New(),
 				)
 
 				repo.On("GetTask", mock.Anything, taskID).

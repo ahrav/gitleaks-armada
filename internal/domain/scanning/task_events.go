@@ -62,14 +62,16 @@ type TaskStartedEvent struct {
 	JobID       uuid.UUID
 	TaskID      uuid.UUID
 	ResourceURI string
+	ScannerID   uuid.UUID
 }
 
-func NewTaskStartedEvent(jobID, taskID uuid.UUID, resourceURI string) TaskStartedEvent {
+func NewTaskStartedEvent(jobID, taskID, scannerID uuid.UUID, resourceURI string) TaskStartedEvent {
 	return TaskStartedEvent{
 		occurredAt:  time.Now(),
 		JobID:       jobID,
 		TaskID:      taskID,
 		ResourceURI: resourceURI,
+		ScannerID:   scannerID,
 	}
 }
 

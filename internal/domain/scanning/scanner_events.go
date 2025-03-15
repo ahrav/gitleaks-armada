@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/ahrav/gitleaks-armada/internal/domain/events"
+	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 )
 
 // Event types for scanner registration and lifecycle management.
@@ -24,6 +25,7 @@ const (
 // ScannerRegisteredEvent is emitted when a scanner registers with the system.
 // It contains all information needed to identify and track the scanner.
 type ScannerRegisteredEvent struct {
+	scannerID     uuid.UUID
 	name          string
 	version       string
 	capabilities  []string
@@ -37,6 +39,7 @@ type ScannerRegisteredEvent struct {
 
 // NewScannerRegisteredEvent creates a new scanner registration event.
 func NewScannerRegisteredEvent(
+	scannerID uuid.UUID,
 	name string,
 	version string,
 	capabilities []string,
@@ -47,6 +50,7 @@ func NewScannerRegisteredEvent(
 	initialStatus ScannerStatus,
 ) ScannerRegisteredEvent {
 	return ScannerRegisteredEvent{
+		scannerID:     scannerID,
 		name:          name,
 		version:       version,
 		capabilities:  capabilities,
@@ -58,6 +62,9 @@ func NewScannerRegisteredEvent(
 		occurredAt:    time.Now().UTC(),
 	}
 }
+
+// ScannerID returns the scanner's unique identifier.
+func (e ScannerRegisteredEvent) ScannerID() uuid.UUID { return e.scannerID }
 
 // EventType returns the type of this event.
 func (e ScannerRegisteredEvent) EventType() events.EventType { return EventTypeScannerRegistered }
@@ -91,6 +98,7 @@ func (e ScannerRegisteredEvent) InitialStatus() ScannerStatus { return e.initial
 
 // ScannerHeartbeatEvent is emitted periodically by scanners to indicate they're still alive.
 type ScannerHeartbeatEvent struct {
+	scannerID   uuid.UUID
 	scannerName string
 	status      ScannerStatus
 	metrics     map[string]float64 // Optional metrics about scanner health/performance
@@ -99,17 +107,22 @@ type ScannerHeartbeatEvent struct {
 
 // NewScannerHeartbeatEvent creates a new scanner heartbeat event.
 func NewScannerHeartbeatEvent(
+	scannerID uuid.UUID,
 	scannerName string,
 	status ScannerStatus,
 	metrics map[string]float64,
 ) ScannerHeartbeatEvent {
 	return ScannerHeartbeatEvent{
+		scannerID:   scannerID,
 		scannerName: scannerName,
 		status:      status,
 		metrics:     metrics,
 		occurredAt:  time.Now().UTC(),
 	}
 }
+
+// ScannerID returns the scanner's unique identifier.
+func (e ScannerHeartbeatEvent) ScannerID() uuid.UUID { return e.scannerID }
 
 // EventType returns the type of this event.
 func (e ScannerHeartbeatEvent) EventType() events.EventType { return EventTypeScannerHeartbeat }
@@ -128,6 +141,7 @@ func (e ScannerHeartbeatEvent) Metrics() map[string]float64 { return e.metrics }
 
 // ScannerStatusChangedEvent is emitted when a scanner's status changes.
 type ScannerStatusChangedEvent struct {
+	scannerID      uuid.UUID
 	occurredAt     time.Time
 	scannerName    string
 	newStatus      ScannerStatus
@@ -137,12 +151,14 @@ type ScannerStatusChangedEvent struct {
 
 // NewScannerStatusChangedEvent creates a new scanner status changed event.
 func NewScannerStatusChangedEvent(
+	scannerID uuid.UUID,
 	scannerName string,
 	newStatus ScannerStatus,
 	previousStatus ScannerStatus,
 	reason string,
 ) ScannerStatusChangedEvent {
 	return ScannerStatusChangedEvent{
+		scannerID:      scannerID,
 		occurredAt:     time.Now().UTC(),
 		scannerName:    scannerName,
 		newStatus:      newStatus,
@@ -150,6 +166,9 @@ func NewScannerStatusChangedEvent(
 		reason:         reason,
 	}
 }
+
+// ScannerID returns the scanner's unique identifier.
+func (e ScannerStatusChangedEvent) ScannerID() uuid.UUID { return e.scannerID }
 
 // EventType returns the type of this event.
 func (e ScannerStatusChangedEvent) EventType() events.EventType { return EventTypeScannerStatusChanged }
@@ -171,6 +190,7 @@ func (e ScannerStatusChangedEvent) Reason() string { return e.reason }
 
 // ScannerDeregisteredEvent is emitted when a scanner gracefully deregisters from the system.
 type ScannerDeregisteredEvent struct {
+	scannerID   uuid.UUID
 	occurredAt  time.Time
 	scannerName string
 	reason      string
@@ -178,11 +198,20 @@ type ScannerDeregisteredEvent struct {
 
 // NewScannerDeregisteredEvent creates a new scanner deregistration event.
 func NewScannerDeregisteredEvent(
+	scannerID uuid.UUID,
 	scannerName string,
 	reason string,
 ) ScannerDeregisteredEvent {
-	return ScannerDeregisteredEvent{occurredAt: time.Now().UTC(), scannerName: scannerName, reason: reason}
+	return ScannerDeregisteredEvent{
+		scannerID:   scannerID,
+		occurredAt:  time.Now().UTC(),
+		scannerName: scannerName,
+		reason:      reason,
+	}
 }
+
+// ScannerID returns the scanner's unique identifier.
+func (e ScannerDeregisteredEvent) ScannerID() uuid.UUID { return e.scannerID }
 
 // EventType returns the type of this event.
 func (e ScannerDeregisteredEvent) EventType() events.EventType { return EventTypeScannerDeregistered }

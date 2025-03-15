@@ -13,6 +13,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/common/timeutil"
+	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 )
 
 // TestScannerHeartbeatAgent_Start verifies the heartbeat agent
@@ -23,10 +24,12 @@ func TestScannerHeartbeatAgent_Start(t *testing.T) {
 
 	mockTime := timeutil.NewMock(time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC))
 	eventPublisher := new(mockEventPublisher)
-	scannerID := "test-scanner"
+	scannerID := uuid.New()
+	scannerName := "test-scanner"
 
 	heartbeatAgent := NewScannerHeartbeatAgent(
 		scannerID,
+		scannerName,
 		eventPublisher,
 		logger.Noop(),
 		noop.NewTracerProvider().Tracer("test"),
@@ -60,7 +63,8 @@ func TestScannerHeartbeatAgent_Start(t *testing.T) {
 	if assert.GreaterOrEqual(t, len(eventPublisher.publishedEvents), 1) {
 		evt, ok := eventPublisher.publishedEvents[0].(scanning.ScannerHeartbeatEvent)
 		require.True(t, ok, "Expected first event to be a ScannerHeartbeatEvent")
-		assert.Equal(t, scannerID, evt.ScannerName(), "Expected scanner ID to match")
+		assert.Equal(t, scannerID, evt.ScannerID(), "Expected scanner ID to match")
+		assert.Equal(t, scannerName, evt.ScannerName(), "Expected scanner name to match")
 		assert.Equal(t, scanning.ScannerStatusOnline, evt.Status(), "Expected scanner status to be online")
 		assert.NotEmpty(t, evt.Metrics(), "Expected metrics to be populated")
 	}
@@ -69,12 +73,14 @@ func TestScannerHeartbeatAgent_Start(t *testing.T) {
 // TestScannerHeartbeatAgent_UpdateMetrics verifies custom metrics
 // are included in heartbeat events when they are set.
 func TestScannerHeartbeatAgent_UpdateMetrics(t *testing.T) {
-	scannerID := "test-scanner"
+	scannerID := uuid.New()
+	scannerName := "test-scanner"
 	mockTime := timeutil.NewMock(time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC))
 	eventPublisher := new(mockEventPublisher)
 
 	heartbeatAgent := NewScannerHeartbeatAgent(
 		scannerID,
+		scannerName,
 		eventPublisher,
 		logger.Noop(),
 		noop.NewTracerProvider().Tracer("test"),
@@ -105,7 +111,8 @@ func TestScannerHeartbeatAgent_UpdateMetrics(t *testing.T) {
 // TestScannerHeartbeatAgent_SendHeartbeatError tests error handling
 // when publishing a heartbeat event fails.
 func TestScannerHeartbeatAgent_SendHeartbeatError(t *testing.T) {
-	scannerID := "test-scanner"
+	scannerID := uuid.New()
+	scannerName := "test-scanner"
 	mockTime := timeutil.NewMock(time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC))
 
 	expectedErr := assert.AnError
@@ -116,6 +123,7 @@ func TestScannerHeartbeatAgent_SendHeartbeatError(t *testing.T) {
 
 	heartbeatAgent := NewScannerHeartbeatAgent(
 		scannerID,
+		scannerName,
 		eventPublisher,
 		logger.Noop(),
 		noop.NewTracerProvider().Tracer("test"),
@@ -130,12 +138,14 @@ func TestScannerHeartbeatAgent_SendHeartbeatError(t *testing.T) {
 // TestScannerHeartbeatAgent_SendHeartbeatContent verifies the content
 // of the heartbeat event that is published.
 func TestScannerHeartbeatAgent_SendHeartbeatContent(t *testing.T) {
-	scannerID := "test-scanner"
+	scannerID := uuid.New()
+	scannerName := "test-scanner"
 	mockTime := timeutil.NewMock(time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC))
 	eventPublisher := new(mockEventPublisher)
 
 	heartbeatAgent := NewScannerHeartbeatAgent(
 		scannerID,
+		scannerName,
 		eventPublisher,
 		logger.Noop(),
 		noop.NewTracerProvider().Tracer("test"),
@@ -156,7 +166,8 @@ func TestScannerHeartbeatAgent_SendHeartbeatContent(t *testing.T) {
 		require.True(t, ok, "Expected event to be a ScannerHeartbeatEvent")
 
 		// Verify scanner ID and status.
-		assert.Equal(t, scannerID, evt.ScannerName(), "Expected scanner ID to match")
+		assert.Equal(t, scannerID, evt.ScannerID(), "Expected scanner ID to match")
+		assert.Equal(t, scannerName, evt.ScannerName(), "Expected scanner name to match")
 		assert.Equal(t, scanning.ScannerStatusOnline, evt.Status(), "Expected scanner status to be online")
 
 		// Verify metrics.

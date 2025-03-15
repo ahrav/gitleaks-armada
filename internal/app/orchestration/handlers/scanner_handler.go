@@ -110,14 +110,15 @@ func (h *ScannerHandler) HandleScannerRegistered(
 			return recordPayloadTypeError(span, evt.Payload)
 		}
 
-		groupName := regEvent.GroupName()
+		scannerID, groupName := regEvent.ScannerID(), regEvent.GroupName()
 		span.SetAttributes(
 			attribute.String("scanner_name", regEvent.Name()),
+			attribute.String("scanner_id", scannerID.String()),
 			attribute.String("scanner_group", groupName),
 			attribute.String("scanner_version", regEvent.Version()),
 		)
 
-		cmd := scanning.NewCreateScannerCommand(groupName, regEvent.Name(), regEvent.Version(), nil)
+		cmd := scanning.NewCreateScannerCommand(scannerID, groupName, regEvent.Name(), regEvent.Version(), nil)
 		scanner, err := h.scannerService.CreateScanner(ctx, cmd)
 		if err != nil {
 			return fmt.Errorf("failed to register scanner: %w", err)

@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ahrav/gitleaks-armada/internal/domain/shared"
+	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 )
 
 func TestNewScanTask(t *testing.T) {
@@ -322,6 +322,7 @@ func TestTask_Fail(t *testing.T) {
 				time.Time{},
 				time.Time{},
 				0,
+				uuid.New(),
 			),
 			wantErr: false,
 		},
@@ -343,6 +344,7 @@ func TestTask_Fail(t *testing.T) {
 				time.Time{},
 				time.Time{},
 				0,
+				uuid.New(),
 			),
 			wantErr: false,
 		},
@@ -364,6 +366,7 @@ func TestTask_Fail(t *testing.T) {
 				time.Time{},
 				time.Time{},
 				0,
+				uuid.New(),
 			),
 			wantErr: true,
 			errType: TaskInvalidStateError{},
@@ -386,6 +389,7 @@ func TestTask_Fail(t *testing.T) {
 				time.Time{},
 				time.Time{},
 				0,
+				uuid.New(),
 			),
 			wantErr: true,
 			errType: TaskInvalidStateError{},
@@ -448,6 +452,7 @@ func TestTask_MarkStale(t *testing.T) {
 				time.Time{},
 				time.Time{},
 				0,
+				uuid.New(),
 			),
 			reason:  ReasonPtr(StallReasonNoProgress),
 			wantErr: false,
@@ -470,6 +475,7 @@ func TestTask_MarkStale(t *testing.T) {
 				time.Time{},
 				time.Time{},
 				0,
+				uuid.New(),
 			),
 			reason:  ReasonPtr(StallReasonNoProgress),
 			wantErr: true,
@@ -492,6 +498,7 @@ func TestTask_MarkStale(t *testing.T) {
 				time.Time{},
 				time.Time{},
 				0,
+				uuid.New(),
 			),
 			reason:  ReasonPtr(StallReasonNoProgress),
 			wantErr: true,
@@ -514,6 +521,7 @@ func TestTask_MarkStale(t *testing.T) {
 				time.Time{},
 				time.Time{},
 				0,
+				uuid.New(),
 			),
 			reason:  ReasonPtr(StallReasonNoProgress),
 			wantErr: true,
@@ -1148,6 +1156,95 @@ func TestTask_Cancel(t *testing.T) {
 			}
 
 			assert.Equal(t, tt.expectedStatus, task.Status(), "final status should match expected")
+		})
+	}
+}
+
+func TestTask_SetScannerID(t *testing.T) {
+	t.Parallel()
+
+	jobID := uuid.New()
+	taskID := uuid.New()
+	resourceURI := "https://github.com/org/repo"
+
+	tests := []struct {
+		name      string
+		setupTask func() *Task
+		scannerID uuid.UUID
+		wantErr   bool
+		errType   error
+		verify    func(*testing.T, *Task, uuid.UUID)
+	}{
+		{
+			name: "should set scanner ID when not already set",
+			setupTask: func() *Task {
+				return NewScanTask(jobID, shared.SourceTypeGitHub, taskID, resourceURI)
+			},
+			scannerID: uuid.New(),
+			wantErr:   false,
+			verify: func(t *testing.T, task *Task, scannerID uuid.UUID) {
+				assert.True(t, task.HasScanner())
+				assert.Equal(t, scannerID, *task.ScannerID())
+			},
+		},
+		{
+			name: "should not allow reassignment of scanner ID",
+			setupTask: func() *Task {
+				task := NewScanTask(jobID, shared.SourceTypeGitHub, taskID, resourceURI)
+				originalScannerID := uuid.New()
+				_ = task.SetScannerID(originalScannerID)
+				return task
+			},
+			scannerID: uuid.New(),
+			wantErr:   true,
+			errType:   TaskScannerAlreadyAssignedError{},
+			verify: func(t *testing.T, task *Task, scannerID uuid.UUID) {
+				// Current scanner ID should still be the original one
+				assert.NotEqual(t, scannerID, *task.ScannerID())
+			},
+		},
+		{
+			name: "should allow setting scanner ID after clearing",
+			setupTask: func() *Task {
+				task := NewScanTask(jobID, shared.SourceTypeGitHub, taskID, resourceURI)
+				originalScannerID := uuid.New()
+				_ = task.SetScannerID(originalScannerID)
+				task.ClearScannerID()
+				return task
+			},
+			scannerID: uuid.New(),
+			wantErr:   false,
+			verify: func(t *testing.T, task *Task, scannerID uuid.UUID) {
+				assert.True(t, task.HasScanner())
+				assert.Equal(t, scannerID, *task.ScannerID())
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			task := tt.setupTask()
+			err := task.SetScannerID(tt.scannerID)
+
+			if tt.wantErr {
+				assert.Error(t, err)
+				if tt.errType != nil {
+					assert.IsType(t, tt.errType, err)
+
+					if scannerErr, ok := err.(TaskScannerAlreadyAssignedError); ok {
+						assert.Equal(t, taskID, scannerErr.taskID)
+						assert.Equal(t, tt.scannerID, scannerErr.newScanner)
+					}
+				}
+			} else {
+				assert.NoError(t, err)
+			}
+
+			if tt.verify != nil {
+				tt.verify(t, task, tt.scannerID)
+			}
 		})
 	}
 }

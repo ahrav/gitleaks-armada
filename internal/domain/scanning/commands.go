@@ -60,6 +60,18 @@ func NewAssociateEnumeratedTargetsCommand(jobID uuid.UUID, targetIDs []uuid.UUID
 	return AssociateEnumeratedTargetsCommand{JobID: jobID, TargetIDs: targetIDs}
 }
 
+// StartTaskCommand encapsulates all information needed to start a task.
+type StartTaskCommand struct {
+	ScannerID   uuid.UUID // The scanner to start the task on
+	TaskID      uuid.UUID // The task to start
+	ResourceURI string    // The resource to scan
+}
+
+// NewStartTaskCommand creates a new StartTaskCommand.
+func NewStartTaskCommand(scannerID uuid.UUID, taskID uuid.UUID, resourceURI string) StartTaskCommand {
+	return StartTaskCommand{ScannerID: scannerID, TaskID: taskID, ResourceURI: resourceURI}
+}
+
 // PauseTaskCommand encapsulates all information needed to pause a task and store its
 // final progress checkpoint.
 type PauseTaskCommand struct {
@@ -86,6 +98,7 @@ func NewCreateScannerGroupCommand(name, description string) CreateScannerGroupCo
 
 // CreateScannerCommand encapsulates all information needed to register a new scanner.
 type CreateScannerCommand struct {
+	ScannerID uuid.UUID      // The unique identifier for the scanner
 	GroupName string         // The group this scanner belongs to
 	Name      string         // Human-readable name for the scanner
 	Version   string         // Software version of the scanner
@@ -94,12 +107,14 @@ type CreateScannerCommand struct {
 
 // NewCreateScannerCommand creates a new CreateScannerCommand.
 func NewCreateScannerCommand(
+	scannerID uuid.UUID,
 	groupName string,
 	name string,
 	version string,
 	metadata map[string]any,
 ) CreateScannerCommand {
 	return CreateScannerCommand{
+		ScannerID: scannerID,
 		GroupName: groupName,
 		Name:      name,
 		Version:   version,

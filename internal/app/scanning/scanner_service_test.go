@@ -262,7 +262,8 @@ func TestCreateScanner(t *testing.T) {
 			service, mockRepo := newScannerService(t)
 			tt.setup(mockRepo)
 
-			cmd := domain.NewCreateScannerCommand(tt.groupName, tt.scannerName, tt.version, tt.metadata)
+			scannerID := uuid.New()
+			cmd := domain.NewCreateScannerCommand(scannerID, tt.groupName, tt.scannerName, tt.version, tt.metadata)
 			scanner, err := service.CreateScanner(context.Background(), cmd)
 
 			if tt.wantErr {
@@ -273,7 +274,7 @@ func TestCreateScanner(t *testing.T) {
 				require.NotNil(t, scanner)
 				assert.Equal(t, tt.scannerName, scanner.Name())
 				assert.Equal(t, tt.version, scanner.Version())
-				assert.NotEqual(t, uuid.UUID{}, scanner.ID())
+				assert.Equal(t, scannerID, scanner.ID())
 
 				assert.NotNil(t, scanner.Metadata())
 			}

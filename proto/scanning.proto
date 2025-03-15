@@ -175,6 +175,7 @@ message TaskStartedEvent {
   string task_id = 2;      // Unique identifier for this task
   string resource_uri = 3; // URI/location of the resource being scanned
   int64 timestamp = 4; // When task was started (Unix timestamp in nanoseconds)
+  string scanner_id = 5; // ID of the scanner assigned to this task (optional)
 }
 
 // TaskProgressedEvent provides incremental updates during task execution.
@@ -219,10 +220,10 @@ message TaskCompletedEvent {
 // TaskFailedEvent indicates that a task encountered an unrecoverable error.
 // This terminal state means the task could not be completed successfully.
 message TaskFailedEvent {
-  string job_id = 1;   // Parent job identifier
-  string task_id = 2;  // Unique identifier for this task
-  int64 timestamp = 3; // When task failed (Unix timestamp in nanoseconds)
-  string reason = 4;   // Description of what caused the failure
+  string job_id = 1;     // Parent job identifier
+  string task_id = 2;    // Unique identifier for this task
+  int64 timestamp = 3;   // When task failed (Unix timestamp in nanoseconds)
+  string reason = 4;     // Description of what caused the failure
 }
 
 // TaskHeartbeatEvent provides periodic signals that a task is still being
@@ -246,7 +247,7 @@ message TaskResumeEvent {
   string resource_uri = 5;   // URI/location of the resource to scan
   int64 sequence_num = 6;    // Sequence number for ordering
   Checkpoint checkpoint = 7; // Data needed to resume from the correct position
-  shared.Auth auth = 8; // Authentication details needed to access the resource
+  shared.Auth auth = 8;  // Authentication details needed to access the resource
 }
 
 // TaskJobMetricEvent provides status updates for job-level metrics tracking.
@@ -296,29 +297,31 @@ enum ScannerStatus {
 // This event establishes a scanner's presence and capabilities in the scanning
 // fleet.
 message ScannerRegisteredEvent {
-  string scanner_name = 1; // Unique name of the scanner instance
-  string version = 2;      // Scanner software version
+  string scanner_id = 1;   // Unique identifier for the scanner instance
+  string scanner_name = 2; // Unique name of the scanner instance
+  string version = 3;      // Scanner software version
   repeated string capabilities =
-      3;                 // What types of scanning this instance can perform
-  string group_name = 4; // Optional: if not provided, assigned to default group
-  string hostname = 5;   // Host where scanner is running
-  string ip_address = 6; // Network address of the scanner
+      4;                 // What types of scanning this instance can perform
+  string group_name = 5; // Optional: if not provided, assigned to default group
+  string hostname = 6;   // Host where scanner is running
+  string ip_address = 7; // Network address of the scanner
   int64 timestamp =
-      7; // When registration occurred (Unix timestamp in nanoseconds)
-  map<string, string> tags = 8; // Labels for filtering and grouping scanners
-  ScannerStatus initial_status = 9; // Initial status of the scanner
+      8; // When registration occurred (Unix timestamp in nanoseconds)
+  map<string, string> tags = 9; // Labels for filtering and grouping scanners
+  ScannerStatus initial_status = 10; // Initial status of the scanner
 }
 
 // ScannerHeartbeatEvent is emitted periodically by scanners to indicate they're
 // still alive. These events are critical for detecting scanner failures and
 // maintaining an accurate view of scanner availability in the system.
 message ScannerHeartbeatEvent {
-  string scanner_name = 1;  // Unique name of the scanner instance
-  ScannerStatus status = 2; // Current operational status
+  string scanner_id = 1;    // Unique identifier for the scanner instance
+  string scanner_name = 2;  // Unique name of the scanner instance
+  ScannerStatus status = 3; // Current operational status
   int64 timestamp =
-      3; // When heartbeat was sent (Unix timestamp in nanoseconds)
+      4; // When heartbeat was sent (Unix timestamp in nanoseconds)
   map<string, double> metrics =
-      4; // Optional metrics about scanner health/performance
+      5; // Optional metrics about scanner health/performance
          // Examples: CPU usage, memory utilization, scan throughput
 }
 
@@ -326,19 +329,21 @@ message ScannerHeartbeatEvent {
 // This event allows the system to track scanner fleet health and adapt task
 // assignments based on scanner availability.
 message ScannerStatusChangedEvent {
-  string scanner_name = 1;           // Unique name of the scanner instance
-  ScannerStatus new_status = 2;      // New operational status
-  ScannerStatus previous_status = 3; // Status before this change
-  string reason = 4;                 // Explanation for the status change
-  int64 timestamp = 5; // When status changed (Unix timestamp in nanoseconds)
+  string scanner_id = 1;        // Unique identifier for the scanner instance
+  string scanner_name = 2;      // Unique name of the scanner instance
+  ScannerStatus new_status = 3; // New operational status
+  ScannerStatus previous_status = 4; // Status before this change
+  string reason = 5;                 // Explanation for the status change
+  int64 timestamp = 6; // When status changed (Unix timestamp in nanoseconds)
 }
 
 // ScannerDeregisteredEvent is emitted when a scanner gracefully deregisters
 // from the system. This event allows for cleanup of scanner resources and
 // redistribution of any assigned tasks to other available scanners.
 message ScannerDeregisteredEvent {
-  string scanner_name = 1; // Unique name of the scanner instance
-  string reason = 2;       // Why the scanner is being deregistered
+  string scanner_id = 1;   // Unique identifier for the scanner instance
+  string scanner_name = 2; // Unique name of the scanner instance
+  string reason = 3;       // Why the scanner is being deregistered
   int64 timestamp =
-      3; // When deregistration occurred (Unix timestamp in nanoseconds)
+      4; // When deregistration occurred (Unix timestamp in nanoseconds)
 }

@@ -13,13 +13,15 @@ import (
 	"github.com/ahrav/gitleaks-armada/internal/domain/scanning"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/common/timeutil"
+	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 )
 
 // ScannerHeartbeatAgent handles periodic heartbeat signals for a scanner.
 // It monitors scanner health and reports metrics to the system, ensuring
 // the orchestrator knows which scanners are available and functional.
 type ScannerHeartbeatAgent struct {
-	scannerID string
+	scannerID   uuid.UUID
+	scannerName string
 
 	scannerMetrics map[string]float64 // Custom metrics specific to this scanner instance
 	eventPublisher events.DomainEventPublisher
@@ -33,13 +35,15 @@ type ScannerHeartbeatAgent struct {
 // NewScannerHeartbeatAgent creates a new heartbeat agent for monitoring scanner health.
 // It configures the agent with required dependencies and initializes internal state.
 func NewScannerHeartbeatAgent(
-	scannerID string,
+	scannerID uuid.UUID,
+	scannerName string,
 	eventPublisher events.DomainEventPublisher,
 	logger *logger.Logger,
 	tracer trace.Tracer,
 ) *ScannerHeartbeatAgent {
 	return &ScannerHeartbeatAgent{
 		scannerID:      scannerID,
+		scannerName:    scannerName,
 		eventPublisher: eventPublisher,
 		interval:       10 * time.Second, // Default interval, could be made configurable
 		logger:         logger.With("component", "scanner_heartbeat"),
@@ -55,7 +59,7 @@ func NewScannerHeartbeatAgent(
 func (s *ScannerHeartbeatAgent) Start(ctx context.Context) error {
 	ctx, span := s.tracer.Start(ctx, "scanner_heartbeat.start")
 	defer span.End()
-	s.logger.Info(ctx, "Starting scanner heartbeat manager", "scanner_id", s.scannerID)
+	s.logger.Info(ctx, "Starting scanner heartbeat manager", "scanner_id", s.scannerID.String())
 
 	// Send initial heartbeat immediately rather than waiting for first tick.
 	if err := s.sendHeartbeat(ctx); err != nil {
@@ -96,7 +100,7 @@ func (s *ScannerHeartbeatAgent) Start(ctx context.Context) error {
 func (s *ScannerHeartbeatAgent) sendHeartbeat(ctx context.Context) error {
 	ctx, span := s.tracer.Start(ctx, "scanner_heartbeat.send",
 		trace.WithAttributes(
-			attribute.String("scanner_id", s.scannerID),
+			attribute.String("scanner_id", s.scannerID.String()),
 		))
 	defer span.End()
 
@@ -113,18 +117,19 @@ func (s *ScannerHeartbeatAgent) sendHeartbeat(ctx context.Context) error {
 
 	event := scanning.NewScannerHeartbeatEvent(
 		s.scannerID,
+		s.scannerName,
 		scanning.ScannerStatusOnline,
 		metrics,
 	)
 
 	err := s.eventPublisher.PublishDomainEvent(ctx, event,
-		events.WithKey(s.scannerID))
+		events.WithKey(s.scannerID.String()))
 	if err != nil {
 		span.RecordError(err)
 		return err
 	}
 
-	s.logger.Debug(ctx, "Scanner heartbeat sent", "scanner_id", s.scannerID, "timestamp", s.timeProvider.Now())
+	s.logger.Debug(ctx, "Scanner heartbeat sent", "scanner_id", s.scannerID.String(), "timestamp", s.timeProvider.Now())
 	return nil
 }
 

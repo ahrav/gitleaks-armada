@@ -304,20 +304,28 @@ func (s *jobTaskService) CreateTask(ctx context.Context, task *domain.Task) erro
 }
 
 // StartTask transitions a task from a pending state to running and persists the update.
-func (s *jobTaskService) StartTask(ctx context.Context, taskID uuid.UUID, resourceURI string) error {
+func (s *jobTaskService) StartTask(ctx context.Context, cmd domain.StartTaskCommand) error {
 	ctx, span := s.tracer.Start(ctx, "job_task_service.scanning.start_task",
 		trace.WithAttributes(
 			attribute.String("controller_id", s.controllerID),
-			attribute.String("task_id", taskID.String()),
+			attribute.String("task_id", cmd.TaskID.String()),
+			attribute.String("scanner_id", cmd.ScannerID.String()),
 		))
 	defer span.End()
 
-	task, err := s.loadTask(ctx, taskID)
+	task, err := s.loadTask(ctx, cmd.TaskID)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to load task")
 		return fmt.Errorf("load task: %w", err)
 	}
+
+	if err := task.SetScannerID(cmd.ScannerID); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to assign scanner")
+		return fmt.Errorf("failed to assign scanner: %w", err)
+	}
+	span.AddEvent("scanner_assigned")
 
 	if err := task.Start(); err != nil {
 		span.RecordError(err)
@@ -325,7 +333,6 @@ func (s *jobTaskService) StartTask(ctx context.Context, taskID uuid.UUID, resour
 		return fmt.Errorf("start task failed: %w", err)
 	}
 
-	// Persist the updated task state
 	if err := s.taskRepo.UpdateTask(ctx, task); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to persist task update")

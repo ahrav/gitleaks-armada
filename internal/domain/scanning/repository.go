@@ -90,6 +90,10 @@ type TaskRepository interface {
 	// UpdateTask persists changes to an existing task's state.
 	UpdateTask(ctx context.Context, task *Task) error
 
+	// UpdateTaskScanner updates just the scanner_id for a task.
+	// This is used when a task is reassigned to a different scanner.
+	// UpdateTaskScanner(ctx context.Context, taskID uuid.UUID, scannerID *uuid.UUID) error
+
 	// FindStaleTasks retrieves tasks that have not sent a heartbeat since the given cutoff time
 	// and belong to the specified controller.
 	FindStaleTasks(ctx context.Context, controllerID string, cutoff time.Time) ([]StaleTaskInfo, error)
