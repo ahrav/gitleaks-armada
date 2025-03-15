@@ -327,7 +327,7 @@ func (t *executionTracker) HandleTaskStart(ctx context.Context, evt scanning.Tas
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to start task tracking")
-		return fmt.Errorf("start task failed (controller_id: %s): %w", t.controllerID, err)
+		return fmt.Errorf("start task failed: %w", err)
 	}
 	span.AddEvent("task_started")
 	span.SetStatus(codes.Ok, "tracking started")

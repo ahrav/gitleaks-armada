@@ -101,7 +101,7 @@ func (h *ScanningHandler) HandleEvent(
 	// Health and metrics events.
 	case scanning.EventTypeTaskHeartbeat:
 		return h.HandleTaskHeartbeat(ctx, evt, ack)
-	case scanning.EventTypeTaskJobMetric:
+	case scanning.EventTypeTaskJobMetric, scanning.EventTypeJobEnumerationCompleted:
 		return h.HandleTaskJobMetric(ctx, evt, ack)
 
 	default:
@@ -396,12 +396,16 @@ func (h *ScanningHandler) HandleTaskStarted(
 		span.AddEvent("task_started_tracking", trace.WithAttributes(
 			attribute.String("task_id", startedEvt.TaskID.String()),
 			attribute.String("job_id", startedEvt.JobID.String()),
+			attribute.String("scanner_id", startedEvt.ScannerID.String()),
 			attribute.String("resource_uri", startedEvt.ResourceURI),
 		))
 
 		if err := h.executionTracker.HandleTaskStart(ctx, startedEvt); err != nil {
-			return fmt.Errorf("failed to start tracking task (task_id: %s, job_id: %s, resource_uri: %s, partition: %d, offset: %d): %w",
-				startedEvt.TaskID, startedEvt.JobID, startedEvt.ResourceURI, evt.Metadata.Partition, evt.Metadata.Offset, err)
+			return fmt.Errorf(
+				"failed to start tracking task (task_id: %s, job_id: %s, scanner_id: %s, "+
+					"resource_uri: %s, partition: %d, offset: %d): %w",
+				startedEvt.TaskID, startedEvt.JobID, startedEvt.ScannerID,
+				startedEvt.ResourceURI, evt.Metadata.Partition, evt.Metadata.Offset, err)
 		}
 
 		span.AddEvent("task_started_tracking_completed")

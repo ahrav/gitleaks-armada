@@ -36,6 +36,7 @@ import (
 	"github.com/ahrav/gitleaks-armada/pkg/common"
 	"github.com/ahrav/gitleaks-armada/pkg/common/logger"
 	"github.com/ahrav/gitleaks-armada/pkg/common/otel"
+	"github.com/ahrav/gitleaks-armada/pkg/common/uuid"
 )
 
 const (
@@ -50,6 +51,8 @@ func main() {
 		log.Fatalf("failed to get hostname: %v", err)
 	}
 
+	controllerID := uuid.New()
+
 	var log *logger.Logger
 
 	logEvents := logger.Events{
@@ -58,6 +61,7 @@ func main() {
 				"error_message": r.Message,
 				"error_time":    r.Time.UTC().Format(time.RFC3339),
 				"trace_id":      otel.GetTraceID(ctx),
+				"controller_id": controllerID,
 			}
 
 			// Add any error-specific attributes.
@@ -83,11 +87,11 @@ func main() {
 
 	svcName := fmt.Sprintf("CONTROLLER-%s", hostname)
 	metadata := map[string]string{
-		"service":   svcName,
-		"hostname":  hostname,
-		"pod":       os.Getenv("POD_NAME"),
-		"namespace": os.Getenv("POD_NAMESPACE"),
-		"app":       serviceType,
+		"service":       svcName,
+		"hostname":      hostname,
+		"pod":           os.Getenv("POD_NAME"),
+		"namespace":     os.Getenv("POD_NAMESPACE"),
+		"controller_id": controllerID.String(),
 	}
 
 	// TODO: Adjust the min log level via env var.
@@ -204,7 +208,7 @@ func main() {
 		LeaderLockID: "controller-leader-lock",
 		Identity:     podName,
 		Name:         serviceType,
-		WorkerName:   "worker",
+		WorkerName:   controllerID.String(),
 	}
 
 	coord, err := kubernetes.NewCoordinator(hostname, cfg, log, tracer)
@@ -224,7 +228,7 @@ func main() {
 	kafkaClient, err := kafka.NewClient(&kafka.ClientConfig{
 		Brokers:     strings.Split(os.Getenv("KAFKA_BROKERS"), ","),
 		GroupID:     os.Getenv("KAFKA_GROUP_ID"),
-		ClientID:    svcName,
+		ClientID:    controllerID.String(),
 		ServiceType: serviceType,
 	})
 	if err != nil {
@@ -237,7 +241,7 @@ func main() {
 	broadcastClient, err := kafka.NewClient(&kafka.ClientConfig{
 		Brokers:     strings.Split(os.Getenv("KAFKA_BROKERS"), ","),
 		GroupID:     fmt.Sprintf("controller-broadcast-%s", hostname),
-		ClientID:    fmt.Sprintf("controller-broadcast-%s", hostname),
+		ClientID:    fmt.Sprintf("controller-broadcast-%s", controllerID.String()),
 		ServiceType: serviceType,
 	})
 	if err != nil {
@@ -258,7 +262,7 @@ func main() {
 		JobLifecycleTopic:     os.Getenv("KAFKA_JOB_LIFECYCLE_TOPIC"),
 		ScannerLifecycleTopic: os.Getenv("KAFKA_SCANNER_LIFECYCLE_TOPIC"),
 		GroupID:               os.Getenv("KAFKA_GROUP_ID"),
-		ClientID:              svcName,
+		ClientID:              controllerID.String(),
 		ServiceType:           serviceType,
 	}
 
@@ -266,7 +270,7 @@ func main() {
 	broadcastCfg := &kafka.EventBusConfig{
 		JobBroadcastTopic: os.Getenv("KAFKA_JOB_BROADCAST_TOPIC"),
 		GroupID:           fmt.Sprintf("controller-broadcast-%s", hostname),
-		ClientID:          fmt.Sprintf("controller-broadcast-%s", hostname),
+		ClientID:          fmt.Sprintf("controller-broadcast-%s", controllerID.String()),
 		ServiceType:       serviceType,
 	}
 
@@ -310,11 +314,11 @@ func main() {
 	enumStateStorage := enumStore.NewEnumerationSessionStateStore(pool, checkpointStorage, tracer)
 	eventPublisher := kafka.NewDomainEventPublisher(eventBus, domainEventTranslator)
 	broadcastPublisher := kafka.NewDomainEventPublisher(broadcastEventBus, domainEventTranslator)
-	enumFactory := enumeration.NewEnumerationFactory(hostname, http.DefaultClient, log, tracer)
+	enumFactory := enumeration.NewEnumerationFactory(controllerID.String(), http.DefaultClient, log, tracer)
 	enumTaskStorage := enumStore.NewTaskStore(pool, tracer)
 	batchStorage := enumStore.NewBatchStore(pool, checkpointStorage, tracer)
 	enumCoord := enumeration.NewCoordinator(
-		hostname,
+		controllerID.String(),
 		scanTargetRepo,
 		githubTargetRepo,
 		urlTargetRepo,
@@ -331,11 +335,11 @@ func main() {
 	scanJobRepo := scanningStore.NewJobStore(pool, tracer)
 	scanTaskRepo := scanningStore.NewTaskStore(pool, tracer)
 	scannerRepo := scanningStore.NewScannerStore(pool, tracer)
-	scannerService := scanning.NewScannerService(hostname, scannerRepo, log, tracer)
+	scannerService := scanning.NewScannerService(controllerID.String(), scannerRepo, log, tracer)
 
 	rulesService := rules.NewService(rulesStore.NewStore(pool, tracer, metricCollector))
 	orchestrator, err := orchestration.NewOrchestrator(
-		hostname,
+		controllerID.String(),
 		coord,
 		eventBus,
 		eventPublisher,

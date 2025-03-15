@@ -68,8 +68,8 @@ type StartTaskCommand struct {
 }
 
 // NewStartTaskCommand creates a new StartTaskCommand.
-func NewStartTaskCommand(scannerID uuid.UUID, taskID uuid.UUID, resourceURI string) StartTaskCommand {
-	return StartTaskCommand{ScannerID: scannerID, TaskID: taskID, ResourceURI: resourceURI}
+func NewStartTaskCommand(taskID uuid.UUID, scannerID uuid.UUID, resourceURI string) StartTaskCommand {
+	return StartTaskCommand{TaskID: taskID, ScannerID: scannerID, ResourceURI: resourceURI}
 }
 
 // PauseTaskCommand encapsulates all information needed to pause a task and store its

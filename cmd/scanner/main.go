@@ -147,7 +147,6 @@ func main() {
 		"hostname":   hostname,
 		"pod":        os.Getenv("POD_NAME"),
 		"namespace":  os.Getenv("POD_NAMESPACE"),
-		"app":        "scanner",
 		"scanner_id": scannerID.String(),
 	}
 
