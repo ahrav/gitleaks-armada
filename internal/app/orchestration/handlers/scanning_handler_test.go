@@ -511,3 +511,40 @@ func TestHandleTaskHeartbeat(t *testing.T) {
 		})
 	}
 }
+
+// TestScanningHandlerSupportedEvents verifies that the ScanningHandler reports all expected event types.
+// This prevents event type handling regressions when new events are added but not properly registered.
+func TestScanningHandlerSupportedEvents(t *testing.T) {
+	handler, _, _, _, _, _ := setupScanningHandlerTestSuite()
+
+	expectedEventTypes := []events.EventType{
+		// Job-related events.
+		scanning.EventTypeJobRequested,
+		scanning.EventTypeJobScheduled,
+		scanning.EventTypeJobPausing,
+		scanning.EventTypeJobCancelling,
+		scanning.EventTypeJobResuming,
+
+		// Task-related events.
+		scanning.EventTypeTaskStarted,
+		scanning.EventTypeTaskProgressed,
+		scanning.EventTypeTaskCompleted,
+		scanning.EventTypeTaskPaused,
+		scanning.EventTypeTaskFailed,
+		scanning.EventTypeTaskCancelled,
+
+		// Health and metrics events.
+		scanning.EventTypeTaskHeartbeat,
+		scanning.EventTypeTaskJobMetric,
+		scanning.EventTypeJobEnumerationCompleted,
+	}
+
+	supportedEvents := handler.SupportedEvents()
+	assert.Len(t, supportedEvents, len(expectedEventTypes),
+		"Handler should support exactly %d event types", len(expectedEventTypes))
+
+	for _, expected := range expectedEventTypes {
+		assert.Contains(t, supportedEvents, expected,
+			"Handler should support the %s event type", expected)
+	}
+}

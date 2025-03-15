@@ -132,3 +132,24 @@ func TestHandleRulesPublished(t *testing.T) {
 		})
 	}
 }
+
+// TestRulesHandlerSupportedEvents verifies that the RulesHandler reports all expected event types.
+// This prevents event type handling regressions when new events are added but not properly registered.
+func TestRulesHandlerSupportedEvents(t *testing.T) {
+	handler, _ := setupRulesHandlerTestSuite()
+
+	expectedEventTypes := []events.EventType{
+		rules.EventTypeRulesUpdated,
+		rules.EventTypeRulesPublished,
+	}
+
+	supportedEvents := handler.SupportedEvents()
+
+	assert.Len(t, supportedEvents, len(expectedEventTypes),
+		"Handler should support exactly %d event types", len(expectedEventTypes))
+
+	for _, expected := range expectedEventTypes {
+		assert.Contains(t, supportedEvents, expected,
+			"Handler should support the %s event type", expected)
+	}
+}
