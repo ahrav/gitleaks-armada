@@ -349,6 +349,10 @@ func (s *jobTaskService) StartTask(ctx context.Context, cmd domain.StartTaskComm
 // 1. Regular progress updates (IN_PROGRESS -> IN_PROGRESS)
 // 2. Resuming from STALE -> IN_PROGRESS
 // 3. Resuming from PAUSED -> IN_PROGRESS
+//
+// If progress updates arrive for a task that is in a terminal state (COMPLETED, FAILED, CANCELLED),
+// an appropriate error is returned as these updates are likely from asynchronous processes
+// that weren't aware the task had already finished.
 func (s *jobTaskService) UpdateTaskProgress(ctx context.Context, progress domain.Progress) (*domain.Task, error) {
 	taskID := progress.TaskID()
 	ctx, span := s.tracer.Start(ctx, "job_task_service.update_task_progress",
@@ -366,6 +370,34 @@ func (s *jobTaskService) UpdateTaskProgress(ctx context.Context, progress domain
 		return nil, fmt.Errorf("load task: %w", err)
 	}
 	span.SetAttributes(attribute.String("task_status", string(task.Status())))
+
+	// Check for terminal states first and provide more specific error messages.
+	switch task.Status() {
+	case domain.TaskStatusCompleted:
+		err := fmt.Errorf("task is already completed, progress update ignored")
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "task already completed")
+		s.logger.Debug(ctx, "Received progress update for already completed task",
+			"task_id", taskID,
+			"sequence_num", progress.SequenceNum())
+		return nil, err
+	case domain.TaskStatusFailed:
+		err := fmt.Errorf("task is in failed state, progress update ignored")
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "task in failed state")
+		s.logger.Debug(ctx, "Received progress update for failed task",
+			"task_id", taskID,
+			"sequence_num", progress.SequenceNum())
+		return nil, err
+	case domain.TaskStatusCancelled:
+		err := fmt.Errorf("task is cancelled, progress update ignored")
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "task cancelled")
+		s.logger.Debug(ctx, "Received progress update for cancelled task",
+			"task_id", taskID,
+			"sequence_num", progress.SequenceNum())
+		return nil, err
+	}
 
 	// Handle state transitions before applying progress.
 	switch task.Status() {
