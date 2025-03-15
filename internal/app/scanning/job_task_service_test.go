@@ -779,7 +779,7 @@ func TestUpdateTaskProgress(t *testing.T) {
 					time.Time{},
 					time.Time{},
 					0,
-					uuid.New(),
+					nil,
 				)
 
 				repo.On("GetTask", mock.Anything, taskID).
@@ -818,7 +818,7 @@ func TestUpdateTaskProgress(t *testing.T) {
 					time.Time{},
 					time.Now(), // Completion time set
 					0,
-					uuid.New(),
+					nil,
 				)
 
 				repo.On("GetTask", mock.Anything, taskID).
@@ -846,7 +846,7 @@ func TestUpdateTaskProgress(t *testing.T) {
 					time.Time{},
 					time.Time{},
 					0,
-					uuid.New(),
+					nil,
 				)
 
 				repo.On("GetTask", mock.Anything, taskID).
@@ -874,7 +874,7 @@ func TestUpdateTaskProgress(t *testing.T) {
 					time.Time{},
 					time.Time{},
 					0,
-					uuid.New(),
+					nil,
 				)
 
 				repo.On("GetTask", mock.Anything, taskID).
@@ -905,7 +905,7 @@ func TestUpdateTaskProgress(t *testing.T) {
 					time.Time{},
 					time.Time{},
 					0,
-					uuid.New(),
+					nil,
 				)
 
 				repo.On("GetTask", mock.Anything, taskID).
@@ -935,7 +935,7 @@ func TestUpdateTaskProgress(t *testing.T) {
 					time.Time{},
 					time.Now().Add(-1*time.Hour), // Paused 1 hour ago
 					0,
-					uuid.New(),
+					nil,
 				)
 
 				repo.On("GetTask", mock.Anything, taskID).
@@ -1315,7 +1315,7 @@ func TestMarkTaskStale(t *testing.T) {
 					time.Time{},
 					time.Time{},
 					0,
-					uuid.New(),
+					nil,
 				)
 
 				repo.On("GetTask", mock.Anything, taskID).

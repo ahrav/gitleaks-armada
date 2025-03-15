@@ -91,7 +91,7 @@ func createTestTask(t *testing.T, store *taskStore, jobID uuid.UUID, status scan
 		time.Time{},
 		time.Time{},
 		0,
-		uuid.New(),
+		nil,
 	)
 }
 
@@ -155,7 +155,7 @@ func TestTaskStore_UpdateTask(t *testing.T) {
 		time.Time{},
 		time.Time{},
 		0,
-		uuid.New(),
+		nil,
 	)
 
 	err = taskStore.UpdateTask(ctx, updatedTask)
@@ -278,7 +278,7 @@ func TestTaskStore_GetTask_WithStallInfo(t *testing.T) {
 		stallTime,
 		time.Time{},
 		0,
-		uuid.New(),
+		nil,
 	)
 
 	err := taskStore.CreateTask(ctx, task, "test-controller")

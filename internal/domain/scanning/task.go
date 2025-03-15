@@ -337,7 +337,7 @@ func ReconstructTask(
 	stalledAt time.Time,
 	pausedAt time.Time,
 	recoveryAttempts int,
-	scannerID uuid.UUID,
+	scannerID *uuid.UUID,
 ) *Task {
 	return &Task{
 		CoreTask: shared.CoreTask{
@@ -356,7 +356,7 @@ func ReconstructTask(
 		stalledAt:        stalledAt,
 		pausedAt:         pausedAt,
 		recoveryAttempts: recoveryAttempts,
-		scannerID:        &scannerID,
+		scannerID:        scannerID,
 	}
 }
 

@@ -111,9 +111,10 @@ func (s *taskStore) GetTask(ctx context.Context, taskID uuid.UUID) (*scanning.Ta
 			pausedAt = pgtype.Timestamptz{Time: row.PausedAt.Time, Valid: true}
 		}
 
-		var scannerID uuid.UUID
+		var scannerID *uuid.UUID
 		if row.ScannerID.Valid {
-			scannerID = row.ScannerID.Bytes
+			scannerUUID := uuid.UUID(row.ScannerID.Bytes)
+			scannerID = &scannerUUID
 		}
 
 		domainTask = scanning.ReconstructTask(

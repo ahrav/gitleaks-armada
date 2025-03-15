@@ -62,6 +62,41 @@ CREATE TABLE scan_job_targets (
     PRIMARY KEY(job_id, scan_target_id)
 );
 
+-- Scanner Groups Table
+CREATE TABLE scanner_groups (
+    id UUID PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (name)
+);
+
+-- Indexes
+CREATE INDEX idx_scanner_groups_name ON scanner_groups (name);
+
+-- Scanner Status Enum
+CREATE TYPE scanner_status AS ENUM ('ONLINE', 'OFFLINE', 'MAINTENANCE', 'ERROR', 'UNKNOWN');
+
+-- Scanners Table
+CREATE TABLE scanners (
+    id UUID PRIMARY KEY,
+    group_id UUID REFERENCES scanner_groups(id) ON DELETE CASCADE,
+    name VARCHAR(255) NOT NULL,
+    version VARCHAR(50) NOT NULL,
+    last_heartbeat TIMESTAMPTZ,
+    status scanner_status NOT NULL DEFAULT 'ONLINE',
+    ip_address INET,
+    hostname VARCHAR(255),
+    metadata JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (group_id, name)
+);
+
+-- Indexes
+CREATE INDEX idx_scanners_group_id_name ON scanners(group_id, name);
+
 -- Scan Task Status Enum
 CREATE TYPE scan_task_status AS ENUM (
     'PENDING',
@@ -109,38 +144,3 @@ CREATE TABLE scan_tasks (
 -- Indexes
 CREATE INDEX idx_scan_tasks_job_id ON scan_tasks (job_id);
 CREATE INDEX idx_scan_tasks_owner_controller_id_status_last_heartbeat_at ON scan_tasks (owner_controller_id, status, last_heartbeat_at);
-
--- Scanner Groups Table
-CREATE TABLE scanner_groups (
-    id UUID PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
-    description TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE (name)
-);
-
--- Indexes
-CREATE INDEX idx_scanner_groups_name ON scanner_groups (name);
-
--- Scanner Status Enum
-CREATE TYPE scanner_status AS ENUM ('ONLINE', 'OFFLINE', 'MAINTENANCE', 'ERROR', 'UNKNOWN');
-
--- Scanners Table
-CREATE TABLE scanners (
-    id UUID PRIMARY KEY,
-    group_id UUID REFERENCES scanner_groups(id) ON DELETE CASCADE,
-    name VARCHAR(255) NOT NULL,
-    version VARCHAR(50) NOT NULL,
-    last_heartbeat TIMESTAMPTZ,
-    status scanner_status NOT NULL DEFAULT 'ONLINE',
-    ip_address INET,
-    hostname VARCHAR(255),
-    metadata JSONB,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE (group_id, name)
-);
-
--- Indexes
-CREATE INDEX idx_scanners_group_id_name ON scanners(group_id, name);

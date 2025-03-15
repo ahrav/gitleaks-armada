@@ -775,7 +775,7 @@ func TestExecutionTracker_MarkTaskStale(t *testing.T) {
 					time.Now(),  // stalledAt
 					time.Time{}, // pausedAt
 					0,           // recoveryAttempts
-					uuid.New(),  // scannerID
+					nil,         // scannerID
 				)
 
 				m.On("MarkTaskStale", mock.Anything, taskID, mock.Anything).
@@ -861,7 +861,7 @@ func TestExecutionTracker_MarkTaskStale(t *testing.T) {
 					time.Now(),  // stalledAt
 					time.Time{}, // pausedAt
 					0,           // recoveryAttempts
-					uuid.New(),  // scannerID
+					nil,         // scannerID
 				)
 
 				m.On("MarkTaskStale", mock.Anything, taskID, mock.Anything).
@@ -904,7 +904,7 @@ func TestExecutionTracker_MarkTaskStale(t *testing.T) {
 					time.Now(),  // stalledAt
 					time.Time{}, // pausedAt
 					0,           // recoveryAttempts
-					uuid.New(),  // scannerID
+					nil,         // scannerID
 				)
 
 				m.On("MarkTaskStale", mock.Anything, taskID, mock.Anything).
