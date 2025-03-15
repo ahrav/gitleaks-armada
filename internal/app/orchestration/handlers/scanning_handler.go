@@ -131,6 +131,7 @@ func (h *ScanningHandler) SupportedEvents() []events.EventType {
 		// Health and metrics events.
 		scanning.EventTypeTaskHeartbeat,
 		scanning.EventTypeTaskJobMetric,
+		scanning.EventTypeJobEnumerationCompleted,
 	}
 }
 
