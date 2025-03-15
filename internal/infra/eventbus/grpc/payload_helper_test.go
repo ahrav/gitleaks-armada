@@ -363,6 +363,7 @@ func TestExtractScannerMessageInfo(t *testing.T) {
 					RoutingKey: "scanner.heartbeat",
 					Payload: &pb.ScannerToGatewayMessage_Heartbeat{
 						Heartbeat: &pb.ScannerHeartbeatEvent{
+							ScannerId:   uuid.New().String(),
 							ScannerName: "scanner-123",
 							Status:      pb.ScannerStatus_SCANNER_STATUS_ONLINE,
 							Timestamp:   time.Now().UnixNano(),
@@ -390,6 +391,7 @@ func TestExtractScannerMessageInfo(t *testing.T) {
 			setupMessage: func() *pb.ScannerToGatewayMessage {
 				taskID := uuid.New()
 				jobID := uuid.New()
+				scannerID := uuid.New()
 				return &pb.ScannerToGatewayMessage{
 					MessageId:  "task-started-1",
 					Timestamp:  time.Now().UnixNano(),
@@ -397,6 +399,7 @@ func TestExtractScannerMessageInfo(t *testing.T) {
 					RoutingKey: "task.started",
 					Payload: &pb.ScannerToGatewayMessage_TaskStarted{
 						TaskStarted: &pb.TaskStartedEvent{
+							ScannerId:   scannerID.String(),
 							JobId:       jobID.String(),
 							TaskId:      taskID.String(),
 							ResourceUri: "git://github.com/org/repo.git",

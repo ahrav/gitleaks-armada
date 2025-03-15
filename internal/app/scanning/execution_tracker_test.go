@@ -558,10 +558,13 @@ func TestExecutionTracker_FullScanningLifecycle(t *testing.T) {
 	suite := newTrackerTestSuite(t)
 	jobID := uuid.New()
 	taskID := uuid.New()
+	scannerID := uuid.New()
 	resourceURI := "https://example.com"
 
+	cmd := domain.NewStartTaskCommand(taskID, scannerID, resourceURI)
+
 	// Setup expectations for the full lifecycle.
-	suite.jobTaskSvc.On("StartTask", mock.Anything, taskID, resourceURI).
+	suite.jobTaskSvc.On("StartTask", mock.Anything, cmd).
 		Return(nil)
 	suite.jobTaskSvc.On("UpdateTaskProgress", mock.Anything, mock.Anything).
 		Return(new(scanning.Task), nil).Times(3)
@@ -574,11 +577,12 @@ func TestExecutionTracker_FullScanningLifecycle(t *testing.T) {
 		JobID:       jobID,
 		TaskID:      taskID,
 		ResourceURI: resourceURI,
+		ScannerID:   scannerID,
 	})
 	require.NoError(t, err)
 
 	// Simulate progress.
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		progress := scanning.NewProgress(taskID, jobID, int64(i), time.Now(), int64(i), 0, "", nil, nil)
 		err = suite.tracker.HandleTaskProgress(ctx, scanning.TaskProgressedEvent{
 			Progress: progress,
