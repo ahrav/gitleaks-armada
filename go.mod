@@ -3,7 +3,7 @@ module github.com/ahrav/gitleaks-armada
 go 1.23.1
 
 require (
-	github.com/IBM/sarama v1.45.1
+	github.com/IBM/sarama v1.46.1
 	github.com/cenkalti/backoff v2.2.1+incompatible
 	github.com/docker/go-connections v0.5.0
 	github.com/golang-migrate/migrate/v4 v4.18.2
