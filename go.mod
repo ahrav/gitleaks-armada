@@ -1,6 +1,8 @@
 module github.com/ahrav/gitleaks-armada
 
-go 1.23.1
+go 1.24.0
+
+toolchain go1.24.12
 
 require (
 	github.com/IBM/sarama v1.45.1
@@ -8,10 +10,10 @@ require (
 	github.com/docker/go-connections v0.5.0
 	github.com/golang-migrate/migrate/v4 v4.18.2
 	github.com/google/uuid v1.6.0
-	github.com/jackc/pgx/v5 v5.7.2
+	github.com/jackc/pgx/v5 v5.8.0
 	github.com/nlnwa/gowarc/v2 v2.0.1
 	github.com/spf13/viper v1.19.0
-	github.com/stretchr/testify v1.10.0
+	github.com/stretchr/testify v1.11.1
 	github.com/testcontainers/testcontainers-go v0.35.0
 	github.com/wasilibs/go-re2 v1.9.0
 	github.com/zricethezav/gitleaks/v8 v8.24.0
@@ -173,10 +175,10 @@ require (
 	golang.org/x/exp v0.0.0-20240909161429-701f63a606c0 // indirect
 	golang.org/x/net v0.35.0 // indirect
 	golang.org/x/oauth2 v0.25.0 // indirect
-	golang.org/x/sync v0.12.0
+	golang.org/x/sync v0.17.0
 	golang.org/x/sys v0.30.0 // indirect
 	golang.org/x/term v0.29.0 // indirect
-	golang.org/x/text v0.22.0 // indirect
+	golang.org/x/text v0.29.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20250115164207-1a7da9e5054f // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250218202821-56aae31c358a // indirect
 	google.golang.org/grpc v1.71.0
