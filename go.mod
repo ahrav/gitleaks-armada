@@ -1,6 +1,6 @@
 module github.com/ahrav/gitleaks-armada
 
-go 1.23.1
+go 1.26.0
 
 require (
 	github.com/IBM/sarama v1.45.1
@@ -13,7 +13,7 @@ require (
 	github.com/spf13/viper v1.19.0
 	github.com/stretchr/testify v1.10.0
 	github.com/testcontainers/testcontainers-go v0.35.0
-	github.com/wasilibs/go-re2 v1.9.0
+	github.com/wasilibs/go-re2 v1.13.0
 	github.com/zricethezav/gitleaks/v8 v8.24.0
 	go.opentelemetry.io/otel v1.35.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.34.0
@@ -174,7 +174,7 @@ require (
 	golang.org/x/net v0.35.0 // indirect
 	golang.org/x/oauth2 v0.25.0 // indirect
 	golang.org/x/sync v0.12.0
-	golang.org/x/sys v0.30.0 // indirect
+	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/term v0.29.0 // indirect
 	golang.org/x/text v0.22.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20250115164207-1a7da9e5054f // indirect
